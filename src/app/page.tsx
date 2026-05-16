@@ -3,15 +3,38 @@ export const dynamic = "force-dynamic";
 import { PageHeader } from "@/components/page-header";
 import { MorningBriefing, BriefingMissing } from "@/components/morning-briefing";
 import { RegenerateBriefingButton } from "@/components/regenerate-briefing-button";
+import { BriefingTabs, type BriefingTab } from "@/components/briefing-tabs";
 import {
   BRIEFING_AGENTS,
   loadLatestBriefing,
   todayIsoDate,
 } from "@/lib/morning-briefing";
 
+const TAB_LABELS: Record<string, string> = {
+  "skatehive-marketing": "MKT",
+  "skate-dev": "DEV",
+};
+
+const TAB_ORDER = ["skatehive-marketing", "skate-dev"];
+
 export default async function Home() {
   const today = todayIsoDate();
   const results = await Promise.all(BRIEFING_AGENTS.map((a) => loadLatestBriefing(a)));
+
+  const tabs: BriefingTab[] = [];
+  for (const slug of TAB_ORDER) {
+    const result = results.find((r) => (r.ok ? r.briefing.agent.slug : r.agent.slug) === slug);
+    if (!result) continue;
+    tabs.push({
+      slug,
+      label: TAB_LABELS[slug] ?? slug,
+      content: result.ok ? (
+        <MorningBriefing briefing={result.briefing} today={today} />
+      ) : (
+        <BriefingMissing agent={result.agent} error={result.error} />
+      ),
+    });
+  }
 
   return (
     <div className="space-y-8">
@@ -23,15 +46,7 @@ export default async function Home() {
         actions={<RegenerateBriefingButton />}
       />
 
-      <div className="space-y-12">
-        {results.map((r) =>
-          r.ok ? (
-            <MorningBriefing key={r.briefing.agent.slug} briefing={r.briefing} today={today} />
-          ) : (
-            <BriefingMissing key={r.agent.slug} agent={r.agent} error={r.error} />
-          ),
-        )}
-      </div>
+      <BriefingTabs tabs={tabs} />
     </div>
   );
 }
