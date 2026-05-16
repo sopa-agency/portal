@@ -1,18 +1,12 @@
 export const dynamic = "force-dynamic";
 
-import { Plus } from "lucide-react";
+import { ChevronRight, FileText, Plus } from "lucide-react";
 import { createCampaign } from "@/app/actions/campaigns";
 import { CampaignGrid } from "@/components/campaign-grid";
 import { PageHeader } from "@/components/page-header";
+import { CAMPAIGN_TEMPLATES } from "@/lib/campaign-templates";
 import { prisma } from "@/lib/prisma";
-
-function formatAge(date: Date): string {
-  const secs = Math.round((Date.now() - date.getTime()) / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
-  return `${Math.round(secs / 86400)}d ago`;
-}
+import { ageFromDate } from "@/lib/utils";
 
 export default async function CampaignCreatorPage() {
   let campaigns: { id: string; name: string; updatedAt: string; docCount: number }[] = [];
@@ -27,7 +21,7 @@ export default async function CampaignCreatorPage() {
     campaigns = rows.map((row) => ({
       id: row.id,
       name: row.name,
-      updatedAt: formatAge(row.updatedAt),
+      updatedAt: ageFromDate(row.updatedAt),
       docCount: row._count.documents,
     }));
   } catch {
@@ -71,6 +65,37 @@ export default async function CampaignCreatorPage() {
           Database unreachable. Set DATABASE_URL in .env.local and run `npm run db:push`.
         </div>
       )}
+
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground-subtle">
+            Start from a template
+          </h2>
+          <p className="text-[11px] text-foreground-subtle">
+            Pre-filled briefs you can edit, then click <span className="text-accent">Generate everything from brief</span>.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {CAMPAIGN_TEMPLATES.map((template) => (
+            <form key={template.id} action={createCampaign}>
+              <input type="hidden" name="templateId" value={template.id} />
+              <button
+                type="submit"
+                className="group flex w-full flex-col items-start gap-2 rounded-xl border border-border bg-surface/70 p-4 text-left transition hover:border-accent-border hover:bg-accent-bg"
+              >
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent-bg text-accent">
+                    <FileText className="h-4 w-4" />
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-foreground-subtle transition group-hover:translate-x-0.5 group-hover:text-accent" />
+                </div>
+                <p className="text-sm font-semibold text-foreground">{template.label}</p>
+                <p className="text-[12px] leading-snug text-foreground-muted">{template.tagline}</p>
+              </button>
+            </form>
+          ))}
+        </div>
+      </section>
 
       <CampaignGrid campaigns={campaigns} />
     </div>

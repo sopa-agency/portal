@@ -1,0 +1,299 @@
+import { Flame, MessageCircleMore, MessageSquare, Send } from "lucide-react";
+import { MarkdownContent } from "@/components/markdown-content";
+import { ageFromDate } from "@/lib/utils";
+
+export type CampaignDocumentKind =
+  | "brief"
+  | "hive"
+  | "farcaster"
+  | "tweets"
+  | "discord"
+  | "email"
+  | "markdown"
+  | "doc";
+
+export function classifyCampaignDocument(name: string, isMain: boolean): CampaignDocumentKind {
+  if (isMain) return "brief";
+  const lower = name.toLowerCase();
+  if (lower.includes("hive") || lower.includes("snap")) return "hive";
+  if (lower.includes("farcaster") || lower.includes("cast") || lower.includes("warpcast")) return "farcaster";
+  if (lower.includes("tweet") || lower.includes("twitter") || lower.includes("x thread")) return "tweets";
+  if (lower.includes("discord")) return "discord";
+  if (lower.includes("email")) return "email";
+  if (lower.includes("markdown") || lower.includes("blog") || lower.includes("post")) return "markdown";
+  return "doc";
+}
+
+type PreviewKind = Exclude<CampaignDocumentKind, "brief" | "email" | "markdown">;
+
+export function CampaignDocumentPreview({
+  name,
+  content,
+  updatedAt,
+  kind,
+  headerExtra,
+}: {
+  name: string;
+  content: string;
+  updatedAt: Date;
+  kind: PreviewKind;
+  headerExtra?: React.ReactNode;
+}) {
+  const meta = META[kind];
+  const Icon = meta.icon;
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface/70">
+      <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${meta.tone}`}>
+            <Icon className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">{name}</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
+              {meta.label} · Updated {ageFromDate(updatedAt)}
+            </p>
+          </div>
+        </div>
+        {headerExtra}
+      </header>
+      <div className="p-5">
+        {kind === "hive" ? <HiveSnapPreview content={content} /> : null}
+        {kind === "farcaster" ? <FarcasterCastPreview content={content} /> : null}
+        {kind === "tweets" ? <TweetsPreview content={content} /> : null}
+        {kind === "discord" ? <DiscordPreview content={content} /> : null}
+        {kind === "doc" ? <MarkdownContent markdown={content} /> : null}
+      </div>
+    </section>
+  );
+}
+
+const META: Record<PreviewKind, { label: string; tone: string; icon: typeof MessageSquare }> = {
+  hive:      { label: "Hive snap",            tone: "bg-red-500/15 text-red-300",       icon: Flame },
+  farcaster: { label: "Farcaster cast",       tone: "bg-purple-500/15 text-purple-300", icon: Send },
+  tweets:    { label: "Twitter / X thread",   tone: "bg-foreground/10 text-foreground", icon: MessageCircleMore },
+  discord:   { label: "Discord announcement", tone: "bg-indigo-500/15 text-indigo-300", icon: MessageSquare },
+  doc:       { label: "Document",             tone: "bg-foreground/10 text-foreground-muted", icon: MessageCircleMore },
+};
+
+const SKATEHIVE_AVATAR_URL = "/skatehive-logo-circle.svg";
+
+// ---------------------------------------------------------------------------
+// Token highlighter shared by all chat-style previews.
+// ---------------------------------------------------------------------------
+
+type SocialTokenKind = "text" | "mention" | "hashtag" | "url" | "newline";
+type SocialToken = { kind: SocialTokenKind; value: string };
+
+function tokenizeSocial(text: string): SocialToken[] {
+  const out: SocialToken[] = [];
+  const lines = text.split("\n");
+  lines.forEach((line, lineIdx) => {
+    if (lineIdx > 0) out.push({ kind: "newline", value: "\n" });
+    const re = /(https?:\/\/\S+|@[A-Za-z0-9_]+|#[A-Za-z0-9_]+)/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(line)) !== null) {
+      if (m.index > last) out.push({ kind: "text", value: line.slice(last, m.index) });
+      const v = m[0];
+      out.push({
+        kind: v.startsWith("http") ? "url" : v.startsWith("@") ? "mention" : "hashtag",
+        value: v,
+      });
+      last = m.index + v.length;
+    }
+    if (last < line.length) out.push({ kind: "text", value: line.slice(last) });
+  });
+  return out;
+}
+
+function HighlightedText({ tokens, linkClassName }: { tokens: SocialToken[]; linkClassName: string }) {
+  return (
+    <>
+      {tokens.map((t, i) => {
+        if (t.kind === "newline") return <br key={i} />;
+        if (t.kind === "text") return <span key={i}>{t.value}</span>;
+        return (
+          <span key={i} className={linkClassName}>
+            {t.value}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hive snap preview — mirrors SkateHive web app's snap card
+// ---------------------------------------------------------------------------
+
+function HiveSnapPreview({ content }: { content: string }) {
+  const body = content.trim();
+  if (!body) {
+    return <p className="text-sm text-foreground-subtle">No snap yet.</p>;
+  }
+  const tokens = tokenizeSocial(body);
+  const overLimit = body.length > 280;
+
+  return (
+    <div className="rounded-2xl border border-red-500/30 bg-black px-4 py-3 text-zinc-100">
+      <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+        <span>Hive snap · peak.snaps · hive-173115</span>
+        <span className={overLimit ? "text-rose-400" : "text-zinc-500"}>{body.length} chars</span>
+      </div>
+      <div className="mt-2 flex gap-3">
+        <div className="shrink-0">
+          <div className="h-10 w-10 overflow-hidden rounded-full bg-black ring-1 ring-red-500/30">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={SKATEHIVE_AVATAR_URL} alt="SkateHive" className="h-full w-full object-cover" />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1 text-[15px] leading-5">
+            <span className="font-bold text-white">skatehive</span>
+            <span className="text-red-400">●</span>
+            <span className="text-zinc-500">@skatehive</span>
+            <span className="text-zinc-500">·</span>
+            <span className="text-zinc-500">now</span>
+          </div>
+          <div className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5 text-zinc-100">
+            <HighlightedText tokens={tokens} linkClassName="text-red-400" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Farcaster cast preview — purple-on-dark, /skateboard channel
+// ---------------------------------------------------------------------------
+
+function FarcasterCastPreview({ content }: { content: string }) {
+  const body = content.trim();
+  if (!body) {
+    return <p className="text-sm text-foreground-subtle">No cast yet.</p>;
+  }
+  const tokens = tokenizeSocial(body);
+  const overLimit = body.length > 320;
+
+  return (
+    <div className="rounded-2xl border border-purple-500/30 bg-black px-4 py-3 text-zinc-100">
+      <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+        <span>Farcaster cast · /skateboard</span>
+        <span className={overLimit ? "text-rose-400" : "text-zinc-500"}>{body.length}/320</span>
+      </div>
+      <div className="mt-2 flex gap-3">
+        <div className="shrink-0">
+          <div className="h-10 w-10 overflow-hidden rounded-full bg-black ring-1 ring-purple-500/40">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={SKATEHIVE_AVATAR_URL} alt="SkateHive" className="h-full w-full object-cover" />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1 text-[15px] leading-5">
+            <span className="font-bold text-white">SkateHive</span>
+            <span className="text-purple-400">◆</span>
+            <span className="text-zinc-500">@skatehive</span>
+            <span className="text-zinc-500">·</span>
+            <span className="text-zinc-500">/skateboard</span>
+          </div>
+          <div className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5 text-zinc-100">
+            <HighlightedText tokens={tokens} linkClassName="text-purple-300" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tweets — X-style multi-tweet thread, split on "\n---\n"
+// ---------------------------------------------------------------------------
+
+function TweetsPreview({ content }: { content: string }) {
+  const tweets = content
+    .split(/\n-{3,}\n/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  if (tweets.length === 0) {
+    return <p className="text-sm text-foreground-subtle">No tweets yet.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {tweets.map((tweet, idx) => (
+        <TweetCard key={idx} tweet={tweet} index={idx} total={tweets.length} />
+      ))}
+    </div>
+  );
+}
+
+function TweetCard({ tweet, index, total }: { tweet: string; index: number; total: number }) {
+  const tokens = tokenizeSocial(tweet);
+  const overLimit = tweet.length > 280;
+
+  return (
+    <div className="rounded-2xl border border-white/[0.08] bg-black px-4 py-3 text-zinc-100">
+      <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+        <span>
+          Tweet {index + 1} / {total}
+        </span>
+        <span className={overLimit ? "text-rose-400" : "text-zinc-600"}>{tweet.length}/280</span>
+      </div>
+      <div className="mt-2 flex gap-3">
+        <div className="shrink-0">
+          <div className="h-10 w-10 overflow-hidden rounded-full bg-black ring-1 ring-white/[0.08]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={SKATEHIVE_AVATAR_URL} alt="SkateHive" className="h-full w-full object-cover" />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1 text-[15px] leading-5">
+            <span className="font-bold text-white">SkateHive</span>
+            <svg viewBox="0 0 22 22" aria-label="Verified account" className="h-[18px] w-[18px] fill-[#1d9bf0]">
+              <g>
+                <path d="M20.396 11c-.018-.646-.215-1.275-.57-1.816-.354-.54-.852-.972-1.438-1.246.223-.607.27-1.264.14-1.897-.131-.634-.437-1.218-.882-1.687-.47-.445-1.053-.75-1.687-.882-.633-.13-1.29-.083-1.897.14-.273-.587-.704-1.086-1.245-1.44S11.647 1.62 11 1.604c-.646.017-1.273.213-1.813.568s-.969.854-1.24 1.44c-.608-.223-1.267-.272-1.902-.14-.635.13-1.22.436-1.69.882-.445.47-.749 1.055-.878 1.688-.13.633-.08 1.29.144 1.896-.587.274-1.087.705-1.443 1.245-.356.54-.555 1.17-.574 1.817.02.647.218 1.276.574 1.817.356.54.856.972 1.443 1.245-.224.606-.274 1.263-.144 1.896.13.634.433 1.218.877 1.688.47.443 1.054.747 1.687.878.633.132 1.29.084 1.897-.136.274.586.705 1.084 1.246 1.439.54.354 1.17.551 1.816.569.647-.016 1.276-.213 1.817-.567s.972-.854 1.245-1.44c.604.239 1.266.296 1.903.164.636-.132 1.22-.447 1.68-.907.46-.46.776-1.044.908-1.681s.075-1.299-.165-1.903c.586-.274 1.084-.705 1.439-1.246.354-.54.551-1.17.569-1.816zM9.662 14.85l-3.429-3.428 1.293-1.302 2.072 2.072 4.4-4.794 1.347 1.246z" />
+              </g>
+            </svg>
+            <span className="text-zinc-500">@skatehive</span>
+            <span className="text-zinc-500">·</span>
+            <span className="text-zinc-500">now</span>
+          </div>
+          <div className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5 text-zinc-100">
+            <HighlightedText tokens={tokens} linkClassName="text-[#1d9bf0]" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Discord — dark grey channel mockup
+// ---------------------------------------------------------------------------
+
+function DiscordPreview({ content }: { content: string }) {
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-[#313338] p-4">
+      <div className="flex gap-3">
+        <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-black ring-1 ring-white/10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={SKATEHIVE_AVATAR_URL} alt="SkateHive" className="h-full w-full object-cover" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-semibold text-white">SkateHive</span>
+            <span className="rounded bg-indigo-500/30 px-1 py-px text-[9px] font-bold uppercase tracking-wider text-indigo-200">
+              App
+            </span>
+            <span className="text-[10px] text-zinc-400">Today at 12:00 PM</span>
+          </div>
+          <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#dcddde]">{content}</div>
+        </div>
+      </div>
+    </div>
+  );
+}

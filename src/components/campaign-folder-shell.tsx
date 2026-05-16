@@ -1,10 +1,29 @@
 "use client";
 
-import { FileText, Plus, Trash2, Star } from "lucide-react";
+import {
+  BookOpenText,
+  FileText,
+  Flame,
+  Mail,
+  MessageCircleMore,
+  MessageSquare,
+  Plus,
+  Send,
+  Star,
+  Trash2,
+} from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createDocument, deleteDocument } from "@/app/actions/campaigns";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
+import {
+  CampaignDocumentPreview,
+  classifyCampaignDocument,
+  type CampaignDocumentKind,
+} from "@/components/campaign-document-preview";
+import { CampaignEmailEditor } from "@/components/campaign-email-editor";
+import { CampaignGenerateBar } from "@/components/campaign-generate-bar";
+import { CampaignHivePublishButton } from "@/components/campaign-hive-publish";
 
 type CampaignDocument = {
   id: string;
@@ -12,6 +31,17 @@ type CampaignDocument = {
   content: string;
   isMain: boolean;
   updatedAt: Date;
+};
+
+const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail; tone: string }> = {
+  brief:     { label: "Brief / Hive blog",       icon: FileText,          tone: "text-foreground-muted" },
+  hive:      { label: "Hive snap",               icon: Flame,             tone: "text-red-400" },
+  farcaster: { label: "Farcaster cast",          icon: Send,              tone: "text-purple-400" },
+  tweets:    { label: "Twitter / X thread",      icon: MessageCircleMore, tone: "text-foreground" },
+  discord:   { label: "Discord announcement",    icon: MessageSquare,     tone: "text-indigo-400" },
+  email:     { label: "Email",                   icon: Mail,              tone: "text-accent" },
+  markdown:  { label: "Markdown post",           icon: BookOpenText,      tone: "text-amber-400" },
+  doc:       { label: "Document",                icon: FileText,          tone: "text-foreground-muted" },
 };
 
 export function CampaignFolderShell({
@@ -23,11 +53,18 @@ export function CampaignFolderShell({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [selectedId, setSelectedId] = useState<string | null>(() => documents[0]?.id ?? null);
-  const selected = useMemo(
-    () => documents.find((d) => d.id === selectedId) ?? documents[0] ?? null,
-    [documents, selectedId],
+
+  const enriched = useMemo(
+    () =>
+      documents.map((d) => ({
+        ...d,
+        kind: classifyCampaignDocument(d.name, d.isMain),
+      })),
+    [documents],
   );
+
+  const [selectedId, setSelectedId] = useState<string | null>(() => enriched[0]?.id ?? null);
+  const selected = enriched.find((d) => d.id === selectedId) ?? enriched[0] ?? null;
 
   const handleNew = () => {
     const name = window.prompt("Name the document", "Untitled document");
@@ -48,7 +85,7 @@ export function CampaignFolderShell({
       const result = await deleteDocument(doc.id);
       if (result.ok) {
         if (doc.id === selectedId) {
-          const next = documents.find((d) => d.id !== doc.id);
+          const next = enriched.find((d) => d.id !== doc.id);
           setSelectedId(next?.id ?? null);
         }
         router.refresh();
@@ -77,7 +114,9 @@ export function CampaignFolderShell({
           </button>
         </div>
         <ul className="space-y-1">
-          {documents.map((doc) => {
+          {enriched.map((doc) => {
+            const meta = KIND_META[doc.kind];
+            const Icon = doc.isMain ? Star : meta.icon;
             const active = doc.id === selected.id;
             return (
               <li key={doc.id} className="group relative">
@@ -91,17 +130,15 @@ export function CampaignFolderShell({
                   }`}
                   aria-pressed={active}
                 >
-                  {doc.isMain ? (
-                    <Star className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-accent/60"}`} />
-                  ) : (
-                    <FileText className={`h-4 w-4 shrink-0 ${active ? "text-foreground" : "text-foreground-muted"}`} />
-                  )}
+                  <Icon
+                    className={`h-4 w-4 shrink-0 ${
+                      active ? "text-foreground" : doc.isMain ? "text-accent/70" : meta.tone
+                    }`}
+                  />
                   <div className="min-w-0 flex-1">
-                    <p className={`truncate text-sm font-medium ${active ? "text-foreground" : "text-foreground"}`}>
-                      {doc.name}
-                    </p>
+                    <p className="truncate text-sm font-medium text-foreground">{doc.name}</p>
                     <p className="truncate text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
-                      {doc.isMain ? "Brief" : "Document"}
+                      {meta.label}
                     </p>
                   </div>
                 </button>
@@ -111,7 +148,7 @@ export function CampaignFolderShell({
                     onClick={() => handleDelete(doc)}
                     disabled={pending}
                     aria-label={`Delete ${doc.name}`}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-foreground-subtle opacity-0 transition hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 disabled:opacity-50"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-foreground-subtle opacity-0 transition hover:bg-danger/10 hover:text-danger group-hover:opacity-100 disabled:opacity-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -122,13 +159,73 @@ export function CampaignFolderShell({
         </ul>
       </aside>
 
-      <div className="min-w-0">
-        <CampaignDocumentEditor
-          key={selected.id}
-          documentId={selected.id}
-          initialName={selected.name}
-          initialContent={selected.content}
-        />
+      <div className="min-w-0 space-y-4">
+        {selected.kind === "brief" ? (
+          <>
+            <CampaignGenerateBar campaignId={campaignId} />
+            <CampaignDocumentEditor
+              key={selected.id}
+              documentId={selected.id}
+              initialName={selected.name}
+              initialContent={selected.content}
+            />
+          </>
+        ) : selected.kind === "markdown" ? (
+          <CampaignDocumentEditor
+            key={selected.id}
+            documentId={selected.id}
+            initialName={selected.name}
+            initialContent={selected.content}
+          />
+        ) : selected.kind === "email" ? (
+          <CampaignEmailEditor
+            key={selected.id}
+            documentId={selected.id}
+            initialName={selected.name}
+            initialContent={selected.content}
+            updatedAt={selected.updatedAt}
+          />
+        ) : selected.kind === "hive" ? (
+          <div className="space-y-4">
+            <CampaignDocumentPreview
+              key={`${selected.id}-preview`}
+              name={selected.name}
+              content={selected.content}
+              updatedAt={selected.updatedAt}
+              kind="hive"
+              headerExtra={<CampaignHivePublishButton documentId={selected.id} />}
+            />
+            <CampaignDocumentEditor
+              key={selected.id}
+              documentId={selected.id}
+              initialName={selected.name}
+              initialContent={selected.content}
+            />
+          </div>
+        ) : selected.kind === "farcaster" || selected.kind === "tweets" || selected.kind === "discord" ? (
+          <div className="space-y-4">
+            <CampaignDocumentPreview
+              key={`${selected.id}-preview`}
+              name={selected.name}
+              content={selected.content}
+              updatedAt={selected.updatedAt}
+              kind={selected.kind}
+            />
+            <CampaignDocumentEditor
+              key={selected.id}
+              documentId={selected.id}
+              initialName={selected.name}
+              initialContent={selected.content}
+            />
+          </div>
+        ) : (
+          <CampaignDocumentEditor
+            key={selected.id}
+            documentId={selected.id}
+            initialName={selected.name}
+            initialContent={selected.content}
+          />
+        )}
       </div>
     </div>
   );

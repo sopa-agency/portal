@@ -4,16 +4,9 @@ import { notFound } from "next/navigation";
 import { CampaignFolderShell } from "@/components/campaign-folder-shell";
 import { CampaignTitleEditor } from "@/components/campaign-title-editor";
 import { prisma } from "@/lib/prisma";
+import { ageFromDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
-
-function formatAge(date: Date): string {
-  const secs = Math.round((Date.now() - date.getTime()) / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
-  return `${Math.round(secs / 86400)}d ago`;
-}
 
 export default async function CampaignFolderPage({
   params,
@@ -48,7 +41,7 @@ export default async function CampaignFolderPage({
         <CampaignTitleEditor campaignId={campaign.id} initialName={campaign.name} />
         <p className="text-[11px] text-foreground-subtle">
           {campaign.documents.length} {campaign.documents.length === 1 ? "document" : "documents"} ·
-          Updated {formatAge(campaign.updatedAt)}
+          Updated {ageFromDate(campaign.updatedAt)}
         </p>
       </div>
 
