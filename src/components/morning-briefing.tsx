@@ -112,8 +112,8 @@ export function BriefingMissing({
           <p className="font-semibold">No briefing available.</p>
           <p className="text-warning/80">{error}</p>
           <p className="text-xs text-foreground-subtle">
-            Expected at <code className="font-mono">~/.openclaw/{agent.workspace}/memory/episodic/&lt;DATE&gt;.md</code>.
-            Enable the cron job with <code className="font-mono">openclaw cron enable</code>.
+            Briefings live in Postgres now. Hit Regenerate to create one, or wait for the
+            next cron run on the Mac mini.
           </p>
         </div>
       </div>
