@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model RepoToSocialConfig {
+  id                  String            @id @default("singleton")
+  repoUrl             String            @default("https://github.com/SkateHive/skatehive3.0")
+  prompt              String            @default("You are a social media manager for SkateHive, a community-owned skateboarding platform built on Hive. Turn the following commits into short, hype tweets that highlight what shipped for skaters. Keep tone casual and skater-friendly. Return a JSON array of strings, one tweet per item, no commentary.")
+  lastWorkerHeartbeat DateTime?
+  updatedAt           DateTime          @updatedAt
+  runs                RepoToSocialRun[]
+}
+
+model RepoToSocialRun {
+  id              String             @id @default(cuid())
+  configId        String
+  config          RepoToSocialConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  status          String
+  jobStatus       String?
+  editorialStatus String             @default("drafted")
+  inputSummary    String?
+  statusMessage   String?
+  commits         Json?
+  tweets          Json?
+  tweetStates     Json?
+  error           String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  publishedAt     DateTime?
+  claimedAt       DateTime?
+  startedAt       DateTime           @default(now())
+  durationMs      Int?
+  createdAt       DateTime           @default(now())
+
+  comments        TweetComment[]
+  votes           TweetVote[]
+}
+
+model TweetComment {
+  id         String          @id @default(cuid())
+  runId      String
+  tweetIndex Int
+  author     String
+  body       String
+  createdAt  DateTime        @default(now())
+
+  run        RepoToSocialRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, tweetIndex])
+}
+
+model TweetVote {
+  id         String          @id @default(cuid())
+  runId      String
+  tweetIndex Int
+  voter      String
+  value      Int             @default(1)
+  createdAt  DateTime        @default(now())
+
+  run        RepoToSocialRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, tweetIndex, voter])
+  @@index([runId, tweetIndex])
+}
+
+model Campaign {
+  id         String             @id @default(cuid())
+  name       String
+  archivedAt DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  documents  CampaignDocument[]
+
+  @@index([archivedAt, updatedAt(sort: Desc)])
+}
+
+model CampaignDocument {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name       String   @default("Brief")
+  content    String   @default("")
+  isMain     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([campaignId, updatedAt(sort: Desc)])
+}

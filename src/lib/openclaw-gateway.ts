@@ -1,0 +1,305 @@
+// OpenClaw gateway client for portal-skatehive.
+//
+// Two transports:
+//   - LOCAL (dev, on the Mac mini): plain HTTP /v1/responses against 127.0.0.1
+//     using the loopback GATEWAY_TOKEN from ~/.openclaw/.env.
+//   - PROD (Vercel): device-signed WebSocket handshake against the public
+//     Tailscale Funnel URL, mirroring odysee-growth-os.
+//
+// callOpenClaw(prompt, agentId) auto-selects based on which env vars are set.
+
+import { createPrivateKey, sign } from "node:crypto";
+import WebSocket from "ws";
+
+const WS_CONNECT_TIMEOUT_MS = 10_000;
+const DEFAULT_PROMPT_TIMEOUT_MS = 120_000;
+
+type GatewayFrame = {
+  type?: string;
+  event?: string;
+  id?: string;
+  ok?: boolean;
+  payload?: unknown;
+  error?: { message?: string };
+};
+
+function base64Url(buffer: Buffer) {
+  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function trimmed(name: string): string | null {
+  const v = process.env[name]?.trim();
+  return v ? v : null;
+}
+
+function resolveGatewayWsUrl(gatewayUrl: string) {
+  const url = new URL(gatewayUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
+function buildSignedDevice(token: string, nonce: string) {
+  const deviceId = trimmed("OPENCLAW_PORTAL_DEVICE_ID");
+  const publicKey = trimmed("OPENCLAW_PORTAL_DEVICE_PUBLIC_KEY");
+  const privateKeyBase64 = trimmed("OPENCLAW_PORTAL_DEVICE_PRIVATE_KEY_BASE64");
+  if (!deviceId || !publicKey || !privateKeyBase64) {
+    throw new Error(
+      "Device-signed gateway not configured. Missing OPENCLAW_PORTAL_DEVICE_ID / PUBLIC_KEY / PRIVATE_KEY_BASE64.",
+    );
+  }
+
+  const signedAt = Date.now();
+  const payload = [
+    "v3",
+    deviceId,
+    "gateway-client",
+    "backend",
+    "operator",
+    "operator.read,operator.write",
+    String(signedAt),
+    token,
+    nonce,
+    "node",
+    "",
+  ].join("|");
+
+  const privateKeyPem = Buffer.from(privateKeyBase64, "base64").toString("utf8");
+  const privateKey = createPrivateKey(privateKeyPem);
+
+  return {
+    id: deviceId,
+    publicKey,
+    signature: base64Url(sign(null, Buffer.from(payload, "utf8"), privateKey)),
+    signedAt,
+    nonce,
+  };
+}
+
+function normalizeAssistantText(message: unknown): string {
+  if (!message || typeof message !== "object") return "";
+  const m = message as { content?: unknown; text?: unknown };
+  if (typeof m.text === "string") return m.text;
+  if (typeof m.content === "string") return m.content;
+  if (Array.isArray(m.content)) {
+    return m.content
+      .map((part) => {
+        if (!part || typeof part !== "object") return "";
+        const p = part as { text?: unknown; type?: unknown };
+        if (p.type === "text" && typeof p.text === "string") return p.text;
+        if (typeof p.text === "string") return p.text;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
+// HTTP /v1/responses path — used by the worker on the Mac mini against the
+// loopback gateway.
+async function callOverHttp(
+  prompt: string,
+  agentId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<string> {
+  const url = trimmed("OPENCLAW_GATEWAY_URL") ?? "http://127.0.0.1:18789";
+  const token = trimmed("OPENCLAW_GATEWAY_TOKEN") ?? trimmed("GATEWAY_TOKEN");
+  if (!token) {
+    throw new Error("GATEWAY_TOKEN / OPENCLAW_GATEWAY_TOKEN not set for HTTP transport.");
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${url.replace(/\/$/, "")}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: `openclaw/${agentId}`, input: prompt }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Gateway HTTP ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const data = (await res.json()) as { output?: unknown };
+    const out = Array.isArray(data.output) ? data.output : [];
+    const pieces: string[] = [];
+    for (const msg of out) {
+      const content = (msg as { content?: unknown })?.content;
+      if (!Array.isArray(content)) continue;
+      for (const c of content) {
+        if ((c as { type?: string })?.type === "output_text") {
+          const t = (c as { text?: unknown }).text;
+          if (typeof t === "string") pieces.push(t);
+        }
+      }
+    }
+    return pieces.join("\n").trim();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// WebSocket chat.send path — used in production against the Tailscale Funnel
+// URL, authenticated by Ed25519 device signature.
+async function callOverWs(
+  prompt: string,
+  agentId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<string> {
+  const gatewayUrl = trimmed("OPENCLAW_GATEWAY_URL");
+  const gatewayToken = trimmed("GATEWAY_TOKEN");
+  if (!gatewayUrl || !gatewayToken) {
+    throw new Error("OPENCLAW_GATEWAY_URL and GATEWAY_TOKEN are required for WS transport.");
+  }
+
+  const wsUrl = resolveGatewayWsUrl(gatewayUrl);
+  const ws = new WebSocket(wsUrl);
+  const sessionKey = `agent:${agentId}:portal-skatehive`;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS;
+  const idempotencyKey = `portal-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(() => {
+      finish(() => {
+        try { ws.close(); } catch {}
+        reject(new Error("Gateway WS connect timeout"));
+      });
+    }, WS_CONNECT_TIMEOUT_MS);
+
+    const onMsg = (event: WebSocket.MessageEvent) => {
+      try {
+        const frame = JSON.parse(String(event.data)) as GatewayFrame;
+        if (frame.type === "event" && frame.event === "connect.challenge") {
+          const nonce = (frame.payload as { nonce?: string } | undefined)?.nonce ?? "";
+          ws.send(
+            JSON.stringify({
+              type: "req",
+              id: "connect",
+              method: "connect",
+              params: {
+                minProtocol: 3,
+                maxProtocol: 3,
+                client: { id: "gateway-client", version: "0.1.0", platform: "node", mode: "backend" },
+                role: "operator",
+                scopes: ["operator.read", "operator.write"],
+                caps: [],
+                commands: [],
+                permissions: {},
+                auth: { token: gatewayToken },
+                device: buildSignedDevice(gatewayToken, nonce),
+              },
+            }),
+          );
+          return;
+        }
+        if (frame.type === "res" && frame.id === "connect") {
+          if (!frame.ok) {
+            finish(() => {
+              try { ws.close(); } catch {}
+              reject(new Error(frame.error?.message ?? "Gateway connect failed"));
+            });
+            return;
+          }
+          ws.removeEventListener("message", onMsg);
+          finish(() => resolve());
+        }
+      } catch (err) {
+        finish(() => {
+          try { ws.close(); } catch {}
+          reject(err instanceof Error ? err : new Error("Invalid gateway frame"));
+        });
+      }
+    };
+    ws.addEventListener("message", onMsg);
+    ws.addEventListener("error", (event) => {
+      const msg = event instanceof ErrorEvent && event.message ? event.message : "Gateway WS error";
+      finish(() => reject(new Error(msg)));
+    });
+    ws.addEventListener("close", () => {
+      finish(() => reject(new Error("Gateway closed before handshake completed")));
+    });
+  });
+
+  let buffer = "";
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+      const timer = setTimeout(() => {
+        finish(() => reject(new Error(`Gateway prompt timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
+
+      ws.addEventListener("message", (event) => {
+        try {
+          const frame = JSON.parse(String(event.data)) as {
+            type?: string;
+            event?: string;
+            id?: string;
+            ok?: boolean;
+            payload?: { sessionKey?: string; state?: string; message?: unknown };
+            error?: { message?: string };
+          };
+          if (frame.type === "res" && frame.id === "chat-send" && !frame.ok) {
+            finish(() => reject(new Error(frame.error?.message ?? "chat.send failed")));
+            return;
+          }
+          if (frame.type !== "event" || frame.event !== "chat") return;
+          const payload = frame.payload;
+          if (!payload || payload.sessionKey !== sessionKey) return;
+
+          const text = normalizeAssistantText(payload.message);
+          if (payload.state === "delta" && text) {
+            buffer = text.startsWith(buffer) ? text : buffer + text;
+          }
+          if (payload.state === "final") finish(() => resolve(text || buffer));
+          if (payload.state === "aborted") finish(() => reject(new Error("Gateway aborted")));
+          if (payload.state === "error") finish(() => reject(new Error(text || "Gateway error")));
+        } catch (err) {
+          finish(() => reject(err instanceof Error ? err : new Error("Invalid gateway frame")));
+        }
+      });
+      ws.addEventListener("close", () => {
+        finish(() => (buffer ? resolve(buffer) : reject(new Error("Gateway closed before reply"))));
+      });
+
+      ws.send(
+        JSON.stringify({
+          type: "req",
+          id: "chat-send",
+          method: "chat.send",
+          params: { sessionKey, message: prompt, idempotencyKey, timeoutMs },
+        }),
+      );
+    });
+  } finally {
+    try { ws.close(1000, "prompt-complete"); } catch {}
+  }
+}
+
+// Pick a transport. Device keys configured => WebSocket signed (production
+// over public Tailscale Funnel). Otherwise loopback HTTP (Mac mini local).
+export async function callOpenClaw(
+  prompt: string,
+  agentId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<string> {
+  const hasDeviceAuth =
+    !!trimmed("OPENCLAW_PORTAL_DEVICE_ID") &&
+    !!trimmed("OPENCLAW_PORTAL_DEVICE_PUBLIC_KEY") &&
+    !!trimmed("OPENCLAW_PORTAL_DEVICE_PRIVATE_KEY_BASE64");
+  if (hasDeviceAuth) return callOverWs(prompt, agentId, opts);
+  return callOverHttp(prompt, agentId, opts);
+}

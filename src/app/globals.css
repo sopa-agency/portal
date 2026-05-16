@@ -1,26 +1,109 @@
 @import "tailwindcss";
 
+/* Class-based dark mode (overrides Tailwind v4's default prefers-color-scheme).
+   We toggle the `dark` class on <html> via ThemeProvider. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Theme tokens — used by components via tailwind utilities like
+   bg-background, text-foreground, border-border, etc. Both light and dark
+   sets are explicitly defined; nothing relies on prefers-color-scheme. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Light theme (default) */
+  --background: #fafaf9;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --foreground: #0a0a0a;
+  --foreground-muted: #525252;
+  --foreground-subtle: #737373;
+  --foreground-faint: #a3a3a3;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --accent: #5b9c00; /* darker lime that works on light bg */
+  --accent-foreground: #ffffff;
+  --accent-bg: rgba(91, 156, 0, 0.1);
+  --accent-border: rgba(91, 156, 0, 0.3);
+  --danger: #b91c1c;
+  --warning: #b45309;
+  --success: #15803d;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
+}
+
+.dark {
+  --background: #09090b;
+  --surface: #18181b;
+  --surface-elevated: #1f1f23;
+  --foreground: #f4f4f5;
+  --foreground-muted: #a1a1aa;
+  --foreground-subtle: #71717a;
+  --foreground-faint: #52525b;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --accent: #a3e635; /* lime-400 — vivid on dark bg */
+  --accent-foreground: #0a0a0a;
+  --accent-bg: rgba(163, 230, 53, 0.1);
+  --accent-border: rgba(163, 230, 53, 0.3);
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --success: #4ade80;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
   --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
+  --color-foreground-faint: var(--foreground-faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-bg: var(--accent-bg);
+  --color-accent-border: var(--accent-border);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
