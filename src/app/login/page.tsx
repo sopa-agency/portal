@@ -28,13 +28,15 @@ export default function LoginPage() {
 
     setState({ kind: "connecting", msg: "Checking Keychain…" });
 
-    // The extension injects window.hive_keychain on load. The SDK's
-    // isKeychainInstalled() can be flaky, so we poll for the global directly.
+    // The extension injects window.hive_keychain on load. Polling is more
+    // reliable than the SDK's isKeychainInstalled(). On Brave + some Chromium
+    // builds the injection can take several seconds, so wait up to 10s.
     const hasKeychain = await new Promise<boolean>((resolve) => {
       const w = window as unknown as { hive_keychain?: unknown };
       if (w.hive_keychain) return resolve(true);
       let elapsed = 0;
       const step = 100;
+      const timeout = 10_000;
       const timer = setInterval(() => {
         if (w.hive_keychain) {
           clearInterval(timer);
@@ -42,7 +44,7 @@ export default function LoginPage() {
           return;
         }
         elapsed += step;
-        if (elapsed >= 3000) {
+        if (elapsed >= timeout) {
           clearInterval(timer);
           resolve(false);
         }
@@ -52,7 +54,7 @@ export default function LoginPage() {
     if (!hasKeychain) {
       setState({
         kind: "error",
-        msg: "Hive Keychain extension not detected. Install it from hive-keychain.com, unlock it, then refresh.",
+        msg: "Hive Keychain extension not detected after 10s. If installed and unlocked, click the Keychain icon in your browser toolbar to make sure it has access to this site, then refresh.",
       });
       return;
     }
