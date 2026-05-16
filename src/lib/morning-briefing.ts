@@ -1,6 +1,4 @@
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { prisma } from "@/lib/prisma";
 
 export type BriefingKind =
   | "status"
@@ -36,7 +34,6 @@ export const BRIEFING_AGENTS: BriefingAgent[] = [
 export type Briefing = {
   agent: BriefingAgent;
   date: string;
-  filePath: string;
   preamble: string;
   sections: BriefingSection[];
 };
@@ -44,8 +41,6 @@ export type Briefing = {
 export type BriefingResult =
   | { ok: true; briefing: Briefing }
   | { ok: false; agent: BriefingAgent; error: string };
-
-const DATE_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.md$/;
 
 function classify(heading: string): BriefingKind {
   const h = heading
@@ -77,43 +72,31 @@ function splitSections(markdown: string): { preamble: string; sections: Briefing
 }
 
 export async function loadLatestBriefing(agent: BriefingAgent): Promise<BriefingResult> {
-  const dir = path.join(os.homedir(), ".openclaw", agent.workspace, "memory", "episodic");
-  let entries: string[];
+  let row;
   try {
-    entries = await fs.readdir(dir);
+    row = await prisma.briefing.findFirst({
+      where: { agentSlug: agent.slug },
+      orderBy: [{ date: "desc" }, { generatedAt: "desc" }],
+    });
   } catch (err) {
     return {
       ok: false,
       agent,
-      error: `Cannot read ${dir}: ${err instanceof Error ? err.message : String(err)}`,
+      error: `DB read failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const dated = entries
-    .map((name) => {
-      const m = DATE_FILE_RE.exec(name);
-      return m ? { file: name, date: m[1] } : null;
-    })
-    .filter((x): x is { file: string; date: string } => x !== null)
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
-  const latest = dated[0];
-  if (!latest) {
-    return { ok: false, agent, error: "No briefing files in episodic memory." };
-  }
-  const filePath = path.join(dir, latest.file);
-  try {
-    const content = await fs.readFile(filePath, "utf8");
-    const { preamble, sections } = splitSections(content);
-    return {
-      ok: true,
-      briefing: { agent, date: latest.date, filePath, preamble, sections },
-    };
-  } catch (err) {
+  if (!row) {
     return {
       ok: false,
       agent,
-      error: `Failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      error: "No briefing yet. Click Regenerate to create one.",
     };
   }
+  const { preamble, sections } = splitSections(row.body);
+  return {
+    ok: true,
+    briefing: { agent, date: row.date, preamble, sections },
+  };
 }
 
 export function todayIsoDate(): string {

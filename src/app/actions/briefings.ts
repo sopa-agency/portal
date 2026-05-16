@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/prisma";
 import { BRIEFING_AGENTS, todayIsoDate } from "@/lib/morning-briefing";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 
@@ -13,7 +14,7 @@ const ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".open
 export type BriefingLanguage = "pt" | "en";
 
 // Convenience for local dev on the Mac mini: fill GATEWAY_TOKEN from
-// ~/.openclaw/.env so the action works with zero env config.
+// ~/.openclaw/.env so the action works with zero env config locally.
 async function ensureLocalGatewayToken(): Promise<void> {
   if (process.env.GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN) return;
   try {
@@ -33,6 +34,14 @@ async function ensureLocalGatewayToken(): Promise<void> {
   }
 }
 
+async function readPrompt(agentSlug: string): Promise<string> {
+  // Prompts live versioned in the repo under prompts/{slug}.md so Vercel can
+  // read them too. The Mac mini cron uses ~/.openclaw/workspace-*/docs/cron-prompts/
+  // which is the same content — keep both in sync if you tweak either.
+  const file = path.join(process.cwd(), "prompts", `${agentSlug}.md`);
+  return fs.readFile(file, "utf8");
+}
+
 export async function regenerateBriefing(
   agentSlug: string,
   language: BriefingLanguage = "pt",
@@ -41,21 +50,13 @@ export async function regenerateBriefing(
     const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
 
-    const promptPath = path.join(
-      os.homedir(),
-      ".openclaw",
-      agent.workspace,
-      "docs",
-      "cron-prompts",
-      `${agentSlug}-daily-briefing.md`,
-    );
     let prompt: string;
     try {
-      prompt = await fs.readFile(promptPath, "utf8");
+      prompt = await readPrompt(agentSlug);
     } catch (err) {
       return {
         ok: false,
-        error: `Cannot read prompt at ${promptPath}: ${err instanceof Error ? err.message : String(err)}`,
+        error: `Cannot read prompt for ${agentSlug}: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
     if (language === "en") {
@@ -70,15 +71,23 @@ export async function regenerateBriefing(
     if (!text) return { ok: false, error: "Empty briefing returned from gateway" };
 
     const date = todayIsoDate();
-    const outPath = path.join(
-      os.homedir(),
-      ".openclaw",
-      agent.workspace,
-      "memory",
-      "episodic",
-      `${date}.md`,
-    );
-    await fs.writeFile(outPath, text + "\n", "utf8");
+    await prisma.briefing.upsert({
+      where: { agentSlug_date: { agentSlug, date } },
+      create: {
+        agentSlug,
+        date,
+        language,
+        body: text,
+        generatedBy: "manual",
+      },
+      update: {
+        body: text,
+        language,
+        generatedBy: "manual",
+        generatedAt: new Date(),
+      },
+    });
+
     revalidatePath("/");
     return { ok: true };
   } catch (err) {

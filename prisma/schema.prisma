@@ -91,3 +91,16 @@ model CampaignDocument {
 
   @@index([campaignId, updatedAt(sort: Desc)])
 }
+
+model Briefing {
+  id            String   @id @default(cuid())
+  agentSlug     String
+  date          String   // ISO date (YYYY-MM-DD) for the briefing day
+  language      String   @default("pt")
+  body          String   @db.Text
+  generatedBy   String?  // "cron" | "manual" | actor username
+  generatedAt   DateTime @default(now())
+
+  @@unique([agentSlug, date])
+  @@index([agentSlug, generatedAt(sort: Desc)])
+}
