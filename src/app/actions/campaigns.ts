@@ -14,9 +14,14 @@ import {
   newId,
   serializeEmail,
 } from "@/lib/campaign-email";
-import { getCampaignTemplate } from "@/lib/campaign-templates";
+import { detectTemplate, getCampaignTemplate } from "@/lib/campaign-templates";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { prisma } from "@/lib/prisma";
+import {
+  fetchLatestWeeklyStokenIssue,
+  fetchTopSkatehivePosts,
+  formatPostsForPrompt,
+} from "@/lib/skatehive-content";
 
 const AI_AGENT_ID = "skatehive-marketing";
 const AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 4 * 60_000);
@@ -160,6 +165,15 @@ export async function generateCampaignBrief(campaignId: string): Promise<Generat
     return { ok: false, error: "Rename the campaign first — the title is what the brief is built from." };
   }
 
+  const template = detectTemplate(title);
+
+  // Weekly Stoken gets a dedicated branch: pull real recent posts from the
+  // hive-173115 community + the latest issue number, then have the AI
+  // build a real recap instead of a generic template fill-in.
+  if (template?.id === "weekly-stoken") {
+    return generateWeeklyStokenBrief(campaignId, title, campaign.documents[0]);
+  }
+
   const prompt = `You are the growth lead at SkateHive — a community-owned skateboarding platform built on Hive where skaters post clips, earn $HIVE, and connect without algorithms or ads. Draft a marketing campaign brief for the campaign titled "${title}".
 
 Write it as a long-form Hive blog post (300-500 words) that is ready to publish to the SkateHive community (tag: hive-173115). Editorial tone — direct, skater-to-skater, no corporate marketing-speak. Make concrete assumptions about goal, audience, offer, and channel mix based on the title; lean into the specifics the title implies.
@@ -221,6 +235,118 @@ Return ONLY the markdown body starting with the H1 title — no preamble, no cod
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// Weekly Stoken — dedicated brief generator. Pulls real trending posts from
+// the hive-173115 community and the latest issue number, then has the AI
+// build a recap that matches the canonical Weekly Stoken format
+// (see @skatehive/the-weekly-stoken-84 and prior issues).
+// ---------------------------------------------------------------------------
+
+async function generateWeeklyStokenBrief(
+  campaignId: string,
+  title: string,
+  mainDoc: { id: string } | undefined,
+): Promise<GenerateResult> {
+  let posts: Awaited<ReturnType<typeof fetchTopSkatehivePosts>>;
+  let latestIssue = 0;
+  try {
+    [posts, latestIssue] = await Promise.all([
+      fetchTopSkatehivePosts({ daysBack: 8, limit: 30, minVotes: 5, minBodyLength: 250 }),
+      fetchLatestWeeklyStokenIssue(),
+    ]);
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        "Could not fetch SkateHive content from Hive: " +
+        (error instanceof Error ? error.message : String(error)),
+    };
+  }
+
+  if (posts.length === 0) {
+    return {
+      ok: false,
+      error:
+        "No qualifying posts found in hive-173115 in the last 8 days (need 5+ votes, real title, 250+ char body). Try again later or relax filters.",
+    };
+  }
+
+  const nextIssue = latestIssue + 1;
+  const postsBlock = formatPostsForPrompt(posts);
+
+  const prompt = `You are the editor of "The Weekly Stoken", SkateHive's flagship weekly content recap. Issue #${nextIssue}.
+
+Past issues live at https://skatehive.app/@skatehive/the-weekly-stoken-${latestIssue} and the canonical format is:
+
+# The Weekly Stoken #${nextIssue}
+
+(One paragraph welcome line, then a sentence introducing what this issue rounds up.)
+
+For each featured post (5-8 picks), use this exact structure:
+
+### 🔗[<post title>](<skatehive.app url>)
+
+By @<author>
+
+> <a single-sentence excerpt or hook, taken from or paraphrased from the post body — keep the skater's voice, not editorial>
+
+(Then keep moving; the GIF/image is handled by the Hive frontend from the post's metadata.)
+
+---
+
+After all featured posts, close with:
+- "## Skater of the Week" — pick the single most engaged author from the list below, write a 2-3 sentence spotlight (who they are based on what their post shows, what kind of skating they post).
+- "## Window" — one short paragraph: published today, snap + cast same day, email send same day, twitter/discord following morning.
+- "## Channels" — Hive blog (primary) + snap + Farcaster cast + Twitter thread + Discord + email, in that order.
+- "## Success metric" — click-throughs to the featured posts, north-star is returning weekly readers.
+- "## Risks" — 2-3 honest bullets (rotating creators, light weeks, scheduling).
+
+QUALITY RULES (this is the most important part — break any of these and the issue is unusable):
+1. Use ONLY posts from the list below. Do NOT invent posts, authors, or URLs. Do NOT use placeholders like [[clip 1]] or [[author]].
+2. Pick 5-8 posts. Lean toward variety: don't feature the same author twice unless they have two truly different posts.
+3. Lead with the highest-engagement post that has a clear title and a watchable hook (image + skating action). Drop posts whose titles are too short, generic, or look like snap fragments.
+4. Excerpts: real sentence from the body, NOT a marketing summary. Keep the skater's voice. One sentence each, under 200 chars.
+5. Output is the long-form Hive blog (this brief BECOMES the blog post on hive-173115). Use H1 for the title, H2 for the section headings, H3 for each featured post.
+
+Real posts from hive-173115 in the past 8 days (sorted by engagement):
+
+${postsBlock}
+
+Return ONLY the markdown body starting with "# The Weekly Stoken #${nextIssue}". No preamble, no code fences, no JSON.`;
+
+  let raw: string;
+  try {
+    await ensureLocalGatewayToken();
+    raw = await callOpenClaw(prompt, AI_AGENT_ID, { timeoutMs: AI_TIMEOUT_MS });
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "AI gateway failed to draft the Weekly Stoken.",
+    };
+  }
+
+  const body = stripCodeFence(raw).trim();
+  if (!body) return { ok: false, error: "AI returned an empty Weekly Stoken brief." };
+
+  if (mainDoc) {
+    await prisma.campaignDocument.update({ where: { id: mainDoc.id }, data: { content: body } });
+  } else {
+    await prisma.campaignDocument.create({
+      data: { campaignId, name: "Brief", isMain: true, content: body },
+    });
+  }
+
+  // Also bump the campaign name so it reflects the actual issue number.
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { name: `Weekly Stoken #${nextIssue}` },
+  });
+
+  revalidatePath(`/campaign-creator/${campaignId}`);
+  revalidatePath("/campaign-creator");
+  return { ok: true };
+}
+
 export async function generateCampaignArtifacts(campaignId: string): Promise<GenerateResult> {
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -235,12 +361,16 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
     return { ok: false, error: "Write or generate the brief first — there's nothing for the artifacts to draw from." };
   }
 
+  const template = detectTemplate(title);
+  const templateRules = buildTemplateArtifactRules(template?.id);
+
   const prompt = `You are the growth lead at SkateHive — a community-owned skateboarding platform built on Hive. Draft five coordinated campaign artifacts based on the brief below.
 
 Campaign title: "${title}"
 
 Brief:
 ${brief}
+${templateRules}
 
 Return a single JSON object with this exact shape, and NOTHING else (no prose, no code fences):
 
@@ -480,6 +610,41 @@ async function upsertNamedDocument(campaignId: string, name: string, content: st
 function stripCodeFence(text: string): string {
   const fenced = text.match(/^\s*```(?:\w+)?\s*\n([\s\S]*?)\n\s*```\s*$/);
   return fenced ? fenced[1] : text;
+}
+
+// Adds template-specific guard rails to the artifact prompt. The Weekly Stoken
+// branch is the load-bearing one: the brief already lists real posts; the
+// artifacts must reuse them verbatim instead of falling back to placeholders.
+function buildTemplateArtifactRules(templateId: string | undefined): string {
+  if (templateId === "weekly-stoken") {
+    return `\n\nTEMPLATE — WEEKLY STOKEN (strict rules):
+- The brief above lists 5-8 real featured posts with @authors and full SkateHive URLs. You MUST use those exact posts: authors, titles, URLs, and the order they appear in the brief.
+- NEVER emit [[clip 1]], [[author]], [[username]], [[YYYY-MM-DD]], or any other placeholder pattern. The brief contains the real values — copy them in.
+- Hive snap: name 2-3 of the actual featured skaters using @mentions and link to https://skatehive.app/@skatehive/the-weekly-stoken-<NN> using the issue number from the brief title (e.g. "Weekly Stoken #85").
+- Farcaster cast: same — real names, real link, /skateboard channel voice. Under 320 chars.
+- Tweets: 3-5 tweets. Tweet 1 is the hook + downward arrow. Tweets 2-4 highlight specific featured posts by name + 1 link each. Final tweet recaps the Skater of the Week. Use the real @authors when mentioning them.
+- Discord: list every featured post with bullet points (— **<title>** by <@author>, link). Open with @everyone or @community.
+- Email: subject "Weekly Stoken #<NN> — <punchy hook>", preheader teases the Skater of the Week + post count. Body section uses a list block of the featured posts (title + author), button block linking to the full recap on skatehive.app, and a closing text block with the Skater of the Week spotlight.
+- If a piece of data is missing from the brief, REGENERATE THE BRIEF — do not invent values.`;
+  }
+  if (templateId === "updates-roundup") {
+    return `\n\nTEMPLATE — UPDATES ROUND-UP:
+- The brief lists the actual features shipped. Use those exact names + descriptions in every artifact; do not invent features.
+- Hive snap: one-line "Here's what shipped" + 2-3 highlight bullets + link.
+- Farcaster cast: dev voice, one paragraph, key ship + link.
+- Tweets: thread breaking out the 3 most user-visible changes; one tweet per change.
+- Discord: full list under **What shipped** + **Coming next** subsections. Tag @devs or @community as appropriate.
+- Email: dev-to-skater tone. Subject names the headline ship. Use heading + text blocks for each feature; end with "Coming next" list.`;
+  }
+  if (templateId === "we-miss-you") {
+    return `\n\nTEMPLATE — WE MISS YOU:
+- Tone is warm + honest, never guilt-trippy. Personal, not promotional.
+- Hive snap + Farcaster cast: short, public-facing "if you've been gone for a minute…" framing — they're the reminder, not the personal outreach.
+- Tweets: broad reminder the door is open; no @-mentions of lapsed accounts.
+- Discord: a DM template mods can copy/paste, with first_name placeholder and the lapsed user's last-post date placeholder ([last_post_date]).
+- Email: personalization tokens {{first_name}} in the H1 and \`{{last_post_date}}\` in the body. Subject is conversational ("Long time no skate, {{first_name}}?"). Single button "Drop a new clip" linking to https://skatehive.app/upload.`;
+  }
+  return "";
 }
 
 function extractArtifactsJson(raw: string): {

@@ -174,3 +174,14 @@ Lapsed skaters who post at least once in the window (primary). North-star: 30-da
 export function getCampaignTemplate(id: string): CampaignTemplate | null {
   return CAMPAIGN_TEMPLATES.find((t) => t.id === id) ?? null;
 }
+
+// Detect which template (if any) a saved campaign was created from, by
+// matching the campaign name against the template's display label. Used
+// by the AI generation actions to switch on template-specific prompt rules.
+export function detectTemplate(campaignName: string): CampaignTemplate | null {
+  const lower = campaignName.trim().toLowerCase();
+  for (const template of CAMPAIGN_TEMPLATES) {
+    if (lower.startsWith(template.label.toLowerCase())) return template;
+  }
+  return null;
+}
