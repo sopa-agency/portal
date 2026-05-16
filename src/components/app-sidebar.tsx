@@ -4,13 +4,14 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition } from "react";
-import { GitBranch, Megaphone, Home, Moon, Sun, LogOut } from "lucide-react";
+import { GitBranch, Megaphone, Home, Moon, Sun, LogOut, Users } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
   { href: "/repo-to-social", label: "Repo to Social", icon: GitBranch },
   { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone },
+  { href: "/userbase", label: "Userbase", icon: Users },
 ];
 
 function isActive(pathname: string, href: string): boolean {

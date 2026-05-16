@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Portal Skatehive",
-  description: "Internal ops portal for Skatehive.",
+  title: "Skatehive Marketing",
+  description: "Internal marketing ops portal for Skatehive.",
 };
 
 export default async function RootLayout({

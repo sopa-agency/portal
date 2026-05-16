@@ -572,7 +572,7 @@ export async function publishTweetToHive(
       .concat(text.match(/https?:\/\/[^\s)]+\.(?:png|jpe?g|gif|webp)(?:\?[^\s)]*)?/gi) ?? []);
 
     const metadata = {
-      app: "Portal Skatehive",
+      app: "Marketing Portal Skatehive",
       tags: [HIVE_COMMUNITY_TAG, "snaps"],
       images: [...new Set(imageUrls)],
     };
