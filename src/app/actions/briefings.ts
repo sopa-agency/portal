@@ -95,6 +95,86 @@ export async function regenerateBriefing(
   }
 }
 
+export type PromptImprovement = {
+  critique: string;
+  improvedPrompt: string;
+  manualSetup: string[];
+};
+
+const META_PROMPT = `You are reviewing the daily-briefing prompt system for SkateHive's internal ops portal.
+
+Below is the CURRENT prompt that generates one of the agents' morning briefings, and the LATEST briefing it produced. Your job:
+
+1. Critique the briefing — what is shallow, missing, vague, or might be hallucinated? Be specific.
+2. Propose a concrete REWRITE of the prompt that fixes those weaknesses. Preserve the structural template (## headings, bullet-list format, output sections). The improved prompt should still tell the agent which sources to consult and how to format the output.
+3. List EXTERNAL setup the user needs to do manually so the agent has access to better data — e.g. "connect Linear API token", "give the agent access to GA4", "install the GitHub CLI". Only include items that aren't possible from inside the prompt itself.
+
+Respond with ONLY a single JSON object, no commentary outside it, no markdown fences:
+{
+  "critique": "<plain-text 3-6 lines, each line a separate weakness>",
+  "improvedPrompt": "<the full new prompt, ready to drop into prompts/{slug}.md>",
+  "manualSetup": ["<each step phrased as an actionable task>", ...]
+}`;
+
+function extractJson(text: string): unknown {
+  const trimmed = text.trim();
+  // Strip ```json ... ``` or ``` ... ``` fences if present
+  const fenced = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/m.exec(trimmed);
+  const candidate = fenced ? fenced[1] : trimmed;
+  return JSON.parse(candidate);
+}
+
+export async function improvePrompt(
+  agentSlug: string,
+): Promise<{ ok: true; improvement: PromptImprovement } | { ok: false; error: string }> {
+  try {
+    const latest = await prisma.briefing.findFirst({
+      where: { agentSlug },
+      orderBy: [{ date: "desc" }, { generatedAt: "desc" }],
+    });
+    if (!latest) {
+      return { ok: false, error: "No briefing yet for this agent — regenerate one first." };
+    }
+    const currentPrompt = await readPrompt(agentSlug);
+    const input =
+      `${META_PROMPT}\n\n===CURRENT PROMPT===\n${currentPrompt}\n\n===LATEST BRIEFING (${latest.date})===\n${latest.body}`;
+
+    await ensureLocalGatewayToken();
+    const raw = await callOpenClaw(input, agentSlug, { timeoutMs: TIMEOUT_MS });
+    if (!raw) return { ok: false, error: "Empty response from gateway" };
+
+    let parsed: unknown;
+    try {
+      parsed = extractJson(raw);
+    } catch (err) {
+      return {
+        ok: false,
+        error: `Could not parse JSON response: ${err instanceof Error ? err.message : String(err)}\n\nRaw response:\n${raw.slice(0, 600)}`,
+      };
+    }
+
+    const obj = parsed as Partial<PromptImprovement>;
+    if (
+      typeof obj.critique !== "string" ||
+      typeof obj.improvedPrompt !== "string" ||
+      !Array.isArray(obj.manualSetup)
+    ) {
+      return { ok: false, error: "Response missing critique/improvedPrompt/manualSetup fields." };
+    }
+
+    return {
+      ok: true,
+      improvement: {
+        critique: obj.critique,
+        improvedPrompt: obj.improvedPrompt,
+        manualSetup: obj.manualSetup.map((x) => String(x)),
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function regenerateAllBriefings(
   language: BriefingLanguage = "pt",
 ): Promise<{

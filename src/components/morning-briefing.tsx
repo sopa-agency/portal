@@ -7,6 +7,7 @@ import type {
 import { freshnessLabel } from "@/lib/morning-briefing";
 import { BriefingSection, BriefingSources } from "@/components/briefing-section";
 import { MarkdownContent } from "@/components/markdown-content";
+import { ImprovePromptButton } from "@/components/improve-prompt-dialog";
 
 const FRESHNESS_BADGE: Record<
   ReturnType<typeof freshnessLabel>["tone"],
@@ -61,6 +62,7 @@ export function MorningBriefing({
           >
             {freshness.label}
           </span>
+          <ImprovePromptButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
         </div>
       </header>
 
