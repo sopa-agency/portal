@@ -429,20 +429,75 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
   }
 
   const parsed = extractArtifactsJson(raw);
-  if (!parsed) return { ok: false, error: "AI did not return valid JSON. Try again." };
+  if (!parsed) {
+    // Stash the raw output so the user can salvage what's there by hand
+    // instead of losing a minute-long AI call to a parse error.
+    await upsertNamedDocument(
+      campaignId,
+      "AI debug — last raw output",
+      `The AI's last response could not be parsed as JSON. Paste useful chunks into the relevant doc by hand, then delete this one.\n\n---\n\n${raw}`,
+    );
+    revalidatePath(`/campaign-creator/${campaignId}`);
+    return {
+      ok: false,
+      error: "AI did not return valid JSON. Raw output saved to \"AI debug — last raw output\".",
+    };
+  }
 
-  const tweetsContent = parsed.tweets.map((t) => t.trim()).filter(Boolean).join("\n---\n");
-  const emailDocument = normalizeAiEmail(parsed.email);
-  const emailContent = serializeEmail(emailDocument);
+  // Save whatever fields parsed cleanly; missing fields are skipped silently
+  // (the user can re-run or fill them in manually).
+  const saved: string[] = [];
+  const missing: string[] = [];
 
-  await upsertNamedDocument(campaignId, "Hive snap", parsed.hive_snap.trim());
-  await upsertNamedDocument(campaignId, "Farcaster cast", parsed.farcaster.trim());
-  await upsertNamedDocument(campaignId, "Twitter thread", tweetsContent);
-  await upsertNamedDocument(campaignId, "Discord announcement", parsed.discord.trim());
-  await upsertNamedDocument(campaignId, "Email", emailContent);
+  if (parsed.hive_snap) {
+    await upsertNamedDocument(campaignId, "Hive snap", parsed.hive_snap);
+    saved.push("Hive snap");
+  } else missing.push("Hive snap");
+
+  if (parsed.farcaster) {
+    await upsertNamedDocument(campaignId, "Farcaster cast", parsed.farcaster);
+    saved.push("Farcaster cast");
+  } else missing.push("Farcaster cast");
+
+  if (parsed.tweets.length > 0) {
+    const tweetsContent = parsed.tweets.map((t) => t.trim()).filter(Boolean).join("\n---\n");
+    if (tweetsContent) {
+      await upsertNamedDocument(campaignId, "Twitter thread", tweetsContent);
+      saved.push("Twitter thread");
+    } else missing.push("Twitter thread");
+  } else missing.push("Twitter thread");
+
+  if (parsed.discord) {
+    await upsertNamedDocument(campaignId, "Discord announcement", parsed.discord);
+    saved.push("Discord announcement");
+  } else missing.push("Discord announcement");
+
+  if (parsed.email) {
+    const emailDocument = normalizeAiEmail(parsed.email);
+    const emailContent = serializeEmail(emailDocument);
+    await upsertNamedDocument(campaignId, "Email", emailContent);
+    saved.push("Email");
+  } else missing.push("Email");
 
   revalidatePath(`/campaign-creator/${campaignId}`);
   revalidatePath("/campaign-creator");
+
+  if (saved.length === 0) {
+    await upsertNamedDocument(
+      campaignId,
+      "AI debug — last raw output",
+      `The AI returned JSON, but none of the expected fields were populated. Raw response below — paste useful chunks into the relevant doc by hand.\n\n---\n\n${raw}`,
+    );
+    return { ok: false, error: "AI returned JSON but every field was empty. Raw output saved." };
+  }
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      error: `Drafted ${saved.join(", ")} — but missing ${missing.join(", ")}. Re-run to fill the gaps, or click each missing doc and write it by hand.`,
+    };
+  }
+
   return { ok: true };
 }
 
@@ -647,36 +702,99 @@ function buildTemplateArtifactRules(templateId: string | undefined): string {
   return "";
 }
 
+// Tolerant extractor: returns whatever fields are present + parseable. The
+// caller decides whether the result is good enough to save. Returns null
+// only when no valid JSON object can be located at all.
 function extractArtifactsJson(raw: string): {
   hive_snap: string;
   farcaster: string;
   tweets: string[];
   discord: string;
-  email: unknown;
+  email: unknown | null;
 } | null {
-  const stripped = stripCodeFence(raw);
-  const match = stripped.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    const obj = JSON.parse(match[0]) as {
-      hive_snap?: unknown;
-      farcaster?: unknown;
-      tweets?: unknown;
-      discord?: unknown;
-      email?: unknown;
-    };
-    const hive_snap = typeof obj.hive_snap === "string" ? obj.hive_snap : null;
-    const farcaster = typeof obj.farcaster === "string" ? obj.farcaster : null;
-    const tweets = Array.isArray(obj.tweets)
-      ? obj.tweets.filter((t): t is string => typeof t === "string")
-      : null;
-    const discord = typeof obj.discord === "string" ? obj.discord : null;
-    const email = obj.email && typeof obj.email === "object" ? obj.email : null;
-    if (!hive_snap || !farcaster || !tweets || tweets.length === 0 || !discord || !email) return null;
-    return { hive_snap, farcaster, tweets, discord, email };
-  } catch {
-    return null;
+  const candidates = extractJsonCandidates(raw);
+  for (const candidate of candidates) {
+    try {
+      const obj = JSON.parse(candidate) as {
+        hive_snap?: unknown;
+        hive?: unknown;
+        snap?: unknown;
+        farcaster?: unknown;
+        cast?: unknown;
+        tweets?: unknown;
+        twitter?: unknown;
+        discord?: unknown;
+        email?: unknown;
+      };
+      const hive_snap = pickString(obj.hive_snap) ?? pickString(obj.hive) ?? pickString(obj.snap) ?? "";
+      const farcaster = pickString(obj.farcaster) ?? pickString(obj.cast) ?? "";
+      const tweetsRaw = Array.isArray(obj.tweets)
+        ? obj.tweets
+        : Array.isArray(obj.twitter)
+          ? obj.twitter
+          : [];
+      const tweets = tweetsRaw.filter((t): t is string => typeof t === "string");
+      const discord = pickString(obj.discord) ?? "";
+      const email = obj.email && typeof obj.email === "object" ? obj.email : null;
+      return { hive_snap, farcaster, tweets, discord, email };
+    } catch {
+      continue;
+    }
   }
+  return null;
+}
+
+function pickString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value;
+  return null;
+}
+
+// Pulls out candidate JSON blobs from a raw AI response. Tries, in order:
+// 1. Code-fenced ```json blocks (most reliable when the AI uses fences).
+// 2. The entire string with leading/trailing prose trimmed.
+// 3. A balanced-brace walker starting at each `{` to handle nested braces.
+function extractJsonCandidates(raw: string): string[] {
+  const out: string[] = [];
+  const fenceRe = /```(?:json)?\s*\n([\s\S]*?)\n\s*```/gi;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRe.exec(raw)) !== null) {
+    if (m[1].trim().startsWith("{")) out.push(m[1].trim());
+  }
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== "{") continue;
+    const blob = extractBalancedBraces(raw, i);
+    if (blob) out.push(blob);
+  }
+  // Dedupe while preserving order.
+  return Array.from(new Set(out));
+}
+
+function extractBalancedBraces(text: string, startIdx: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = startIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(startIdx, i + 1);
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
