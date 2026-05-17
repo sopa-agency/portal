@@ -287,10 +287,10 @@ function renderBlock(block: EmailBlock): string {
       const size = block.level === 1 ? 28 : block.level === 2 ? 22 : 14;
       const weight = block.level === 3 ? 700 : 600;
       const tracking = block.level === 3 ? "letter-spacing:0.16em;text-transform:uppercase;" : "";
-      return "<" + tag + ' style="margin:0 0 12px 0;font-size:' + size + "px;font-weight:" + weight + ";color:" + block.color + ";text-align:" + block.align + ";" + tracking + '">' + esc(block.text) + "</" + tag + ">";
+      return "<" + tag + ' style="margin:0 0 12px 0;font-size:' + size + "px;font-weight:" + weight + ";color:" + block.color + ";text-align:" + block.align + ";" + tracking + '">' + escWithLinks(block.text, block.color) + "</" + tag + ">";
     }
     case "text": {
-      const html = esc(block.html).replace(/\n/g, "<br />");
+      const html = escWithLinks(block.html, block.color).replace(/\n/g, "<br />");
       return '<div style="font-size:15px;line-height:1.6;color:' + block.color + ";text-align:" + block.align + ';margin:0 0 12px 0;">' + html + "</div>";
     }
     case "image": {
@@ -312,10 +312,29 @@ function renderBlock(block: EmailBlock): string {
     }
     case "list": {
       const tag = block.ordered ? "ol" : "ul";
-      const items = block.items.map((it) => "<li>" + esc(it) + "</li>").join("");
+      const items = block.items.map((it) => "<li>" + escWithLinks(it, "#404040") + "</li>").join("");
       return "<" + tag + ' style="font-size:15px;line-height:1.6;color:#404040;margin:0 0 12px 0;padding-left:22px;">' + items + "</" + tag + ">";
     }
   }
+}
+
+// Email clients want inline-styled anchors with explicit color. The renderer
+// escapes everything first, then promotes `[label](url)` markdown to safe
+// <a> tags. Only http(s) URLs are allowed; anything else stays plain text.
+function escWithLinks(text: string, color: string): string {
+  const escaped = esc(text);
+  return escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, label: string, url: string) => {
+    const safeUrl = url.replace(/"/g, "%22");
+    return (
+      '<a href="' +
+      safeUrl +
+      '" style="color:' +
+      color +
+      ';text-decoration:underline;" target="_blank" rel="noopener">' +
+      label +
+      "</a>"
+    );
+  });
 }
 
 function esc(s: string): string {

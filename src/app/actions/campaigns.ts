@@ -274,39 +274,45 @@ async function generateWeeklyStokenBrief(
   const nextIssue = latestIssue + 1;
   const postsBlock = formatPostsForPrompt(posts);
 
-  const prompt = `You are the editor of "The Weekly Stoken", SkateHive's flagship weekly content recap. Issue #${nextIssue}.
+  const prompt = `You are the editor of "The Weekly Stoken", SkateHive's flagship weekly content recap. You are writing Issue #${nextIssue}.
 
-Past issues live at https://skatehive.app/@skatehive/the-weekly-stoken-${latestIssue} and the canonical format is:
+This output is the FINAL Hive blog post that will be published to hive-173115 as @skatehive/the-weekly-stoken-${nextIssue}. It is NOT an internal brief — it is the publishable post itself. So no internal sections like "Goal", "Audience", "Window", "Channels", "Success metric", or "Risks". Reference the canonical format used in past issues (e.g. https://skatehive.app/@skatehive/the-weekly-stoken-${latestIssue}).
+
+Use this structure exactly:
 
 # The Weekly Stoken #${nextIssue}
 
-(One paragraph welcome line, then a sentence introducing what this issue rounds up.)
+**Welcome to the Weekly Stoken #${nextIssue}**
 
-For each featured post (5-8 picks), use this exact structure:
+(One short opening paragraph — 2-3 sentences max — introducing what this issue rounds up. Skater voice.)
 
-### 🔗[<post title>](<skatehive.app url>)
+For each featured post (5-8 picks), use this exact block, separated by \`---\`:
+
+### 🔗[<post title>](<full skatehive.app post url>)
 
 By @<author>
 
-> <a single-sentence excerpt or hook, taken from or paraphrased from the post body — keep the skater's voice, not editorial>
+> <one-sentence excerpt or hook in the skater's own voice, under 200 chars — paraphrase or quote from the post body, NOT a marketing summary>
 
-(Then keep moving; the GIF/image is handled by the Hive frontend from the post's metadata.)
+![<short alt>](<image url from the post — use the "Image:" url from the list below; leave the block out only if there is genuinely no image>)
 
 ---
 
-After all featured posts, close with:
-- "## Skater of the Week" — pick the single most engaged author from the list below, write a 2-3 sentence spotlight (who they are based on what their post shows, what kind of skating they post).
-- "## Window" — one short paragraph: published today, snap + cast same day, email send same day, twitter/discord following morning.
-- "## Channels" — Hive blog (primary) + snap + Farcaster cast + Twitter thread + Discord + email, in that order.
-- "## Success metric" — click-throughs to the featured posts, north-star is returning weekly readers.
-- "## Risks" — 2-3 honest bullets (rotating creators, light weeks, scheduling).
+After the last featured post block, close with:
 
-QUALITY RULES (this is the most important part — break any of these and the issue is unusable):
-1. Use ONLY posts from the list below. Do NOT invent posts, authors, or URLs. Do NOT use placeholders like [[clip 1]] or [[author]].
+## Skater of the Week — @<chosen author>
+
+(One paragraph, 2-3 sentences. Pick the most engaged or most consistent author from the list. Mention what their post(s) showcase and why other skaters should follow them. End with a direct link to their profile: https://skatehive.app/@<author>.)
+
+(Then one final short paragraph as a sign-off: thank the featured creators, invite readers to drop a tip / vote / comment, and tease that the next issue lands next week.)
+
+QUALITY RULES — break any of these and the issue is unusable:
+1. Use ONLY posts from the list below. Do NOT invent posts, authors, URLs, or images. Do NOT use placeholders like [[clip 1]] or [[author]].
 2. Pick 5-8 posts. Lean toward variety: don't feature the same author twice unless they have two truly different posts.
 3. Lead with the highest-engagement post that has a clear title and a watchable hook (image + skating action). Drop posts whose titles are too short, generic, or look like snap fragments.
-4. Excerpts: real sentence from the body, NOT a marketing summary. Keep the skater's voice. One sentence each, under 200 chars.
-5. Output is the long-form Hive blog (this brief BECOMES the blog post on hive-173115). Use H1 for the title, H2 for the section headings, H3 for each featured post.
+4. Excerpts: real sentence from the body, keep the skater's voice. One sentence each, under 200 chars.
+5. Image URL MUST be the exact "Image:" URL from the post in the list below, or omitted entirely. Do not invent image URLs.
+6. The output IS the Hive blog post. Do not include any internal-brief sections (Goal / Audience / Window / Channels / Success metric / Risks).
 
 Real posts from hive-173115 in the past 8 days (sorted by engagement):
 
@@ -348,21 +354,67 @@ Return ONLY the markdown body starting with "# The Weekly Stoken #${nextIssue}".
 }
 
 export async function generateCampaignArtifacts(campaignId: string): Promise<GenerateResult> {
-  const campaign = await prisma.campaign.findUnique({
+  let campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
     include: { documents: true },
   });
   if (!campaign) return { ok: false, error: "Campaign not found." };
 
-  const title = campaign.name.trim();
-  const mainDoc = campaign.documents.find((d) => d.isMain);
-  const brief = (mainDoc?.content ?? "").trim();
+  let title = campaign.name.trim();
+  let mainDoc = campaign.documents.find((d) => d.isMain);
+  let brief = (mainDoc?.content ?? "").trim();
   if (!brief) {
     return { ok: false, error: "Write or generate the brief first — there's nothing for the artifacts to draw from." };
   }
 
-  const template = detectTemplate(title);
+  let template = detectTemplate(title);
+
+  // For template campaigns where the brief still has [[placeholder]] markers
+  // (i.e. user clicked "Generate everything from brief" before filling in the
+  // template), regenerate the brief first so the artifacts have real content
+  // to draw from. The brief generation handles its own Hive fetch + naming.
+  if (template && brief.includes("[[")) {
+    const briefResult = await generateCampaignBrief(campaignId);
+    if (!briefResult.ok) {
+      return {
+        ok: false,
+        error: "Couldn't auto-refresh the brief: " + briefResult.error + " — fill the brief in by hand or fix the issue and re-run.",
+      };
+    }
+    // Re-read after regeneration.
+    campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      include: { documents: true },
+    });
+    if (!campaign) return { ok: false, error: "Campaign disappeared mid-generation." };
+    title = campaign.name.trim();
+    mainDoc = campaign.documents.find((d) => d.isMain);
+    brief = (mainDoc?.content ?? "").trim();
+    template = detectTemplate(title);
+  }
+
   const templateRules = buildTemplateArtifactRules(template?.id);
+
+  // Weekly Stoken: fetch the same trending posts the brief drew from so the
+  // email can use real titles + URLs + thumbnail images per featured post.
+  let weeklyStokenContext = "";
+  if (template?.id === "weekly-stoken") {
+    try {
+      const posts = await fetchTopSkatehivePosts({
+        daysBack: 8,
+        limit: 30,
+        minVotes: 5,
+        minBodyLength: 250,
+      });
+      if (posts.length > 0) {
+        weeklyStokenContext =
+          "\n\nReal SkateHive posts fetched fresh from hive-173115 (use these EXACT urls and image urls — do not invent):\n\n" +
+          formatPostsForPrompt(posts);
+      }
+    } catch {
+      // If we can't fetch fresh content, fall back to the brief-only prompt.
+    }
+  }
 
   const prompt = `You are the growth lead at SkateHive — a community-owned skateboarding platform built on Hive. Draft five coordinated campaign artifacts based on the brief below.
 
@@ -370,7 +422,7 @@ Campaign title: "${title}"
 
 Brief:
 ${brief}
-${templateRules}
+${templateRules}${weeklyStokenContext}
 
 Return a single JSON object with this exact shape, and NOTHING else (no prose, no code fences):
 
@@ -408,15 +460,18 @@ Rules:
 - "farcaster": a single Farcaster cast for the /skateboard channel as @skatehive. Under 320 characters. Plain text. One short hook + the link. Emojis are fine when they fit the skate vibe (🛹).
 - "tweets": an array of 3-5 tweet strings posted from @skatehive. The first opens the thread with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them ("1/", "2/") — the UI handles that. Skater tone.
 - "discord": a single message for the SkateHive Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
-- "email": a structured email document. Use SkateHive accent colors (lime #a3e635 against #0a0a0a black/ink). Reproduce the layout pattern from the example above: a dark hero section with an eyebrow heading ("SKATEHIVE UPDATE") in lime, then a body section with 2-3 short "text" paragraphs, a "button" block (label like "Drop in", href like https://skatehive.app), a "list" block (ordered "How it works" steps), and a small "text" footer with an unsubscribe note. Use {{first_name}} in the H1 if personalization helps. DO NOT include any "image" blocks — the user will drag their own art in.
+- "email": a structured email document. Use SkateHive accent colors (lime #a3e635 against #0a0a0a black/ink). Open with a dark hero section + eyebrow heading "SKATEHIVE UPDATE" in lime + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
+
+Text + heading blocks support inline links via [label](url) markdown — the renderer turns those into <a> tags. Use that for any clickable link inside body text instead of a separate button. The "button" block is for the primary CTA only.
 
 Allowed block shapes (omit id — the server assigns them):
-- heading: { "type": "heading", "level": 1|2|3, "text": "...", "align": "left|center|right", "color": "#hex" }
-- text:    { "type": "text",    "html": "plain text — newlines allowed", "align": "left|center|right", "color": "#hex" }
+- heading: { "type": "heading", "level": 1|2|3, "text": "... [label](url) markdown supported", "align": "left|center|right", "color": "#hex" }
+- text:    { "type": "text",    "html": "plain text — newlines allowed, [label](url) markdown supported", "align": "left|center|right", "color": "#hex" }
+- image:   { "type": "image",   "src": "https://...", "alt": "...", "width": 100, "align": "left|center|right", "href": "https://... optional, makes the image clickable" }
 - button:  { "type": "button",  "label": "...", "href": "https://...", "bg": "#hex", "color": "#hex", "align": "left|center|right" }
 - divider: { "type": "divider", "color": "#hex", "thickness": 1 }
 - spacer:  { "type": "spacer",  "height": 24 }
-- list:    { "type": "list",    "ordered": true|false, "items": ["...", "..."] }
+- list:    { "type": "list",    "ordered": true|false, "items": ["... [label](url) supported", "..."] }
 
 The JSON must be valid — escape newlines inside strings as \\n, escape quotes as \\". Begin your reply with "{" and end with "}".`;
 
@@ -673,14 +728,30 @@ function stripCodeFence(text: string): string {
 function buildTemplateArtifactRules(templateId: string | undefined): string {
   if (templateId === "weekly-stoken") {
     return `\n\nTEMPLATE — WEEKLY STOKEN (strict rules):
-- The brief above lists 5-8 real featured posts with @authors and full SkateHive URLs. You MUST use those exact posts: authors, titles, URLs, and the order they appear in the brief.
-- NEVER emit [[clip 1]], [[author]], [[username]], [[YYYY-MM-DD]], or any other placeholder pattern. The brief contains the real values — copy them in.
-- Hive snap: name 2-3 of the actual featured skaters using @mentions and link to https://skatehive.app/@skatehive/the-weekly-stoken-<NN> using the issue number from the brief title (e.g. "Weekly Stoken #85").
-- Farcaster cast: same — real names, real link, /skateboard channel voice. Under 320 chars.
-- Tweets: 3-5 tweets. Tweet 1 is the hook + downward arrow. Tweets 2-4 highlight specific featured posts by name + 1 link each. Final tweet recaps the Skater of the Week. Use the real @authors when mentioning them.
-- Discord: list every featured post with bullet points (— **<title>** by <@author>, link). Open with @everyone or @community.
-- Email: subject "Weekly Stoken #<NN> — <punchy hook>", preheader teases the Skater of the Week + post count. Body section uses a list block of the featured posts (title + author), button block linking to the full recap on skatehive.app, and a closing text block with the Skater of the Week spotlight.
-- If a piece of data is missing from the brief, REGENERATE THE BRIEF — do not invent values.`;
+- The brief above is the publishable Hive blog post and lists 5-8 real featured posts with @authors, full skatehive.app URLs, and image markdown. The "Real SkateHive posts" section below the brief has the same posts in structured form (URL + Image URL per post). You MUST use those exact posts: authors, titles, URLs, image URLs, and the order they appear.
+- NEVER emit [[clip 1]], [[author]], [[username]], [[YYYY-MM-DD]], or any other placeholder pattern. Use the real values.
+- The link to the full Weekly Stoken issue is https://skatehive.app/@skatehive/the-weekly-stoken-<NN> where <NN> is the issue number in the brief's H1 (e.g. "Weekly Stoken #85").
+
+Hive snap: name 2-3 of the actual featured skaters using @mentions and link to the full recap URL. Skater voice, under 280 chars.
+
+Farcaster cast: real names + real link, /skateboard channel voice. Under 320 chars.
+
+Tweets: 3-5 tweets. Tweet 1 is the hook + downward arrow. Tweets 2-4 highlight specific featured posts (use the post title + @author + the post's own skatehive.app URL). Final tweet recaps the Skater of the Week.
+
+Discord: list every featured post with bullet points (— **[<title>](<post url>)** by <@author>). Open with @everyone or @community. Include the recap link at the end.
+
+EMAIL (this is the critical part — make it visual + clickable):
+- Subject: "Weekly Stoken #<NN> — <punchy hook>". Preheader teases the Skater of the Week + post count.
+- Hero section: black/lime gradient with eyebrow heading "WEEKLY STOKEN #<NN>" in lime (#a3e635).
+- Body section #1 (intro): H1 with the issue title, then one text block with the opening hook (1-2 sentences), then a button block "[Read the full recap](url)" pointing to https://skatehive.app/@skatehive/the-weekly-stoken-<NN>.
+- Then FOR EACH FEATURED POST emit a section (one per post) with these blocks in order:
+    1. image block — src = the post's "Image:" URL (from the structured list below), width 100, align "center", href = the post's skatehive.app URL (this makes the thumbnail a clickable link to the post)
+    2. heading block — level 2, text = "[<post title>](<post url>)" using markdown link syntax so the title becomes clickable, color "#0a0a0a", align "left"
+    3. text block — html = "By @<author>" then a newline then the one-sentence excerpt from the brief, color "#404040", align "left"
+    4. divider block — color "#e5e5e5", thickness 1
+- After all featured-post sections, emit ONE closing section with a heading "Skater of the Week", a text block with the spotlight paragraph (use [@<author>](https://skatehive.app/@<author>) markdown for the link), and a small final text block with an unsubscribe / sign-off note.
+- DO NOT use a "list" block for the featured posts — use per-post image + heading + text + divider as described above. The list block does not render thumbnails.
+- If a post in the structured list has no image URL, omit the image block for that post but still emit the heading + text + divider.`;
   }
   if (templateId === "updates-roundup") {
     return `\n\nTEMPLATE — UPDATES ROUND-UP:
@@ -907,9 +978,22 @@ function normalizeAiBlock(input: unknown): EmailBlock | null {
         items: items.length ? items : ["Item"],
       };
     }
-    case "image":
-      // The AI is instructed not to emit images. Drop if it does.
-      return null;
+    case "image": {
+      const src = typeof obj.src === "string" ? obj.src.trim() : "";
+      if (!src.startsWith("http")) return null;
+      const widthRaw = typeof obj.width === "number" ? obj.width : 100;
+      const width = Math.min(100, Math.max(20, Math.round(widthRaw)));
+      const href = typeof obj.href === "string" && obj.href.startsWith("http") ? obj.href : undefined;
+      return {
+        id: newId("img"),
+        type: "image",
+        src,
+        alt: typeof obj.alt === "string" ? obj.alt : "",
+        align: align === "left" || align === "right" ? align : "center",
+        width,
+        href,
+      };
+    }
     default:
       return null;
   }
