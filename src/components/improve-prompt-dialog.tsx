@@ -1,8 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Copy, Loader2, Sparkles, X } from "lucide-react";
-import { improvePrompt, type PromptImprovement } from "@/app/actions/briefings";
+import { useRouter } from "next/navigation";
+import { Check, Copy, Loader2, Sparkles, X } from "lucide-react";
+import {
+  applyPromptImprovement,
+  improvePrompt,
+  type PromptImprovement,
+} from "@/app/actions/briefings";
 
 export function ImprovePromptButton({
   agentSlug,
@@ -11,20 +16,43 @@ export function ImprovePromptButton({
   agentSlug: string;
   agentLabel: string;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<PromptImprovement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [confirmingApply, setConfirmingApply] = useState(false);
 
   const run = () => {
     setOpen(true);
     setError(null);
     setResult(null);
+    setApplied(false);
+    setApplyError(null);
+    setConfirmingApply(false);
     startTransition(async () => {
       const r = await improvePrompt(agentSlug);
       if (r.ok) setResult(r.improvement);
       else setError(r.error);
     });
+  };
+
+  const handleApply = async () => {
+    if (!result) return;
+    setApplying(true);
+    setApplyError(null);
+    const r = await applyPromptImprovement(agentSlug, result.improvedPrompt);
+    setApplying(false);
+    if (!r.ok) {
+      setApplyError(r.error ?? "Failed to apply");
+      return;
+    }
+    setApplied(true);
+    setConfirmingApply(false);
+    router.refresh();
   };
 
   return (
@@ -111,12 +139,54 @@ export function ImprovePromptButton({
 
                   <Section
                     title="Improved prompt"
-                    subtitle={`Paste into prompts/${agentSlug}.md, commit, and redeploy`}
-                    action={<CopyButton text={result.improvedPrompt} />}
+                    subtitle="Saves as a database override — next Regenerate uses it. Repo default in prompts/{slug}.md stays untouched."
+                    action={
+                      <div className="flex items-center gap-2">
+                        <CopyButton text={result.improvedPrompt} />
+                        {applied ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/40 bg-emerald-400/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
+                            <Check className="h-3 w-3" />
+                            applied
+                          </span>
+                        ) : confirmingApply ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={handleApply}
+                              disabled={applying}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+                            >
+                              {applying && <Loader2 className="h-3 w-3 animate-spin" />}
+                              {applying ? "Applying…" : "Confirm apply"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingApply(false)}
+                              disabled={applying}
+                              className="rounded-md border border-border bg-foreground/5 px-2 py-1 text-[11px] text-foreground-muted hover:bg-foreground/10"
+                            >
+                              cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingApply(true)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/20"
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            Apply
+                          </button>
+                        )}
+                      </div>
+                    }
                   >
                     <pre className="max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-elevated p-3 text-[11px] leading-relaxed text-foreground">
                       {result.improvedPrompt}
                     </pre>
+                    {applyError && (
+                      <p className="mt-2 text-[11px] text-danger">{applyError}</p>
+                    )}
                   </Section>
                 </div>
               )}

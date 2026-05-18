@@ -35,9 +35,19 @@ async function ensureLocalGatewayToken(): Promise<void> {
 }
 
 async function readPrompt(agentSlug: string): Promise<string> {
-  // Prompts live versioned in the repo under prompts/{slug}.md so Vercel can
-  // read them too. The Mac mini cron uses ~/.openclaw/workspace-*/docs/cron-prompts/
-  // which is the same content — keep both in sync if you tweak either.
+  // DB-backed overrides win (set by the "Improve prompt" → Apply flow).
+  // Otherwise fall back to the repo-versioned default at prompts/{slug}.md.
+  // The Mac mini cron still reads its own copy under
+  // ~/.openclaw/workspace-*/docs/cron-prompts/ — sync manually if you want
+  // the daily cron to match the override.
+  try {
+    const override = await prisma.briefingPromptOverride.findUnique({
+      where: { agentSlug },
+    });
+    if (override?.body?.trim()) return override.body;
+  } catch {
+    // DB unreachable — fall through to file.
+  }
   const file = path.join(process.cwd(), "prompts", `${agentSlug}.md`);
   return fs.readFile(file, "utf8");
 }
@@ -170,6 +180,40 @@ export async function improvePrompt(
         manualSetup: obj.manualSetup.map((x) => String(x)),
       },
     };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function applyPromptImprovement(
+  agentSlug: string,
+  improvedPrompt: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
+    const trimmed = improvedPrompt.trim();
+    if (!trimmed) return { ok: false, error: "Empty prompt" };
+
+    await prisma.briefingPromptOverride.upsert({
+      where: { agentSlug },
+      create: { agentSlug, body: trimmed, updatedBy: "improve-prompt" },
+      update: { body: trimmed, updatedBy: "improve-prompt" },
+    });
+    revalidatePath("/");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function revertPromptOverride(
+  agentSlug: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await prisma.briefingPromptOverride.delete({ where: { agentSlug } }).catch(() => null);
+    revalidatePath("/");
+    return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

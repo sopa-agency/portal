@@ -104,3 +104,10 @@ model Briefing {
   @@unique([agentSlug, date])
   @@index([agentSlug, generatedAt(sort: Desc)])
 }
+
+model BriefingPromptOverride {
+  agentSlug  String   @id
+  body       String   @db.Text
+  updatedBy  String?
+  updatedAt  DateTime @updatedAt
+}
