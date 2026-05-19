@@ -147,9 +147,10 @@ export async function fetchTopSkatehivePosts(opts: FetchOptions = {}): Promise<S
 // without the user doing it by hand.
 export async function fetchLatestWeeklyStokenIssue(): Promise<number> {
   type Discussion = { permlink?: string; parent_author?: string; created?: string };
+  // Hive's condenser_api caps limit at 20 — exceeding it returns an Assert Exception.
   const result = await callHiveJsonRpc<Discussion[]>(
     "condenser_api.get_discussions_by_author_before_date",
-    ["skatehive", "", new Date().toISOString().slice(0, 19), 50],
+    ["skatehive", "", new Date().toISOString().slice(0, 19), 20],
   );
   const numbers = result
     .filter((p) => !p.parent_author)
