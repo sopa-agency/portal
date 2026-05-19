@@ -13,6 +13,8 @@ export const ALLOWED_USERS = [
   "knowhow92",
   "web-gnar",
   "vaipraonde",
+  "nogenta",
+  "humbertoperes",
 ] as const;
 
 export type AllowedUser = (typeof ALLOWED_USERS)[number];
