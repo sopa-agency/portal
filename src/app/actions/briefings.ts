@@ -219,6 +219,94 @@ export async function revertPromptOverride(
   }
 }
 
+function buildProposePrompt(brief: string): string {
+  return [
+    "You are being called from the SkateHive portal Morning Briefing card.",
+    "Read the briefing below and propose ONE concrete, safe next action for this project.",
+    "IMPORTANT: do not execute anything yet. Return a concise confirmation-ready plan only.",
+    "Format:",
+    "## Proposed action",
+    "- Objective: ...",
+    "- Steps: ...",
+    "- Risk/needs approval: ...",
+    "- Expected result: ...",
+    "",
+    "Morning briefing:",
+    brief,
+  ].join("\n");
+}
+
+function buildExecutePrompt(brief: string, proposal: string): string {
+  return [
+    "The portal user approved the following action based on the Morning Briefing.",
+    "Execute the approved safe action now. If you hit a blocker, report the exact blocker instead of improvising.",
+    "After finishing, return a concise result with what changed and whether the Morning Briefing should be regenerated.",
+    "",
+    "Approved action:",
+    proposal,
+    "",
+    "Morning briefing context:",
+    brief,
+  ].join("\n");
+}
+
+async function loadLatestBriefingBody(agentSlug: string): Promise<string | null> {
+  const row = await prisma.briefing.findFirst({
+    where: { agentSlug },
+    orderBy: [{ date: "desc" }, { generatedAt: "desc" }],
+  });
+  if (!row?.body) return null;
+  return row.body.trim().slice(0, 12000);
+}
+
+export async function proposeBriefingAction(
+  agentSlug: string,
+): Promise<{ ok: true; proposal: string } | { ok: false; error: string }> {
+  try {
+    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
+
+    const brief = await loadLatestBriefingBody(agentSlug);
+    if (!brief) return { ok: false, error: "No briefing yet for this agent — regenerate one first." };
+
+    await ensureLocalGatewayToken();
+    const proposal = await callOpenClaw(buildProposePrompt(brief), agentSlug, { timeoutMs: TIMEOUT_MS });
+    if (!proposal) return { ok: false, error: "Empty proposal returned from gateway" };
+
+    return { ok: true, proposal };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function executeBriefingAction(
+  agentSlug: string,
+  proposal: string,
+): Promise<{ ok: true; result: string } | { ok: false; error: string }> {
+  try {
+    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
+    const trimmedProposal = proposal.trim().slice(0, 8000);
+    if (!trimmedProposal) return { ok: false, error: "Empty proposal" };
+
+    const brief = await loadLatestBriefingBody(agentSlug);
+    if (!brief) return { ok: false, error: "No briefing yet for this agent — regenerate one first." };
+
+    await ensureLocalGatewayToken();
+    const result = await callOpenClaw(
+      buildExecutePrompt(brief, trimmedProposal),
+      agentSlug,
+      { timeoutMs: TIMEOUT_MS },
+    );
+    if (!result) return { ok: false, error: "Empty result returned from gateway" };
+
+    revalidatePath("/");
+    return { ok: true, result };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function regenerateAllBriefings(
   language: BriefingLanguage = "pt",
 ): Promise<{
