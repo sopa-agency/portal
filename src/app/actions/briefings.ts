@@ -250,6 +250,33 @@ function buildExecutePrompt(brief: string, proposal: string): string {
   ].join("\n");
 }
 
+export type ActionTurn = { role: "agent" | "user"; text: string };
+
+function buildFollowUpPrompt(
+  brief: string,
+  history: ActionTurn[],
+  newInstruction: string,
+): string {
+  const transcript = history
+    .map((t) => `### ${t.role === "agent" ? "Agent" : "User"}\n${t.text.trim()}`)
+    .join("\n\n");
+  return [
+    "You are continuing a multi-turn action thread inside the SkateHive portal's Morning Briefing card.",
+    "Below is the conversation so far between the portal user and you (the project agent), followed by the user's NEW instruction.",
+    "Carry out the new instruction. If it requires destructive or out-of-scope work, say so plainly instead of guessing.",
+    "Return a concise result describing what changed (or what blocker stopped you).",
+    "",
+    "=== Conversation so far ===",
+    transcript,
+    "",
+    "=== New instruction from user ===",
+    newInstruction.trim(),
+    "",
+    "=== Morning briefing context ===",
+    brief,
+  ].join("\n");
+}
+
 async function loadLatestBriefingBody(agentSlug: string): Promise<string | null> {
   const row = await prisma.briefing.findFirst({
     where: { agentSlug },
@@ -295,6 +322,42 @@ export async function executeBriefingAction(
     await ensureLocalGatewayToken();
     const result = await callOpenClaw(
       buildExecutePrompt(brief, trimmedProposal),
+      agentSlug,
+      { timeoutMs: TIMEOUT_MS },
+    );
+    if (!result) return { ok: false, error: "Empty result returned from gateway" };
+
+    revalidatePath("/");
+    return { ok: true, result };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function followUpBriefingAction(
+  agentSlug: string,
+  history: ActionTurn[],
+  instruction: string,
+): Promise<{ ok: true; result: string } | { ok: false; error: string }> {
+  try {
+    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
+
+    const trimmed = instruction.trim().slice(0, 4000);
+    if (!trimmed) return { ok: false, error: "Empty follow-up instruction" };
+
+    const brief = await loadLatestBriefingBody(agentSlug);
+    if (!brief) return { ok: false, error: "No briefing yet for this agent — regenerate one first." };
+
+    // Cap each turn so a runaway thread doesn't blow the gateway token budget.
+    const cappedHistory = history.slice(-12).map((t) => ({
+      role: t.role,
+      text: (t.text ?? "").slice(0, 4000),
+    }));
+
+    await ensureLocalGatewayToken();
+    const result = await callOpenClaw(
+      buildFollowUpPrompt(brief, cappedHistory, trimmed),
       agentSlug,
       { timeoutMs: TIMEOUT_MS },
     );
