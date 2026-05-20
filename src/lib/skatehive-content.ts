@@ -88,16 +88,19 @@ function isThinPermlink(permlink: string): boolean {
   return false;
 }
 
+// Hive's bridge.get_ranked_posts caps `limit` at 20. Keep callers honest.
+const MAX_RANKED_POSTS = 20;
+
 export type FetchOptions = {
   daysBack?: number; // default 8 (covers a full week + slack)
-  limit?: number; // fetched from Hive, default 30
+  limit?: number; // fetched from Hive, default + max 20
   minVotes?: number; // default 5
   minBodyLength?: number; // default 250 — filters out one-liners
 };
 
 export async function fetchTopSkatehivePosts(opts: FetchOptions = {}): Promise<SkatehivePost[]> {
   const daysBack = opts.daysBack ?? 8;
-  const limit = opts.limit ?? 30;
+  const limit = Math.min(opts.limit ?? MAX_RANKED_POSTS, MAX_RANKED_POSTS);
   const minVotes = opts.minVotes ?? 5;
   const minBody = opts.minBodyLength ?? 250;
 
