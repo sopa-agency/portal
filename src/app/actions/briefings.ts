@@ -9,7 +9,6 @@ import { todayIsoDate } from "@/lib/morning-briefing";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { getActiveProject } from "@/projects/index";
 import {
-  refreshProjectSocialInsights,
   getProjectSocialInsightsContext,
 } from "@/lib/social-insights-core";
 
@@ -60,22 +59,16 @@ async function readPrompt(agentSlug: string): Promise<string> {
 export async function regenerateBriefing(
   agentSlug: string,
   language: BriefingLanguage = "pt",
-  opts?: { skipInsightRefresh?: boolean },
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const project = await getActiveProject();
     const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
 
-    // Refresh social insights alongside the briefing unless explicitly skipped
-    // (skipped when regenerateAllBriefings does a single up-front refresh).
-    if (!opts?.skipInsightRefresh) {
-      try {
-        await refreshProjectSocialInsights(project);
-      } catch {
-        // Don't fail the briefing if the insight refresh errors.
-      }
-    }
+    // Social insights are NOT regenerated here — that fanned out one agent call
+    // per channel (expensive). They're refreshed on demand, one social at a
+    // time, via each channel's "Generate AI insights" button; the briefing just
+    // injects whatever's already saved (see getProjectSocialInsightsContext).
 
     let prompt: string;
     try {
@@ -406,19 +399,12 @@ export async function regenerateAllBriefings(
 }> {
   const project = await getActiveProject();
 
-  // Refresh social insights once up-front so they're available for every
-  // agent's briefing without making redundant per-channel agent calls.
-  try {
-    await refreshProjectSocialInsights(project);
-  } catch {
-    // Best-effort — don't block the briefing run if insights fail.
-  }
+  // Social insights are refreshed on demand (one social at a time) via the UI,
+  // not as part of briefing generation — keeps each briefing to one agent call.
 
   const results = await Promise.all(
     project.briefingAgents.map(async (a) => {
-      const r = await regenerateBriefing(a.slug, language, {
-        skipInsightRefresh: true,
-      });
+      const r = await regenerateBriefing(a.slug, language);
       return { agent: a.slug, ok: r.ok, error: r.error };
     }),
   );
