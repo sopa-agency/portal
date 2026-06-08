@@ -883,6 +883,22 @@ function PostDialog({
                     </button>
                   )}
 
+                  {/* Create Campaign (from a planned/draft post) */}
+                  <button
+                    type="button"
+                    aria-label="Create campaign from this post"
+                    onClick={handleCreateCampaign}
+                    disabled={creatingCampaign}
+                    className="flex items-center gap-1.5 rounded-xl border border-accent-border bg-accent-bg px-3 py-1.5 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                  >
+                    {creatingCampaign ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Megaphone className="h-3.5 w-3.5" />
+                    )}
+                    {creatingCampaign ? "Creating campaign…" : "Create Campaign"}
+                  </button>
+
                   {/* Mark as posted (manual) */}
                   {isManual && isDue && (
                     <button
@@ -970,6 +986,12 @@ function PostDialog({
                     </button>
                   )}
                 </div>
+              )}
+              {!isPublished && campaignError && (
+                <p className="flex items-center gap-1.5 text-[12px] text-danger">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  {campaignError}
+                </p>
               )}
             </div>
           </div>

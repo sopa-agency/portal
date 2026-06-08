@@ -60,25 +60,39 @@ export async function createCampaignFromInstagramPost(
 
     if (!post) return { ok: false, error: "Post not found." };
     if (post.projectSlug !== project.slug) return { ok: false, error: "Post not found." };
-    if (post.status !== "published") return { ok: false, error: "Only published posts can seed a campaign." };
+    // Any post with content can seed a campaign — published, scheduled, or draft.
+    const mediaForGuard: string[] = Array.isArray(post.mediaUrls) ? (post.mediaUrls as string[]) : [];
+    if (!(post.caption ?? "").trim() && mediaForGuard.length === 0) {
+      return { ok: false, error: "This post has no caption or media yet — add content before creating a campaign." };
+    }
+
+    const isPublished = post.status === "published";
+    const isScheduled = post.status === "scheduled";
+    const statusWord = isPublished ? "published" : isScheduled ? "planned" : "draft";
 
     // Build a short caption snippet for naming / heading
     const captionSnippet = (post.caption ?? "").trim().slice(0, 60).replace(/\n/g, " ") || null;
-    const dateStr = post.publishedAt
-      ? new Date(post.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-      : new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    const refDate = post.publishedAt ?? post.scheduledFor ?? null;
+    const dateStr = refDate
+      ? new Date(refDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+      : null;
 
-    const heading = captionSnippet ?? dateStr;
+    const heading = captionSnippet ?? dateStr ?? "Instagram post";
     const igHandle = project.hive.account ?? project.slug;
+    const type = (post.type ?? "post").toLowerCase();
 
     // Build seed brief — fully written, no [[ placeholders
     const lines: string[] = [];
     lines.push(`# Cross-platform from Instagram — ${heading}`);
     lines.push("");
     lines.push("## Source");
-    lines.push(
-      `Published Instagram ${(post.type ?? "post").toLowerCase()} by @${igHandle} on ${dateStr}.`,
-    );
+    if (isPublished) {
+      lines.push(`Published Instagram ${type} by @${igHandle}${dateStr ? ` on ${dateStr}` : ""}.`);
+    } else if (isScheduled) {
+      lines.push(`Planned Instagram ${type} by @${igHandle}${dateStr ? `, scheduled for ${dateStr}` : ""} (not yet posted).`);
+    } else {
+      lines.push(`Draft Instagram ${type} by @${igHandle} (not yet posted).`);
+    }
     if (post.permalink) lines.push(`Original: ${post.permalink}`);
     lines.push("");
 
@@ -103,11 +117,11 @@ export async function createCampaignFromInstagramPost(
 
     lines.push("## Goal");
     lines.push(
-      `Adapt this published Instagram post into coordinated posts for the other channels — an X/Twitter thread, a Farcaster cast, a Discord announcement, and an email newsletter — preserving the core message and ${project.name}'s voice, each native to its platform. Link back to the Instagram post where it fits.`,
+      `Adapt this ${statusWord} Instagram post into coordinated posts for the other channels — an X/Twitter thread, a Farcaster cast, a Discord announcement, and an email newsletter — preserving the core message and ${project.name}'s voice, each native to its platform.${isPublished ? " Link back to the Instagram post where it fits." : ""}`,
     );
 
     const seedBrief = lines.join("\n");
-    const campaignName = `IG → cross-platform · ${captionSnippet ? captionSnippet.slice(0, 50) : dateStr}`;
+    const campaignName = `IG → cross-platform · ${captionSnippet ? captionSnippet.slice(0, 50) : (dateStr ?? "post")}`;
 
     const campaign = await prisma.campaign.create({
       data: {
