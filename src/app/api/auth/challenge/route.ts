@@ -5,7 +5,7 @@ import { CHALLENGE_COOKIE, CHALLENGE_MAX_AGE, signChallenge } from "@/lib/auth";
 export const runtime = "nodejs";
 
 export async function POST() {
-  const nonce = `portal-skatehive:${crypto.randomBytes(16).toString("hex")}:${Date.now()}`;
+  const nonce = `portal:${crypto.randomBytes(16).toString("hex")}:${Date.now()}`;
   const token = await signChallenge(nonce);
   const res = NextResponse.json({ nonce });
   res.cookies.set(CHALLENGE_COOKIE, token, {

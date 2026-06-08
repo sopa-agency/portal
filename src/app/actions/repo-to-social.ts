@@ -1,33 +1,41 @@
 "use server";
 
-import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { parseGithubRepo, parseRepoUrls } from "@/lib/repo-to-social-utils";
+import {
+  publishCastToFarcaster,
+  publishSnapToHive,
+  publishToBinanceSquare,
+  uploadImageToPinata,
+  type PublishedRecord,
+  type Platform,
+  type SchedulablePlatform,
+} from "@/lib/social-publish";
+import { getActiveProject, getProject } from "@/projects/index";
+import type { ProjectConfig } from "@/projects/types";
 
-const DEFAULT_PROMPT = `You are the social media manager for SkateHive, a community-owned skateboarding platform built on Hive.
-Write short, punchy tweets about recent product updates landing in SkateHive.
+function defaultPrompt(project: ProjectConfig): string {
+  const repoList = project.repos.map((r) => `- \`${r.split("/")[1]}\``).join("\n");
+  return `You are the social media manager for ${project.name}.
+Write short, punchy tweets about recent product updates landing in ${project.name}.
 
-SkateHive ships two apps:
-- Webapp (commits from repo \`skatehive3.0\`) — live at https://skatehive.app
-- Mobile app (commits from repo \`mobileapp\`) — iOS: https://apps.apple.com/ca/app/skatehive/id6751173076
+Repos:
+${repoList}
 
 Each commit includes a \`repo\` field that tells you which app the change ships to.
 
 Guidelines:
-- Casual, skater-friendly tone (no corporate speak)
+- Casual, friendly tone (no corporate speak)
 - Each tweet under 280 characters, including any URL
 - Focus on user-visible changes — skip refactors, build/CI work, and other infra
-- Name which app the tweet is about (e.g. "on the webapp", "in the SkateHive iOS app")
-- For webapp tweets, link https://skatehive.app — use a specific sub-page (e.g. https://skatehive.app/feed) only if the commit clearly maps to one; never invent paths
-- For mobile-app tweets, include the App Store link https://apps.apple.com/ca/app/skatehive/id6751173076 only sometimes — when the feature is worth downloading for, a fresh-install hook, or a big launch. Skip the link for small fixes or repeat-flavor updates
+- If a "Tweets we have ALREADY posted" block is provided, treat those features as fully covered: do NOT tweet about them again, do NOT paraphrase them, and skip the commit entirely unless it brings a genuinely new angle. When in doubt, skip rather than repeat
 - Never use hashtags
 - Return ONLY a JSON array of tweet strings, nothing else
 
 Example output:
 ["Tweet 1 text here.", "Tweet 2 text here.", "Tweet 3 text here."]`;
-
-const DEFAULT_REPO_URLS = ["https://github.com/SkateHive/skatehive3.0"];
+}
 
 export type CommitData = {
   sha: string;
@@ -39,16 +47,6 @@ export type CommitData = {
 };
 
 export type TweetStatus = "drafted" | "approved" | "skipped" | "published";
-
-export type Platform = "x" | "hive" | "farcaster";
-
-export type PublishedRecord = {
-  at: string;
-  url?: string;
-  ref?: string; // Hive permlink or Farcaster cast hash
-};
-
-export type SchedulablePlatform = "hive" | "farcaster";
 
 export type TweetState = {
   status: TweetStatus;
@@ -141,6 +139,8 @@ export async function getRepoToSocialWorkerHealth(): Promise<RepoToSocialWorkerH
     };
   }
 
+  const project = await getActiveProject();
+
   const pendingJobs = await prisma.repoToSocialRun.count({
     where: { jobStatus: { in: ["pending", "running"] } },
   }).catch(() => 0);
@@ -150,7 +150,7 @@ export async function getRepoToSocialWorkerHealth(): Promise<RepoToSocialWorkerH
   }).then((n) => n > 0).catch(() => false);
 
   const cfg = await prisma.repoToSocialConfig.findUnique({
-    where: { id: "singleton" },
+    where: { id: project.slug },
   }).catch(() => null);
 
   const lastHeartbeat = cfg?.lastWorkerHeartbeat ?? null;
@@ -171,14 +171,17 @@ export async function getRepoToSocialWorkerHealth(): Promise<RepoToSocialWorkerH
 }
 
 export async function getRepoToSocialConfig() {
+  const project = await getActiveProject();
+  const defaultRepoUrls = project.repos.map((r) => `https://github.com/${r}`);
   return prisma.repoToSocialConfig.upsert({
-    where: { id: "singleton" },
+    where: { id: project.slug },
     create: {
-      id: "singleton",
-      repoUrl: DEFAULT_REPO_URLS.join("\n"),
-      prompt: DEFAULT_PROMPT,
+      id: project.slug,
+      repoUrl: defaultRepoUrls.join("\n"),
+      prompt: defaultPrompt(project),
+      agentId: project.agent.id,
     },
-    update: {},
+    update: { agentId: project.agent.id },
   });
 }
 
@@ -186,17 +189,19 @@ export async function saveRepoToSocialConfig(data: {
   repoUrl: string;
   prompt: string;
 }) {
+  const project = await getActiveProject();
   await prisma.repoToSocialConfig.upsert({
-    where: { id: "singleton" },
-    create: { id: "singleton", ...data },
-    update: { repoUrl: data.repoUrl, prompt: data.prompt },
+    where: { id: project.slug },
+    create: { id: project.slug, agentId: project.agent.id, ...data },
+    update: { repoUrl: data.repoUrl, prompt: data.prompt, agentId: project.agent.id },
   });
   revalidatePath("/repo-to-social");
 }
 
 export async function getRecentRepoToSocialRuns(limit = 20): Promise<RepoToSocialRunRow[]> {
+  const project = await getActiveProject();
   const rows = await prisma.repoToSocialRun.findMany({
-    where: { configId: "singleton" },
+    where: { configId: project.slug },
     orderBy: { startedAt: "desc" },
     take: limit,
     include: {
@@ -302,7 +307,7 @@ export async function enqueueRepoToSocialRun(): Promise<{
 
     const run = await prisma.repoToSocialRun.create({
       data: {
-        configId: "singleton",
+        configId: config.id,
         status: "queued",
         jobStatus: "pending",
         editorialStatus: "drafted",
@@ -474,37 +479,12 @@ export async function deleteRepoToSocialRun(
 }
 
 // ----------------------------------------------------------------------------
-// Publishing — pushes a tweet to Hive (root post in hive-173115) and/or
+// Publishing — pushes a tweet to Hive (snap in hive-173115) and/or
 // Farcaster (cast in /skateboard as @skatehive via Neynar managed signer).
+// The protocol-level work lives in @/lib/social-publish; this layer just
+// loads the tweet text and writes the result back to the run row.
 // X publishing stays client-side via twitter.com/intent.
 // ----------------------------------------------------------------------------
-
-const HIVE_NODES = [
-  "https://api.hive.blog",
-  "https://api.deathwing.me",
-  "https://hive-api.arcange.eu",
-];
-const HIVE_COMMUNITY_TAG = "hive-173115";
-const SNAPS_CONTAINER_AUTHOR = "peak.snaps";
-const FC_CHANNEL_ID = "skateboard";
-
-function snapPermlink(): string {
-  // Random UUID — matches skatehive3.0 web app's SnapComposer
-  return `snap-${crypto.randomUUID()}`;
-}
-
-async function getLatestSnapsContainerPermlink(client: {
-  database: { call: (m: string, p: unknown[]) => Promise<unknown> };
-}): Promise<string> {
-  const result = (await client.database.call("get_discussions_by_author_before_date", [
-    SNAPS_CONTAINER_AUTHOR,
-    "",
-    new Date().toISOString().split(".")[0],
-    1,
-  ])) as Array<{ permlink: string }>;
-  if (!result?.[0]?.permlink) throw new Error("Could not fetch peak.snaps container");
-  return result[0].permlink;
-}
 
 async function recordPublish(
   runId: string,
@@ -550,58 +530,19 @@ export async function publishTweetToHive(
   tweetIndex: number,
 ): Promise<{ ok: boolean; url?: string; tweetStates?: TweetStateMap; error?: string }> {
   try {
-    const account = process.env.HIVE_POSTING_ACCOUNT;
-    const key = process.env.HIVE_POSTING_KEY;
-    if (!account || !key) {
-      return { ok: false, error: "HIVE_POSTING_ACCOUNT or HIVE_POSTING_KEY not set" };
-    }
+    const run = await prisma.repoToSocialRun.findUnique({ where: { id: runId } });
+    if (!run) return { ok: false, error: "Run not found" };
+    const project = getProject(run.configId);
     const text = await getTweetText(runId, tweetIndex);
+    const result = await publishSnapToHive(text, project);
+    if (!result.ok) return { ok: false, error: result.error };
 
-    const { Client, PrivateKey } = await import("@hiveio/dhive");
-    const client = new Client(HIVE_NODES);
-
-    const parentPermlink = await getLatestSnapsContainerPermlink(client);
-    const permlink = snapPermlink();
-
-    // Pull any image URLs out of the body so Hive frontends can render them
-    // properly. Both markdown (![](url)) and bare image URLs are detected.
-    const imageUrls = [
-      ...text.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g),
-    ]
-      .map((m) => m[1])
-      .concat(text.match(/https?:\/\/[^\s)]+\.(?:png|jpe?g|gif|webp)(?:\?[^\s)]*)?/gi) ?? []);
-
-    const metadata = {
-      app: "Marketing Portal Skatehive",
-      tags: [HIVE_COMMUNITY_TAG, "snaps"],
-      images: [...new Set(imageUrls)],
-    };
-    // Snap = COMMENT under peak.snaps' daily container.
-    // SkateHive frontends filter these by json_metadata.tags including hive-173115.
-    // Empty title is correct for snaps.
-    const op = [
-      "comment",
-      {
-        parent_author: SNAPS_CONTAINER_AUTHOR,
-        parent_permlink: parentPermlink,
-        author: account,
-        permlink,
-        title: "",
-        body: text,
-        json_metadata: JSON.stringify(metadata),
-      },
-    ] as const;
-
-    const pk = PrivateKey.fromString(key);
-    await client.broadcast.sendOperations([op as never], pk);
-
-    const url = `https://skatehive.app/post/${account}/${permlink}`;
     const tweetStates = await recordPublish(runId, tweetIndex, "hive", {
       at: new Date().toISOString(),
-      url,
-      ref: permlink,
+      url: result.url,
+      ref: result.ref,
     });
-    return { ok: true, url, tweetStates };
+    return { ok: true, url: result.url, tweetStates };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -612,59 +553,42 @@ export async function publishTweetToFarcaster(
   tweetIndex: number,
 ): Promise<{ ok: boolean; url?: string; tweetStates?: TweetStateMap; error?: string }> {
   try {
-    const apiKey = process.env.NEYNAR_API_KEY;
-    const signerUuid = process.env.NEYNAR_SIGNER_UUID;
-    if (!apiKey || !signerUuid) {
-      return { ok: false, error: "NEYNAR_API_KEY or NEYNAR_SIGNER_UUID not set" };
-    }
+    const run = await prisma.repoToSocialRun.findUnique({ where: { id: runId } });
+    if (!run) return { ok: false, error: "Run not found" };
+    const project = getProject(run.configId);
     const text = await getTweetText(runId, tweetIndex);
+    const result = await publishCastToFarcaster(text, project);
+    if (!result.ok) return { ok: false, error: result.error };
 
-    // Extract URL embeds so Warpcast renders rich previews.
-    // skatehive.app URLs become Mini App / Frame embeds via the page's
-    // frame meta tags; image URLs render inline. Neynar accepts up to 2
-    // URL embeds per cast.
-    const urlMatches = text.match(/https?:\/\/[^\s)]+[^\s.,;:!?)]/g) ?? [];
-    const priority = (u: string): number => {
-      if (u.includes("skatehive.app")) return 0;
-      if (/\.(png|jpe?g|gif|webp)(\?|$)/i.test(u)) return 1;
-      return 2;
-    };
-    const embedUrls = [...new Set(urlMatches)]
-      .sort((a, b) => priority(a) - priority(b))
-      .slice(0, 2);
-    const embeds = embedUrls.map((url) => ({ url }));
-
-    const res = await fetch("https://api.neynar.com/v2/farcaster/cast", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify({
-        signer_uuid: signerUuid,
-        text,
-        channel_id: FC_CHANNEL_ID,
-        ...(embeds.length > 0 ? { embeds } : {}),
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      return { ok: false, error: `Neynar HTTP ${res.status}: ${body.slice(0, 300)}` };
-    }
-    const payload = (await res.json()) as {
-      cast?: { hash?: string; author?: { username?: string } };
-    };
-    const hash = payload.cast?.hash;
-    if (!hash) return { ok: false, error: "Neynar returned no cast hash" };
-    const author = payload.cast?.author?.username ?? "skatehive";
-    const url = `https://warpcast.com/${author}/${hash.slice(0, 10)}`;
     const tweetStates = await recordPublish(runId, tweetIndex, "farcaster", {
       at: new Date().toISOString(),
-      url,
-      ref: hash,
+      url: result.url,
+      ref: result.ref,
     });
-    return { ok: true, url, tweetStates };
+    return { ok: true, url: result.url, tweetStates };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function publishTweetToBinance(
+  runId: string,
+  tweetIndex: number,
+): Promise<{ ok: boolean; url?: string; tweetStates?: TweetStateMap; error?: string }> {
+  try {
+    const run = await prisma.repoToSocialRun.findUnique({ where: { id: runId } });
+    if (!run) return { ok: false, error: "Run not found" };
+    const project = getProject(run.configId);
+    const text = await getTweetText(runId, tweetIndex);
+    const result = await publishToBinanceSquare(text, project);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const tweetStates = await recordPublish(runId, tweetIndex, "binance", {
+      at: new Date().toISOString(),
+      url: result.url,
+      ref: result.ref,
+    });
+    return { ok: true, url: result.url, tweetStates };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -689,47 +613,10 @@ export async function recordXPublish(
 // drafts can include media before publishing.
 // ----------------------------------------------------------------------------
 
-const PINATA_GATEWAY = "https://gateway.pinata.cloud/ipfs";
-
 export async function uploadDraftImage(
   formData: FormData,
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
-  try {
-    const file = formData.get("file");
-    if (!(file instanceof File)) return { ok: false, error: "No file provided" };
-
-    const MAX = 8 * 1024 * 1024; // 8MB — generous for tweets
-    if (file.size > MAX) {
-      return { ok: false, error: `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB; max 8MB)` };
-    }
-    if (!/^image\//.test(file.type)) {
-      return { ok: false, error: `Unsupported type ${file.type}` };
-    }
-
-    const jwt = process.env.PINATA_JWT;
-    if (!jwt) return { ok: false, error: "PINATA_JWT not set" };
-
-    const upload = new FormData();
-    upload.append("file", file, file.name);
-    upload.append(
-      "pinataMetadata",
-      JSON.stringify({ name: `portal-skatehive-${Date.now()}-${file.name}` }),
-    );
-
-    const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${jwt}` },
-      body: upload,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      return { ok: false, error: `Pinata HTTP ${res.status}: ${body.slice(0, 300)}` };
-    }
-    const payload = (await res.json()) as { IpfsHash?: string };
-    if (!payload.IpfsHash) return { ok: false, error: "Pinata returned no IpfsHash" };
-
-    return { ok: true, url: `${PINATA_GATEWAY}/${payload.IpfsHash}` };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { ok: false, error: "No file provided" };
+  return uploadImageToPinata(file);
 }

@@ -4,14 +4,18 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition } from "react";
-import { GitBranch, Megaphone, Home, Moon, Sun, LogOut, Users } from "lucide-react";
+import { GitBranch, Megaphone, Home, Moon, Sun, LogOut, Users, Sparkles, Brain, ChartColumn, SquarePen } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
+  { href: "/post-creator", label: "Post Creator", icon: SquarePen, requiresPostCreator: true },
   { href: "/repo-to-social", label: "Repo to Social", icon: GitBranch },
+  { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles },
   { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone },
   { href: "/userbase", label: "Userbase", icon: Users },
+  { href: "/brain", label: "Brain", icon: Brain },
+  { href: "/analytics", label: "Analytics", icon: ChartColumn, requiresAnalytics: true },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -19,11 +23,27 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function AppSidebar({ username }: { username: string }) {
+type AppSidebarProps = {
+  username: string;
+  projectName: string;
+  projectLogo: string;
+  hiddenRoutes?: string[];
+  analyticsEnabled?: boolean;
+  postCreatorEnabled?: boolean;
+};
+
+export function AppSidebar({ username, projectName, projectLogo, hiddenRoutes, analyticsEnabled, postCreatorEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, toggle } = useTheme();
   const [pending, startTransition] = useTransition();
+
+  const nav = NAV.filter((item) => {
+    if (hiddenRoutes?.includes(item.href)) return false;
+    if ("requiresAnalytics" in item && item.requiresAnalytics && !analyticsEnabled) return false;
+    if ("requiresPostCreator" in item && item.requiresPostCreator && !postCreatorEnabled) return false;
+    return true;
+  });
 
   const logout = () => {
     startTransition(async () => {
@@ -40,15 +60,17 @@ export function AppSidebar({ username }: { username: string }) {
       <div className="px-5 py-6">
         <Link href="/" className="flex items-center gap-3">
           <Image
-            src="/skatehive-logo.svg"
-            alt="SkateHive"
+            src={projectLogo}
+            alt={projectName}
             width={36}
             height={36}
             className="shrink-0"
             priority
           />
           <div className="min-w-0">
-            <p className="text-lg font-bold tracking-tight text-accent">portal · skatehive</p>
+            <p className="text-lg font-bold tracking-tight text-accent">
+              portal · {projectName.toLowerCase()}
+            </p>
             <p className="mt-0.5 text-xs uppercase tracking-widest text-foreground-subtle">
               internal ops
             </p>
@@ -57,7 +79,7 @@ export function AppSidebar({ username }: { username: string }) {
       </div>
       <nav className="px-3 pb-6">
         <ul className="space-y-1">
-          {NAV.map(({ href, label, icon: Icon }) => {
+          {nav.map(({ href, label, icon: Icon }) => {
             const active = isActive(pathname, href);
             return (
               <li key={href}>

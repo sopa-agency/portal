@@ -4,17 +4,19 @@ import { ChevronRight, FileText, Plus } from "lucide-react";
 import { createCampaign } from "@/app/actions/campaigns";
 import { CampaignGrid } from "@/components/campaign-grid";
 import { PageHeader } from "@/components/page-header";
-import { CAMPAIGN_TEMPLATES } from "@/lib/campaign-templates";
+import { getCampaignTemplates } from "@/lib/campaign-templates";
 import { prisma } from "@/lib/prisma";
 import { ageFromDate } from "@/lib/utils";
+import { getActiveProject } from "@/projects";
 
 export default async function CampaignCreatorPage() {
   let campaigns: { id: string; name: string; updatedAt: string; docCount: number }[] = [];
   let dbError = false;
 
+  const project = await getActiveProject();
   try {
     const rows = await prisma.campaign.findMany({
-      where: { archivedAt: null },
+      where: { archivedAt: null, projectSlug: project.slug },
       orderBy: { updatedAt: "desc" },
       include: { _count: { select: { documents: true } } },
     });
@@ -76,7 +78,7 @@ export default async function CampaignCreatorPage() {
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {CAMPAIGN_TEMPLATES.map((template) => (
+          {getCampaignTemplates(project).map((template) => (
             <form key={template.id} action={createCampaign}>
               <input type="hidden" name="templateId" value={template.id} />
               <button

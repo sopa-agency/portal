@@ -10,7 +10,7 @@ export function CampaignHivePublishButton({ documentId }: { documentId: string }
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
 
   const handlePublish = () => {
-    if (!window.confirm("Publish this snap to SkateHive's Hive feed now?")) return;
+    if (!window.confirm("Publish this snap to the Hive feed now?")) return;
     setError(null);
     setPublishedUrl(null);
     startTransition(async () => {

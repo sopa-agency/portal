@@ -19,14 +19,17 @@ export type BriefingSection = {
 export type BriefingAgent = {
   slug: string;
   label: string;
+  /** Short label for the tab strip. Defaults to `label` if omitted. */
+  tabLabel?: string;
   workspace: string;
 };
 
 export const BRIEFING_AGENTS: BriefingAgent[] = [
-  { slug: "skate-dev", label: "SkateHive Dev", workspace: "workspace-skate-dev" },
+  { slug: "skate-dev", label: "SkateHive Dev", tabLabel: "DEV", workspace: "workspace-skate-dev" },
   {
     slug: "skatehive-marketing",
     label: "SkateHive Marketing",
+    tabLabel: "MKT",
     workspace: "workspace-skatehive-marketing",
   },
 ];

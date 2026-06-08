@@ -1,7 +1,10 @@
 import { SignJWT, jwtVerify } from "jose";
+import type { ProjectConfig } from "@/projects/types";
 
-// Allowlist of Hive usernames permitted to use portal-skatehive.
-// To add/remove access, edit this array. No DB write needed.
+// ---------------------------------------------------------------------------
+// Legacy SkateHive allowlist — kept for backward compatibility.
+// New code should call isAllowed(username, project) with an active project.
+// ---------------------------------------------------------------------------
 export const ALLOWED_USERS = [
   "xvlad",
   "howdarylrolls",
@@ -19,14 +22,40 @@ export const ALLOWED_USERS = [
 
 export type AllowedUser = (typeof ALLOWED_USERS)[number];
 
+// ---------------------------------------------------------------------------
+// Cookie names — unified across all tenants now that it's one app.
+// ---------------------------------------------------------------------------
 export const SESSION_COOKIE = "portal_session";
 export const CHALLENGE_COOKIE = "portal_challenge";
+
+// Legacy aliases kept so any stale imports still compile.
+/** @deprecated Use SESSION_COOKIE */
+export const SKATEHIVE_SESSION_COOKIE = "portal_session";
+/** @deprecated Use CHALLENGE_COOKIE */
+export const SKATEHIVE_CHALLENGE_COOKIE = "portal_challenge";
+
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const CHALLENGE_DURATION_SECONDS = 60 * 5; // 5 minutes
 
-export function isAllowed(username: string): username is AllowedUser {
-  return (ALLOWED_USERS as readonly string[]).includes(username.toLowerCase());
+// ---------------------------------------------------------------------------
+// isAllowed
+// ---------------------------------------------------------------------------
+
+/**
+ * Project-aware allowlist check.
+ *
+ * When a ProjectConfig is supplied the username is checked against
+ * project.allowlist. When called without a project (legacy / boot-time path)
+ * it falls back to the hardcoded SkateHive ALLOWED_USERS.
+ */
+export function isAllowed(username: string, project?: ProjectConfig): boolean {
+  const list = project ? project.allowlist : (ALLOWED_USERS as readonly string[]);
+  return list.includes(username.toLowerCase());
 }
+
+// ---------------------------------------------------------------------------
+// JWT helpers
+// ---------------------------------------------------------------------------
 
 function secret(): Uint8Array {
   const raw = process.env.SESSION_SECRET;
@@ -44,12 +73,20 @@ export async function signSession(payload: SessionPayload): Promise<string> {
     .sign(secret());
 }
 
-export async function verifySession(token: string | undefined): Promise<SessionPayload | null> {
+/**
+ * Verify a session JWT and validate the username against the given project's
+ * allowlist. Pass `project` from the active request's getActiveProject() call.
+ * Omitting `project` falls back to the SkateHive hardcoded list (legacy path).
+ */
+export async function verifySession(
+  token: string | undefined,
+  project?: ProjectConfig,
+): Promise<SessionPayload | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
     if (typeof payload.username !== "string") return null;
-    if (!isAllowed(payload.username)) return null;
+    if (!isAllowed(payload.username, project)) return null;
     return { username: payload.username };
   } catch {
     return null;

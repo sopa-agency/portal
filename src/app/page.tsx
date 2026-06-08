@@ -4,30 +4,26 @@ import { PageHeader } from "@/components/page-header";
 import { MorningBriefing, BriefingMissing } from "@/components/morning-briefing";
 import { RegenerateBriefingButton } from "@/components/regenerate-briefing-button";
 import { BriefingTabs, type BriefingTab } from "@/components/briefing-tabs";
+import { SocialDashboard } from "@/components/social-dashboard";
 import {
-  BRIEFING_AGENTS,
   loadLatestBriefing,
   todayIsoDate,
 } from "@/lib/morning-briefing";
-
-const TAB_LABELS: Record<string, string> = {
-  "skatehive-marketing": "MKT",
-  "skate-dev": "DEV",
-};
-
-const TAB_ORDER = ["skatehive-marketing", "skate-dev"];
+import { getActiveProject } from "@/projects";
 
 export default async function Home() {
   const today = todayIsoDate();
-  const results = await Promise.all(BRIEFING_AGENTS.map((a) => loadLatestBriefing(a)));
+  const project = await getActiveProject();
+  const briefingAgents = project.briefingAgents;
+  const results = await Promise.all(briefingAgents.map((a) => loadLatestBriefing(a)));
 
-  const tabs: BriefingTab[] = [];
-  for (const slug of TAB_ORDER) {
-    const result = results.find((r) => (r.ok ? r.briefing.agent.slug : r.agent.slug) === slug);
+  const briefingTabs: BriefingTab[] = [];
+  for (const agent of briefingAgents) {
+    const result = results.find((r) => (r.ok ? r.briefing.agent.slug : r.agent.slug) === agent.slug);
     if (!result) continue;
-    tabs.push({
-      slug,
-      label: TAB_LABELS[slug] ?? slug,
+    briefingTabs.push({
+      slug: agent.slug,
+      label: agent.tabLabel ?? agent.label,
       content: result.ok ? (
         <MorningBriefing briefing={result.briefing} today={today} />
       ) : (
@@ -36,17 +32,30 @@ export default async function Home() {
     });
   }
 
+  const topTabs: BriefingTab[] = [
+    {
+      slug: "brief",
+      label: "Morning brief",
+      content: <BriefingTabs tabs={briefingTabs} />,
+    },
+    {
+      slug: "socials",
+      label: "Socials",
+      content: <SocialDashboard socials={project.socials} agentName={project.agent.displayName} />,
+    },
+  ];
+
   return (
     <div className="space-y-8">
       <PageHeader
         eyebrow="Daily"
-        title="Morning brief"
-        description="Latest snapshots from the OpenClaw morning briefing crons — one per agent. Sections classify themselves: status, priorities, risks, next actions."
+        title={project.name}
+        description="Morning briefings from the OpenClaw crons, plus the social posting strategy per channel."
         status={today}
         actions={<RegenerateBriefingButton />}
       />
 
-      <BriefingTabs tabs={tabs} />
+      <BriefingTabs tabs={topTabs} />
     </div>
   );
 }

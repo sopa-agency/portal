@@ -107,3 +107,41 @@ body {
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ── Step-transition animations (post-creator stepped flow) ── */
+@keyframes step-enter-forward {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes step-enter-back {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.step-enter-forward {
+  animation: step-enter-forward 0.2s ease-out both;
+}
+
+.step-enter-back {
+  animation: step-enter-back 0.2s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-enter-forward,
+  .step-enter-back {
+    animation: none;
+  }
+}

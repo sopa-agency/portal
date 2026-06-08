@@ -11,6 +11,7 @@ model RepoToSocialConfig {
   id                  String            @id @default("singleton")
   repoUrl             String            @default("https://github.com/SkateHive/skatehive3.0")
   prompt              String            @default("You are a social media manager for SkateHive, a community-owned skateboarding platform built on Hive. Turn the following commits into short, hype tweets that highlight what shipped for skaters. Keep tone casual and skater-friendly. Return a JSON array of strings, one tweet per item, no commentary.")
+  agentId             String?
   lastWorkerHeartbeat DateTime?
   updatedAt           DateTime          @updatedAt
   runs                RepoToSocialRun[]
@@ -37,32 +38,111 @@ model RepoToSocialRun {
   durationMs      Int?
   createdAt       DateTime           @default(now())
 
-  comments        TweetComment[]
-  votes           TweetVote[]
+  comments TweetComment[]
+  votes    TweetVote[]
 }
 
 model TweetComment {
-  id         String          @id @default(cuid())
+  id         String   @id @default(cuid())
   runId      String
   tweetIndex Int
   author     String
   body       String
-  createdAt  DateTime        @default(now())
+  createdAt  DateTime @default(now())
 
-  run        RepoToSocialRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run RepoToSocialRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@index([runId, tweetIndex])
 }
 
 model TweetVote {
-  id         String          @id @default(cuid())
+  id         String   @id @default(cuid())
   runId      String
   tweetIndex Int
   voter      String
-  value      Int             @default(1)
-  createdAt  DateTime        @default(now())
+  value      Int      @default(1)
+  createdAt  DateTime @default(now())
 
-  run        RepoToSocialRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run RepoToSocialRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, tweetIndex, voter])
+  @@index([runId, tweetIndex])
+}
+
+// Marketing Suggestions — sister pipeline to RepoToSocial, but instead of
+// reading commits, the worker pulls SkateHive community signals (top Hive
+// posts, top creators, the day's marketing briefing) and asks the same
+// OpenClaw `skatehive-marketing` agent to draft tweets/snaps celebrating
+// the community.
+model MarketingSuggestionConfig {
+  id                  String                   @id @default("singleton")
+  prompt              String                   @db.Text
+  useTopPosts         Boolean                  @default(true)
+  useBriefing         Boolean                  @default(true)
+  useTopCreators      Boolean                  @default(true)
+  freePromptHint      String                   @default("")
+  agentId             String?
+  /// Hive community tag for this tenant's feed, e.g. "hive-173115".
+  hiveCommunity       String?
+  /// Hive frontend base URL for post links, e.g. "https://skatehive.app".
+  hiveFrontend        String?
+  lastWorkerHeartbeat DateTime?
+  updatedAt           DateTime                 @updatedAt
+  runs                MarketingSuggestionRun[]
+}
+
+model MarketingSuggestionRun {
+  id              String                    @id @default(cuid())
+  configId        String
+  config          MarketingSuggestionConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  status          String
+  jobStatus       String?
+  editorialStatus String                    @default("drafted")
+  inputSummary    String?
+  statusMessage   String?
+  // freePrompt: optional theme/focus typed by the user when enqueuing the run.
+  freePrompt      String?                   @db.Text
+  // inputs: JSON snapshot of the material the worker fed to the agent
+  // ({ topPosts: [...], topCreators: [...], briefingPreamble: "..." }).
+  // Kept on the run for auditability.
+  inputs          Json?
+  tweets          Json?
+  tweetStates     Json?
+  error           String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  publishedAt     DateTime?
+  claimedAt       DateTime?
+  startedAt       DateTime                  @default(now())
+  durationMs      Int?
+  createdAt       DateTime                  @default(now())
+
+  comments MarketingTweetComment[]
+  votes    MarketingTweetVote[]
+}
+
+model MarketingTweetComment {
+  id         String   @id @default(cuid())
+  runId      String
+  tweetIndex Int
+  author     String
+  body       String
+  createdAt  DateTime @default(now())
+
+  run MarketingSuggestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, tweetIndex])
+}
+
+model MarketingTweetVote {
+  id         String   @id @default(cuid())
+  runId      String
+  tweetIndex Int
+  voter      String
+  value      Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  run MarketingSuggestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@unique([runId, tweetIndex, voter])
   @@index([runId, tweetIndex])
@@ -71,12 +151,15 @@ model TweetVote {
 model Campaign {
   id         String             @id @default(cuid())
   name       String
+  // Tenant owner. Defaults to "skatehive" so pre-multi-tenant rows backfill to
+  // the original project; createCampaign always sets it explicitly.
+  projectSlug String            @default("skatehive")
   archivedAt DateTime?
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
   documents  CampaignDocument[]
 
-  @@index([archivedAt, updatedAt(sort: Desc)])
+  @@index([projectSlug, archivedAt, updatedAt(sort: Desc)])
 }
 
 model CampaignDocument {
@@ -93,21 +176,88 @@ model CampaignDocument {
 }
 
 model Briefing {
-  id            String   @id @default(cuid())
-  agentSlug     String
-  date          String   // ISO date (YYYY-MM-DD) for the briefing day
-  language      String   @default("pt")
-  body          String   @db.Text
-  generatedBy   String?  // "cron" | "manual" | actor username
-  generatedAt   DateTime @default(now())
+  id          String   @id @default(cuid())
+  agentSlug   String
+  date        String // ISO date (YYYY-MM-DD) for the briefing day
+  language    String   @default("pt")
+  body        String   @db.Text
+  generatedBy String? // "cron" | "manual" | actor username
+  generatedAt DateTime @default(now())
 
   @@unique([agentSlug, date])
   @@index([agentSlug, generatedAt(sort: Desc)])
 }
 
 model BriefingPromptOverride {
-  agentSlug  String   @id
-  body       String   @db.Text
-  updatedBy  String?
-  updatedAt  DateTime @updatedAt
+  agentSlug String   @id
+  body      String   @db.Text
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+// Persisted AI social insights — one row per (project, platform), overwritten
+// on every regeneration so the latest insight survives navigation.
+model SocialInsight {
+  id          String   @id @default(cuid())
+  projectSlug String
+  platform    String
+  body        String   @db.Text
+  generatedBy String?
+  generatedAt DateTime @default(now())
+
+  @@unique([projectSlug, platform])
+}
+
+// Persisted AI analytics insights — one row per project, overwritten on every
+// regeneration so the latest insight survives navigation.
+model AnalyticsInsight {
+  id           String   @id @default(cuid())
+  projectSlug  String   @unique
+  body         String   @db.Text
+  generatedBy  String?
+  generatedAt  DateTime @default(now())
+}
+
+// Instagram post drafts and published posts for the Post Creator feature.
+// One row per draft/post, scoped to a project slug.
+model InstagramPost {
+  id              String    @id @default(cuid())
+  projectSlug     String
+  type            String    @default("IMAGE") // IMAGE | CAROUSEL | REELS
+  caption         String    @default("") @db.Text
+  mediaUrls       Json? // ordered array of public media URLs
+  status          String    @default("draft") // draft | scheduled | publishing | published | failed
+  igMediaId       String? // published IG media id
+  permalink       String? // published post permalink
+  error           String?
+  createdBy       String?
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  firstComment    String?   @db.Text // auto-posted as first comment after publish
+  collaborators   Json? // array of IG usernames (max 3); must accept in-app
+  aspectRatio     String? // "1:1" | "4:5" | "1.91:1" | "9:16" — preview reference only
+  // Scheduling + manual-posting fields
+  scheduledFor    DateTime? // when to auto-publish (or remind for manual)
+  publishMode     String    @default("auto") // "auto" | "manual"
+  userTags        Json? // [{username, x, y}] — IMAGE only; x/y clamped 0..1
+  musicNote       String? // music/audio note — manual only (not sent to API)
+  brandedPartner  String? // paid partnership @brand — manual only (not sent to API)
+  locationNote    String? // location name — manual only (not sent to API)
+
+  @@index([projectSlug, status, updatedAt(sort: Desc)])
+  @@index([status, scheduledFor]) // for scheduler tick queries
+}
+
+// Periodic follower-count snapshots used to compute 7-day deltas on the
+// Socials dashboard. One row per (project, platform) capture; written at most
+// once every 6 hours by the metrics API route.
+model SocialMetricSnapshot {
+  id          String   @id @default(cuid())
+  projectSlug String
+  platform    String
+  followers   Int
+  capturedAt  DateTime @default(now())
+
+  @@index([projectSlug, platform, capturedAt])
 }

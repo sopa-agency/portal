@@ -1,7 +1,10 @@
-// Reads from the public SkateHive Hive feed (community `hive-173115`) to
-// inject real, quality posts into AI prompts — used by the Weekly Stoken
-// template so the worker generates artifacts around actual content instead
-// of placeholders.
+// Reads from a Hive community feed to inject real, quality posts into AI
+// prompts — used by the Weekly Stoken template so the worker generates
+// artifacts around actual content instead of placeholders.
+//
+// Community tag and frontend URL are per-project: pass opts.communityTag and
+// opts.frontendUrl from the caller's ProjectConfig. When omitted, defaults to
+// SkateHive values so existing callers without a config stay unchanged.
 
 const HIVE_API = process.env.HIVE_API_URL || "https://api.hive.blog";
 
@@ -96,17 +99,34 @@ export type FetchOptions = {
   limit?: number; // fetched from Hive, default + max 20
   minVotes?: number; // default 5
   minBodyLength?: number; // default 250 — filters out one-liners
+  /** Hive community tag to fetch. Defaults to "hive-173115" (SkateHive). */
+  communityTag?: string;
+  /** Hive frontend base URL for post links (e.g. "https://skatehive.app").
+   *  When absent, links use https://peakd.com/@author/permlink instead. */
+  frontendUrl?: string;
 };
+
+/** Build a post URL from author + permlink using the project's frontend.
+ *  If frontendUrl is provided (e.g. "https://skatehive.app"), the link is
+ *  `${frontendUrl}/post/${author}/${permlink}`. Otherwise falls back to the
+ *  universal PeakD URL `https://peakd.com/@${author}/${permlink}`. */
+function buildPostUrl(author: string, permlink: string, frontendUrl?: string): string {
+  if (frontendUrl) {
+    return `${frontendUrl.replace(/\/$/, "")}/post/${author}/${permlink}`;
+  }
+  return `https://peakd.com/@${author}/${permlink}`;
+}
 
 export async function fetchTopSkatehivePosts(opts: FetchOptions = {}): Promise<SkatehivePost[]> {
   const daysBack = opts.daysBack ?? 8;
   const limit = Math.min(opts.limit ?? MAX_RANKED_POSTS, MAX_RANKED_POSTS);
   const minVotes = opts.minVotes ?? 5;
   const minBody = opts.minBodyLength ?? 250;
+  const communityTag = opts.communityTag ?? "hive-173115";
 
   const ranked = await callHiveJsonRpc<RankedPost[]>("bridge.get_ranked_posts", {
     sort: "trending",
-    tag: "hive-173115",
+    tag: communityTag,
     limit,
   });
 
@@ -130,7 +150,7 @@ export async function fetchTopSkatehivePosts(opts: FetchOptions = {}): Promise<S
       author: post.author,
       permlink: post.permlink,
       title,
-      url: `https://skatehive.app/post/${post.author}/${post.permlink}`,
+      url: buildPostUrl(post.author, post.permlink, opts.frontendUrl),
       createdAt: post.created,
       excerpt: extractExcerpt(body),
       firstImage: extractFirstImage(post),
@@ -145,15 +165,15 @@ export async function fetchTopSkatehivePosts(opts: FetchOptions = {}): Promise<S
   return posts;
 }
 
-// Looks at @skatehive's recent root posts and returns the highest issue
+// Looks at a Hive account's recent root posts and returns the highest issue
 // number matching `the-weekly-stoken-N`, so the next issue can be numbered
 // without the user doing it by hand.
-export async function fetchLatestWeeklyStokenIssue(): Promise<number> {
+export async function fetchLatestWeeklyStokenIssue(account = "skatehive"): Promise<number> {
   type Discussion = { permlink?: string; parent_author?: string; created?: string };
   // Hive's condenser_api caps limit at 20 — exceeding it returns an Assert Exception.
   const result = await callHiveJsonRpc<Discussion[]>(
     "condenser_api.get_discussions_by_author_before_date",
-    ["skatehive", "", new Date().toISOString().slice(0, 19), 20],
+    [account, "", new Date().toISOString().slice(0, 19), 20],
   );
   const numbers = result
     .filter((p) => !p.parent_author)

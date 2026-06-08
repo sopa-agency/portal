@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Repo-to-Social worker for portal-skatehive.
+// Repo-to-Social worker for multi-tenant-portal.
 // Polls the DB for manually-enqueued runs and asks the local OpenClaw gateway's
 // `skatehive-marketing` agent to turn commits into tweet drafts.
 //
@@ -89,7 +89,7 @@ function parseTweetsJson(text) {
     .filter((t) => t && t.length > 0);
 }
 
-async function generateTweets(prompt, commits) {
+async function generateTweets(prompt, commits, recentTweets = [], agentId = OPENCLAW_AGENT_ID) {
   const commitsForModel = commits.slice(0, 15).map((c) => ({
     sha: c.sha,
     message: c.message,
@@ -99,8 +99,15 @@ async function generateTweets(prompt, commits) {
     url: c.url,
   }));
 
+  const recentBlock = recentTweets.length
+    ? `Tweets we have ALREADY posted in the last 30 days — do NOT repeat these features or paraphrase them. Only re-cover a topic if a commit clearly adds something new to it:\n${recentTweets
+        .map((t, i) => `${i + 1}. ${t}`)
+        .join("\n")}\n\n`
+    : "";
+
   const input =
     `${prompt.trim()}\n\n` +
+    recentBlock +
     `Recent commits (JSON):\n${JSON.stringify(commitsForModel, null, 2)}\n\n` +
     `Return ONLY a JSON array of tweet strings (no code fences, no commentary).`;
 
@@ -114,7 +121,7 @@ async function generateTweets(prompt, commits) {
         "Authorization": `Bearer ${GATEWAY_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model: `openclaw/${OPENCLAW_AGENT_ID}`, input }),
+      body: JSON.stringify({ model: `openclaw/${agentId}`, input }),
       signal: controller.signal,
     });
   } catch (err) {
@@ -137,6 +144,40 @@ async function generateTweets(prompt, commits) {
   } catch (err) {
     throw new Error(`Failed to parse tweets from agent output: ${err.message}. Raw output: ${text.slice(0, 500)}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Dedup context — pulls recently-published/approved tweets so the agent doesn't
+// re-pitch the same feature in back-to-back runs.
+// ---------------------------------------------------------------------------
+
+const DEDUP_LOOKBACK_DAYS = Number(process.env.REPO_TO_SOCIAL_DEDUP_DAYS ?? 30);
+const DEDUP_MAX_TWEETS = Number(process.env.REPO_TO_SOCIAL_DEDUP_MAX ?? 40);
+
+async function fetchRecentTweetsForDedup(currentRunId) {
+  const since = new Date(Date.now() - DEDUP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const runs = await prisma.repoToSocialRun.findMany({
+    where: {
+      id: { not: currentRunId },
+      startedAt: { gte: since },
+      status: "success",
+    },
+    orderBy: { startedAt: "desc" },
+    select: { tweets: true, tweetStates: true },
+    take: 30,
+  });
+
+  const collected = [];
+  for (const r of runs) {
+    const tweets = Array.isArray(r.tweets) ? r.tweets : [];
+    const states = r.tweetStates && typeof r.tweetStates === "object" ? r.tweetStates : {};
+    tweets.forEach((t, i) => {
+      if (typeof t !== "string" || !t.trim()) return;
+      const status = states[i]?.status;
+      if (status === "published" || status === "approved") collected.push(t.trim());
+    });
+  }
+  return collected.slice(0, DEDUP_MAX_TWEETS);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,15 +229,20 @@ async function processRun(run) {
 
   try {
     await setStatus(run.id, "Loading configuration…");
-    const config = await prisma.repoToSocialConfig.findUnique({ where: { id: "singleton" } });
+    const config = await prisma.repoToSocialConfig.findUnique({ where: { id: run.configId } });
     if (!config?.repoUrl) throw new Error("No repository URL in config.");
     if (!config.prompt) throw new Error("No generation prompt in config.");
 
     const commits = Array.isArray(run.commits) ? run.commits : [];
     if (commits.length === 0) throw new Error("No commits stored on this run.");
 
+    await setStatus(run.id, `Loading recent tweets for dedup…`);
+    const recentTweets = await fetchRecentTweetsForDedup(run.id);
+    log(`Run ${run.id} — dedup context: ${recentTweets.length} prior tweet(s)`);
+
     await setStatus(run.id, `Generating drafts for ${commits.length} commit(s)…`);
-    const tweets = await generateTweets(config.prompt, commits);
+    const agentId = config.agentId || OPENCLAW_AGENT_ID;
+    const tweets = await generateTweets(config.prompt, commits, recentTweets, agentId);
 
     await setStatus(run.id, `Saving ${tweets.length} tweet${tweets.length === 1 ? "" : "s"}…`);
     await prisma.repoToSocialRun.update({
@@ -237,22 +283,14 @@ let processingNow = false;
 
 async function heartbeat() {
   try {
-    await prisma.repoToSocialConfig.update({
-      where: { id: "singleton" },
+    const result = await prisma.repoToSocialConfig.updateMany({
       data: { lastWorkerHeartbeat: new Date() },
     });
-  } catch (err) {
-    if (err && err.code === "P2025") {
-      try {
-        await prisma.repoToSocialConfig.create({
-          data: { id: "singleton", lastWorkerHeartbeat: new Date() },
-        });
-      } catch (createErr) {
-        log(`Heartbeat error: ${createErr.message}`);
-      }
-    } else {
-      log(`Heartbeat error: ${err.message}`);
+    if (result.count === 0) {
+      // No config rows yet — skip; the UI will create them on first access.
     }
+  } catch (err) {
+    log(`Heartbeat error: ${err.message}`);
   }
 }
 

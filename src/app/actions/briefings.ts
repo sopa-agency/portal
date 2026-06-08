@@ -5,8 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { BRIEFING_AGENTS, todayIsoDate } from "@/lib/morning-briefing";
+import { todayIsoDate } from "@/lib/morning-briefing";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
+import { getActiveProject } from "@/projects/index";
+import {
+  refreshProjectSocialInsights,
+  getProjectSocialInsightsContext,
+} from "@/lib/social-insights-core";
 
 const TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 5 * 60_000);
 const ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".openclaw", ".env");
@@ -55,10 +60,22 @@ async function readPrompt(agentSlug: string): Promise<string> {
 export async function regenerateBriefing(
   agentSlug: string,
   language: BriefingLanguage = "pt",
+  opts?: { skipInsightRefresh?: boolean },
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    const project = await getActiveProject();
+    const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
+
+    // Refresh social insights alongside the briefing unless explicitly skipped
+    // (skipped when regenerateAllBriefings does a single up-front refresh).
+    if (!opts?.skipInsightRefresh) {
+      try {
+        await refreshProjectSocialInsights(project);
+      } catch {
+        // Don't fail the briefing if the insight refresh errors.
+      }
+    }
 
     let prompt: string;
     try {
@@ -76,8 +93,15 @@ export async function regenerateBriefing(
         "including the top-level title. Keep the same structural format (## headings, bullet lists).";
     }
 
+    // Append social analytics context from persisted insights (if any).
+    const ctx = await getProjectSocialInsightsContext(project.slug);
+    if (ctx) {
+      prompt +=
+        "\n\n=== Social analytics context (use this when relevant) ===\n" + ctx;
+    }
+
     await ensureLocalGatewayToken();
-    const text = await callOpenClaw(prompt, agentSlug, { timeoutMs: TIMEOUT_MS });
+    const text = await callOpenClaw(prompt, agentSlug, { timeoutMs: TIMEOUT_MS, project });
     if (!text) return { ok: false, error: "Empty briefing returned from gateway" };
 
     const date = todayIsoDate();
@@ -111,7 +135,7 @@ export type PromptImprovement = {
   manualSetup: string[];
 };
 
-const META_PROMPT = `You are reviewing the daily-briefing prompt system for SkateHive's internal ops portal.
+const META_PROMPT = `You are reviewing the daily-briefing prompt system for this internal ops portal.
 
 Below is the CURRENT prompt that generates one of the agents' morning briefings, and the LATEST briefing it produced. Your job:
 
@@ -190,7 +214,8 @@ export async function applyPromptImprovement(
   improvedPrompt: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    const project = await getActiveProject();
+    const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
     const trimmed = improvedPrompt.trim();
     if (!trimmed) return { ok: false, error: "Empty prompt" };
@@ -221,7 +246,7 @@ export async function revertPromptOverride(
 
 function buildProposePrompt(brief: string): string {
   return [
-    "You are being called from the SkateHive portal Morning Briefing card.",
+    "You are being called from the portal Morning Briefing card.",
     "Read the briefing below and propose ONE concrete, safe next action for this project.",
     "IMPORTANT: do not execute anything yet. Return a concise confirmation-ready plan only.",
     "Format:",
@@ -261,7 +286,7 @@ function buildFollowUpPrompt(
     .map((t) => `### ${t.role === "agent" ? "Agent" : "User"}\n${t.text.trim()}`)
     .join("\n\n");
   return [
-    "You are continuing a multi-turn action thread inside the SkateHive portal's Morning Briefing card.",
+    "You are continuing a multi-turn action thread inside the portal's Morning Briefing card.",
     "Below is the conversation so far between the portal user and you (the project agent), followed by the user's NEW instruction.",
     "Carry out the new instruction. If it requires destructive or out-of-scope work, say so plainly instead of guessing.",
     "Return a concise result describing what changed (or what blocker stopped you).",
@@ -290,14 +315,15 @@ export async function proposeBriefingAction(
   agentSlug: string,
 ): Promise<{ ok: true; proposal: string } | { ok: false; error: string }> {
   try {
-    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    const project = await getActiveProject();
+    const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
 
     const brief = await loadLatestBriefingBody(agentSlug);
     if (!brief) return { ok: false, error: "No briefing yet for this agent — regenerate one first." };
 
     await ensureLocalGatewayToken();
-    const proposal = await callOpenClaw(buildProposePrompt(brief), agentSlug, { timeoutMs: TIMEOUT_MS });
+    const proposal = await callOpenClaw(buildProposePrompt(brief), agentSlug, { timeoutMs: TIMEOUT_MS, project });
     if (!proposal) return { ok: false, error: "Empty proposal returned from gateway" };
 
     return { ok: true, proposal };
@@ -311,7 +337,8 @@ export async function executeBriefingAction(
   proposal: string,
 ): Promise<{ ok: true; result: string } | { ok: false; error: string }> {
   try {
-    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    const project = await getActiveProject();
+    const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
     const trimmedProposal = proposal.trim().slice(0, 8000);
     if (!trimmedProposal) return { ok: false, error: "Empty proposal" };
@@ -323,7 +350,7 @@ export async function executeBriefingAction(
     const result = await callOpenClaw(
       buildExecutePrompt(brief, trimmedProposal),
       agentSlug,
-      { timeoutMs: TIMEOUT_MS },
+      { timeoutMs: TIMEOUT_MS, project },
     );
     if (!result) return { ok: false, error: "Empty result returned from gateway" };
 
@@ -340,7 +367,8 @@ export async function followUpBriefingAction(
   instruction: string,
 ): Promise<{ ok: true; result: string } | { ok: false; error: string }> {
   try {
-    const agent = BRIEFING_AGENTS.find((a) => a.slug === agentSlug);
+    const project = await getActiveProject();
+    const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
 
     const trimmed = instruction.trim().slice(0, 4000);
@@ -359,7 +387,7 @@ export async function followUpBriefingAction(
     const result = await callOpenClaw(
       buildFollowUpPrompt(brief, cappedHistory, trimmed),
       agentSlug,
-      { timeoutMs: TIMEOUT_MS },
+      { timeoutMs: TIMEOUT_MS, project },
     );
     if (!result) return { ok: false, error: "Empty result returned from gateway" };
 
@@ -376,9 +404,21 @@ export async function regenerateAllBriefings(
   ok: boolean;
   results: Array<{ agent: string; ok: boolean; error?: string }>;
 }> {
+  const project = await getActiveProject();
+
+  // Refresh social insights once up-front so they're available for every
+  // agent's briefing without making redundant per-channel agent calls.
+  try {
+    await refreshProjectSocialInsights(project);
+  } catch {
+    // Best-effort — don't block the briefing run if insights fail.
+  }
+
   const results = await Promise.all(
-    BRIEFING_AGENTS.map(async (a) => {
-      const r = await regenerateBriefing(a.slug, language);
+    project.briefingAgents.map(async (a) => {
+      const r = await regenerateBriefing(a.slug, language, {
+        skipInsightRefresh: true,
+      });
       return { agent: a.slug, ok: r.ok, error: r.error };
     }),
   );

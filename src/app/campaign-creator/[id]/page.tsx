@@ -5,6 +5,7 @@ import { CampaignFolderShell } from "@/components/campaign-folder-shell";
 import { CampaignTitleEditor } from "@/components/campaign-title-editor";
 import { prisma } from "@/lib/prisma";
 import { ageFromDate } from "@/lib/utils";
+import { getActiveProject } from "@/projects";
 
 export const dynamic = "force-dynamic";
 
@@ -15,14 +16,21 @@ export default async function CampaignFolderPage({
 }) {
   const { id } = await params;
 
-  const campaign = await prisma.campaign.findUnique({
-    where: { id },
-    include: {
-      documents: { orderBy: [{ isMain: "desc" }, { updatedAt: "desc" }] },
-    },
-  });
+  const [project, campaign] = await Promise.all([
+    getActiveProject(),
+    prisma.campaign.findUnique({
+      where: { id },
+      include: {
+        documents: { orderBy: [{ isMain: "desc" }, { updatedAt: "desc" }] },
+      },
+    }),
+  ]);
 
-  if (!campaign) notFound();
+  // 404 on missing OR cross-tenant access (campaign belongs to another project).
+  // TODO: a freshly-created campaign can transiently 404 here due to Neon
+  // read-after-write lag on the immediate redirect — add a short findUnique
+  // retry (e.g. 2x ~300ms) before notFound() to smooth that over.
+  if (!campaign || campaign.projectSlug !== project.slug) notFound();
 
   return (
     <div className="space-y-6">

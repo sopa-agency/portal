@@ -1,36 +1,123 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Portal — Multi-Tenant Ops Cockpit
 
-## Getting Started
+A multi-tenant internal portal for running a brand's social + community
+operations: AI-drafted posts, campaign building, briefings, analytics, and a
+per-project "brain". One codebase serves many projects — each on its own
+subdomain, with its own theme, accounts, allowlist, and AI agent.
 
-First, run the development server:
+> **History / naming.** This started as the SkateHive ops portal, then grew into
+> a reusable template under the **Reelflip** umbrella. **SkateHive**, **Gnars**,
+> and **Reelflip** are the first three projects (tenants) running on it. The repo
+> is `multi-tenant-portal` (GitHub: `SkateHive/marketing-portal`); SkateHive is
+> just one tenant, not the product.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Stack
+
+- **Next.js 16** (App Router) + **React 19** — ⚠️ this Next has breaking changes vs. older versions; read `node_modules/next/dist/docs/` before writing routing/caching/server-action code, and see `AGENTS.md`.
+- **Prisma + PostgreSQL** — portal data (runs, drafts, votes, campaigns).
+- **Supabase** — read-only userbase (SkateHive accounts) for the `/userbase` admin.
+- **Tailwind v4** — class-based light/dark theming is **mandatory** (see `AGENTS.md`).
+- **OpenClaw gateway** — the AI backbone; each project pins one OpenClaw agent.
+- **Publishing** — Hive (`@hiveio/dhive`), Farcaster (Neynar signer), Instagram (Meta Graph), X.
+- **Auth** — Hive keychain signature login, gated by a per-project allowlist.
+
+## How multi-tenancy works
+
+Tenancy is resolved from the request **subdomain**:
+
+```
+skatehive.portal.app  → slug "skatehive" → SkateHive ProjectConfig
+gnars.portal.app      → slug "gnars"     → Gnars ProjectConfig
+reelflip.portal.app   → slug "reelflip"  → Reelflip ProjectConfig
+localhost / apex      → PORTAL_DEFAULT_PROJECT (default "skatehive")
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. `src/proxy.ts` (middleware) resolves the slug from the `Host` header and
+   stamps every request with an `x-portal-project` header.
+2. `src/projects/index.ts` holds the `PROJECT_REGISTRY` and exposes
+   `getActiveProject()` — call it from any server component, server action, or
+   route handler to get the current tenant's `ProjectConfig`.
+3. Everything project-specific (theme, allowlist, Hive/Farcaster accounts,
+   repos, social channels, briefing agents, hidden routes, analytics) reads off
+   that config. No tenant can reach another tenant's data or agent workspace.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Each project is **pinned to one OpenClaw agent**, whose "brain" workspace
+(`~/.openclaw/workspace-<agentId>`) is exposed read/edit through `/brain` —
+scoped so a tenant can only ever see its own workspace.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Modules (sidebar)
 
-## Learn More
+| Route | What it does | Notes |
+|-------|--------------|-------|
+| `/` (Home) | Per-project **Socials** dashboard + agent **morning briefings** | Channels & briefing tabs come from the project config |
+| `/repo-to-social` | Worker turns GitHub commits → drafted tweets, with an editorial vote/approve/publish flow | Hidden for projects with no repos |
+| `/marketing-suggestions` | Sister pipeline: community signals (top posts/creators/briefing) → drafted posts | Uses the project's marketing agent |
+| `/campaign-creator` | Build & send campaigns (email templates, Hive publishing, weekly recaps) | `weeklyRecap` spec is per-project |
+| `/userbase` | Supabase-backed account admin | SkateHive only by default |
+| `/brain` | Browse/edit the active agent's workspace files | Tenant-scoped |
+| `/analytics` | GA4 + Search Console dashboards with AI insights | Only when `analytics` is configured |
+| Floating chat | In-app chat with the project's OpenClaw agent | `/api/agent/chat` |
 
-To learn more about Next.js, take a look at the following resources:
+Background **workers** (`scripts/*-worker.js`) run outside Next, claim jobs from
+the DB, and heartbeat; `/api/scheduler/tick` drives scheduled publishing.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Adding a new project (tenant)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The whole point of the template — a new brand is a config file, not a fork:
 
-## Deploy on Vercel
+1. **Create `src/projects/<slug>.ts`** exporting a `ProjectConfig`
+   (see `src/projects/types.ts` for the full shape, and `reelflip.ts` /
+   `skatehive.ts` / `gnars.ts` as references). Set the theme accent, `allowlist`
+   (Hive usernames), `hive`/`farcaster` accounts, `socials`, `briefingAgents`,
+   the OpenClaw `agent`, and any `hiddenRoutes`.
+2. **Register it** in `src/projects/index.ts` (`PROJECT_REGISTRY`).
+3. **Add assets** under `public/projects/<slug>/` (logo, favicon).
+4. **Add namespaced secrets** in your env file: `{SLUG}_GATEWAY_URL`,
+   `{SLUG}_GATEWAY_TOKEN`, `{SLUG}_PORTAL_DEVICE_*` (see `.env.example`).
+5. *(Optional)* Drop prompt overrides in the dir named by `prompts.dir`.
+6. Point a subdomain at the deployment — the middleware does the rest.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Getting started
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# 1. Install
+npm install
+
+# 2. Configure — copy and fill in. See the file for every variable.
+cp .env.example .env.local
+
+# 3. Database
+npm run db:generate
+npm run db:push
+
+# 4. Dev server (http://localhost:3000 → PORTAL_DEFAULT_PROJECT)
+npm run dev
+```
+
+To exercise a specific tenant locally, hit it by subdomain, e.g.
+`http://gnars.localhost:3000` (most browsers resolve `*.localhost` automatically).
+
+### Workers
+
+```bash
+npm run worker:repo-to-social         # commits → drafted tweets
+npm run worker:marketing-suggestions  # community signals → drafted posts
+```
+
+## Environment
+
+`.env.example` is the source of truth and is fully commented. The shape:
+
+- **Shared infra** — `DATABASE_URL`, `SESSION_SECRET`, `PORTAL_DEFAULT_PROJECT`.
+- **Per-project secrets** — namespaced `{UPPERCASE_SLUG}_*` (gateway URL/token,
+  device keys). SkateHive also falls back to legacy global `OPENCLAW_*` /
+  `GATEWAY_TOKEN` names for zero-change backward compatibility.
+- **Publishing** — Hive posting key, Neynar/Farcaster, Pinata, Instagram, X.
+- **Userbase** — Supabase service-role (server-only).
+
+## Conventions
+
+- **Light + dark mode is mandatory** for every UI change — use the semantic
+  tokens, never hardcode `zinc`/`black`/`white`. Full rules in `AGENTS.md`.
+- **Read the Next.js docs in `node_modules`** before writing framework code;
+  this version diverges from common training-data assumptions.

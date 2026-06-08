@@ -1,0 +1,114 @@
+import type { ProjectConfig } from "./types";
+
+// Gnars DAO — extreme sports collective on Base/Hive, born from Nouns DAO.
+// Accent: Gnars red noggles — #d11d2a (light) / #ff3344 (dark).
+const gnars: ProjectConfig = {
+  slug: "gnars",
+  name: "Gnars",
+  description: "Internal ops portal for Gnars DAO.",
+  allowlist: [
+    "xvlad",
+    "louzoshi",
+    "willdias",
+  ],
+  theme: {
+    // Gnars red noggles — matches portal-gnars globals.css exactly.
+    accentLight: "#d11d2a",
+    accentDark: "#ff3344",
+    accentBgLight: "rgba(209, 29, 42, 0.1)",
+    accentBgDark: "rgba(255, 51, 68, 0.12)",
+    accentBorderLight: "rgba(209, 29, 42, 0.3)",
+    accentBorderDark: "rgba(255, 51, 68, 0.35)",
+    logo: "/projects/gnars/logo.png",
+    favicon: "/projects/gnars/favicon.ico",
+  },
+  hive: {
+    // Gnars posts to the gnars Hive community.
+    account: "gnars",
+    community: "hive-173115", // shared skateboarding/extreme-sports community
+  },
+  farcaster: {
+    // Gnars casts in the /gnars channel on Farcaster.
+    channel: "gnars",
+  },
+  repos: [
+    "gnars-dao/gnars-website",
+  ],
+  socials: [
+    {
+      platform: "Farcaster",
+      handle: "@gnars",
+      url: "https://warpcast.com/gnars",
+      note: "casts in /gnars via Neynar managed signer",
+      summary:
+        "Primary channel — Gnars is a Nouns-born, onchain-native DAO and Farcaster is where that audience lives. Casts in the /gnars channel.",
+      cadence: "Per update + DAO/builder milestones.",
+      voice: "Noggles-up, irreverent, builder-energy. Onchain-native framing. Steve Crabalero's crew.",
+      formats: [
+        { name: "Cross-posted casts", description: "Product/DAO updates with rich-link embeds (gnars.com / proposals)." },
+        { name: "DAO milestones", description: "Proposals, auctions, builder wins worth rallying the channel around." },
+      ],
+      dos: ["Lead with onchain/DAO relevance", "Keep under ~320 chars", "Rally builders & noggle-holders"],
+      donts: ["Don't overload embeds (max 2)", "Don't flatten the irreverent voice into corporate copy"],
+    },
+    {
+      platform: "Hive",
+      handle: "@gnars",
+      url: "https://gnars.com",
+      note: "snaps via @gnars (shared extreme-sports community)",
+      summary: "Mirrors updates to Hive as snaps, reaching the shared skate/extreme-sports community.",
+      cadence: "Mirrors Farcaster cross-posts.",
+      voice: "Same Gnars voice; skate/extreme-sports flavored.",
+      formats: [{ name: "Cross-posted snaps", description: "Same draft as Farcaster, posted as a Hive snap." }],
+      dos: ["Credit builders/riders", "Link gnars.com"],
+      donts: ["No hashtags"],
+    },
+    {
+      platform: "X",
+      handle: "@gnars",
+      url: "https://x.com/gnars",
+      note: "manual publish via intent (no API auto-post)",
+      summary: "Broader reach. Same drafts, published by opening the X composer pre-filled.",
+      cadence: "Opportunistic, from the same draft batch.",
+      voice: "Punchy, noggles-up; ≤280 chars including any link.",
+      formats: [{ name: "Intent posts", description: "Text (+ manual image) opened in the X composer from the cross-post trigger." }],
+      dos: ["Keep ≤280 chars"],
+      donts: ["No hashtags"],
+    },
+  ],
+  // Gnars doesn't use the userbase (email) module.
+  hiddenRoutes: ["/userbase"],
+  // Steve assembles the weekly recap from live governance, not Hive clips.
+  weeklyRecap: {
+    sourcesHint:
+      "run scripts/gnars-subgraph.sh (active-proposals / proposals / votes / feed) for governance + auctions, check your governance memory and docs, and treat gnars.com /proposals + /treasury as stronger truth than memory",
+    sections: [
+      "Governance — proposals that moved this week (passed / failed / live), votes vs the 600 quorum, what each funds, and any follow-up or accountability gap",
+      "Treasury & auctions — recent auction settlements/bids and any material treasury event",
+      "Builds & products — what shipped or changed on gnars.com, gnars.center, gnars.tv; builder progress",
+      "Culture — Gnarly News drops, events (Luma), athlete or physical-product moments",
+      "The flywheel read — 1-2 lines on how this week advanced physical ↔ digital ↔ culture ↔ funding",
+      "Next week watch — live proposals + deadlines, upcoming auctions/events",
+    ],
+  },
+  briefingAgents: [
+    {
+      slug: "gnars-steve",
+      label: "Steve Crabalero",
+      tabLabel: "STEVE",
+      workspace: "workspace-gnars-steve",
+    },
+  ],
+  agent: {
+    gatewayEnvPrefix: "GNARS",
+    id: "gnars-steve",
+    displayName: "Steve Crabalero",
+    emoji: "🦀",
+    greeting: "Yo! Steve Crabalero here. Gnars DAO, noggles up, shred forever. What do you need, fam?",
+  },
+  prompts: {
+    dir: "prompts/gnars",
+  },
+};
+
+export default gnars;

@@ -17,13 +17,13 @@ import {
 import { detectTemplate, getCampaignTemplate } from "@/lib/campaign-templates";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { prisma } from "@/lib/prisma";
+import { getActiveProject } from "@/projects/index";
 import {
   fetchLatestWeeklyStokenIssue,
   fetchTopSkatehivePosts,
   formatPostsForPrompt,
 } from "@/lib/skatehive-content";
 
-const AI_AGENT_ID = "skatehive-marketing";
 const AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 4 * 60_000);
 const ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".openclaw", ".env");
 
@@ -33,20 +33,21 @@ const HIVE_NODES = [
   "https://api.deathwing.me",
   "https://hive-api.arcange.eu",
 ];
-const HIVE_COMMUNITY_TAG = "hive-173115";
 const SNAPS_CONTAINER_AUTHOR = "peak.snaps";
 
 export async function createCampaign(formData: FormData) {
   const templateId = ((formData.get("templateId") as string | null) ?? "").trim();
-  const template = templateId ? getCampaignTemplate(templateId) : null;
+
+  const project = await getActiveProject();
+  const template = templateId ? getCampaignTemplate(templateId, project) : null;
 
   const rawName = (formData.get("name") as string | null)?.trim();
   const name = rawName || template?.name || "Untitled campaign";
   const briefContent = template?.briefSeed ?? "";
-
   const campaign = await prisma.campaign.create({
     data: {
       name,
+      projectSlug: project.slug,
       documents: { create: { name: "Brief", isMain: true, content: briefContent } },
     },
     select: { id: true },
@@ -165,18 +166,30 @@ export async function generateCampaignBrief(campaignId: string): Promise<Generat
     return { ok: false, error: "Rename the campaign first — the title is what the brief is built from." };
   }
 
-  const template = detectTemplate(title);
+  const project = await getActiveProject();
+  const template = detectTemplate(title, project);
+  const aiAgentId = project.agent.id;
+  const communityTag = project.hive.community;
+  const farcasterChannel = project.farcaster.channel;
+  const hiveAccount = project.hive.account;
+  const projectName = project.name;
 
   // Weekly Stoken gets a dedicated branch: pull real recent posts from the
-  // hive-173115 community + the latest issue number, then have the AI
+  // community + the latest issue number, then have the AI
   // build a real recap instead of a generic template fill-in.
   if (template?.id === "weekly-stoken") {
-    return generateWeeklyStokenBrief(campaignId, title, campaign.documents[0]);
+    // Projects with a weeklyRecap spec let their own agent assemble the recap
+    // from its live sources/tools/memory. SkateHive (no spec) keeps the
+    // canonical Hive-posts Weekly Stoken flow.
+    if (project.weeklyRecap) {
+      return generateAgentRecapBrief(campaignId, template, campaign.documents[0], project);
+    }
+    return generateWeeklyStokenBrief(campaignId, title, campaign.documents[0], project);
   }
 
-  const prompt = `You are the growth lead at SkateHive — a community-owned skateboarding platform built on Hive where skaters post clips, earn $HIVE, and connect without algorithms or ads. Draft a marketing campaign brief for the campaign titled "${title}".
+  const prompt = `You are the growth lead at ${projectName} — a community-owned platform built on Hive. Draft a marketing campaign brief for the campaign titled "${title}".
 
-Write it as a long-form Hive blog post (300-500 words) that is ready to publish to the SkateHive community (tag: hive-173115). Editorial tone — direct, skater-to-skater, no corporate marketing-speak. Make concrete assumptions about goal, audience, offer, and channel mix based on the title; lean into the specifics the title implies.
+Write it as a long-form Hive blog post (300-500 words) that is ready to publish to the ${projectName} community (tag: ${communityTag}). Editorial tone — direct, community-to-community, no corporate marketing-speak. Make concrete assumptions about goal, audience, offer, and channel mix based on the title; lean into the specifics the title implies.
 
 Use this exact section structure:
 
@@ -188,7 +201,7 @@ Use this exact section structure:
 One paragraph stating the outcome we want and a measurable target.
 
 ## Audience
-2-3 sentences naming the specific skater segment, with the wedge that makes them relevant (region, age, content style, board setup, whatever fits).
+2-3 sentences naming the specific community segment, with the wedge that makes them relevant (region, age, content style, activity, whatever fits).
 
 ## The offer
 What the user actually gets. Be concrete (amounts in $HIVE/HBD, mechanics, timing, prizes).
@@ -197,7 +210,7 @@ What the user actually gets. Be concrete (amounts in $HIVE/HBD, mechanics, timin
 Specific start and end dates (assume the campaign runs ~4 weeks starting roughly 2 weeks from today, 2026-05-16).
 
 ## Channels
-Ordered list of the channels we'll use, in execution order. Skatehive's stack: Hive snaps (peak.snaps container), Farcaster /skateboard channel as @skatehive, Twitter/X thread, Discord announcement, email newsletter. Note which day each lands.
+Ordered list of the channels we'll use, in execution order. Stack: Hive snaps (peak.snaps container), Farcaster /${farcasterChannel} channel as @${hiveAccount}, Twitter/X thread, Discord announcement, email newsletter. Note which day each lands.
 
 ## Success metric
 Primary metric + 1 sentence on why it matters. Add a north-star metric as a follow-up line.
@@ -213,7 +226,7 @@ Return ONLY the markdown body starting with the H1 title — no preamble, no cod
   let raw: string;
   try {
     await ensureLocalGatewayToken();
-    raw = await callOpenClaw(prompt, AI_AGENT_ID, { timeoutMs: AI_TIMEOUT_MS });
+    raw = await callOpenClaw(prompt, aiAgentId, { timeoutMs: AI_TIMEOUT_MS, project });
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "AI gateway failed to draft the brief." };
   }
@@ -237,28 +250,38 @@ Return ONLY the markdown body starting with the H1 title — no preamble, no cod
 
 // ---------------------------------------------------------------------------
 // Weekly Stoken — dedicated brief generator. Pulls real trending posts from
-// the hive-173115 community and the latest issue number, then has the AI
-// build a recap that matches the canonical Weekly Stoken format
-// (see @skatehive/the-weekly-stoken-84 and prior issues).
+// the community and the latest issue number, then has the AI build a recap
+// that matches the canonical Weekly Stoken format.
 // ---------------------------------------------------------------------------
 
 async function generateWeeklyStokenBrief(
   campaignId: string,
   title: string,
   mainDoc: { id: string } | undefined,
+  project: Awaited<ReturnType<typeof getActiveProject>>,
 ): Promise<GenerateResult> {
+  const aiAgentId = project.agent.id;
+  const hiveAccount = project.hive.account;
+  const projectName = project.name;
   let posts: Awaited<ReturnType<typeof fetchTopSkatehivePosts>>;
   let latestIssue = 0;
   try {
     [posts, latestIssue] = await Promise.all([
-      fetchTopSkatehivePosts({ daysBack: 8, limit: 30, minVotes: 5, minBodyLength: 250 }),
-      fetchLatestWeeklyStokenIssue(),
+      fetchTopSkatehivePosts({
+        daysBack: 8,
+        limit: 30,
+        minVotes: 5,
+        minBodyLength: 250,
+        communityTag: project.hive.community,
+        frontendUrl: project.hive.frontend,
+      }),
+      fetchLatestWeeklyStokenIssue(project.hive.account),
     ]);
   } catch (error) {
     return {
       ok: false,
       error:
-        "Could not fetch SkateHive content from Hive: " +
+        "Could not fetch community content from Hive: " +
         (error instanceof Error ? error.message : String(error)),
     };
   }
@@ -267,16 +290,17 @@ async function generateWeeklyStokenBrief(
     return {
       ok: false,
       error:
-        "No qualifying posts found in hive-173115 in the last 8 days (need 5+ votes, real title, 250+ char body). Try again later or relax filters.",
+        `No qualifying posts found in ${project.hive.community} in the last 8 days (need 5+ votes, real title, 250+ char body). Try again later or relax filters.`,
     };
   }
 
   const nextIssue = latestIssue + 1;
   const postsBlock = formatPostsForPrompt(posts);
+  const communityTag = project.hive.community;
 
-  const prompt = `You are the editor of "The Weekly Stoken", SkateHive's flagship weekly content recap. You are writing Issue #${nextIssue}.
+  const prompt = `You are the editor of "The Weekly Stoken", ${projectName}'s flagship weekly content recap. You are writing Issue #${nextIssue}.
 
-This output is the FINAL Hive blog post that will be published to hive-173115 as @skatehive/the-weekly-stoken-${nextIssue}. It is NOT an internal brief — it is the publishable post itself. So no internal sections like "Goal", "Audience", "Window", "Channels", "Success metric", or "Risks". Reference the canonical format used in past issues (e.g. https://skatehive.app/@skatehive/the-weekly-stoken-${latestIssue}).
+This output is the FINAL Hive blog post that will be published to ${communityTag} as @${hiveAccount}/the-weekly-stoken-${nextIssue}. It is NOT an internal brief — it is the publishable post itself. So no internal sections like "Goal", "Audience", "Window", "Channels", "Success metric", or "Risks". Reference the canonical format used in past issues (e.g. https://skatehive.app/@${hiveAccount}/the-weekly-stoken-${latestIssue}).
 
 Use this structure exactly:
 
@@ -309,12 +333,12 @@ After the last featured post block, close with:
 QUALITY RULES — break any of these and the issue is unusable:
 1. Use ONLY posts from the list below. Do NOT invent posts, authors, URLs, or images. Do NOT use placeholders like [[clip 1]] or [[author]].
 2. Pick 5-8 posts. Lean toward variety: don't feature the same author twice unless they have two truly different posts.
-3. Lead with the highest-engagement post that has a clear title and a watchable hook (image + skating action). Drop posts whose titles are too short, generic, or look like snap fragments.
-4. Excerpts: real sentence from the body, keep the skater's voice. One sentence each, under 200 chars.
+3. Lead with the highest-engagement post that has a clear title and a watchable hook (image + action). Drop posts whose titles are too short, generic, or look like snap fragments.
+4. Excerpts: real sentence from the body, keep the author's voice. One sentence each, under 200 chars.
 5. Image URL MUST be the exact "Image:" URL from the post in the list below, or omitted entirely. Do not invent image URLs.
 6. The output IS the Hive blog post. Do not include any internal-brief sections (Goal / Audience / Window / Channels / Success metric / Risks).
 
-Real posts from hive-173115 in the past 8 days (sorted by engagement):
+Real posts from ${communityTag} in the past 8 days (sorted by engagement):
 
 ${postsBlock}
 
@@ -323,7 +347,7 @@ Return ONLY the markdown body starting with "# The Weekly Stoken #${nextIssue}".
   let raw: string;
   try {
     await ensureLocalGatewayToken();
-    raw = await callOpenClaw(prompt, AI_AGENT_ID, { timeoutMs: AI_TIMEOUT_MS });
+    raw = await callOpenClaw(prompt, aiAgentId, { timeoutMs: AI_TIMEOUT_MS, project });
   } catch (error) {
     return {
       ok: false,
@@ -353,6 +377,65 @@ Return ONLY the markdown body starting with "# The Weekly Stoken #${nextIssue}".
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// Agent-assembled weekly recap. Instead of injecting a fixed data source, the
+// project's agent compiles the recap from its OWN live sources, tools, and
+// memory (e.g. Gnars → onchain governance via gnars-subgraph; Reelflip → its
+// Instagram playbook), following the project's section guidance, in its own
+// voice. Driven by `project.weeklyRecap`.
+// ---------------------------------------------------------------------------
+
+async function generateAgentRecapBrief(
+  campaignId: string,
+  template: { label: string },
+  mainDoc: { id: string } | undefined,
+  project: Awaited<ReturnType<typeof getActiveProject>>,
+): Promise<GenerateResult> {
+  const recap = project.weeklyRecap;
+  if (!recap) return { ok: false, error: "No weekly-recap config for this project." };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const sectionList = recap.sections.map((s, i) => `${i + 1}. ${s}`).join("\n");
+
+  const prompt = `You are ${project.name}'s agent. Produce this week's recap ("${template.label}") for ${today}.
+
+Compile it from YOUR OWN live sources, tools, and memory${recap.sourcesHint ? ` — ${recap.sourcesHint}` : ""}. Do NOT invent numbers, governance results, or financial/onchain data — pull them from your real sources, and if a source is unavailable say so plainly instead of guessing.
+
+Cover these sections, in your own voice (apply your identity/SOUL — tone and concision):
+${sectionList}
+
+This output IS the publishable recap, not an internal brief — no "Goal / Audience / Window / Channels / Success metric / Risks" scaffolding. Return ONLY the markdown body, starting with an H1 title like "# ${template.label} — ${today}". No preamble, no code fences, no JSON.`;
+
+  let raw: string;
+  try {
+    await ensureLocalGatewayToken();
+    raw = await callOpenClaw(prompt, project.agent.id, { timeoutMs: AI_TIMEOUT_MS, project });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "AI gateway failed to draft the recap." };
+  }
+
+  const body = stripCodeFence(raw).trim();
+  if (!body) return { ok: false, error: "AI returned an empty recap." };
+
+  if (mainDoc) {
+    await prisma.campaignDocument.update({ where: { id: mainDoc.id }, data: { content: body } });
+  } else {
+    await prisma.campaignDocument.create({
+      data: { campaignId, name: "Brief", isMain: true, content: body },
+    });
+  }
+
+  // Keep the template label as the name prefix so re-generation still detects it.
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { name: `${template.label} — ${today}` },
+  });
+
+  revalidatePath(`/campaign-creator/${campaignId}`);
+  revalidatePath("/campaign-creator");
+  return { ok: true };
+}
+
 export async function generateCampaignArtifacts(campaignId: string): Promise<GenerateResult> {
   let campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -367,7 +450,8 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
     return { ok: false, error: "Write or generate the brief first — there's nothing for the artifacts to draw from." };
   }
 
-  let template = detectTemplate(title);
+  const artifactsProject = await getActiveProject();
+  let template = detectTemplate(title, artifactsProject);
 
   // For template campaigns where the brief still has [[placeholder]] markers
   // (i.e. user clicked "Generate everything from brief" before filling in the
@@ -390,10 +474,15 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
     title = campaign.name.trim();
     mainDoc = campaign.documents.find((d) => d.isMain);
     brief = (mainDoc?.content ?? "").trim();
-    template = detectTemplate(title);
+    template = detectTemplate(title, artifactsProject);
   }
+  const artifactsAgentId = artifactsProject.agent.id;
+  const artifactsCommunity = artifactsProject.hive.community;
+  const artifactsFarcasterChannel = artifactsProject.farcaster.channel;
+  const artifactsHiveAccount = artifactsProject.hive.account;
+  const artifactsProjectName = artifactsProject.name;
 
-  const templateRules = buildTemplateArtifactRules(template?.id);
+  const templateRules = buildTemplateArtifactRules(template?.id, artifactsProject);
 
   // Weekly Stoken: fetch the same trending posts the brief drew from so the
   // email can use real titles + URLs + thumbnail images per featured post.
@@ -405,10 +494,12 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
         limit: 30,
         minVotes: 5,
         minBodyLength: 250,
+        communityTag: artifactsProject.hive.community,
+        frontendUrl: artifactsProject.hive.frontend,
       });
       if (posts.length > 0) {
         weeklyStokenContext =
-          "\n\nReal SkateHive posts fetched fresh from hive-173115 (use these EXACT urls and image urls — do not invent):\n\n" +
+          `\n\nReal ${artifactsProjectName} posts fetched fresh from ${artifactsCommunity} (use these EXACT urls and image urls — do not invent):\n\n` +
           formatPostsForPrompt(posts);
       }
     } catch {
@@ -416,7 +507,7 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
     }
   }
 
-  const prompt = `You are the growth lead at SkateHive — a community-owned skateboarding platform built on Hive. Draft five coordinated campaign artifacts based on the brief below.
+  const prompt = `You are the growth lead at ${artifactsProjectName} — a community-owned platform built on Hive. Draft five coordinated campaign artifacts based on the brief below.
 
 Campaign title: "${title}"
 
@@ -440,7 +531,7 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
         "paddingY": 28,
         "paddingX": 32,
         "columns": [
-          { "blocks": [ { "type": "heading", "level": 3, "text": "SKATEHIVE UPDATE", "align": "left", "color": "#a3e635" } ] }
+          { "blocks": [ { "type": "heading", "level": 3, "text": "${artifactsProjectName.toUpperCase()} UPDATE", "align": "left", "color": "#a3e635" } ] }
         ]
       },
       {
@@ -456,11 +547,11 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
 }
 
 Rules:
-- "hive_snap": a single Hive snap (short post) that will be published as a comment under peak.snaps' daily container on hive-173115. Plain text, real line breaks, under 280 characters when possible. Skater voice. Mention the relevant link (https://skatehive.app/...). No hashtags in front — SkateHive frontends pick those up from json_metadata.
-- "farcaster": a single Farcaster cast for the /skateboard channel as @skatehive. Under 320 characters. Plain text. One short hook + the link. Emojis are fine when they fit the skate vibe (🛹).
-- "tweets": an array of 3-5 tweet strings posted from @skatehive. The first opens the thread with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them ("1/", "2/") — the UI handles that. Skater tone.
-- "discord": a single message for the SkateHive Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
-- "email": a structured email document. Use SkateHive accent colors (lime #a3e635 against #0a0a0a black/ink). Open with a dark hero section + eyebrow heading "SKATEHIVE UPDATE" in lime + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
+- "hive_snap": a single Hive snap (short post) that will be published as a comment under peak.snaps' daily container on ${artifactsCommunity}. Plain text, real line breaks, under 280 characters when possible. Community voice. No hashtags in front — Hive frontends pick those up from json_metadata.
+- "farcaster": a single Farcaster cast for the /${artifactsFarcasterChannel} channel as @${artifactsHiveAccount}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.
+- "tweets": an array of 3-5 tweet strings posted from @${artifactsHiveAccount}. The first opens the thread with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them ("1/", "2/") — the UI handles that.
+- "discord": a single message for the ${artifactsProjectName} Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
+- "email": a structured email document. Open with a dark hero section + eyebrow heading "${artifactsProjectName.toUpperCase()} UPDATE" in the project accent color + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
 
 Text + heading blocks support inline links via [label](url) markdown — the renderer turns those into <a> tags. Use that for any clickable link inside body text instead of a separate button. The "button" block is for the primary CTA only.
 
@@ -478,7 +569,7 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
   let raw: string;
   try {
     await ensureLocalGatewayToken();
-    raw = await callOpenClaw(prompt, AI_AGENT_ID, { timeoutMs: AI_TIMEOUT_MS });
+    raw = await callOpenClaw(prompt, artifactsAgentId, { timeoutMs: AI_TIMEOUT_MS, project: artifactsProject });
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "AI gateway failed to draft the artifacts." };
   }
@@ -574,7 +665,10 @@ export async function rebuildEmailFromHtml(
     return { ok: false, error: "Nothing to rebuild — this email is already structured (or empty)." };
   }
 
-  const prompt = `Convert the following HTML email into the structured SkateHive email-blocks JSON shape.
+  const emailProject = await getActiveProject();
+  const emailAgentId = emailProject.agent.id;
+
+  const prompt = `Convert the following HTML email into the structured email-blocks JSON shape.
 
 Return ONLY a JSON object matching this shape, no prose or code fences:
 
@@ -602,7 +696,7 @@ ${html}`;
   let raw: string;
   try {
     await ensureLocalGatewayToken();
-    raw = await callOpenClaw(prompt, AI_AGENT_ID, { timeoutMs: AI_TIMEOUT_MS });
+    raw = await callOpenClaw(prompt, emailAgentId, { timeoutMs: AI_TIMEOUT_MS, project: emailProject });
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "AI gateway failed to rebuild the email." };
   }
@@ -650,6 +744,10 @@ export async function publishHiveSnap(
     const text = doc.content.trim();
     if (!text) return { ok: false, error: "Snap is empty — nothing to publish." };
 
+    // Read active project so community tag and app label are project-aware.
+    const snapProject = await getActiveProject();
+    const communityTag = snapProject.hive.community;
+
     const { Client, PrivateKey } = await import("@hiveio/dhive");
     const client = new Client(HIVE_NODES);
 
@@ -672,8 +770,8 @@ export async function publishHiveSnap(
       .concat(text.match(/https?:\/\/[^\s)]+\.(?:png|jpe?g|gif|webp)(?:\?[^\s)]*)?/gi) ?? []);
 
     const metadata = {
-      app: "Marketing Portal Skatehive",
-      tags: [HIVE_COMMUNITY_TAG, "snaps"],
+      app: `Marketing Portal ${snapProject.name}`,
+      tags: [communityTag, "snaps"],
       images: [...new Set(imageUrls)],
     };
     const op = [
@@ -692,7 +790,7 @@ export async function publishHiveSnap(
     const pk = PrivateKey.fromString(key);
     await client.broadcast.sendOperations([op as never], pk);
 
-    const url = `https://skatehive.app/post/${account}/${permlink}`;
+    const url = `https://skatehive.app/post/${account}/${permlink}`; // NOTE: skatehive.app is the canonical Hive frontend used by all tenants; keeping as-is.
     revalidatePath(`/campaign-creator/${doc.campaignId}`);
     return { ok: true, url };
   } catch (err) {
@@ -725,31 +823,39 @@ function stripCodeFence(text: string): string {
 // Adds template-specific guard rails to the artifact prompt. The Weekly Stoken
 // branch is the load-bearing one: the brief already lists real posts; the
 // artifacts must reuse them verbatim instead of falling back to placeholders.
-function buildTemplateArtifactRules(templateId: string | undefined): string {
+function buildTemplateArtifactRules(
+  templateId: string | undefined,
+  project: Awaited<ReturnType<typeof getActiveProject>>,
+): string {
+  const hiveAccount = project.hive.account;
+  const farcasterChannel = project.farcaster.channel;
+  const communityTag = project.hive.community;
+  const projectName = project.name;
+
   if (templateId === "weekly-stoken") {
     return `\n\nTEMPLATE — WEEKLY STOKEN (strict rules):
-- The brief above is the publishable Hive blog post and lists 5-8 real featured posts with @authors, full skatehive.app URLs, and image markdown. The "Real SkateHive posts" section below the brief has the same posts in structured form (URL + Image URL per post). You MUST use those exact posts: authors, titles, URLs, image URLs, and the order they appear.
+- The brief above is the publishable Hive blog post and lists 5-8 real featured posts with @authors, full skatehive.app URLs, and image markdown. The "Real ${projectName} posts" section below the brief has the same posts in structured form (URL + Image URL per post). You MUST use those exact posts: authors, titles, URLs, image URLs, and the order they appear.
 - NEVER emit [[clip 1]], [[author]], [[username]], [[YYYY-MM-DD]], or any other placeholder pattern. Use the real values.
-- The link to the full Weekly Stoken issue is https://skatehive.app/@skatehive/the-weekly-stoken-<NN> where <NN> is the issue number in the brief's H1 (e.g. "Weekly Stoken #85").
+- The link to the full Weekly Stoken issue is https://skatehive.app/@${hiveAccount}/the-weekly-stoken-<NN> where <NN> is the issue number in the brief's H1 (e.g. "Weekly Stoken #85").
 
-Hive snap: name 2-3 of the actual featured skaters using @mentions and link to the full recap URL. Skater voice, under 280 chars.
+Hive snap: name 2-3 of the actual featured creators using @mentions and link to the full recap URL. Community voice, under 280 chars.
 
-Farcaster cast: real names + real link, /skateboard channel voice. Under 320 chars.
+Farcaster cast: real names + real link, /${farcasterChannel} channel voice. Under 320 chars.
 
-Tweets: 3-5 tweets. Tweet 1 is the hook + downward arrow. Tweets 2-4 highlight specific featured posts (use the post title + @author + the post's own skatehive.app URL). Final tweet recaps the Skater of the Week.
+Tweets: 3-5 tweets. Tweet 1 is the hook + downward arrow. Tweets 2-4 highlight specific featured posts (use the post title + @author + the post's own skatehive.app URL). Final tweet recaps the Creator of the Week.
 
 Discord: list every featured post with bullet points (— **[<title>](<post url>)** by <@author>). Open with @everyone or @community. Include the recap link at the end.
 
 EMAIL (this is the critical part — make it visual + clickable):
-- Subject: "Weekly Stoken #<NN> — <punchy hook>". Preheader teases the Skater of the Week + post count.
-- Hero section: black/lime gradient with eyebrow heading "WEEKLY STOKEN #<NN>" in lime (#a3e635).
-- Body section #1 (intro): H1 with the issue title, then one text block with the opening hook (1-2 sentences), then a button block "[Read the full recap](url)" pointing to https://skatehive.app/@skatehive/the-weekly-stoken-<NN>.
+- Subject: "Weekly Stoken #<NN> — <punchy hook>". Preheader teases the Creator of the Week + post count.
+- Hero section: dark gradient with eyebrow heading "WEEKLY STOKEN #<NN>" in the project accent color.
+- Body section #1 (intro): H1 with the issue title, then one text block with the opening hook (1-2 sentences), then a button block "[Read the full recap](url)" pointing to https://skatehive.app/@${hiveAccount}/the-weekly-stoken-<NN>.
 - Then FOR EACH FEATURED POST emit a section (one per post) with these blocks in order:
     1. image block — src = the post's "Image:" URL (from the structured list below), width 100, align "center", href = the post's skatehive.app URL (this makes the thumbnail a clickable link to the post)
     2. heading block — level 2, text = "[<post title>](<post url>)" using markdown link syntax so the title becomes clickable, color "#0a0a0a", align "left"
     3. text block — html = "By @<author>" then a newline then the one-sentence excerpt from the brief, color "#404040", align "left"
     4. divider block — color "#e5e5e5", thickness 1
-- After all featured-post sections, emit ONE closing section with a heading "Skater of the Week", a text block with the spotlight paragraph (use [@<author>](https://skatehive.app/@<author>) markdown for the link), and a small final text block with an unsubscribe / sign-off note.
+- After all featured-post sections, emit ONE closing section with a heading "Creator of the Week", a text block with the spotlight paragraph (use [@<author>](https://skatehive.app/@<author>) markdown for the link), and a small final text block with an unsubscribe / sign-off note.
 - DO NOT use a "list" block for the featured posts — use per-post image + heading + text + divider as described above. The list block does not render thumbnails.
 - If a post in the structured list has no image URL, omit the image block for that post but still emit the heading + text + divider.`;
   }
@@ -760,7 +866,7 @@ EMAIL (this is the critical part — make it visual + clickable):
 - Farcaster cast: dev voice, one paragraph, key ship + link.
 - Tweets: thread breaking out the 3 most user-visible changes; one tweet per change.
 - Discord: full list under **What shipped** + **Coming next** subsections. Tag @devs or @community as appropriate.
-- Email: dev-to-skater tone. Subject names the headline ship. Use heading + text blocks for each feature; end with "Coming next" list.`;
+- Email: dev-to-community tone. Subject names the headline ship. Use heading + text blocks for each feature; end with "Coming next" list.`;
   }
   if (templateId === "we-miss-you") {
     return `\n\nTEMPLATE — WE MISS YOU:
@@ -768,8 +874,10 @@ EMAIL (this is the critical part — make it visual + clickable):
 - Hive snap + Farcaster cast: short, public-facing "if you've been gone for a minute…" framing — they're the reminder, not the personal outreach.
 - Tweets: broad reminder the door is open; no @-mentions of lapsed accounts.
 - Discord: a DM template mods can copy/paste, with first_name placeholder and the lapsed user's last-post date placeholder ([last_post_date]).
-- Email: personalization tokens {{first_name}} in the H1 and \`{{last_post_date}}\` in the body. Subject is conversational ("Long time no skate, {{first_name}}?"). Single button "Drop a new clip" linking to https://skatehive.app/upload.`;
+- Email: personalization tokens {{first_name}} in the H1 and \`{{last_post_date}}\` in the body. Subject is conversational ("Long time, {{first_name}}?"). Single button "Join us again" linking to https://skatehive.app.`;
   }
+  // Suppress unused-variable warning for communityTag; it's available for future template rules.
+  void communityTag;
   return "";
 }
 

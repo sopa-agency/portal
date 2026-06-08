@@ -80,6 +80,9 @@ export type EmailColumn = {
 export type EmailSection = {
   id: string;
   background: string;
+  bannerSrc?: string;
+  bannerAlt?: string;
+  bannerHref?: string;
   paddingY: number;
   paddingX: number;
   columns: EmailColumn[];
@@ -225,6 +228,9 @@ function hydrate(doc: EmailDocument): EmailDocument {
     sections: (doc.sections ?? []).map((s) => ({
       id: s.id ?? newId("sec"),
       background: s.background ?? "#ffffff",
+      bannerSrc: s.bannerSrc ?? undefined,
+      bannerAlt: s.bannerAlt ?? "",
+      bannerHref: s.bannerHref ?? undefined,
       paddingY: s.paddingY ?? 24,
       paddingX: s.paddingX ?? 24,
       columns: (s.columns ?? []).map((c) => ({
@@ -271,13 +277,21 @@ export function renderEmail(doc: EmailDocument): string {
 function renderSection(section: EmailSection): string {
   const colCount = section.columns.length;
   const colWidth = colCount > 0 ? Math.floor(100 / colCount) : 100;
+  const banner = renderSectionBanner(section);
   const cells = section.columns
     .map((col) => {
       const blocks = col.blocks.map(renderBlock).join("\n");
       return '<td valign="top" width="' + colWidth + '%" style="width:' + colWidth + '%;padding:0 8px;vertical-align:top;">' + blocks + "</td>";
     })
     .join("");
-  return '<tr><td style="background:' + section.background + ";padding:" + section.paddingY + "px " + section.paddingX + 'px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + cells + "</tr></table></td></tr>";
+  return '<tr><td style="background:' + section.background + ";padding:" + section.paddingY + "px " + section.paddingX + 'px;">' + banner + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + cells + "</tr></table></td></tr>";
+}
+
+function renderSectionBanner(section: EmailSection): string {
+  if (!section.bannerSrc) return "";
+  const img = '<img src="' + esc(section.bannerSrc) + '" alt="' + esc(section.bannerAlt ?? "") + '" width="100%" style="display:block;width:100%;max-width:100%;height:auto;border-radius:8px;margin:0 0 16px 0;" />';
+  if (!section.bannerHref) return img;
+  return '<a href="' + esc(section.bannerHref) + '" target="_blank" rel="noopener" style="display:block;text-decoration:none;">' + img + "</a>";
 }
 
 function renderBlock(block: EmailBlock): string {

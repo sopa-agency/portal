@@ -8,14 +8,15 @@ import {
   saveRepoToSocialConfig,
   type RepoToSocialWorkerHealth,
   type RepoToSocialRunRow,
-  type TweetStatus,
 } from "@/app/actions/repo-to-social";
 import { parseRepoUrls, repoUrlToLabel } from "@/lib/repo-to-social-utils";
 import { RepoToSocialDialog } from "@/components/repo-to-social-batch-dialog";
+import { effectiveTweetStatus as effectiveTweetStatusBase } from "@/components/tweet-batch-dialog";
 
 type Config = {
   repoUrl: string;
   prompt: string;
+  repoPlaceholder?: string;
 };
 
 type KanbanColId = "generating" | "drafted" | "approved" | "published";
@@ -27,19 +28,9 @@ const KANBAN_COLUMNS: { id: KanbanColId; label: string; accent: string; border: 
   { id: "published", label: "Published", accent: "text-emerald-400", border: "border-emerald-400/20" },
 ];
 
-export function effectiveTweetStatus(
-  run: RepoToSocialRunRow,
-  tweetIndex: number | null,
-): TweetStatus {
-  if (tweetIndex !== null) {
-    const state = run.tweetStates?.[String(tweetIndex)];
-    if (state) return state.status;
-  }
-  if (run.editorialStatus === "approved") return "approved";
-  if (run.editorialStatus === "published") return "published";
-  if (run.editorialStatus === "skipped") return "skipped";
-  return "drafted";
-}
+// Re-exported for back-compat with anything that imported it from this shell.
+// The real implementation now lives in tweet-batch-dialog.
+export const effectiveTweetStatus = effectiveTweetStatusBase;
 
 type DraftCard = {
   id: string;
@@ -394,6 +385,7 @@ function SettingsAccordion({
   setPrompt,
   isSaving,
   onSave,
+  repoPlaceholder,
 }: {
   repoUrl: string;
   setRepoUrl: (v: string) => void;
@@ -401,6 +393,7 @@ function SettingsAccordion({
   setPrompt: (v: string) => void;
   isSaving: boolean;
   onSave: () => void;
+  repoPlaceholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const list = parseRepoUrls(repoUrl);
@@ -433,7 +426,7 @@ function SettingsAccordion({
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
               rows={3}
-              placeholder={"https://github.com/SkateHive/skatehive3.0"}
+              placeholder={repoPlaceholder ?? "https://github.com/owner/repo"}
               className="w-full resize-y rounded-xl border border-border bg-surface-elevated px-3 py-2 font-mono text-sm text-foreground placeholder:text-foreground-subtle focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
             <p className="text-[11px] text-foreground-faint">
@@ -472,10 +465,12 @@ export function RepoToSocialShell({
   config: initialConfig,
   runs: initialRuns,
   health,
+  repoPlaceholder,
 }: {
   config: Config;
   runs: RepoToSocialRunRow[];
   health: RepoToSocialWorkerHealth;
+  repoPlaceholder?: string;
 }) {
   const router = useRouter();
   const [repoUrl, setRepoUrl] = useState(initialConfig.repoUrl);
@@ -553,6 +548,7 @@ export function RepoToSocialShell({
         setPrompt={setPrompt}
         isSaving={isSaving}
         onSave={handleSave}
+        repoPlaceholder={repoPlaceholder}
       />
 
       <RepoToSocialDialog

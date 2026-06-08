@@ -1,15 +1,19 @@
-// OpenClaw gateway client for portal-skatehive.
+// OpenClaw gateway client — multi-tenant aware.
 //
 // Two transports:
 //   - LOCAL (dev, on the Mac mini): plain HTTP /v1/responses against 127.0.0.1
 //     using the loopback GATEWAY_TOKEN from ~/.openclaw/.env.
 //   - PROD (Vercel): device-signed WebSocket handshake against the public
-//     Tailscale Funnel URL, mirroring odysee-growth-os.
+//     Tailscale Funnel URL.
 //
-// callOpenClaw(prompt, agentId) auto-selects based on which env vars are set.
+// callOpenClaw(prompt, agentId, opts) auto-selects based on which env vars are
+// set. Pass `project` to use namespaced env vars (SKATEHIVE_GATEWAY_URL etc.).
+// When project is omitted the legacy globals are read directly (backward compat).
 
 import { createPrivateKey, sign } from "node:crypto";
 import WebSocket from "ws";
+import type { ProjectConfig } from "@/projects/types";
+import { projectEnv } from "@/projects/secrets";
 
 const WS_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_PROMPT_TIMEOUT_MS = 120_000;
@@ -32,19 +36,29 @@ function trimmed(name: string): string | null {
   return v ? v : null;
 }
 
+/** Read a gateway env var, preferring project-namespaced key, falling back to legacy global. */
+function gatewayEnv(key: string, project?: ProjectConfig): string | null {
+  if (project) {
+    const val = projectEnv(project, key);
+    return val ?? null;
+  }
+  // Legacy path: read global names as before.
+  return trimmed(key);
+}
+
 function resolveGatewayWsUrl(gatewayUrl: string) {
   const url = new URL(gatewayUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
 
-function buildSignedDevice(token: string, nonce: string) {
-  const deviceId = trimmed("OPENCLAW_PORTAL_DEVICE_ID");
-  const publicKey = trimmed("OPENCLAW_PORTAL_DEVICE_PUBLIC_KEY");
-  const privateKeyBase64 = trimmed("OPENCLAW_PORTAL_DEVICE_PRIVATE_KEY_BASE64");
+function buildSignedDevice(token: string, nonce: string, project?: ProjectConfig) {
+  const deviceId = gatewayEnv("PORTAL_DEVICE_ID", project) ?? trimmed("OPENCLAW_PORTAL_DEVICE_ID");
+  const publicKey = gatewayEnv("PORTAL_DEVICE_PUBLIC_KEY", project) ?? trimmed("OPENCLAW_PORTAL_DEVICE_PUBLIC_KEY");
+  const privateKeyBase64 = gatewayEnv("PORTAL_DEVICE_PRIVATE_KEY_BASE64", project) ?? trimmed("OPENCLAW_PORTAL_DEVICE_PRIVATE_KEY_BASE64");
   if (!deviceId || !publicKey || !privateKeyBase64) {
     throw new Error(
-      "Device-signed gateway not configured. Missing OPENCLAW_PORTAL_DEVICE_ID / PUBLIC_KEY / PRIVATE_KEY_BASE64.",
+      "Device-signed gateway not configured. Missing PORTAL_DEVICE_ID / PUBLIC_KEY / PRIVATE_KEY_BASE64.",
     );
   }
 
@@ -100,10 +114,16 @@ function normalizeAssistantText(message: unknown): string {
 async function callOverHttp(
   prompt: string,
   agentId: string,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; project?: ProjectConfig } = {},
 ): Promise<string> {
-  const url = trimmed("OPENCLAW_GATEWAY_URL") ?? "http://127.0.0.1:18789";
-  const token = trimmed("OPENCLAW_GATEWAY_TOKEN") ?? trimmed("GATEWAY_TOKEN");
+  const url =
+    (opts.project ? projectEnv(opts.project, "GATEWAY_URL") : null) ??
+    trimmed("OPENCLAW_GATEWAY_URL") ??
+    "http://127.0.0.1:18789";
+  const token =
+    (opts.project ? projectEnv(opts.project, "GATEWAY_TOKEN") : null) ??
+    trimmed("OPENCLAW_GATEWAY_TOKEN") ??
+    trimmed("GATEWAY_TOKEN");
   if (!token) {
     throw new Error("GATEWAY_TOKEN / OPENCLAW_GATEWAY_TOKEN not set for HTTP transport.");
   }
@@ -145,17 +165,22 @@ async function callOverHttp(
 async function callOverWs(
   prompt: string,
   agentId: string,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; project?: ProjectConfig } = {},
 ): Promise<string> {
-  const gatewayUrl = trimmed("OPENCLAW_GATEWAY_URL");
-  const gatewayToken = trimmed("GATEWAY_TOKEN");
+  const gatewayUrl =
+    (opts.project ? projectEnv(opts.project, "GATEWAY_URL") : null) ??
+    trimmed("OPENCLAW_GATEWAY_URL");
+  const gatewayToken =
+    (opts.project ? projectEnv(opts.project, "GATEWAY_TOKEN") : null) ??
+    trimmed("GATEWAY_TOKEN");
   if (!gatewayUrl || !gatewayToken) {
     throw new Error("OPENCLAW_GATEWAY_URL and GATEWAY_TOKEN are required for WS transport.");
   }
 
   const wsUrl = resolveGatewayWsUrl(gatewayUrl);
   const ws = new WebSocket(wsUrl);
-  const sessionKey = `agent:${agentId}:portal-skatehive`;
+  const projectSlug = opts.project?.slug ?? "portal";
+  const sessionKey = `agent:${agentId}:${projectSlug}`;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS;
   const idempotencyKey = `portal-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -194,7 +219,7 @@ async function callOverWs(
                 commands: [],
                 permissions: {},
                 auth: { token: gatewayToken },
-                device: buildSignedDevice(gatewayToken, nonce),
+                device: buildSignedDevice(gatewayToken, nonce, opts.project),
               },
             }),
           );
@@ -294,12 +319,18 @@ async function callOverWs(
 export async function callOpenClaw(
   prompt: string,
   agentId: string,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; project?: ProjectConfig } = {},
 ): Promise<string> {
-  const hasDeviceAuth =
-    !!trimmed("OPENCLAW_PORTAL_DEVICE_ID") &&
-    !!trimmed("OPENCLAW_PORTAL_DEVICE_PUBLIC_KEY") &&
-    !!trimmed("OPENCLAW_PORTAL_DEVICE_PRIVATE_KEY_BASE64");
+  const deviceId =
+    (opts.project ? projectEnv(opts.project, "PORTAL_DEVICE_ID") : null) ??
+    trimmed("OPENCLAW_PORTAL_DEVICE_ID");
+  const publicKey =
+    (opts.project ? projectEnv(opts.project, "PORTAL_DEVICE_PUBLIC_KEY") : null) ??
+    trimmed("OPENCLAW_PORTAL_DEVICE_PUBLIC_KEY");
+  const privateKey =
+    (opts.project ? projectEnv(opts.project, "PORTAL_DEVICE_PRIVATE_KEY_BASE64") : null) ??
+    trimmed("OPENCLAW_PORTAL_DEVICE_PRIVATE_KEY_BASE64");
+  const hasDeviceAuth = !!deviceId && !!publicKey && !!privateKey;
   if (hasDeviceAuth) return callOverWs(prompt, agentId, opts);
   return callOverHttp(prompt, agentId, opts);
 }

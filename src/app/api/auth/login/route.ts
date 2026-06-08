@@ -8,6 +8,7 @@ import {
   signSession,
   verifyChallenge,
 } from "@/lib/auth";
+import { getActiveProject } from "@/projects/index";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,8 @@ const HIVE_NODES = [
 type Body = { username?: unknown; signature?: unknown };
 
 export async function POST(req: NextRequest) {
+  const project = await getActiveProject();
+
   const body = (await req.json().catch(() => null)) as Body | null;
   const username = typeof body?.username === "string" ? body.username.toLowerCase().trim() : "";
   const signatureHex = typeof body?.signature === "string" ? body.signature : "";
@@ -28,9 +31,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "username and signature required" }, { status: 400 });
   }
 
-  if (!isAllowed(username)) {
+  if (!isAllowed(username, project)) {
     return NextResponse.json(
-      { error: `@${username} is not on the portal allowlist. Ask vlad to add you.` },
+      { error: `@${username} is not on the ${project.name} portal allowlist. Ask an admin to add you.` },
       { status: 403 },
     );
   }
