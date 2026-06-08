@@ -86,6 +86,14 @@ const reelflip: ProjectConfig = {
   // Reelflip doesn't use the userbase (email) or repo-to-social modules yet.
   hiddenRoutes: ["/userbase", "/repo-to-social"],
   postCreator: true,
+  // Reelflip is an Instagram-first editorial brand — NOT a Hive platform — so
+  // override the default campaign-artifact framing with its real persona/voice.
+  campaignArtifacts: {
+    persona:
+      "the editorial lead at Reelflip — a brand that applies the skater's way of seeing to culture at large (it speaks *from* skate, not *about* it). Reelflip is Instagram-first and also cross-posts to Hive via the SkateHive community",
+    voiceHint:
+      "The older friend in the scene who overthinks it. Ironic, specific, never generic. Collective 'a gente'. Real scene slang only when it fits — never 'paixão/superação/resiliência'. Don't write anything a generic skate shop could sign. Hero line to live up to: 'Não é sobre andar de skate. É sobre enxergar como quem anda.'",
+  },
   weeklyRecap: {
     sourcesHint:
       "use your playbook (docs/playbook.md) and your Instagram knowledge; the portal also tracks live IG metrics (reach, saves, shares per format)",

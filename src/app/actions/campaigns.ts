@@ -27,6 +27,19 @@ import {
 const AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 4 * 60_000);
 const ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".openclaw", ".env");
 
+// Project-aware persona for campaign prompts. Defaults to the original
+// Hive-platform framing (SkateHive/Gnars unchanged); projects can override it
+// via `campaignArtifacts.persona` when that framing is wrong (e.g. Reelflip).
+function campaignPersona(project: {
+  name: string;
+  campaignArtifacts?: { persona?: string };
+}): string {
+  return (
+    project.campaignArtifacts?.persona?.trim() ||
+    `the growth lead at ${project.name} — a community-owned platform built on Hive`
+  );
+}
+
 // Hive snap publishing constants (mirrors repo-to-social.ts).
 const HIVE_NODES = [
   "https://api.hive.blog",
@@ -34,6 +47,83 @@ const HIVE_NODES = [
   "https://hive-api.arcange.eu",
 ];
 const SNAPS_CONTAINER_AUTHOR = "peak.snaps";
+
+export async function createCampaignFromInstagramPost(
+  postId: string,
+): Promise<{ ok: true; campaignId: string } | { ok: false; error: string }> {
+  try {
+    const project = await getActiveProject();
+
+    const post = await prisma.instagramPost.findUnique({
+      where: { id: postId },
+    });
+
+    if (!post) return { ok: false, error: "Post not found." };
+    if (post.projectSlug !== project.slug) return { ok: false, error: "Post not found." };
+    if (post.status !== "published") return { ok: false, error: "Only published posts can seed a campaign." };
+
+    // Build a short caption snippet for naming / heading
+    const captionSnippet = (post.caption ?? "").trim().slice(0, 60).replace(/\n/g, " ") || null;
+    const dateStr = post.publishedAt
+      ? new Date(post.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+      : new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+    const heading = captionSnippet ?? dateStr;
+    const igHandle = project.hive.account ?? project.slug;
+
+    // Build seed brief — fully written, no [[ placeholders
+    const lines: string[] = [];
+    lines.push(`# Cross-platform from Instagram — ${heading}`);
+    lines.push("");
+    lines.push("## Source");
+    lines.push(
+      `Published Instagram ${(post.type ?? "post").toLowerCase()} by @${igHandle} on ${dateStr}.`,
+    );
+    if (post.permalink) lines.push(`Original: ${post.permalink}`);
+    lines.push("");
+
+    if (post.caption) {
+      lines.push("## Original caption");
+      lines.push(post.caption);
+      lines.push("");
+    }
+
+    if (post.firstComment) {
+      lines.push("## First comment");
+      lines.push(post.firstComment);
+      lines.push("");
+    }
+
+    const mediaUrls: string[] = Array.isArray(post.mediaUrls) ? (post.mediaUrls as string[]) : [];
+    if (mediaUrls.length > 0) {
+      lines.push("## Media");
+      for (const url of mediaUrls) lines.push(`- ${url}`);
+      lines.push("");
+    }
+
+    lines.push("## Goal");
+    lines.push(
+      `Adapt this published Instagram post into coordinated posts for the other channels — an X/Twitter thread, a Farcaster cast, a Discord announcement, and an email newsletter — preserving the core message and ${project.name}'s voice, each native to its platform. Link back to the Instagram post where it fits.`,
+    );
+
+    const seedBrief = lines.join("\n");
+    const campaignName = `IG → cross-platform · ${captionSnippet ? captionSnippet.slice(0, 50) : dateStr}`;
+
+    const campaign = await prisma.campaign.create({
+      data: {
+        name: campaignName,
+        projectSlug: project.slug,
+        documents: { create: { name: "Brief", isMain: true, content: seedBrief } },
+      },
+      select: { id: true },
+    });
+
+    revalidatePath("/campaign-creator");
+    return { ok: true, campaignId: campaign.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Failed to create campaign." };
+  }
+}
 
 export async function createCampaign(formData: FormData) {
   const templateId = ((formData.get("templateId") as string | null) ?? "").trim();
@@ -187,7 +277,7 @@ export async function generateCampaignBrief(campaignId: string): Promise<Generat
     return generateWeeklyStokenBrief(campaignId, title, campaign.documents[0], project);
   }
 
-  const prompt = `You are the growth lead at ${projectName} — a community-owned platform built on Hive. Draft a marketing campaign brief for the campaign titled "${title}".
+  const prompt = `You are ${campaignPersona(project)}. Draft a marketing campaign brief for the campaign titled "${title}".
 
 Write it as a long-form Hive blog post (300-500 words) that is ready to publish to the ${projectName} community (tag: ${communityTag}). Editorial tone — direct, community-to-community, no corporate marketing-speak. Make concrete assumptions about goal, audience, offer, and channel mix based on the title; lean into the specifics the title implies.
 
@@ -507,7 +597,10 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
     }
   }
 
-  const prompt = `You are the growth lead at ${artifactsProjectName} — a community-owned platform built on Hive. Draft five coordinated campaign artifacts based on the brief below.
+  const artifactsVoiceHint = artifactsProject.campaignArtifacts?.voiceHint?.trim();
+  const prompt = `You are ${campaignPersona(artifactsProject)}. Draft five coordinated campaign artifacts based on the brief below.${
+    artifactsVoiceHint ? `\n\nVoice: ${artifactsVoiceHint}` : ""
+  }
 
 Campaign title: "${title}"
 

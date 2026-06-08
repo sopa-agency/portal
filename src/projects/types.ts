@@ -104,6 +104,18 @@ export type ProjectConfig = {
    */
   postCreator?: boolean;
   /**
+   * Overrides for campaign-artifact generation (brief + cross-platform drafts).
+   * When absent, the default "growth lead at a community-owned Hive platform"
+   * framing is used (SkateHive/Gnars). Set this for brands where that's wrong
+   * (e.g. Reelflip — an Instagram-first editorial brand).
+   */
+  campaignArtifacts?: {
+    /** Replaces "the growth lead at {name} — a community-owned platform built on Hive". */
+    persona?: string;
+    /** Extra voice/tone guidance injected into the artifact prompts. */
+    voiceHint?: string;
+  };
+  /**
    * Google Analytics 4 and Search Console configuration.
    * When absent, the Analytics nav item is hidden and /analytics returns 404.
    */

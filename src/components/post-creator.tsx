@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   ImagePlus,
   Loader2,
@@ -30,6 +31,8 @@ import {
   FileEdit,
   LayoutList,
   CalendarDays,
+  ExternalLink,
+  Megaphone,
 } from "lucide-react";
 import {
   listDrafts,
@@ -47,6 +50,7 @@ import {
   type DraftRow,
   type UserTag,
 } from "@/app/actions/post-creator";
+import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
 
 const CAPTION_MAX = 2200;
 const COMMENT_MAX = 2200;
@@ -57,7 +61,7 @@ const POST_TYPES: { value: PostType; label: string; hint: string }[] = [
 ];
 
 type AspectRatio = "1:1" | "4:5" | "1.91:1" | "9:16";
-type ViewTab = "create" | "drafts" | "scheduled";
+type ViewTab = "create" | "drafts" | "calendar";
 
 // Step IDs — used to compute the visible sequence
 type StepId =
@@ -353,6 +357,7 @@ function PostDialog({
   onDelete: (id: string) => void;
   onRefresh: () => Promise<void>;
 }) {
+  const router = useRouter();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [dialogCaption, setDialogCaption] = useState(post.caption);
   const [dialogComment, setDialogComment] = useState(post.firstComment ?? "");
@@ -365,10 +370,13 @@ function PostDialog({
   const [confirmPublishDialog, setConfirmPublishDialog] = useState(false);
   const [publishingDialog, setPublishingDialog] = useState(false);
   const [publishDialogError, setPublishDialogError] = useState<string | null>(null);
+  const [creatingCampaign, setCreatingCampaign] = useState(false);
+  const [campaignError, setCampaignError] = useState<string | null>(null);
 
   const now = Date.now();
   const isDue = post.scheduledFor ? new Date(post.scheduledFor).getTime() <= now : false;
   const isManual = post.publishMode === "manual";
+  const isPublished = post.status === "published";
 
   const appTasks: string[] = [];
   if (post.musicNote) appTasks.push(`Music: ${post.musicNote}`);
@@ -456,6 +464,23 @@ function PostDialog({
     } finally {
       setPublishingDialog(false);
       setConfirmPublishDialog(false);
+    }
+  }
+
+  async function handleCreateCampaign() {
+    setCreatingCampaign(true);
+    setCampaignError(null);
+    try {
+      const res = await createCampaignFromInstagramPost(post.id);
+      if (res.ok) {
+        router.push(`/campaign-creator/${res.campaignId}`);
+      } else {
+        setCampaignError(res.error);
+        setCreatingCampaign(false);
+      }
+    } catch {
+      setCampaignError("Failed to create campaign. Try again.");
+      setCreatingCampaign(false);
     }
   }
 
@@ -574,236 +599,378 @@ function PostDialog({
                 </div>
               )}
 
-              {/* Caption editor */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-foreground-muted">Caption</label>
-                  <span className="text-[11px] tabular-nums text-foreground-faint">
-                    {dialogCaption.length}/{CAPTION_MAX}
-                  </span>
-                </div>
-                <textarea
-                  value={dialogCaption}
-                  onChange={(e) => setDialogCaption(e.target.value)}
-                  rows={4}
-                  className="w-full resize-y rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
-                  placeholder="Caption…"
-                />
-              </div>
+              {isPublished ? (
+                /* ── Published branch: read-only caption + comment ── */
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-foreground-muted">Caption</label>
+                    <div className="w-full rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-sm text-foreground whitespace-pre-wrap">
+                      {post.caption || <span className="text-foreground-faint italic">No caption</span>}
+                    </div>
+                  </div>
 
-              {/* First comment editor */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground-muted">First comment</label>
-                <textarea
-                  value={dialogComment}
-                  onChange={(e) => setDialogComment(e.target.value)}
-                  rows={2}
-                  className="w-full resize-y rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
-                  placeholder="First comment (optional)…"
-                />
-              </div>
-
-              {/* Reschedule */}
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
-                  <Clock className="h-3.5 w-3.5" />
-                  Reschedule
-                </label>
-                <input
-                  type="datetime-local"
-                  value={dialogSchedule}
-                  min={toDatetimeLocalValue(new Date())}
-                  onChange={(e) => setDialogSchedule(e.target.value)}
-                  className="rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground outline-none focus:border-accent-border tabular-nums"
-                />
-              </div>
-
-              {/* Save changes button (inline when there are changes) */}
-              {hasChanges && (
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  Save changes
-                </button>
-              )}
-
-              {/* Save flash */}
-              {saveFlash && (
-                <p
-                  className={`flex items-center gap-1.5 text-sm ${
-                    saveFlash.startsWith("Error") ? "text-danger" : "text-success"
-                  }`}
-                >
-                  {saveFlash.startsWith("Error") ? (
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  {post.firstComment && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-foreground-muted">First comment</label>
+                      <div className="w-full rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-sm text-foreground whitespace-pre-wrap">
+                        {post.firstComment}
+                      </div>
+                    </div>
                   )}
-                  {saveFlash}
-                </p>
-              )}
 
-              {/* Manual checklist */}
-              {isManual && isDue && appTasks.length > 0 && (
-                <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 space-y-1.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-warning">
-                    Set in Instagram app
-                  </p>
-                  {appTasks.map((t) => (
-                    <p key={t} className="flex items-start gap-1.5 text-[12px] text-warning">
-                      <span className="mt-0.5">•</span>
-                      <span>{t}</span>
+                  {post.publishedAt && (
+                    <p className="flex items-center gap-1.5 text-[12px] tabular-nums text-foreground-subtle">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                      Published {formatLocalDatetime(post.publishedAt)}
                     </p>
-                  ))}
-                </div>
-              )}
+                  )}
 
-              {/* Publish dialog error */}
-              {publishDialogError && (
-                <p className="flex items-center gap-1.5 text-sm text-danger">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  {publishDialogError}
-                </p>
+                  {/* Create Campaign helper text */}
+                  <div className="rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-[12px] text-foreground-muted">
+                    <span className="font-medium text-foreground-subtle">Create Campaign</span>
+                    {" "}opens a campaign seeded with this post&apos;s content — then hit Generate to draft the X thread, Farcaster, Discord &amp; email.
+                  </div>
+
+                  {/* Campaign error */}
+                  {campaignError && (
+                    <p className="flex items-center gap-1.5 text-sm text-danger">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      {campaignError}
+                    </p>
+                  )}
+                </>
+              ) : (
+                /* ── Non-published branch: editable caption + comment + reschedule ── */
+                <>
+                  {/* Caption editor */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-foreground-muted">Caption</label>
+                      <span className="text-[11px] tabular-nums text-foreground-faint">
+                        {dialogCaption.length}/{CAPTION_MAX}
+                      </span>
+                    </div>
+                    <textarea
+                      value={dialogCaption}
+                      onChange={(e) => setDialogCaption(e.target.value)}
+                      rows={4}
+                      className="w-full resize-y rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
+                      placeholder="Caption…"
+                    />
+                  </div>
+
+                  {/* First comment editor */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-foreground-muted">First comment</label>
+                    <textarea
+                      value={dialogComment}
+                      onChange={(e) => setDialogComment(e.target.value)}
+                      rows={2}
+                      className="w-full resize-y rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
+                      placeholder="First comment (optional)…"
+                    />
+                  </div>
+
+                  {/* Reschedule */}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
+                      <Clock className="h-3.5 w-3.5" />
+                      Reschedule
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={dialogSchedule}
+                      min={toDatetimeLocalValue(new Date())}
+                      onChange={(e) => setDialogSchedule(e.target.value)}
+                      className="rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground outline-none focus:border-accent-border tabular-nums"
+                    />
+                  </div>
+
+                  {/* Save changes button (inline when there are changes) */}
+                  {hasChanges && (
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                    >
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                      Save changes
+                    </button>
+                  )}
+
+                  {/* Save flash */}
+                  {saveFlash && (
+                    <p
+                      className={`flex items-center gap-1.5 text-sm ${
+                        saveFlash.startsWith("Error") ? "text-danger" : "text-success"
+                      }`}
+                    >
+                      {saveFlash.startsWith("Error") ? (
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      )}
+                      {saveFlash}
+                    </p>
+                  )}
+
+                  {/* Manual checklist */}
+                  {isManual && isDue && appTasks.length > 0 && (
+                    <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 space-y-1.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-warning">
+                        Set in Instagram app
+                      </p>
+                      {appTasks.map((t) => (
+                        <p key={t} className="flex items-start gap-1.5 text-[12px] text-warning">
+                          <span className="mt-0.5">•</span>
+                          <span>{t}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Publish dialog error */}
+                  {publishDialogError && (
+                    <p className="flex items-center gap-1.5 text-sm text-danger">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      {publishDialogError}
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
             {/* Footer actions — pinned to bottom of right column */}
             <div className="shrink-0 space-y-2 border-t border-border px-5 py-4">
-              {/* Main actions row */}
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Open in full editor */}
-                <button
-                  type="button"
-                  onClick={() => { onLoad(post); onClose(); }}
-                  className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
-                >
-                  <FileEdit className="h-3.5 w-3.5" />
-                  Open in editor
-                </button>
+              {isPublished ? (
+                /* ── Published post footer actions ── */
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* View on Instagram */}
+                  {post.permalink && (
+                    <a
+                      href={post.permalink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="View on Instagram"
+                      className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      View on Instagram
+                    </a>
+                  )}
 
-                {/* Copy caption */}
-                {post.caption && (
+                  {/* Copy caption */}
+                  {post.caption && (
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(post.caption)}
+                      className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy caption
+                    </button>
+                  )}
+
+                  {/* Download media */}
+                  {post.mediaUrls.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (const url of post.mediaUrls) {
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.target = "_blank";
+                          a.rel = "noopener noreferrer";
+                          a.click();
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </button>
+                  )}
+
+                  {/* Create Campaign */}
                   <button
                     type="button"
-                    onClick={() => navigator.clipboard.writeText(dialogCaption || post.caption)}
-                    className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                    aria-label="Create campaign from this post"
+                    onClick={handleCreateCampaign}
+                    disabled={creatingCampaign}
+                    className="flex items-center gap-1.5 rounded-xl border border-accent-border bg-accent-bg px-3 py-1.5 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
                   >
-                    <Copy className="h-3.5 w-3.5" />
-                    Copy caption
-                  </button>
-                )}
-
-                {/* Download media */}
-                {post.mediaUrls.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      for (const url of post.mediaUrls) {
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.target = "_blank";
-                        a.rel = "noopener noreferrer";
-                        a.click();
-                      }
-                    }}
-                    className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Download
-                  </button>
-                )}
-
-                {/* Mark as posted (manual) */}
-                {isManual && isDue && (
-                  <button
-                    type="button"
-                    onClick={() => { onMarkPosted(post.id); onClose(); }}
-                    className="flex items-center gap-1.5 rounded-xl border border-warning/40 bg-warning/10 px-3 py-1.5 text-[12px] font-semibold text-warning transition-colors hover:bg-warning/20"
-                  >
-                    <CalendarCheck className="h-3.5 w-3.5" />
-                    Mark posted
-                  </button>
-                )}
-
-                {/* Publish now (auto mode only) */}
-                {!isManual && (
-                  <>
-                    {confirmPublishDialog ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[12px] text-foreground-muted">Publish now?</span>
-                        <button
-                          type="button"
-                          onClick={handlePublishDialog}
-                          disabled={publishingDialog}
-                          className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50"
-                        >
-                          {publishingDialog ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                          Yes
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmPublishDialog(false)}
-                          className="rounded-lg border border-border px-2.5 py-1 text-[12px] font-medium text-foreground-muted hover:text-foreground"
-                        >
-                          No
-                        </button>
-                      </div>
+                    {creatingCampaign ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
+                      <Megaphone className="h-3.5 w-3.5" />
+                    )}
+                    {creatingCampaign ? "Creating campaign…" : "Create Campaign"}
+                  </button>
+
+                  {/* Delete */}
+                  {confirmDelete ? (
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <span className="text-[12px] text-danger">Delete post?</span>
                       <button
                         type="button"
-                        onClick={() => setConfirmPublishDialog(true)}
-                        className="flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+                        onClick={() => { onDelete(post.id); onClose(); }}
+                        className="rounded-lg bg-danger/10 border border-danger/30 px-2.5 py-1 text-[12px] font-semibold text-danger hover:bg-danger/20"
                       >
-                        <Send className="h-3.5 w-3.5" />
-                        Publish now
+                        Delete
                       </button>
-                    )}
-                  </>
-                )}
-
-                {/* Cancel schedule */}
-                <button
-                  type="button"
-                  onClick={() => { onCancel(post.id); onClose(); }}
-                  className="rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-faint transition-colors hover:border-border-strong hover:text-foreground"
-                >
-                  Cancel schedule
-                </button>
-
-                {/* Delete */}
-                {confirmDelete ? (
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <span className="text-[12px] text-danger">Delete post?</span>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(false)}
+                        className="rounded-lg border border-border px-2.5 py-1 text-[12px] text-foreground-muted hover:text-foreground"
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => { onDelete(post.id); onClose(); }}
-                      className="rounded-lg bg-danger/10 border border-danger/30 px-2.5 py-1 text-[12px] font-semibold text-danger hover:bg-danger/20"
+                      aria-label="Delete post"
+                      onClick={() => setConfirmDelete(true)}
+                      className="ml-auto rounded-xl border border-border p-1.5 text-foreground-faint transition-colors hover:border-danger/30 hover:text-danger"
                     >
-                      Delete
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDelete(false)}
-                      className="rounded-lg border border-border px-2.5 py-1 text-[12px] text-foreground-muted hover:text-foreground"
-                    >
-                      No
-                    </button>
-                  </div>
-                ) : (
+                  )}
+                </div>
+              ) : (
+                /* ── Non-published footer actions (scheduled / draft) ── */
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Open in full editor */}
                   <button
                     type="button"
-                    aria-label="Delete post"
-                    onClick={() => setConfirmDelete(true)}
-                    className="ml-auto rounded-xl border border-border p-1.5 text-foreground-faint transition-colors hover:border-danger/30 hover:text-danger"
+                    onClick={() => { onLoad(post); onClose(); }}
+                    className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <FileEdit className="h-3.5 w-3.5" />
+                    Open in editor
                   </button>
-                )}
-              </div>
+
+                  {/* Copy caption */}
+                  {post.caption && (
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(dialogCaption || post.caption)}
+                      className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy caption
+                    </button>
+                  )}
+
+                  {/* Download media */}
+                  {post.mediaUrls.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (const url of post.mediaUrls) {
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.target = "_blank";
+                          a.rel = "noopener noreferrer";
+                          a.click();
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </button>
+                  )}
+
+                  {/* Mark as posted (manual) */}
+                  {isManual && isDue && (
+                    <button
+                      type="button"
+                      onClick={() => { onMarkPosted(post.id); onClose(); }}
+                      className="flex items-center gap-1.5 rounded-xl border border-warning/40 bg-warning/10 px-3 py-1.5 text-[12px] font-semibold text-warning transition-colors hover:bg-warning/20"
+                    >
+                      <CalendarCheck className="h-3.5 w-3.5" />
+                      Mark posted
+                    </button>
+                  )}
+
+                  {/* Publish now (auto mode only) */}
+                  {!isManual && (
+                    <>
+                      {confirmPublishDialog ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[12px] text-foreground-muted">Publish now?</span>
+                          <button
+                            type="button"
+                            onClick={handlePublishDialog}
+                            disabled={publishingDialog}
+                            className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50"
+                          >
+                            {publishingDialog ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                            Yes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmPublishDialog(false)}
+                            className="rounded-lg border border-border px-2.5 py-1 text-[12px] font-medium text-foreground-muted hover:text-foreground"
+                          >
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmPublishDialog(true)}
+                          className="flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Publish now
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  {/* Cancel schedule */}
+                  <button
+                    type="button"
+                    onClick={() => { onCancel(post.id); onClose(); }}
+                    className="rounded-xl border border-border px-3 py-1.5 text-[12px] font-medium text-foreground-faint transition-colors hover:border-border-strong hover:text-foreground"
+                  >
+                    Cancel schedule
+                  </button>
+
+                  {/* Delete */}
+                  {confirmDelete ? (
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <span className="text-[12px] text-danger">Delete post?</span>
+                      <button
+                        type="button"
+                        onClick={() => { onDelete(post.id); onClose(); }}
+                        className="rounded-lg bg-danger/10 border border-danger/30 px-2.5 py-1 text-[12px] font-semibold text-danger hover:bg-danger/20"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(false)}
+                        className="rounded-lg border border-border px-2.5 py-1 text-[12px] text-foreground-muted hover:text-foreground"
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label="Delete post"
+                      onClick={() => setConfirmDelete(true)}
+                      className="ml-auto rounded-xl border border-border p-1.5 text-foreground-faint transition-colors hover:border-danger/30 hover:text-danger"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -833,25 +1000,46 @@ function ScheduledCalendar({
     return d;
   });
 
+  // Determine the calendar date for a post: scheduledFor if scheduled, publishedAt if published
+  function calendarDateFor(d: DraftRow): string | null {
+    if (d.status === "scheduled" && d.scheduledFor) {
+      const dt = new Date(d.scheduledFor);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    }
+    if (d.status === "published" && d.publishedAt) {
+      const dt = new Date(d.publishedAt);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    }
+    return null;
+  }
+
   // Group posts by local YYYY-MM-DD
   const postsByDay = useMemo(() => {
     const map: Record<string, DraftRow[]> = {};
     for (const d of items) {
-      if (!d.scheduledFor) continue;
-      const dt = new Date(d.scheduledFor);
-      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+      const key = calendarDateFor(d);
+      if (!key) continue;
       if (!map[key]) map[key] = [];
       map[key].push(d);
     }
-    // Sort each day's posts by time asc
+    // Sort each day's posts by time asc (scheduled first, then published)
     for (const key of Object.keys(map)) {
       map[key].sort((a, b) => {
-        const ta = a.scheduledFor ? new Date(a.scheduledFor).getTime() : 0;
-        const tb = b.scheduledFor ? new Date(b.scheduledFor).getTime() : 0;
+        const ta = a.scheduledFor
+          ? new Date(a.scheduledFor).getTime()
+          : a.publishedAt
+          ? new Date(a.publishedAt).getTime()
+          : 0;
+        const tb = b.scheduledFor
+          ? new Date(b.scheduledFor).getTime()
+          : b.publishedAt
+          ? new Date(b.publishedAt).getTime()
+          : 0;
         return ta - tb;
       });
     }
     return map;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
   const year = calendarMonth.getFullYear();
@@ -970,10 +1158,12 @@ function ScheduledCalendar({
                   {dayPosts.slice(0, CHIP_LIMIT).map((d) => {
                     const chipThumb = d.mediaUrls[0] ?? null;
                     const chipIsVideo = /\.(mp4|mov|webm)(\?|$)/i.test(chipThumb ?? "");
-                    const chipDue = d.scheduledFor ? new Date(d.scheduledFor).getTime() <= now : false;
+                    const chipIsPublished = d.status === "published";
+                    const chipDue = !chipIsPublished && d.scheduledFor ? new Date(d.scheduledFor).getTime() <= now : false;
                     const chipManual = d.publishMode === "manual";
-                    const chipTime = d.scheduledFor
-                      ? new Date(d.scheduledFor).toLocaleTimeString(undefined, {
+                    const chipDateIso = chipIsPublished ? d.publishedAt : d.scheduledFor;
+                    const chipTime = chipDateIso
+                      ? new Date(chipDateIso).toLocaleTimeString(undefined, {
                           hour: "2-digit",
                           minute: "2-digit",
                           hour12: false,
@@ -983,7 +1173,7 @@ function ScheduledCalendar({
                       <button
                         key={d.id}
                         type="button"
-                        aria-label={`View scheduled post: ${d.caption?.slice(0, 40) ?? d.type} at ${chipTime}`}
+                        aria-label={`View ${chipIsPublished ? "published" : "scheduled"} post: ${d.caption?.slice(0, 40) ?? d.type}${chipTime ? ` at ${chipTime}` : ""}`}
                         onClick={() => onOpenPost(d.id)}
                         className={`flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-elevated ${
                           chipDue ? "ring-1 ring-warning/40" : ""
@@ -1009,13 +1199,20 @@ function ScheduledCalendar({
                         <span className="truncate text-[10px] tabular-nums text-foreground-muted leading-tight">
                           {chipTime}
                         </span>
-                        {/* Mode dot */}
-                        <span
-                          className={`ml-auto h-1.5 w-1.5 shrink-0 rounded-full ${
-                            chipManual ? "bg-warning" : "bg-accent"
-                          }`}
-                          aria-label={chipManual ? "Manual" : "Auto"}
-                        />
+                        {/* Status dot / check */}
+                        {chipIsPublished ? (
+                          <CheckCircle2
+                            className="ml-auto h-3 w-3 shrink-0 text-success"
+                            aria-label="Published"
+                          />
+                        ) : (
+                          <span
+                            className={`ml-auto h-1.5 w-1.5 shrink-0 rounded-full ${
+                              chipManual ? "bg-warning" : "bg-accent"
+                            }`}
+                            aria-label={chipManual ? "Manual" : "Auto"}
+                          />
+                        )}
                       </button>
                     );
                   })}
@@ -1037,7 +1234,7 @@ function ScheduledCalendar({
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 text-[11px] text-foreground-faint">
+      <div className="flex flex-wrap items-center gap-4 text-[11px] text-foreground-faint">
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-accent" />
           Auto-publish
@@ -1049,6 +1246,10 @@ function ScheduledCalendar({
         <span className="flex items-center gap-1">
           <span className="h-3 w-3 rounded ring-1 ring-warning/60" />
           Due
+        </span>
+        <span className="flex items-center gap-1">
+          <CheckCircle2 className="h-3 w-3 text-success" />
+          Published
         </span>
       </div>
     </div>
@@ -2071,7 +2272,16 @@ export function PostCreator({
   ];
 
   const scheduledDrafts = drafts.filter((d) => d.status === "scheduled");
-  const nonScheduledDrafts = drafts.filter((d) => d.status !== "scheduled");
+  const publishedDrafts = drafts.filter((d) => d.status === "published");
+  const nonScheduledDrafts = drafts.filter(
+    (d) => d.status !== "scheduled" && d.status !== "published",
+  );
+  // Calendar plots both scheduled (by scheduledFor) and published (by publishedAt)
+  const calendarPosts = drafts.filter(
+    (d) =>
+      (d.status === "scheduled" && d.scheduledFor) ||
+      (d.status === "published" && d.publishedAt),
+  );
 
   // Current step sequence for the selected post type
   const stepSeq = computeSteps(postType);
@@ -2911,10 +3121,10 @@ export function PostCreator({
             label={`Drafts${nonScheduledDrafts.length > 0 ? ` (${nonScheduledDrafts.length})` : ""}`}
           />
           <TabButton
-            active={viewTab === "scheduled"}
-            onClick={() => setViewTab("scheduled")}
+            active={viewTab === "calendar"}
+            onClick={() => setViewTab("calendar")}
             icon={<CalendarDays className="h-3.5 w-3.5" />}
-            label={`Scheduled${scheduledDrafts.length > 0 ? ` (${scheduledDrafts.length})` : ""}`}
+            label={`Calendar${scheduledDrafts.length > 0 ? ` (${scheduledDrafts.length})` : ""}`}
           />
         </div>
 
@@ -2962,15 +3172,15 @@ export function PostCreator({
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* Scheduled view                                                        */}
+      {/* Calendar view (formerly Scheduled)                                   */}
       {/* -------------------------------------------------------------------- */}
-      {viewTab === "scheduled" && (
+      {viewTab === "calendar" && (
         <section className="space-y-4">
           {/* Header + view toggle */}
           <div className="flex items-center gap-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Clock className="h-4 w-4 text-warning" />
-              Scheduled posts
+              <CalendarDays className="h-4 w-4 text-accent" />
+              Calendar
             </h2>
             {/* Segmented toggle: Calendar | List */}
             <div className="ml-auto flex rounded-lg border border-border bg-surface-elevated p-0.5 gap-0.5">
@@ -3009,17 +3219,115 @@ export function PostCreator({
             </p>
           ) : scheduledView === "calendar" ? (
             <ScheduledCalendar
-              items={scheduledDrafts}
+              items={calendarPosts}
               onOpenPost={(id) => setDialogPostId(id)}
             />
           ) : (
-            <ScheduledSection
-              items={scheduledDrafts}
-              onLoad={handleLoadDraft}
-              onCancel={handleCancelScheduled}
-              onMarkPosted={handleMarkPosted}
-              onOpenPost={(id) => setDialogPostId(id)}
-            />
+            <div className="space-y-6">
+              {/* Scheduled list */}
+              <ScheduledSection
+                items={scheduledDrafts}
+                onLoad={handleLoadDraft}
+                onCancel={handleCancelScheduled}
+                onMarkPosted={handleMarkPosted}
+                onOpenPost={(id) => setDialogPostId(id)}
+              />
+
+              {/* Posted section */}
+              {publishedDrafts.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-foreground-subtle">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                    Posted
+                  </h3>
+                  <div className="space-y-2">
+                    {publishedDrafts
+                      .slice()
+                      .sort((a, b) => {
+                        const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+                        const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+                        return tb - ta; // most recent first
+                      })
+                      .map((d) => {
+                        const thumb = d.mediaUrls[0] ?? null;
+                        const isVideo = /\.(mp4|mov|webm)(\?|$)/i.test(thumb ?? "");
+                        return (
+                          <div
+                            key={d.id}
+                            className="flex items-start gap-3 rounded-xl border border-border bg-surface p-3 transition-colors hover:border-border-strong"
+                          >
+                            {/* Thumbnail — click to open dialog */}
+                            <button
+                              type="button"
+                              aria-label="View published post"
+                              onClick={() => setDialogPostId(d.id)}
+                              className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-accent/40"
+                            >
+                              {thumb ? (
+                                isVideo ? (
+                                  <video src={thumb} className="h-full w-full object-cover" muted />
+                                ) : (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={thumb} alt="" className="h-full w-full object-cover" />
+                                )
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <ImagePlus className="h-4 w-4 text-foreground-faint" />
+                                </div>
+                              )}
+                              <CheckCircle2 className="absolute bottom-0.5 right-0.5 h-3 w-3 text-success drop-shadow" />
+                            </button>
+
+                            {/* Info */}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[11px] font-medium uppercase tracking-wider text-foreground-subtle">
+                                  {d.type}
+                                </span>
+                                {d.publishedAt && (
+                                  <span className="text-[11px] tabular-nums text-foreground-muted">
+                                    {formatLocalDatetime(d.publishedAt)}
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setDialogPostId(d.id)}
+                                className="mt-0.5 w-full text-left text-[13px] text-foreground-muted hover:text-foreground truncate"
+                              >
+                                {d.caption || <span className="text-foreground-faint italic">No caption</span>}
+                              </button>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex shrink-0 items-center gap-1">
+                              {d.permalink && (
+                                <a
+                                  href={d.permalink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  aria-label="View on Instagram"
+                                  className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  Instagram
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setDialogPostId(d.id)}
+                                className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent-bg"
+                              >
+                                View
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </section>
       )}
