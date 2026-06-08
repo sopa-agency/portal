@@ -75,6 +75,22 @@ const gnars: ProjectConfig = {
       dos: ["Keep ≤280 chars"],
       donts: ["No hashtags"],
     },
+    {
+      platform: "Instagram",
+      handle: "@gnarsdao",
+      url: "https://instagram.com/gnarsdao",
+      note: "Live metrics below",
+      summary:
+        "Visual channel for the Gnars DAO — athletes, drops, events, and onchain-native culture in image/Reel form.",
+      cadence: "Per drop/event + athlete moments.",
+      voice: "Noggles-up, irreverent, builder-energy; visual-first.",
+      formats: [
+        { name: "Athlete & event", description: "Riders, sessions, physical product, events." },
+        { name: "Reels", description: "Short clips of drops, builds, and culture moments." },
+      ],
+      dos: ["Lead with the visual", "Tie back to onchain/DAO when it fits"],
+      donts: ["Don't flatten the irreverent voice into corporate copy", "No hashtag spam"],
+    },
   ],
   // Gnars doesn't use the userbase (email) module.
   hiddenRoutes: ["/userbase"],
