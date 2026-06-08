@@ -10,7 +10,8 @@
     "db:generate": "dotenv -e .env.local -- prisma generate",
     "db:push": "dotenv -e .env.local -- prisma db push",
     "worker:repo-to-social": "node scripts/repo-to-social-worker.js",
-    "worker:marketing-suggestions": "node scripts/marketing-suggestions-worker.js"
+    "worker:marketing-suggestions": "node scripts/marketing-suggestions-worker.js",
+    "worker:brain-file-server": "node scripts/brain-file-server.js"
   },
   "dependencies": {
     "@hiveio/dhive": "^1.3.6",

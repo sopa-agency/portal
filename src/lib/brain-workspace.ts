@@ -5,6 +5,12 @@
 // workspace for the ACTIVE project only and refuse any path that escapes it or
 // touches the `sessions` folder — so a tenant can never read another tenant's
 // (or the global) files by passing a crafted path.
+//
+// Remote mode: when BRAIN_FILE_SERVICE_URL is set (e.g. on Vercel), all
+// workspace operations are proxied to the brain-file-server running on minivlad
+// via that URL, authenticated with BRAIN_FILE_SERVICE_SECRET. The secret is a
+// server-to-server guard and is NEVER sent to the browser. When the env var is
+// unset the existing local-fs behaviour is unchanged.
 
 import os from "node:os";
 import path from "node:path";
@@ -52,6 +58,53 @@ export type BrainTree = {
   folders: Record<string, string[]>;
 };
 
+// ---------------------------------------------------------------------------
+// Remote mode — used when BRAIN_FILE_SERVICE_URL is set (e.g. on Vercel).
+// The secret is only sent in server-to-server calls; it never reaches the client.
+// ---------------------------------------------------------------------------
+
+const REMOTE_BASE_URL = process.env.BRAIN_FILE_SERVICE_URL
+  ? process.env.BRAIN_FILE_SERVICE_URL.replace(/\/$/, "")
+  : null;
+
+const REMOTE_SECRET = process.env.BRAIN_FILE_SERVICE_SECRET ?? "";
+
+const REMOTE_TIMEOUT_MS = 10_000;
+
+/** Extract the agentId from a workspace path (`workspace-<agentId>`). */
+function agentIdFromWorkspace(workspace: string): string {
+  const base = path.basename(workspace);
+  // base is "workspace-<agentId>"
+  return base.replace(/^workspace-/, "");
+}
+
+/** Fetch helper for remote calls with secret header + timeout. */
+async function remoteFetch(
+  urlStr: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS);
+  try {
+    const res = await fetch(urlStr, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        ...(init.headers as Record<string, string> | undefined),
+        "x-brain-secret": REMOTE_SECRET,
+      },
+    });
+    return res;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Brain file service request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Files we never surface in the tree: env files (secrets) and images.
 const IMAGE_EXTS = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".bmp", ".tif", ".tiff",
@@ -96,6 +149,19 @@ async function listRecursive(dir: string, prefix = ""): Promise<string[]> {
 }
 
 export async function buildBrainTree(workspace: string): Promise<BrainTree> {
+  if (REMOTE_BASE_URL) {
+    const agentId = agentIdFromWorkspace(workspace);
+    const url = `${REMOTE_BASE_URL}/tree?agentId=${encodeURIComponent(agentId)}`;
+    const res = await remoteFetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Brain file service error ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as { ok: boolean; tree: BrainTree; error?: string };
+    if (!data.ok) throw new Error(data.error ?? "Brain file service returned ok:false");
+    return data.tree;
+  }
+
   const core: string[] = [];
   const folders: Record<string, string[]> = {};
   const entries = await fs.readdir(workspace, { withFileTypes: true }).catch(() => []);
@@ -169,7 +235,42 @@ export type BrainFile =
   | { binary: true; content: string }
   | { binary: false; content: string };
 
+/**
+ * Extract the workspace root from an absolute path that lives inside a
+ * `workspace-<agentId>` directory. Returns null if the path doesn't match.
+ */
+function workspaceFromAbsPath(absPath: string): string | null {
+  // Walk up from the file until we find a segment matching workspace-<id>.
+  let p = absPath;
+  while (true) {
+    const parent = path.dirname(p);
+    if (parent === p) return null; // reached fs root
+    const base = path.basename(parent);
+    if (/^workspace-[a-z0-9][a-z0-9-]{0,63}$/.test(base)) return parent;
+    p = parent;
+  }
+}
+
 export async function readBrainFile(absPath: string): Promise<BrainFile> {
+  if (REMOTE_BASE_URL) {
+    // Derive workspace and relative path from the absolute path so callers
+    // don't need to change — absPath is always inside workspace-<agentId>.
+    const ws = workspaceFromAbsPath(absPath);
+    if (!ws) throw new Error("Cannot derive workspace from path in remote mode");
+    const agentId = agentIdFromWorkspace(ws);
+    const rel = path.relative(ws, absPath);
+    const url = `${REMOTE_BASE_URL}/file?agentId=${encodeURIComponent(agentId)}&path=${encodeURIComponent(rel)}`;
+    const res = await remoteFetch(url);
+    if (res.status === 404) throw new Error("File not found");
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Brain file service error ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as { ok: boolean; binary: boolean; content: string; error?: string };
+    if (!data.ok) throw new Error(data.error ?? "Brain file service returned ok:false");
+    return { binary: data.binary, content: data.content };
+  }
+
   const ext = path.extname(absPath).toLowerCase();
   if (BINARY_EXTS.has(ext)) {
     return { binary: true, content: `(binary ${ext} file — preview unavailable)` };
@@ -187,6 +288,25 @@ export async function readBrainFile(absPath: string): Promise<BrainFile> {
 }
 
 export async function writeBrainFile(absPath: string, content: string): Promise<void> {
+  if (REMOTE_BASE_URL) {
+    const ws = workspaceFromAbsPath(absPath);
+    if (!ws) throw new Error("Cannot derive workspace from path in remote mode");
+    const agentId = agentIdFromWorkspace(ws);
+    const rel = path.relative(ws, absPath);
+    const url = `${REMOTE_BASE_URL}/file`;
+    const res = await remoteFetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentId, path: rel, content }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      const errData = (() => { try { return JSON.parse(body); } catch { return null; } })() as { error?: string } | null;
+      throw new Error(errData?.error ?? `Brain file service error ${res.status}: ${body.slice(0, 200)}`);
+    }
+    return;
+  }
+
   if (Buffer.byteLength(content, "utf8") > MAX_FILE_BYTES) {
     throw new Error("File too large to save.");
   }
@@ -196,6 +316,22 @@ export async function writeBrainFile(absPath: string, content: string): Promise<
 }
 
 export async function deleteBrainFile(absPath: string): Promise<void> {
+  if (REMOTE_BASE_URL) {
+    const ws = workspaceFromAbsPath(absPath);
+    if (!ws) throw new Error("Cannot derive workspace from path in remote mode");
+    const agentId = agentIdFromWorkspace(ws);
+    const rel = path.relative(ws, absPath);
+    const url = `${REMOTE_BASE_URL}/file?agentId=${encodeURIComponent(agentId)}&path=${encodeURIComponent(rel)}`;
+    const res = await remoteFetch(url, { method: "DELETE" });
+    if (res.status === 404) throw new Error("File not found.");
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      const errData = (() => { try { return JSON.parse(body); } catch { return null; } })() as { error?: string } | null;
+      throw new Error(errData?.error ?? `Brain file service error ${res.status}: ${body.slice(0, 200)}`);
+    }
+    return;
+  }
+
   const stat = await fs.stat(absPath).catch(() => null);
   if (!stat) throw new Error("File not found.");
   if (stat.isDirectory()) throw new Error("Refusing to delete a directory.");
