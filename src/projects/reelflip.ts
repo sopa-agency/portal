@@ -20,7 +20,7 @@ const reelflip: ProjectConfig = {
     accentBgDark: "rgba(34, 211, 238, 0.1)",
     accentBorderLight: "rgba(8, 145, 178, 0.3)",
     accentBorderDark: "rgba(34, 211, 238, 0.3)",
-    logo: "/projects/reelflip/reelflip-avatar.jpg",
+    logo: "/projects/reelflip/reelflip-avatar.png",
     favicon: "/projects/reelflip/favicon.ico",
   },
   hive: {
