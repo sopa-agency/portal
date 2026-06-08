@@ -999,35 +999,83 @@ function extractArtifactsJson(raw: string): {
   email: unknown | null;
 } | null {
   const candidates = extractJsonCandidates(raw);
+  let fallback: {
+    hive_snap: string;
+    farcaster: string;
+    tweets: string[];
+    discord: string;
+    email: unknown | null;
+  } | null = null;
+
   for (const candidate of candidates) {
+    // Parse the candidate; if it fails (e.g. the AI left a raw newline inside a
+    // string — common with long-form content), retry on a repaired copy.
+    let obj: Record<string, unknown> | null = null;
     try {
-      const obj = JSON.parse(candidate) as {
-        hive_snap?: unknown;
-        hive?: unknown;
-        snap?: unknown;
-        farcaster?: unknown;
-        cast?: unknown;
-        tweets?: unknown;
-        twitter?: unknown;
-        discord?: unknown;
-        email?: unknown;
-      };
-      const hive_snap = pickString(obj.hive_snap) ?? pickString(obj.hive) ?? pickString(obj.snap) ?? "";
-      const farcaster = pickString(obj.farcaster) ?? pickString(obj.cast) ?? "";
-      const tweetsRaw = Array.isArray(obj.tweets)
-        ? obj.tweets
-        : Array.isArray(obj.twitter)
-          ? obj.twitter
-          : [];
-      const tweets = tweetsRaw.filter((t): t is string => typeof t === "string");
-      const discord = pickString(obj.discord) ?? "";
-      const email = obj.email && typeof obj.email === "object" ? obj.email : null;
-      return { hive_snap, farcaster, tweets, discord, email };
+      obj = JSON.parse(candidate) as Record<string, unknown>;
     } catch {
+      try {
+        obj = JSON.parse(repairLooseJson(candidate)) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+    }
+    if (!obj || typeof obj !== "object") continue;
+
+    const hive_snap = pickString(obj.hive_snap) ?? pickString(obj.hive) ?? pickString(obj.snap) ?? "";
+    const farcaster = pickString(obj.farcaster) ?? pickString(obj.cast) ?? "";
+    const tweetsRaw = Array.isArray(obj.tweets)
+      ? obj.tweets
+      : Array.isArray(obj.twitter)
+        ? obj.twitter
+        : [];
+    const tweets = tweetsRaw.filter((t): t is string => typeof t === "string");
+    const discord = pickString(obj.discord) ?? "";
+    const email = obj.email && typeof obj.email === "object" ? obj.email : null;
+    const result = { hive_snap, farcaster, tweets, discord, email };
+
+    // Prefer the candidate that actually carries the expected fields — a nested
+    // blob (e.g. an email section) can parse cleanly but have none of them.
+    if (hive_snap || farcaster || tweets.length > 0 || discord || email) {
+      return result;
+    }
+    if (!fallback) fallback = result;
+  }
+  return fallback;
+}
+
+// Escape raw control characters that appear INSIDE JSON string literals — the
+// most common reason an LLM's otherwise-valid JSON fails JSON.parse on long
+// multi-line content. Leaves everything outside strings untouched.
+function repairLooseJson(s: string): string {
+  let out = "";
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (escape) {
+      out += ch;
+      escape = false;
       continue;
     }
+    if (ch === "\\") {
+      out += ch;
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      out += ch;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\n") { out += "\\n"; continue; }
+      if (ch === "\r") { out += "\\r"; continue; }
+      if (ch === "\t") { out += "\\t"; continue; }
+    }
+    out += ch;
   }
-  return null;
+  return out;
 }
 
 function pickString(value: unknown): string | null {
