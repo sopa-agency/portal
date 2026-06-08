@@ -638,7 +638,7 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
         "paddingY": 28,
         "paddingX": 32,
         "columns": [
-          { "blocks": [ { "type": "heading", "level": 3, "text": "${artifactsProjectName.toUpperCase()} UPDATE", "align": "left", "color": "#a3e635" } ] }
+          { "blocks": [ { "type": "heading", "level": 3, "text": "${artifactsProjectName.toUpperCase()} UPDATE", "align": "left", "color": "${artifactsProject.theme.accentDark}" } ] }
         ]
       },
       {
@@ -658,7 +658,7 @@ Rules:
 - "farcaster": a single Farcaster cast for the /${artifactsFarcasterChannel} channel as @${artifactsHiveAccount}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.
 - "tweets": an array of 3-5 tweet strings posted from @${artifactsHiveAccount}. The first opens the thread with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them ("1/", "2/") — the UI handles that.
 - "discord": a single message for the ${artifactsProjectName} Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
-- "email": a structured email document. Open with a dark hero section + eyebrow heading "${artifactsProjectName.toUpperCase()} UPDATE" in the project accent color + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
+- "email": a structured email document. Open with a dark hero section + eyebrow heading "${artifactsProjectName.toUpperCase()} UPDATE" in the project accent color (${artifactsProject.theme.accentDark}) + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
 
 Text + heading blocks support inline links via [label](url) markdown — the renderer turns those into <a> tags. Use that for any clickable link inside body text instead of a separate button. The "button" block is for the primary CTA only.
 
@@ -1270,3 +1270,239 @@ function pickAlign(value: unknown): Align {
 function pickColor(value: unknown, fallback: string): string {
   return typeof value === "string" && value.length ? value : fallback;
 }
+
+// ---------------------------------------------------------------------------
+// B1/B2 — per-artifact actions: toggleArtifactPosted, remixCampaignArtifact,
+// sendCampaignArtifact
+// ---------------------------------------------------------------------------
+
+/** Flip postedAt between now and null. Returns the new state. */
+export async function toggleArtifactPosted(
+  documentId: string,
+): Promise<{ ok: true; postedAt: Date | null } | { ok: false; error: string }> {
+  try {
+    const project = await getActiveProject();
+    const doc = await prisma.campaignDocument.findUnique({
+      where: { id: documentId },
+      select: { postedAt: true, campaign: { select: { projectSlug: true } } },
+    });
+    if (!doc) return { ok: false, error: "Document not found." };
+    if (doc.campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
+
+    const newPostedAt = doc.postedAt ? null : new Date();
+    const updated = await prisma.campaignDocument.update({
+      where: { id: documentId },
+      data: { postedAt: newPostedAt },
+      select: { postedAt: true, campaignId: true },
+    });
+    revalidatePath(`/campaign-creator/${updated.campaignId}`);
+    return { ok: true, postedAt: updated.postedAt };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Regenerate a single campaign artifact in-place. */
+export async function remixCampaignArtifact(
+  documentId: string,
+  instruction?: string,
+): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
+  try {
+    const project = await getActiveProject();
+    const doc = await prisma.campaignDocument.findUnique({
+      where: { id: documentId },
+      select: {
+        id: true,
+        name: true,
+        campaignId: true,
+        campaign: {
+          select: {
+            projectSlug: true,
+            name: true,
+            documents: { where: { isMain: true }, take: 1, select: { content: true } },
+          },
+        },
+      },
+    });
+    if (!doc) return { ok: false, error: "Document not found." };
+    if (doc.campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
+
+    const brief = (doc.campaign.documents[0]?.content ?? "").trim();
+    if (!brief) {
+      return { ok: false, error: "No brief found — generate or write the brief first." };
+    }
+
+    const kind = classifyDocumentKindByName(doc.name);
+
+    // Per-kind rule text mirrors what generateCampaignArtifacts uses.
+    const templateRules = buildTemplateArtifactRules(undefined, project);
+    const voiceHint = project.campaignArtifacts?.voiceHint?.trim();
+    const persona = campaignPersona(project);
+
+    let kindRule: string;
+    switch (kind) {
+      case "hive":
+        kindRule = `Write a single Hive snap for the ${project.hive.community} community as @${project.hive.account}. Plain text, real line breaks, under 280 characters when possible. Community voice. No hashtags in front.`;
+        break;
+      case "farcaster":
+        kindRule = `Write a single Farcaster cast for the /${project.farcaster.channel} channel as @${project.hive.account}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.`;
+        break;
+      case "tweets":
+        kindRule = `Write an X/Twitter thread: an array of 3-5 tweet strings. The first opens with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them. Return the tweets joined by \\n---\\n (three hyphens surrounded by newlines). No JSON wrapper.`;
+        break;
+      case "discord":
+        kindRule = `Write a single Discord announcement for the ${project.name} #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than tweets.`;
+        break;
+      case "email": {
+        const accentColor = project.theme.accentDark;
+        kindRule = `Write a structured email document as valid JSON with shape: { "subject": "...", "preheader": "...", "sections": [...] }. Open with a dark hero section + eyebrow heading "${project.name.toUpperCase()} UPDATE" in the project accent color (${accentColor}). Body section follows with the campaign-specific blocks. Return ONLY the JSON object.`;
+        break;
+      }
+      default:
+        kindRule = "Rewrite this document with improved clarity and campaign focus.";
+    }
+
+    const instructionLine = instruction?.trim()
+      ? `\n\nApply this revision: ${instruction.trim()}`
+      : "";
+
+    const prompt = `You are ${persona}.${voiceHint ? `\n\nVoice: ${voiceHint}` : ""}
+
+Campaign: "${doc.campaign.name}"
+
+Brief:
+${brief}
+${templateRules}
+
+Task: ${kindRule}${instructionLine}
+
+${kind === "tweets"
+  ? `Return ONLY the tweet strings joined by \\n---\\n. No prose, no labels, no JSON wrapper.`
+  : kind === "email"
+    ? `Return ONLY the JSON object. No prose, no code fences.`
+    : `Return ONLY the new content as plain text. No preamble, no code fences.`}`;
+
+    await ensureLocalGatewayToken();
+    let raw: string;
+    try {
+      raw = await callOpenClaw(prompt, project.agent.id, { timeoutMs: AI_TIMEOUT_MS, project });
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "AI gateway failed." };
+    }
+
+    let content: string;
+    if (kind === "email") {
+      const match = stripCodeFence(raw).match(/\{[\s\S]*\}/);
+      if (!match) return { ok: false, error: "AI did not return valid JSON for email. Try again." };
+      let aiEmail: unknown;
+      try {
+        aiEmail = JSON.parse(match[0]);
+      } catch {
+        try {
+          aiEmail = JSON.parse(repairLooseJson(match[0]));
+        } catch {
+          return { ok: false, error: "AI returned malformed JSON for email. Try again." };
+        }
+      }
+      const emailDocument = normalizeAiEmail(aiEmail);
+      content = serializeEmail(emailDocument);
+    } else {
+      content = stripCodeFence(raw).trim();
+    }
+
+    if (!content) return { ok: false, error: "AI returned empty content. Try again." };
+
+    await prisma.campaignDocument.update({
+      where: { id: documentId },
+      data: { content },
+    });
+    revalidatePath(`/campaign-creator/${doc.campaignId}`);
+    return { ok: true, content };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Publish a campaign artifact where supported; return manual-copy signal for others. */
+export async function sendCampaignArtifact(
+  documentId: string,
+): Promise<
+  | { ok: true; url?: string; platform: string }
+  | { ok: false; error: string; manual?: boolean }
+> {
+  try {
+    const project = await getActiveProject();
+    const doc = await prisma.campaignDocument.findUnique({
+      where: { id: documentId },
+      select: {
+        id: true,
+        name: true,
+        content: true,
+        campaignId: true,
+        campaign: { select: { projectSlug: true } },
+      },
+    });
+    if (!doc) return { ok: false, error: "Document not found." };
+    if (doc.campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
+
+    const kind = classifyDocumentKindByName(doc.name);
+    const content = doc.content.trim();
+    if (!content) return { ok: false, error: "Document is empty — nothing to send." };
+
+    if (kind === "hive") {
+      const { publishSnapToHive } = await import("@/lib/social-publish");
+      const result = await publishSnapToHive(content, project);
+      if (!result.ok) return { ok: false, error: result.error };
+      await prisma.campaignDocument.update({
+        where: { id: documentId },
+        data: { postedAt: new Date(), postedTo: "hive" },
+      });
+      revalidatePath(`/campaign-creator/${doc.campaignId}`);
+      return { ok: true, url: result.url, platform: "hive" };
+    }
+
+    if (kind === "farcaster") {
+      const { publishCastToFarcaster } = await import("@/lib/social-publish");
+      const result = await publishCastToFarcaster(content, project);
+      if (!result.ok) return { ok: false, error: result.error };
+      await prisma.campaignDocument.update({
+        where: { id: documentId },
+        data: { postedAt: new Date(), postedTo: "farcaster" },
+      });
+      revalidatePath(`/campaign-creator/${doc.campaignId}`);
+      return { ok: true, url: result.url, platform: "farcaster" };
+    }
+
+    // Twitter / Discord / Email — no auto-post API; caller shows copy affordance.
+    return {
+      ok: false,
+      error: "manual",
+      manual: true,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Map document name to artifact kind. */
+function classifyDocumentKindByName(name: string): CampaignDocumentKind {
+  const lower = name.toLowerCase();
+  if (lower.includes("hive") || lower.includes("snap")) return "hive";
+  if (lower.includes("farcaster") || lower.includes("cast") || lower.includes("warpcast")) return "farcaster";
+  if (lower.includes("tweet") || lower.includes("twitter") || lower.includes("x thread")) return "tweets";
+  if (lower.includes("discord")) return "discord";
+  if (lower.includes("email")) return "email";
+  if (lower.includes("markdown") || lower.includes("blog") || lower.includes("post")) return "markdown";
+  return "doc";
+}
+
+// Need to export type for the import in classifyDocumentKindByName
+type CampaignDocumentKind =
+  | "brief"
+  | "hive"
+  | "farcaster"
+  | "tweets"
+  | "discord"
+  | "email"
+  | "markdown"
+  | "doc";

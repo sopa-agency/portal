@@ -163,14 +163,16 @@ model Campaign {
 }
 
 model CampaignDocument {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   campaignId String
-  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  name       String   @default("Brief")
-  content    String   @default("")
-  isMain     Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  campaign   Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name       String    @default("Brief")
+  content    String    @default("")
+  isMain     Boolean   @default(false)
+  postedAt   DateTime?
+  postedTo   String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([campaignId, updatedAt(sort: Desc)])
 }

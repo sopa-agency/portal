@@ -15,15 +15,16 @@ import {
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createDocument, deleteDocument } from "@/app/actions/campaigns";
+import { CampaignArtifactActions } from "@/components/campaign-artifact-actions";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
 import {
   CampaignDocumentPreview,
   classifyCampaignDocument,
   type CampaignDocumentKind,
+  type CampaignPreviewBrand,
 } from "@/components/campaign-document-preview";
 import { CampaignEmailEditor } from "@/components/campaign-email-editor";
 import { CampaignGenerateBar } from "@/components/campaign-generate-bar";
-import { CampaignHivePublishButton } from "@/components/campaign-hive-publish";
 
 type CampaignDocument = {
   id: string;
@@ -31,6 +32,7 @@ type CampaignDocument = {
   content: string;
   isMain: boolean;
   updatedAt: Date;
+  postedAt: Date | null;
 };
 
 const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail; tone: string }> = {
@@ -47,9 +49,11 @@ const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail
 export function CampaignFolderShell({
   campaignId,
   documents,
+  brand,
 }: {
   campaignId: string;
   documents: CampaignDocument[];
+  brand?: CampaignPreviewBrand;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -65,6 +69,13 @@ export function CampaignFolderShell({
 
   const [selectedId, setSelectedId] = useState<string | null>(() => enriched[0]?.id ?? null);
   const selected = enriched.find((d) => d.id === selectedId) ?? enriched[0] ?? null;
+
+  // Local content override — updated after a successful remix so the preview
+  // refreshes immediately without a full router.refresh().
+  const [localContent, setLocalContent] = useState<Record<string, string>>({});
+
+  const getContent = (doc: typeof enriched[number]) =>
+    localContent[doc.id] ?? doc.content;
 
   const handleNew = () => {
     const name = window.prompt("Name the document", "Untitled document");
@@ -178,28 +189,44 @@ export function CampaignFolderShell({
             initialContent={selected.content}
           />
         ) : selected.kind === "email" ? (
-          <CampaignEmailEditor
-            key={selected.id}
-            documentId={selected.id}
-            initialName={selected.name}
-            initialContent={selected.content}
-            updatedAt={selected.updatedAt}
-          />
+          <div className="space-y-4">
+            <CampaignEmailEditor
+              key={selected.id}
+              documentId={selected.id}
+              initialName={selected.name}
+              initialContent={selected.content}
+              updatedAt={selected.updatedAt}
+            />
+            <CampaignArtifactActions
+              documentId={selected.id}
+              kind="email"
+              content={getContent(selected)}
+              initialPostedAt={selected.postedAt}
+              onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
+            />
+          </div>
         ) : selected.kind === "hive" ? (
           <div className="space-y-4">
             <CampaignDocumentPreview
               key={`${selected.id}-preview`}
               name={selected.name}
-              content={selected.content}
+              content={getContent(selected)}
               updatedAt={selected.updatedAt}
               kind="hive"
-              headerExtra={<CampaignHivePublishButton documentId={selected.id} />}
+              brand={brand}
+            />
+            <CampaignArtifactActions
+              documentId={selected.id}
+              kind="hive"
+              content={getContent(selected)}
+              initialPostedAt={selected.postedAt}
+              onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
             />
             <CampaignDocumentEditor
               key={selected.id}
               documentId={selected.id}
               initialName={selected.name}
-              initialContent={selected.content}
+              initialContent={getContent(selected)}
             />
           </div>
         ) : selected.kind === "farcaster" || selected.kind === "tweets" || selected.kind === "discord" ? (
@@ -207,15 +234,23 @@ export function CampaignFolderShell({
             <CampaignDocumentPreview
               key={`${selected.id}-preview`}
               name={selected.name}
-              content={selected.content}
+              content={getContent(selected)}
               updatedAt={selected.updatedAt}
               kind={selected.kind}
+              brand={brand}
+            />
+            <CampaignArtifactActions
+              documentId={selected.id}
+              kind={selected.kind}
+              content={getContent(selected)}
+              initialPostedAt={selected.postedAt}
+              onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
             />
             <CampaignDocumentEditor
               key={selected.id}
               documentId={selected.id}
               initialName={selected.name}
-              initialContent={selected.content}
+              initialContent={getContent(selected)}
             />
           </div>
         ) : (

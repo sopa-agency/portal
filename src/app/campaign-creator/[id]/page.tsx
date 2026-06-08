@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CampaignFolderShell } from "@/components/campaign-folder-shell";
 import { CampaignTitleEditor } from "@/components/campaign-title-editor";
+import type { CampaignPreviewBrand } from "@/components/campaign-document-preview";
 import { prisma } from "@/lib/prisma";
 import { ageFromDate } from "@/lib/utils";
 import { getActiveProject } from "@/projects";
@@ -31,6 +32,19 @@ export default async function CampaignFolderPage({
   // read-after-write lag on the immediate redirect — add a short findUnique
   // retry (e.g. 2x ~300ms) before notFound() to smooth that over.
   if (!campaign || campaign.projectSlug !== project.slug) notFound();
+
+  // Derive per-project brand for artifact previews.
+  // handle: prefer the project's first social handle (strip leading @), else hive account.
+  const primaryHandle = project.socials
+    .find((s) => s.handle)
+    ?.handle?.replace(/^@/, "");
+  const brand: CampaignPreviewBrand = {
+    avatarUrl: project.theme.logo,
+    displayName: project.name,
+    handle: primaryHandle ?? project.hive.account,
+    hiveAccount: project.hive.account,
+    hiveCommunity: project.hive.community,
+  };
 
   return (
     <div className="space-y-6">
@@ -61,7 +75,9 @@ export default async function CampaignFolderPage({
           content: doc.content,
           isMain: doc.isMain,
           updatedAt: doc.updatedAt,
+          postedAt: doc.postedAt,
         }))}
+        brand={brand}
       />
     </div>
   );
