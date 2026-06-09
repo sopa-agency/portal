@@ -71,6 +71,20 @@ export async function POST(req: Request): Promise<Response> {
           }
         };
 
+        // Heartbeat: the agent can take minutes (e.g. code changes), during
+        // which we'd otherwise send zero bytes — and CDNs/proxies kill idle
+        // streamed responses, surfacing on the client as "network error" /
+        // "operation aborted". An SSE comment line every 10s keeps the
+        // connection warm without affecting the parsed event stream.
+        const heartbeat = setInterval(() => {
+          if (!clientConnected) return;
+          try {
+            controller.enqueue(encoder.encode(": ping\n\n"));
+          } catch {
+            clientConnected = false;
+          }
+        }, 10_000);
+
         try {
           send("status", { message: "pensando..." });
           const reply = await callOpenClaw(prompt, project.agent.id, {
@@ -85,6 +99,7 @@ export async function POST(req: Request): Promise<Response> {
               : "O agente não respondeu agora.";
           send("error", { error });
         } finally {
+          clearInterval(heartbeat);
           if (clientConnected) {
             try {
               controller.close();
