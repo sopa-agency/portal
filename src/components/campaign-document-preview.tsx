@@ -48,6 +48,7 @@ export function CampaignDocumentPreview({
   kind,
   headerExtra,
   brand,
+  bare = false,
 }: {
   name: string;
   content: string;
@@ -55,9 +56,25 @@ export function CampaignDocumentPreview({
   kind: PreviewKind;
   headerExtra?: React.ReactNode;
   brand?: CampaignPreviewBrand;
+  /** Render only the channel preview body — no card chrome. The parent panel
+   *  supplies the surrounding card so preview + actions read as one unit. */
+  bare?: boolean;
 }) {
   const meta = META[kind];
   const Icon = meta.icon;
+
+  const previewBody = (
+    <>
+      {kind === "hive" ? <HiveSnapPreview content={content} brand={brand} /> : null}
+      {kind === "farcaster" ? <FarcasterCastPreview content={content} brand={brand} /> : null}
+      {kind === "tweets" ? <TweetsPreview content={content} brand={brand} /> : null}
+      {kind === "discord" ? <DiscordPreview content={content} brand={brand} /> : null}
+      {kind === "hive_mag" ? <MarkdownContent markdown={content} /> : null}
+      {kind === "doc" ? <MarkdownContent markdown={content} /> : null}
+    </>
+  );
+
+  if (bare) return previewBody;
 
   return (
     <section className="rounded-2xl border border-border bg-surface/70">
@@ -75,16 +92,14 @@ export function CampaignDocumentPreview({
         </div>
         {headerExtra}
       </header>
-      <div className="p-5">
-        {kind === "hive" ? <HiveSnapPreview content={content} brand={brand} /> : null}
-        {kind === "farcaster" ? <FarcasterCastPreview content={content} brand={brand} /> : null}
-        {kind === "tweets" ? <TweetsPreview content={content} brand={brand} /> : null}
-        {kind === "discord" ? <DiscordPreview content={content} brand={brand} /> : null}
-        {kind === "hive_mag" ? <MarkdownContent markdown={content} /> : null}
-        {kind === "doc" ? <MarkdownContent markdown={content} /> : null}
-      </div>
+      <div className="p-5">{previewBody}</div>
     </section>
   );
+}
+
+// Per-kind header label/icon, reused by the unified document panel.
+export function previewKindMeta(kind: PreviewKind) {
+  return META[kind];
 }
 
 const META: Record<PreviewKind, { label: string; tone: string; icon: typeof MessageSquare }> = {

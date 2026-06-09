@@ -12,6 +12,7 @@ export function CampaignDocumentEditor({
   initialName,
   initialContent,
   editorOnly = false,
+  bare = false,
   onContentChange,
 }: {
   documentId: string;
@@ -20,6 +21,9 @@ export function CampaignDocumentEditor({
   /** Hide the built-in preview toggle and always show the textarea — used when
    *  a parent panel owns the Preview/Edit switch (avoids a duplicate preview). */
   editorOnly?: boolean;
+  /** Render only the textarea + save status — no card, name input, or toggle.
+   *  The parent panel supplies the card chrome and name. */
+  bare?: boolean;
   /** Notify the parent on every keystroke so a shared preview can update live. */
   onContentChange?: (content: string) => void;
 }) {
@@ -49,6 +53,27 @@ export function CampaignDocumentEditor({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [content, documentId]);
+
+  // Bare mode: just the textarea + save status. A parent panel owns the card,
+  // name, and the Preview/Edit toggle (avoids a duplicate card + preview).
+  if (bare) {
+    return (
+      <div>
+        <textarea
+          value={content}
+          onChange={(e) => {
+            setContent(e.target.value);
+            onContentChange?.(e.target.value);
+          }}
+          placeholder="Edit the content here…"
+          className="min-h-[60vh] w-full resize-y rounded-xl border border-border bg-surface-elevated px-4 py-3 text-[14px] leading-7 text-foreground outline-none focus:border-accent-border focus:ring-1 focus:ring-lime-400/20"
+        />
+        <p className="mt-2 text-right text-[11px] text-foreground-subtle" aria-live="polite">
+          {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : ""}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-border bg-surface/70 p-5">
