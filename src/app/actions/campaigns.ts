@@ -1474,25 +1474,15 @@ export async function sendCampaignArtifact(
     }
 
     if (kind === "discord") {
-      const prompt =
-        "Post the following announcement to this project's Discord announcements channel, EXACTLY as written (do not rewrite it). Then confirm in one short line.\n\n---\n" +
-        content;
-      await ensureLocalGatewayToken();
-      let agentReply: string;
-      try {
-        agentReply = await callOpenClaw(prompt, project.agent.id, {
-          timeoutMs: AI_TIMEOUT_MS,
-          project,
-        });
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : "Agent failed to post to Discord." };
-      }
+      const { publishToDiscord } = await import("@/lib/social-publish");
+      const result = await publishToDiscord(content, project);
+      if (!result.ok) return { ok: false, error: result.error };
       await prisma.campaignDocument.update({
         where: { id: documentId },
         data: { postedAt: new Date(), postedTo: "discord" },
       });
       revalidatePath(`/campaign-creator/${doc.campaignId}`);
-      return { ok: true, platform: "discord", detail: agentReply.trim().split("\n").at(-1)?.trim() ?? "Posted." };
+      return { ok: true, platform: "discord" };
     }
 
     // Twitter / Email — handled client-side (X intent) or via sendCampaignEmail.

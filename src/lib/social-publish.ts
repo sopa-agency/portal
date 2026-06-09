@@ -321,6 +321,81 @@ export async function uploadMediaToPinata(
   }
 }
 
+// Posts `text` to a Discord channel via the HTTP API (Bot token auth).
+// Splits messages longer than 2000 characters on paragraph/line boundaries
+// and POSTs each chunk sequentially. Returns {ok:true} on full success, or
+// {ok:false, error} on the first failure (missing config or API error).
+export async function publishToDiscord(
+  text: string,
+  project?: ProjectConfig,
+): Promise<PublishResult> {
+  try {
+    const prefix = project?.agent?.gatewayEnvPrefix;
+    const token =
+      (prefix ? process.env[`${prefix}_DISCORD_BOT_TOKEN`] : undefined) ??
+      process.env.DISCORD_BOT_TOKEN;
+    const channelId =
+      (prefix ? process.env[`${prefix}_DISCORD_CHANNEL_ID`] : undefined) ??
+      process.env.DISCORD_CHANNEL_ID;
+
+    if (!token || !channelId) {
+      const p = prefix ?? "YOUR_PROJECT";
+      return {
+        ok: false,
+        error: `Discord not configured — set ${p}_DISCORD_BOT_TOKEN + ${p}_DISCORD_CHANNEL_ID.`,
+      };
+    }
+
+    // Split text that exceeds Discord's 2000-character limit. Prefer splitting
+    // on double-newlines (paragraphs), then single newlines, then hard-cut.
+    const LIMIT = 2000;
+    const chunks: string[] = [];
+    if (text.length <= LIMIT) {
+      chunks.push(text);
+    } else {
+      let remaining = text;
+      while (remaining.length > LIMIT) {
+        // Try paragraph boundary first.
+        let splitAt = remaining.lastIndexOf("\n\n", LIMIT);
+        if (splitAt <= 0) {
+          // Fall back to single newline.
+          splitAt = remaining.lastIndexOf("\n", LIMIT);
+        }
+        if (splitAt <= 0) {
+          // Hard cut at limit.
+          splitAt = LIMIT;
+        }
+        chunks.push(remaining.slice(0, splitAt).trimEnd());
+        remaining = remaining.slice(splitAt).trimStart();
+      }
+      if (remaining.length > 0) chunks.push(remaining);
+    }
+
+    const url = `https://discord.com/api/v10/channels/${channelId}/messages`;
+    const headers = {
+      Authorization: `Bot ${token}`,
+      "Content-Type": "application/json",
+    };
+
+    for (const chunk of chunks) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ content: chunk }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: res.statusText })) as { message?: string };
+        const msg = body.message ?? res.statusText;
+        return { ok: false, error: `Discord API: ${msg}` };
+      }
+    }
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function uploadImageToPinata(
   file: File,
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {

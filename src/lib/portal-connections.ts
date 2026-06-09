@@ -189,11 +189,25 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
 
   // ── Discord ───────────────────────────────────────────────────────────────
   {
-    connections.push({
-      network: "Discord",
-      status: "manual",
-      detail: `Posted by this project's agent (${project.agent.displayName}) — connection status cannot be verified from here.`,
-    });
+    const discordToken =
+      (process.env[`${prefix}_DISCORD_BOT_TOKEN`] ?? process.env.DISCORD_BOT_TOKEN)?.trim();
+    const discordChannel =
+      (process.env[`${prefix}_DISCORD_CHANNEL_ID`] ?? process.env.DISCORD_CHANNEL_ID)?.trim();
+
+    if (discordToken && discordChannel) {
+      connections.push({
+        network: "Discord",
+        status: "manual",
+        detail: "Bot token configured — verifying…",
+      });
+    } else {
+      connections.push({
+        network: "Discord",
+        status: "missing",
+        detail: "No Discord bot token or channel ID found.",
+        fixHint: `Set ${prefix}_DISCORD_BOT_TOKEN + ${prefix}_DISCORD_CHANNEL_ID`,
+      });
+    }
   }
 
   // ── Email (SMTP) ──────────────────────────────────────────────────────────
@@ -240,4 +254,77 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
   }
 
   return connections;
+}
+
+// Performs live Discord API checks: bot identity + channel access.
+// Never throws; never logs or returns the bot token.
+export async function verifyDiscordConnection(
+  project: ProjectConfig,
+): Promise<{ status: ConnectionStatus; detail: string; botName?: string }> {
+  const prefix = project.agent.gatewayEnvPrefix;
+  const token =
+    (process.env[`${prefix}_DISCORD_BOT_TOKEN`] ?? process.env.DISCORD_BOT_TOKEN)?.trim();
+  const channelId =
+    (process.env[`${prefix}_DISCORD_CHANNEL_ID`] ?? process.env.DISCORD_CHANNEL_ID)?.trim();
+
+  if (!token || !channelId) {
+    return { status: "missing", detail: "No bot token configured." };
+  }
+
+  const authHeader = { Authorization: `Bot ${token}` };
+
+  // Step 1: verify the bot token via GET /users/@me.
+  let botName: string;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    let meRes: Response;
+    try {
+      meRes = await fetch("https://discord.com/api/v10/users/@me", {
+        headers: authHeader,
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!meRes.ok) {
+      return { status: "warning", detail: "Bot token invalid or unauthorized." };
+    }
+    const me = (await meRes.json()) as { username?: string; discriminator?: string };
+    const discriminator =
+      me.discriminator && me.discriminator !== "0" ? `#${me.discriminator}` : "";
+    botName = `${me.username ?? "bot"}${discriminator}`;
+  } catch {
+    return { status: "warning", detail: "Couldn't reach Discord (timed out)." };
+  }
+
+  // Step 2: verify the bot can see the configured channel.
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    let chanRes: Response;
+    try {
+      chanRes = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
+        headers: authHeader,
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (chanRes.ok) {
+      return {
+        status: "connected",
+        detail: `@${botName} can post to the channel`,
+        botName,
+      };
+    }
+    // 403 = missing access, 404 = channel not found or bot can't see it.
+    return {
+      status: "warning",
+      detail: `@${botName} online, but can't see the configured channel`,
+      botName,
+    };
+  } catch {
+    return { status: "warning", detail: "Couldn't reach Discord (timed out)." };
+  }
 }
