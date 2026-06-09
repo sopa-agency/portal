@@ -158,6 +158,11 @@ model Campaign {
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
   documents  CampaignDocument[]
+  // When seeded from an Instagram post: the source carousel media URLs (ordered)
+  // and the original permalink, so artifact generation can embed the images into
+  // the Hive snap / Farcaster cast / Hive mag post drafts.
+  sourceMediaUrls Json?
+  sourcePermalink String?
 
   @@index([projectSlug, archivedAt, updatedAt(sort: Desc)])
 }

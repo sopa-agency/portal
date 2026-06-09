@@ -127,6 +127,8 @@ export async function createCampaignFromInstagramPost(
       data: {
         name: campaignName,
         projectSlug: project.slug,
+        sourceMediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+        sourcePermalink: post.permalink ?? undefined,
         documents: { create: { name: "Brief", isMain: true, content: seedBrief } },
       },
       select: { id: true },
@@ -620,8 +622,39 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
     }
   }
 
+  // Source carousel (when this campaign was seeded from an Instagram post) so
+  // the snap / cast / mag post can embed the exact images instead of being
+  // text-only.
+  let sourceMedia: string[] = Array.isArray(campaign.sourceMediaUrls)
+    ? (campaign.sourceMediaUrls as unknown[]).filter((u): u is string => typeof u === "string")
+    : [];
+  // Fallback for campaigns seeded before sourceMediaUrls existed: pull the URLs
+  // out of the brief's "## Media" list.
+  if (sourceMedia.length === 0) {
+    const mediaSection = brief.match(/##\s*Media\s*\n([\s\S]*?)(?:\n##\s|$)/i);
+    if (mediaSection) {
+      sourceMedia = mediaSection[1]
+        .split("\n")
+        .map((l) => l.replace(/^[-*]\s*/, "").trim())
+        .filter((u) => /^https?:\/\//.test(u));
+    }
+  }
+  const carouselBlock =
+    sourceMedia.length > 0
+      ? `\n\nSource Instagram carousel images — EMBED THESE (use these EXACT URLs in order; do not invent or omit them):\n${sourceMedia
+          .map((u, i) => `${i + 1}. ${u}`)
+          .join("\n")}\n`
+      : "";
+  const imageRules =
+    sourceMedia.length > 0
+      ? `\n\nImages (a source carousel is provided above):
+- "hive_snap": after the text, embed the first 1-2 carousel images as Hive markdown on their own lines: ![](url). Use the EXACT URLs.
+- "farcaster": append the first carousel image URL on its own final line (Farcaster auto-embeds image URLs). Use the EXACT URL.
+- "hive_mag_post": embed ALL carousel images with ![alt](url), interspersed between sections — lead with the strongest image. Use the EXACT URLs, in order, none invented.`
+      : "";
+
   const artifactsVoiceHint = artifactsProject.campaignArtifacts?.voiceHint?.trim();
-  const prompt = `You are ${campaignPersona(artifactsProject)}. Draft five coordinated campaign artifacts based on the brief below.${
+  const prompt = `You are ${campaignPersona(artifactsProject)}. Draft the coordinated campaign artifacts below based on the brief.${
     artifactsVoiceHint ? `\n\nVoice: ${artifactsVoiceHint}` : ""
   }${artifactsBrandCtx ? `\n\n${artifactsBrandCtx}` : ""}
 
@@ -629,12 +662,13 @@ Campaign title: "${title}"
 
 Brief:
 ${brief}
-${templateRules}${weeklyStokenContext}
+${templateRules}${weeklyStokenContext}${carouselBlock}
 
 Return a single JSON object with this exact shape, and NOTHING else (no prose, no code fences):
 
 {
   "hive_snap": "...",
+  "hive_mag_post": "...",
   "farcaster": "...",
   "tweets": ["...", "..."],
   "discord": "...",
@@ -664,6 +698,7 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
 
 Rules:
 - "hive_snap": a single Hive snap (short post) that will be published as a comment under peak.snaps' daily container on ${artifactsCommunity}. Plain text, real line breaks, under 280 characters when possible. Community voice. No hashtags in front — Hive frontends pick those up from json_metadata.
+- "hive_mag_post": a long-form Hive blog post (magazine style, ~300-600 words) ready to publish to ${artifactsCommunity} as @${artifactsHiveAccount}. Markdown with headings, paragraphs, and embedded images. Expand the core idea into a real read — context, the take, why it matters. Editorial, community-to-community, no corporate marketing-speak. This IS the publishable post body — no internal-brief sections (Goal / Audience / Window / Channels / Success metric / Risks).
 - "farcaster": a single Farcaster cast for the /${artifactsFarcasterChannel} channel as @${artifactsHiveAccount}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.
 - "tweets": an array of 3-5 tweet strings posted from @${artifactsHiveAccount}. The first opens the thread with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them ("1/", "2/") — the UI handles that.
 - "discord": a single message for the ${artifactsProjectName} Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
@@ -679,6 +714,7 @@ Allowed block shapes (omit id — the server assigns them):
 - divider: { "type": "divider", "color": "#hex", "thickness": 1 }
 - spacer:  { "type": "spacer",  "height": 24 }
 - list:    { "type": "list",    "ordered": true|false, "items": ["... [label](url) supported", "..."] }
+${imageRules}
 
 The JSON must be valid — escape newlines inside strings as \\n, escape quotes as \\". Begin your reply with "{" and end with "}".`;
 
@@ -715,6 +751,11 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
     await upsertNamedDocument(campaignId, "Hive snap", parsed.hive_snap);
     saved.push("Hive snap");
   } else missing.push("Hive snap");
+
+  if (parsed.hive_mag_post) {
+    await upsertNamedDocument(campaignId, "Hive mag post", parsed.hive_mag_post);
+    saved.push("Hive mag post");
+  } else missing.push("Hive mag post");
 
   if (parsed.farcaster) {
     await upsertNamedDocument(campaignId, "Farcaster cast", parsed.farcaster);
@@ -1002,6 +1043,7 @@ EMAIL (this is the critical part — make it visual + clickable):
 // only when no valid JSON object can be located at all.
 function extractArtifactsJson(raw: string): {
   hive_snap: string;
+  hive_mag_post: string;
   farcaster: string;
   tweets: string[];
   discord: string;
@@ -1010,6 +1052,7 @@ function extractArtifactsJson(raw: string): {
   const candidates = extractJsonCandidates(raw);
   let fallback: {
     hive_snap: string;
+    hive_mag_post: string;
     farcaster: string;
     tweets: string[];
     discord: string;
@@ -1032,6 +1075,7 @@ function extractArtifactsJson(raw: string): {
     if (!obj || typeof obj !== "object") continue;
 
     const hive_snap = pickString(obj.hive_snap) ?? pickString(obj.hive) ?? pickString(obj.snap) ?? "";
+    const hive_mag_post = pickString(obj.hive_mag_post) ?? pickString(obj.hive_blog) ?? pickString(obj.mag_post) ?? "";
     const farcaster = pickString(obj.farcaster) ?? pickString(obj.cast) ?? "";
     const tweetsRaw = Array.isArray(obj.tweets)
       ? obj.tweets
@@ -1041,11 +1085,11 @@ function extractArtifactsJson(raw: string): {
     const tweets = tweetsRaw.filter((t): t is string => typeof t === "string");
     const discord = pickString(obj.discord) ?? "";
     const email = obj.email && typeof obj.email === "object" ? obj.email : null;
-    const result = { hive_snap, farcaster, tweets, discord, email };
+    const result = { hive_snap, hive_mag_post, farcaster, tweets, discord, email };
 
     // Prefer the candidate that actually carries the expected fields — a nested
     // blob (e.g. an email section) can parse cleanly but have none of them.
-    if (hive_snap || farcaster || tweets.length > 0 || discord || email) {
+    if (hive_snap || hive_mag_post || farcaster || tweets.length > 0 || discord || email) {
       return result;
     }
     if (!fallback) fallback = result;
