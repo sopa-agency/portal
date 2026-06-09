@@ -1427,7 +1427,7 @@ ${kind === "tweets"
 export async function sendCampaignArtifact(
   documentId: string,
 ): Promise<
-  | { ok: true; url?: string; platform: string }
+  | { ok: true; url?: string; platform: string; detail?: string }
   | { ok: false; error: string; manual?: boolean }
 > {
   try {
@@ -1473,7 +1473,29 @@ export async function sendCampaignArtifact(
       return { ok: true, url: result.url, platform: "farcaster" };
     }
 
-    // Twitter / Discord / Email — no auto-post API; caller shows copy affordance.
+    if (kind === "discord") {
+      const prompt =
+        "Post the following announcement to this project's Discord announcements channel, EXACTLY as written (do not rewrite it). Then confirm in one short line.\n\n---\n" +
+        content;
+      await ensureLocalGatewayToken();
+      let agentReply: string;
+      try {
+        agentReply = await callOpenClaw(prompt, project.agent.id, {
+          timeoutMs: AI_TIMEOUT_MS,
+          project,
+        });
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Agent failed to post to Discord." };
+      }
+      await prisma.campaignDocument.update({
+        where: { id: documentId },
+        data: { postedAt: new Date(), postedTo: "discord" },
+      });
+      revalidatePath(`/campaign-creator/${doc.campaignId}`);
+      return { ok: true, platform: "discord", detail: agentReply.trim().split("\n").at(-1)?.trim() ?? "Posted." };
+    }
+
+    // Twitter / Email — handled client-side (X intent) or via sendCampaignEmail.
     return {
       ok: false,
       error: "manual",
@@ -1481,6 +1503,108 @@ export async function sendCampaignArtifact(
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Send the email artifact via SMTP/nodemailer to a single recipient. */
+export async function sendCampaignEmail(
+  documentId: string,
+  recipient: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const project = await getActiveProject();
+    const doc = await prisma.campaignDocument.findUnique({
+      where: { id: documentId },
+      select: {
+        id: true,
+        name: true,
+        content: true,
+        campaignId: true,
+        campaign: { select: { projectSlug: true, name: true } },
+      },
+    });
+    if (!doc) return { ok: false, error: "Document not found." };
+    if (doc.campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
+
+    // Validate recipient.
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRe.test(recipient.trim())) {
+      return { ok: false, error: "Enter a valid recipient email." };
+    }
+    const to = recipient.trim();
+
+    // Resolve SMTP config: per-project prefix first, then global fallback.
+    const prefix = project.agent.gatewayEnvPrefix;
+    const host =
+      (prefix ? process.env[`${prefix}_SMTP_HOST`] : undefined) ??
+      process.env.SMTP_HOST;
+    const portRaw =
+      (prefix ? process.env[`${prefix}_SMTP_PORT`] : undefined) ??
+      process.env.SMTP_PORT ??
+      "587";
+    const port = parseInt(portRaw, 10);
+    const secureRaw =
+      (prefix ? process.env[`${prefix}_SMTP_SECURE`] : undefined) ??
+      process.env.SMTP_SECURE ??
+      "false";
+    const secure = secureRaw === "true";
+    const user =
+      (prefix ? process.env[`${prefix}_EMAIL_USER`] : undefined) ??
+      process.env.EMAIL_USER;
+    const pass =
+      (prefix ? process.env[`${prefix}_EMAIL_PASS`] : undefined) ??
+      process.env.EMAIL_PASS;
+    const from =
+      (prefix ? process.env[`${prefix}_EMAIL_FROM`] : undefined) ??
+      process.env.EMAIL_FROM ??
+      user;
+
+    if (!host || !user || !pass) {
+      return {
+        ok: false,
+        error: "Email is not configured — set SMTP_HOST / EMAIL_USER / EMAIL_PASS.",
+      };
+    }
+
+    // Build HTML from structured email doc or legacy HTML.
+    const { parseEmail, renderEmail } = await import("@/lib/campaign-email");
+    const parsed = parseEmail(doc.content);
+    let html: string;
+    let subject: string;
+    if (parsed.kind === "document") {
+      html = renderEmail(parsed.document);
+      subject = parsed.document.subject || doc.campaign.name;
+    } else if (parsed.kind === "legacy_html") {
+      html = parsed.html;
+      subject = doc.campaign.name;
+    } else {
+      return { ok: false, error: "Email document is empty — nothing to send." };
+    }
+
+    // Plain-text fallback: strip HTML tags.
+    const text = html.replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim();
+
+    // Send via nodemailer.
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
+    });
+    await transporter.sendMail({ from, to, subject, html, text });
+
+    await prisma.campaignDocument.update({
+      where: { id: documentId },
+      data: { postedAt: new Date(), postedTo: "email" },
+    });
+    revalidatePath(`/campaign-creator/${doc.campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to send email.",
+    };
   }
 }
 
