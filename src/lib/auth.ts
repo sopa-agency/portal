@@ -28,6 +28,13 @@ export type AllowedUser = (typeof ALLOWED_USERS)[number];
 export const SESSION_COOKIE = "portal_session";
 export const CHALLENGE_COOKIE = "portal_challenge";
 
+// Optional cookie domain so ONE login is shared across all tenant subdomains.
+// Set to ".portal.skatehive.app" in PRODUCTION only — then the session cookie
+// is valid on every *.portal.skatehive.app portal (Notion-style unified login).
+// Leave UNSET on preview (*.vercel.app) and local (localhost/nip.io), where that
+// domain wouldn't match the host and the cookie would be rejected.
+export const SESSION_COOKIE_DOMAIN = process.env.SESSION_COOKIE_DOMAIN?.trim() || undefined;
+
 // Legacy aliases kept so any stale imports still compile.
 /** @deprecated Use SESSION_COOKIE */
 export const SKATEHIVE_SESSION_COOKIE = "portal_session";
