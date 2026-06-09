@@ -312,7 +312,7 @@ async function pollOnce() {
 
 async function schedulerTick() {
   try {
-    const headers = { "content-type": "application/json" };
+    const headers = { "content-type": "application/json", "x-scheduler-source": "mac" };
     if (SCHEDULER_SECRET) headers["x-scheduler-secret"] = SCHEDULER_SECRET;
     const res = await fetch(`${SCHEDULER_BASE_URL}/api/scheduler/tick`, {
       method: "POST",

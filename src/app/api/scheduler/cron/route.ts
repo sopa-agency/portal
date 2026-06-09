@@ -1,0 +1,40 @@
+// Vercel fallback cron. Invoked by Vercel Cron (GET, every few minutes — see
+// vercel.json). It is a SAFETY NET, not the primary publisher: it only runs the
+// due-post publisher when the Mac's heartbeat lease is stale (i.e. the Mac
+// worker/portal is down). When the Mac is alive, this no-ops so normal posting
+// stays on the Mac (residential IP).
+//
+// Auth: Vercel automatically sends `Authorization: Bearer <CRON_SECRET>` when a
+// CRON_SECRET env var is configured. We verify it when present.
+
+import { NextResponse } from "next/server";
+import { runScheduledPublish, macLeaseIsStale, MAC_LEASE_GRACE_MS } from "@/lib/scheduler-core";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const CRON_SECRET = process.env.CRON_SECRET;
+
+function authorized(req: Request): boolean {
+  if (!CRON_SECRET) return true; // not configured yet — allow (set CRON_SECRET to lock down)
+  return req.headers.get("authorization") === `Bearer ${CRON_SECRET}`;
+}
+
+export async function GET(req: Request) {
+  if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const now = Date.now();
+
+  if (!(await macLeaseIsStale(now))) {
+    return NextResponse.json({
+      checkedAt: new Date(now).toISOString(),
+      fallback: true,
+      skipped: true,
+      reason: `mac-alive (within ${Math.round(MAC_LEASE_GRACE_MS / 60000)}m grace)`,
+    });
+  }
+
+  // Mac is down → take over.
+  const result = await runScheduledPublish(now);
+  return NextResponse.json({ ...result, fallback: true, skipped: false });
+}

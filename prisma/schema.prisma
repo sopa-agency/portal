@@ -254,6 +254,19 @@ model InstagramPost {
 // Periodic follower-count snapshots used to compute 7-day deltas on the
 // Socials dashboard. One row per (project, platform) capture; written at most
 // once every 6 hours by the metrics API route.
+//
+// ---------------------------------------------------------------------------
+// SchedulerLease — single-row lease/heartbeat for the scheduled-post
+// autopublisher. The Mac PM2 worker's tick refreshes `lastMacTickAt` on every
+// run (server-side). The Vercel fallback cron only publishes when this is stale
+// (Mac down), so normal posting stays on the Mac (residential IP) and Vercel is
+// a safety net.
+model SchedulerLease {
+  id            String    @id @default("singleton")
+  lastMacTickAt DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
 model SocialMetricSnapshot {
   id          String   @id @default(cuid())
   projectSlug String
