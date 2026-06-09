@@ -145,6 +145,10 @@ const gnars: ProjectConfig = {
     "sktbrd.eth@gmail.com",
     "totaltotalblack@gmail.com",
   ],
+  githubProject: {
+    org: "gnars-dao",
+    number: 4,
+  },
 };
 
 export default gnars;
