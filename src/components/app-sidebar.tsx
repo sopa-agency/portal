@@ -3,8 +3,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
-import { useTransition } from "react";
-import { GitBranch, Megaphone, Home, Moon, Sun, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen } from "lucide-react";
+import { useTransition, useState, useRef, useEffect } from "react";
+import { GitBranch, Megaphone, Home, Moon, Sun, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 
 const NAV = [
@@ -24,20 +24,50 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+type SwitchProject = { slug: string; name: string; logo: string };
+
 type AppSidebarProps = {
   username: string;
   projectName: string;
   projectLogo: string;
+  currentSlug: string;
+  switchProjects: SwitchProject[];
   hiddenRoutes?: string[];
   analyticsEnabled?: boolean;
   postCreatorEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, hiddenRoutes, analyticsEnabled, postCreatorEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, analyticsEnabled, postCreatorEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, toggle } = useTheme();
   const [pending, startTransition] = useTransition();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+
+  // Close the workspace switcher on outside click.
+  useEffect(() => {
+    if (!switcherOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
+        setSwitcherOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [switcherOpen]);
+
+  // Switch portals by swapping the leftmost host label (the tenant slug) — works
+  // across prod (slug.portal.skatehive.app), Tailscale nip.io, and localhost.
+  const knownSlugs = switchProjects.map((p) => p.slug);
+  function switchTo(slug: string) {
+    if (slug === currentSlug) { setSwitcherOpen(false); return; }
+    const { protocol, hostname, port } = window.location;
+    const labels = hostname.split(".");
+    const base = knownSlugs.includes(labels[0]) ? labels.slice(1) : labels;
+    const host = [slug, ...base].join(".");
+    window.location.href = `${protocol}//${host}${port ? `:${port}` : ""}/`;
+  }
 
   const nav = NAV.filter((item) => {
     if (hiddenRoutes?.includes(item.href)) return false;
@@ -58,25 +88,74 @@ export function AppSidebar({ username, projectName, projectLogo, hiddenRoutes, a
 
   return (
     <aside className="w-full border-b border-border bg-surface lg:flex lg:min-h-screen lg:w-64 lg:flex-col lg:border-b-0 lg:border-r">
-      <div className="px-5 py-6">
-        <Link href="/" className="flex items-center gap-3">
-          <Image
-            src={projectLogo}
-            alt={projectName}
-            width={36}
-            height={36}
-            className="shrink-0"
-            priority
-          />
-          <div className="min-w-0">
-            <p className="text-lg font-bold tracking-tight text-accent">
-              portal · {projectName.toLowerCase()}
-            </p>
-            <p className="mt-0.5 text-xs uppercase tracking-widest text-foreground-subtle">
-              internal ops
-            </p>
-          </div>
-        </Link>
+      <div className="relative px-3 py-4" ref={switcherRef}>
+        {switchProjects.length > 1 ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setSwitcherOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={switcherOpen}
+              aria-label="Switch workspace"
+              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-foreground/5"
+            >
+              <Image
+                src={projectLogo}
+                alt={projectName}
+                width={36}
+                height={36}
+                className="shrink-0 rounded-md"
+                priority
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-lg font-bold tracking-tight text-accent">
+                  portal · {projectName.toLowerCase()}
+                </p>
+                <p className="mt-0.5 text-xs uppercase tracking-widest text-foreground-subtle">
+                  switch workspace
+                </p>
+              </div>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 text-foreground-faint" />
+            </button>
+            {switcherOpen && (
+              <div
+                role="menu"
+                className="absolute left-3 right-3 top-[calc(100%-0.5rem)] z-50 overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-lg"
+              >
+                {switchProjects.map((p) => {
+                  const isCurrent = p.slug === currentSlug;
+                  return (
+                    <button
+                      key={p.slug}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => switchTo(p.slug)}
+                      className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-foreground/5 ${isCurrent ? "bg-accent-bg" : ""}`}
+                    >
+                      <Image src={p.logo} alt={p.name} width={24} height={24} className="shrink-0 rounded" />
+                      <span className={`min-w-0 flex-1 truncate text-sm font-medium ${isCurrent ? "text-accent" : "text-foreground"}`}>
+                        {p.name}
+                      </span>
+                      {isCurrent && <Check className="h-4 w-4 shrink-0 text-accent" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        ) : (
+          <Link href="/" className="flex items-center gap-3 px-2 py-2">
+            <Image src={projectLogo} alt={projectName} width={36} height={36} className="shrink-0 rounded-md" priority />
+            <div className="min-w-0">
+              <p className="text-lg font-bold tracking-tight text-accent">
+                portal · {projectName.toLowerCase()}
+              </p>
+              <p className="mt-0.5 text-xs uppercase tracking-widest text-foreground-subtle">
+                internal ops
+              </p>
+            </div>
+          </Link>
+        )}
       </div>
       <nav className="px-3 pb-6">
         <ul className="space-y-1">

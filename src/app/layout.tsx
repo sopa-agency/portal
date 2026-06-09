@@ -5,7 +5,7 @@ import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
-import { getActiveProject } from "@/projects/index";
+import { getActiveProject, getAllProjects } from "@/projects/index";
 import { FloatingAgentChat } from "@/components/floating-agent-chat";
 
 const geistSans = Geist({
@@ -72,6 +72,10 @@ export default async function RootLayout({
                 username={session.username}
                 projectName={project.name}
                 projectLogo={project.theme.logo}
+                currentSlug={project.slug}
+                switchProjects={getAllProjects()
+                  .filter((p) => p.allowlist.includes(session.username.toLowerCase()))
+                  .map((p) => ({ slug: p.slug, name: p.name, logo: p.theme.logo }))}
                 hiddenRoutes={project.hiddenRoutes}
                 analyticsEnabled={!!project.analytics}
                 postCreatorEnabled={!!project.postCreator}

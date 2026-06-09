@@ -66,6 +66,11 @@ export function getProject(slug: string): ProjectConfig {
   return PROJECT_REGISTRY[slug] ?? PROJECT_REGISTRY[process.env.PORTAL_DEFAULT_PROJECT ?? "skatehive"] ?? skatehive;
 }
 
+/** All registered projects (for the portal switcher). */
+export function getAllProjects(): ProjectConfig[] {
+  return Object.values(PROJECT_REGISTRY);
+}
+
 /**
  * Read the active project for the current request.
  *
