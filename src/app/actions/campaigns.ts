@@ -1026,19 +1026,25 @@ async function buildMagPostFields(
   });
   const ptBody = (ptDoc?.content ?? "").trim();
 
-  // Title = first markdown H1 (stripped from the body), else the campaign name.
+  // Title = first markdown heading of ANY level (# … ######), stripped from the
+  // body. Mag posts emit their (already-translated) title as the leading
+  // heading — often `##`, not `#`. Falling back to the campaign name would drag
+  // in the untranslated "Cross-platform from Instagram — …" prefix, so we only
+  // use that as a last resort and strip that prefix when we do.
   let title = "";
-  const h1 = body.match(/^\s*#\s+(.+?)\s*$/m);
-  if (h1) {
-    title = h1[1].trim();
-    body = body.replace(h1[0], "").trim();
+  const heading = body.match(/^\s*#{1,6}\s+(.+?)\s*$/m);
+  if (heading) {
+    title = heading[1].trim();
+    body = body.replace(heading[0], "").trim();
   }
   if (!title) {
     const campaign = await prisma.campaign.findUnique({
       where: { id: doc.campaignId },
       select: { name: true },
     });
-    title = (campaign?.name ?? "Untitled").trim();
+    title = (campaign?.name ?? "Untitled")
+      .replace(/^\s*cross-platform from [^—–\-:]+[—–\-:]\s*/i, "")
+      .trim();
   }
 
   const community = magProject.hive.community;
