@@ -80,6 +80,7 @@ export default async function RootLayout({
                 hiddenRoutes={project.hiddenRoutes}
                 analyticsEnabled={!!project.analytics}
                 postCreatorEnabled={!!project.postCreator}
+                kanbanEnabled={!!project.githubProject}
               />
               <ThemeToggle />
               <main className="min-w-0 flex-1">

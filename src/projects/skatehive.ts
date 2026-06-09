@@ -120,6 +120,10 @@ const skatehive: ProjectConfig = {
     dir: "prompts/skatehive",
   },
   teamEmails: ["sktbrd.eth@gmail.com"],
+  githubProject: {
+    org: "SkateHive",
+    number: 1,
+  },
   analytics: {
     ga4PropertyId: "527345741",
     gscSiteUrl: "sc-domain:skatehive.app",

@@ -172,4 +172,15 @@ export type ProjectConfig = {
    * Omitting this (or leaving it empty) will disable the send action.
    */
   teamEmails?: string[];
+  /**
+   * GitHub Projects V2 configuration. When set, the Kanban nav item is shown
+   * and /kanban renders the board for this project. Gated like `analytics` —
+   * absent = nav hidden + /kanban returns 404.
+   */
+  githubProject?: {
+    /** GitHub org login that owns the project, e.g. "SkateHive" */
+    org: string;
+    /** GitHub Project number (Projects V2), e.g. 1 */
+    number: number;
+  };
 };

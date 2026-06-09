@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { GitBranch, Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check } from "lucide-react";
+import { GitBranch, Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban } from "lucide-react";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/userbase", label: "Userbase", icon: Users },
   { href: "/brain", label: "Brain", icon: Brain },
   { href: "/analytics", label: "Analytics", icon: ChartColumn, requiresAnalytics: true },
+  { href: "/kanban", label: "Kanban", icon: SquareKanban, requiresKanban: true },
   { href: "/team", label: "Team", icon: UsersRound },
 ];
 
@@ -34,9 +35,10 @@ type AppSidebarProps = {
   hiddenRoutes?: string[];
   analyticsEnabled?: boolean;
   postCreatorEnabled?: boolean;
+  kanbanEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, analyticsEnabled, postCreatorEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, analyticsEnabled, postCreatorEnabled, kanbanEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -71,6 +73,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if (hiddenRoutes?.includes(item.href)) return false;
     if ("requiresAnalytics" in item && item.requiresAnalytics && !analyticsEnabled) return false;
     if ("requiresPostCreator" in item && item.requiresPostCreator && !postCreatorEnabled) return false;
+    if ("requiresKanban" in item && item.requiresKanban && !kanbanEnabled) return false;
     return true;
   });
 
