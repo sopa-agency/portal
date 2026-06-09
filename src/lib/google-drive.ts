@@ -261,6 +261,28 @@ export async function getDriveFileContent(
       return { kind: "binary", contentType: "application/pdf", base64 };
     }
 
+    // Text / Markdown → render inline (markdown via marked; plain text escaped)
+    const isMarkdown =
+      mimeType.includes("markdown") || /\.(md|markdown)$/i.test(meta.name ?? "");
+    if (mimeType.startsWith("text/") || mimeType === "application/json" || isMarkdown) {
+      const dlRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!dlRes.ok) return { kind: "link", webViewLink, mimeType };
+      const text = await dlRes.text();
+      let html: string;
+      if (isMarkdown) {
+        const { marked } = await import("marked");
+        const body = marked.parse(text) as string;
+        html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.6;padding:8px 16px;color:#1f2937">${body}</div>`;
+      } else {
+        const esc = text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] as string);
+        html = `<pre style="white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;padding:12px 16px">${esc}</pre>`;
+      }
+      return { kind: "html", html };
+    }
+
     // Step 3: binary download for images, PDFs, videos
     const fileSize = size ? parseInt(size, 10) : 0;
     const isImage = mimeType.startsWith("image/");
