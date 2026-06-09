@@ -274,6 +274,68 @@ export async function publishToBinanceSquare(
 
 const PINATA_GATEWAY = "https://gateway.pinata.cloud/ipfs";
 
+/** Shared media constraints for portal uploads (images vs video). */
+export function mediaUploadLimit(mimeType: string):
+  | { ok: true; maxBytes: number; maxLabel: string }
+  | { ok: false; error: string } {
+  const isImage = /^image\//.test(mimeType);
+  const isVideo = /^video\//.test(mimeType);
+  if (!isImage && !isVideo) {
+    return { ok: false, error: `Unsupported type ${mimeType} — only image/* and video/* are accepted` };
+  }
+  return isVideo
+    ? { ok: true, maxBytes: 100 * 1024 * 1024, maxLabel: "100MB" }
+    : { ok: true, maxBytes: 8 * 1024 * 1024, maxLabel: "8MB" };
+}
+
+/**
+ * Create a short-lived Pinata signed-upload URL so the BROWSER can upload media
+ * directly to Pinata. This bypasses the server-action body limit (and Vercel's
+ * platform request cap), which is what makes large video uploads possible.
+ * The client POSTs FormData { file, network: "public" } to the returned URL and
+ * reads `data.cid` from the response; the public URL is `gateway/<cid>`.
+ */
+export async function createPinataSignedUploadUrl(
+  filename: string,
+  sizeBytes: number,
+  mimeType: string,
+): Promise<{ ok: true; url: string; gateway: string } | { ok: false; error: string }> {
+  try {
+    const limit = mediaUploadLimit(mimeType);
+    if (!limit.ok) return limit;
+    if (sizeBytes > limit.maxBytes) {
+      return {
+        ok: false,
+        error: `File too large (${(sizeBytes / 1024 / 1024).toFixed(1)}MB; max ${limit.maxLabel})`,
+      };
+    }
+
+    const jwt = process.env.PINATA_JWT;
+    if (!jwt) return { ok: false, error: "PINATA_JWT not set" };
+
+    const res = await fetch("https://uploads.pinata.cloud/v3/files/sign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({
+        network: "public",
+        expires: 600, // seconds the signed URL stays valid — generous for big videos on slow links
+        filename: `portal-${Date.now()}-${filename}`,
+        max_file_size: limit.maxBytes,
+        date: Math.floor(Date.now() / 1000),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `Pinata sign HTTP ${res.status}: ${body.slice(0, 300)}` };
+    }
+    const payload = (await res.json()) as { data?: string };
+    if (!payload.data) return { ok: false, error: "Pinata returned no signed URL" };
+    return { ok: true, url: payload.data, gateway: PINATA_GATEWAY };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Upload any image or video file to Pinata IPFS.
  * - Images: up to 8 MB
@@ -284,17 +346,12 @@ export async function uploadMediaToPinata(
   file: File,
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   try {
-    const isImage = /^image\//.test(file.type);
-    const isVideo = /^video\//.test(file.type);
-    if (!isImage && !isVideo) {
-      return { ok: false, error: `Unsupported type ${file.type} — only image/* and video/* are accepted` };
-    }
-    const maxBytes = isVideo ? 100 * 1024 * 1024 : 8 * 1024 * 1024;
-    const maxLabel = isVideo ? "100MB" : "8MB";
-    if (file.size > maxBytes) {
+    const limit = mediaUploadLimit(file.type);
+    if (!limit.ok) return limit;
+    if (file.size > limit.maxBytes) {
       return {
         ok: false,
-        error: `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB; max ${maxLabel})`,
+        error: `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB; max ${limit.maxLabel})`,
       };
     }
 

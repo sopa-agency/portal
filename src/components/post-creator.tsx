@@ -40,6 +40,7 @@ import {
   updateDraft,
   deleteDraft,
   uploadPostMedia,
+  signPostMediaUpload,
   generateCaption,
   improveCaption,
   publishDraft,
@@ -54,6 +55,35 @@ import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
 
 const CAPTION_MAX = 2200;
 const COMMENT_MAX = 2200;
+
+/**
+ * Direct browser→Pinata upload: ask the server for a short-lived signed URL,
+ * then POST the file straight to Pinata. The media never flows through the
+ * Next server, so big Reels videos aren't capped by the server-action body
+ * limit (or Vercel's request cap).
+ */
+async function uploadMediaDirect(
+  file: File,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  try {
+    const signed = await signPostMediaUpload(file.name, file.size, file.type);
+    if (!signed.ok) return signed;
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("network", "public");
+    const res = await fetch(signed.url, { method: "POST", body: fd });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `Pinata upload HTTP ${res.status}: ${body.slice(0, 200)}` };
+    }
+    const json = (await res.json().catch(() => null)) as { data?: { cid?: string } } | null;
+    const cid = json?.data?.cid;
+    if (!cid) return { ok: false, error: "Pinata returned no CID" };
+    return { ok: true, url: `${signed.gateway}/${cid}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
 const POST_TYPES: { value: PostType; label: string; hint: string }[] = [
   { value: "IMAGE", label: "Single Image", hint: "1 image · Quocrete or PERSPECTIVA" },
   { value: "CAROUSEL", label: "Carousel", hint: "2–10 images" },
@@ -1834,9 +1864,16 @@ export function PostCreator({
       const preview = URL.createObjectURL(file);
       const isVideo = /^video\//.test(file.type);
 
-      const formData = new FormData();
-      formData.set("file", file);
-      const result = await uploadPostMedia(formData);
+      // Preferred path: signed-URL handshake, then the browser uploads straight
+      // to Pinata — required for videos, which blow past the server-action body
+      // limit. Falls back to the original through-the-server route if signing
+      // is unavailable (older Pinata plans, etc.).
+      let result = await uploadMediaDirect(file);
+      if (!result.ok) {
+        const formData = new FormData();
+        formData.set("file", file);
+        result = await uploadPostMedia(formData);
+      }
 
       if (!result.ok) {
         setUploadError(result.error);

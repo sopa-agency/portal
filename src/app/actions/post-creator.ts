@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
-import { uploadMediaToPinata } from "@/lib/social-publish";
+import { uploadMediaToPinata, createPinataSignedUploadUrl } from "@/lib/social-publish";
 import { publishInstagramPost } from "@/lib/instagram-publish";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 
@@ -329,6 +329,24 @@ export async function uploadPostMedia(
     const file = formData.get("file");
     if (!(file instanceof File)) return { ok: false, error: "No file provided." };
     return await uploadMediaToPinata(file);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Signed-URL handshake for DIRECT browser→Pinata uploads. The file itself never
+ * touches the server action transport, so large videos (Reels) work even past
+ * the server-action body limit / Vercel request cap.
+ */
+export async function signPostMediaUpload(
+  filename: string,
+  sizeBytes: number,
+  mimeType: string,
+): Promise<{ ok: true; url: string; gateway: string } | { ok: false; error: string }> {
+  try {
+    await authGate();
+    return await createPinataSignedUploadUrl(filename, sizeBytes, mimeType);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

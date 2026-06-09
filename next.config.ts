@@ -17,8 +17,11 @@ const nextConfig: NextConfig = {
   ],
   experimental: {
     serverActions: {
-      // Default 1MB is too low for image uploads; uploadDraftImage caps at 8MB.
-      bodySizeLimit: "10mb",
+      // Media uploads prefer the direct browser→Pinata signed-URL path, which
+      // never touches this transport. This limit only governs the FALLBACK
+      // through-the-server route, sized to carry a 100MB Reels video locally.
+      // (On Vercel the platform request cap still applies to the fallback.)
+      bodySizeLimit: "110mb",
     },
   },
 };
