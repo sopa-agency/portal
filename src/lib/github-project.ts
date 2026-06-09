@@ -20,6 +20,8 @@ export type KanbanItem = {
 export type KanbanColumn = {
   name: string;
   items: KanbanItem[];
+  /** Status single-select option id (absent for the synthetic "No Status" column). */
+  optionId?: string;
 };
 
 export type KanbanResult =
@@ -27,6 +29,10 @@ export type KanbanResult =
       ok: true;
       title: string;
       url: string;
+      /** Project node id — needed for all mutations. */
+      projectId: string;
+      /** Status single-select field node id (null if the project has no Status field). */
+      statusFieldId: string | null;
       columns: KanbanColumn[];
       truncated: boolean;
     }
@@ -40,10 +46,12 @@ const QUERY = `
   query GetProject($login: String!, $number: Int!) {
     organization(login: $login) {
       projectV2(number: $number) {
+        id
         title
         url
         field(name: "Status") {
           ... on ProjectV2SingleSelectField {
+            id
             options {
               id
               name
@@ -119,11 +127,16 @@ const QUERY = `
 // Main fetch function
 // ---------------------------------------------------------------------------
 
-export async function fetchGitHubProject(project: ProjectConfig): Promise<KanbanResult> {
-  // Resolve token
-  const token =
+/** Resolve the GitHub token for a project (project-scoped, then global). */
+export function resolveGitHubToken(project: ProjectConfig): string | undefined {
+  return (
     process.env[`${project.agent.gatewayEnvPrefix}_GITHUB_TOKEN`] ??
-    process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN
+  );
+}
+
+export async function fetchGitHubProject(project: ProjectConfig): Promise<KanbanResult> {
+  const token = resolveGitHubToken(project);
 
   if (!token) {
     return { ok: false, error: "GITHUB_TOKEN not set" };
@@ -161,9 +174,11 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       data?: {
         organization?: {
           projectV2?: {
+            id: string;
             title: string;
             url: string;
             field?: {
+              id?: string;
               options?: { id: string; name: string }[];
             };
             items: {
@@ -259,18 +274,20 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
     // Build ordered columns
     const columns: KanbanColumn[] = statusOptions.map((opt) => ({
       name: opt.name,
+      optionId: opt.id,
       items: columnMap.get(opt.name) ?? [],
     }));
 
-    // Append "No Status" column only if there are items without a status
-    if (noStatusItems.length > 0) {
-      columns.push({ name: "No Status", items: noStatusItems });
-    }
+    // Always append a "No Status" column (the drop target for clearing status),
+    // even when empty, so cards can be dragged back out of a status.
+    columns.push({ name: "No Status", items: noStatusItems });
 
     return {
       ok: true,
       title: projectV2.title,
       url: projectV2.url,
+      projectId: projectV2.id,
+      statusFieldId: projectV2.field?.id ?? null,
       columns,
       truncated: rawItems.length === 100,
     };
@@ -278,4 +295,144 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: `Unexpected error: ${message}` };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
+
+export type MutationResult<T = unknown> =
+  | ({ ok: true } & T)
+  | { ok: false; error: string };
+
+/** Low-level GraphQL caller used by all mutations. */
+async function githubGraphQL<T>(
+  token: string,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<MutationResult<{ data: T }>> {
+  try {
+    const res = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: {
+        Authorization: `bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return { ok: false, error: `GitHub API returned HTTP ${res.status}: ${res.statusText}` };
+    }
+    const json = (await res.json()) as { data?: T; errors?: { message: string }[] };
+    if (json.errors && json.errors.length > 0) {
+      return { ok: false, error: json.errors[0].message };
+    }
+    return { ok: true, data: json.data as T };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Unexpected error: ${message}` };
+  }
+}
+
+/** Move a card to a Status column (set the Status single-select value). */
+export async function setItemStatus(args: {
+  token: string;
+  projectId: string;
+  itemId: string;
+  fieldId: string;
+  optionId: string;
+}): Promise<MutationResult> {
+  const query = `
+    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId, itemId: $itemId, fieldId: $fieldId,
+        value: { singleSelectOptionId: $optionId }
+      }) { projectV2Item { id } }
+    }`;
+  return githubGraphQL(args.token, query, args);
+}
+
+/** Clear a card's Status (drag back to "No Status"). */
+export async function clearItemStatus(args: {
+  token: string;
+  projectId: string;
+  itemId: string;
+  fieldId: string;
+}): Promise<MutationResult> {
+  const query = `
+    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+      clearProjectV2ItemFieldValue(input: {
+        projectId: $projectId, itemId: $itemId, fieldId: $fieldId
+      }) { projectV2Item { id } }
+    }`;
+  return githubGraphQL(args.token, query, args);
+}
+
+/** Reorder a card within the board. afterId = the item it should follow (null = top). */
+export async function moveItemPosition(args: {
+  token: string;
+  projectId: string;
+  itemId: string;
+  afterId: string | null;
+}): Promise<MutationResult> {
+  const query = `
+    mutation($projectId: ID!, $itemId: ID!, $afterId: ID) {
+      updateProjectV2ItemPosition(input: {
+        projectId: $projectId, itemId: $itemId, afterId: $afterId
+      }) { items { totalCount } }
+    }`;
+  return githubGraphQL(args.token, query, args);
+}
+
+/** Create a draft issue on the board. Returns the new item id. */
+export async function addDraftIssue(args: {
+  token: string;
+  projectId: string;
+  title: string;
+  body?: string;
+}): Promise<MutationResult<{ itemId: string }>> {
+  const query = `
+    mutation($projectId: ID!, $title: String!, $body: String) {
+      addProjectV2DraftIssue(input: { projectId: $projectId, title: $title, body: $body }) {
+        projectItem { id }
+      }
+    }`;
+  const r = await githubGraphQL<{ addProjectV2DraftIssue: { projectItem: { id: string } } }>(
+    args.token,
+    query,
+    args,
+  );
+  if (!r.ok) return r;
+  return { ok: true, itemId: r.data.addProjectV2DraftIssue.projectItem.id };
+}
+
+/** Archive a card (removes it from the active board, recoverable in GitHub). */
+export async function archiveItem(args: {
+  token: string;
+  projectId: string;
+  itemId: string;
+}): Promise<MutationResult> {
+  const query = `
+    mutation($projectId: ID!, $itemId: ID!) {
+      archiveProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+        item { id }
+      }
+    }`;
+  return githubGraphQL(args.token, query, args);
+}
+
+/** Permanently delete a card from the project. */
+export async function deleteItem(args: {
+  token: string;
+  projectId: string;
+  itemId: string;
+}): Promise<MutationResult> {
+  const query = `
+    mutation($projectId: ID!, $itemId: ID!) {
+      deleteProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+        deletedItemId
+      }
+    }`;
+  return githubGraphQL(args.token, query, args);
 }

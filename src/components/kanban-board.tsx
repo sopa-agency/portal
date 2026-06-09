@@ -1,24 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CircleDot, GitPullRequest, SquareDashed, ExternalLink, Loader2 } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  closestCorners,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  CircleDot,
+  GitPullRequest,
+  SquareDashed,
+  ExternalLink,
+  Loader2,
+  Plus,
+  Archive,
+  Trash2,
+  X,
+  GripVertical,
+} from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 
 // ---------------------------------------------------------------------------
-// Luminance helper — determines whether black or white text is more readable
-// on a given hex background color.
+// Label color helpers (luminance → readable text color)
 // ---------------------------------------------------------------------------
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const clean = hex.replace(/^#/, "");
   if (clean.length !== 6 && clean.length !== 3) return null;
-  const full =
-    clean.length === 3
-      ? clean
-          .split("")
-          .map((c) => c + c)
-          .join("")
-      : clean;
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
   const num = parseInt(full, 16);
   return { r: (num >> 16) & 0xff, g: (num >> 8) & 0xff, b: num & 0xff };
 }
@@ -34,302 +59,541 @@ function relativeLuminance(r: number, g: number, b: number): number {
 function labelTextColor(hexColor: string): string {
   const rgb = hexToRgb(hexColor);
   if (!rgb) return "#000000";
-  const lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
-  // WCAG contrast — use black on light, white on dark
-  return lum > 0.179 ? "#000000" : "#ffffff";
+  return relativeLuminance(rgb.r, rgb.g, rgb.b) > 0.179 ? "#000000" : "#ffffff";
 }
 
 // ---------------------------------------------------------------------------
-// State badge
+// Badges / icons
 // ---------------------------------------------------------------------------
 
 function StateBadge({ item }: { item: KanbanItem }) {
   if (item.type === "pr") {
-    if (item.merged) {
-      return (
-        <span className="rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] font-medium text-accent">
-          merged
-        </span>
-      );
-    }
-    if (item.state === "closed") {
-      return (
-        <span className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">
-          closed
-        </span>
-      );
-    }
-    return (
-      <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
-        open
-      </span>
-    );
+    if (item.merged)
+      return <span className="rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] font-medium text-accent">merged</span>;
+    if (item.state === "closed")
+      return <span className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">closed</span>;
+    return <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">open</span>;
   }
-
   if (item.type === "issue") {
-    if (item.state === "closed") {
-      return (
-        <span className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">
-          closed
-        </span>
-      );
-    }
-    return (
-      <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
-        open
-      </span>
-    );
+    if (item.state === "closed")
+      return <span className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">closed</span>;
+    return <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">open</span>;
   }
-
-  // draft
-  return (
-    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-foreground-muted">
-      draft
-    </span>
-  );
+  return <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-foreground-muted">draft</span>;
 }
 
-// ---------------------------------------------------------------------------
-// Type icon
-// ---------------------------------------------------------------------------
-
 function TypeIcon({ type }: { type: KanbanItem["type"] }) {
-  if (type === "issue") {
-    return <CircleDot className="h-3.5 w-3.5 shrink-0 text-success" aria-label="Issue" />;
-  }
-  if (type === "pr") {
-    return <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-accent" aria-label="Pull request" />;
-  }
+  if (type === "issue") return <CircleDot className="h-3.5 w-3.5 shrink-0 text-success" aria-label="Issue" />;
+  if (type === "pr") return <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-accent" aria-label="Pull request" />;
   return <SquareDashed className="h-3.5 w-3.5 shrink-0 text-foreground-faint" aria-label="Draft issue" />;
 }
 
 // ---------------------------------------------------------------------------
-// Kanban card
+// Card body (shared by sortable card + drag overlay)
 // ---------------------------------------------------------------------------
 
-function KanbanCard({ item }: { item: KanbanItem }) {
+function CardBody({ item }: { item: KanbanItem }) {
   const MAX_AVATARS = 3;
-  const extraAssignees =
-    item.assignees.length > MAX_AVATARS ? item.assignees.length - MAX_AVATARS : 0;
-  const visibleAssignees = item.assignees.slice(0, MAX_AVATARS);
-
-  const cardInner = (
+  const extra = item.assignees.length > MAX_AVATARS ? item.assignees.length - MAX_AVATARS : 0;
+  const visible = item.assignees.slice(0, MAX_AVATARS);
+  return (
     <div className="space-y-2.5">
-      {/* Title row */}
       <div className="flex items-start gap-2">
         <div className="mt-0.5 shrink-0">
           <TypeIcon type={item.type} />
         </div>
-        <p className="flex-1 text-sm font-medium leading-snug text-foreground">
-          {item.title}
-        </p>
+        <p className="flex-1 text-sm font-medium leading-snug text-foreground">{item.title}</p>
       </div>
-
-      {/* Number + state badge */}
       {(item.number != null || item.type !== "draft") && (
         <div className="flex items-center gap-2">
           {item.number != null && (
-            <span className="font-mono tabular-nums text-xs text-foreground-subtle">
-              #{item.number}
-            </span>
+            <span className="font-mono tabular-nums text-xs text-foreground-subtle">#{item.number}</span>
           )}
           <StateBadge item={item} />
         </div>
       )}
-
-      {/* Labels */}
       {item.labels.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {item.labels.map((label) => (
             <span
               key={label.name}
               className="rounded-full px-2 py-0.5 text-[10px] font-medium leading-tight"
-              style={{
-                backgroundColor: `#${label.color}`,
-                color: labelTextColor(label.color),
-              }}
+              style={{ backgroundColor: `#${label.color}`, color: labelTextColor(label.color) }}
             >
               {label.name}
             </span>
           ))}
         </div>
       )}
-
-      {/* Assignee avatars */}
       {item.assignees.length > 0 && (
         <div className="flex items-center gap-1">
-          {visibleAssignees.map((a) => (
+          {visible.map((a) => (
             /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              key={a.login}
-              src={a.avatarUrl}
-              alt={a.login}
-              title={a.login}
-              width={20}
-              height={20}
-              className="h-5 w-5 rounded-full border border-border object-cover"
-            />
+            <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} width={20} height={20}
+              className="h-5 w-5 rounded-full border border-border object-cover" />
           ))}
-          {extraAssignees > 0 && (
+          {extra > 0 && (
             <span className="flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface-elevated text-[9px] font-semibold tabular-nums text-foreground-subtle">
-              +{extraAssignees}
+              +{extra}
             </span>
           )}
         </div>
       )}
     </div>
   );
+}
 
-  if (item.url) {
-    return (
-      <a
-        href={item.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={`${item.title} — open in GitHub`}
-        className="block rounded-lg border border-border bg-surface p-3.5 transition-colors hover:border-border-strong hover:bg-surface-elevated"
-      >
-        {cardInner}
-      </a>
-    );
+// ---------------------------------------------------------------------------
+// Sortable card
+// ---------------------------------------------------------------------------
+
+function SortableCard({
+  item,
+  onArchive,
+  onDelete,
+  busy,
+}: {
+  item: KanbanItem;
+  onArchive: (id: string) => void;
+  onDelete: (id: string) => void;
+  busy: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
+  const style = { transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="group relative rounded-lg border border-border bg-surface p-3.5 transition-colors hover:border-border-strong"
+    >
+      {/* Drag handle + body */}
+      <div className="flex items-start gap-1">
+        <button
+          type="button"
+          aria-label="Drag card"
+          className="-ml-1 mt-0.5 cursor-grab touch-none rounded p-0.5 text-foreground-faint opacity-0 transition-opacity hover:text-foreground active:cursor-grabbing group-hover:opacity-100"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <div className="flex-1">
+          <CardBody item={item} />
+        </div>
+      </div>
+
+      {/* Action buttons — appear on hover */}
+      <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {item.url && (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open in GitHub"
+            className="rounded p-1 text-foreground-faint hover:bg-foreground/5 hover:text-foreground"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        )}
+        <button
+          type="button"
+          aria-label="Archive card"
+          disabled={busy}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onArchive(item.id)}
+          className="rounded p-1 text-foreground-faint hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
+        >
+          <Archive className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          aria-label="Delete card"
+          disabled={busy}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onDelete(item.id)}
+          className="rounded p-1 text-foreground-faint hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Column (droppable)
+// ---------------------------------------------------------------------------
+
+function ColumnView({
+  column,
+  onArchive,
+  onDelete,
+  onAddDraft,
+  busy,
+}: {
+  column: KanbanColumn;
+  onArchive: (id: string) => void;
+  onDelete: (id: string) => void;
+  onAddDraft: (columnName: string, title: string) => void;
+  busy: boolean;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `container:${column.name}` });
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (adding) inputRef.current?.focus();
+  }, [adding]);
+
+  function submit() {
+    const t = draft.trim();
+    if (t) onAddDraft(column.name, t);
+    setDraft("");
+    setAdding(false);
   }
 
   return (
-    <div
-      aria-label={item.title}
-      className="rounded-lg border border-border bg-surface p-3.5"
-    >
-      {cardInner}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Column
-// ---------------------------------------------------------------------------
-
-function KanbanColumnView({ column }: { column: KanbanColumn }) {
-  return (
-    <div
-      className="flex w-72 shrink-0 flex-col gap-3"
-      aria-label={`${column.name} column`}
-    >
-      {/* Column header */}
-      <div className="flex items-center justify-between">
+    <div className="flex w-72 shrink-0 flex-col gap-3" aria-label={`${column.name} column`}>
+      <div className="flex items-center justify-between px-0.5">
         <h2 className="text-sm font-semibold text-foreground">{column.name}</h2>
-        <span className="font-mono tabular-nums text-xs text-foreground-subtle">
-          {column.items.length}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono tabular-nums text-xs text-foreground-subtle">{column.items.length}</span>
+          <button
+            type="button"
+            aria-label={`Add card to ${column.name}`}
+            onClick={() => setAdding((a) => !a)}
+            className="rounded p-0.5 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
       </div>
-      {/* Cards */}
-      <div className="space-y-2">
-        {column.items.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-foreground-faint">
-            No items
-          </p>
-        ) : (
-          column.items.map((item) => <KanbanCard key={item.id} item={item} />)
+
+      <div
+        ref={setNodeRef}
+        className={`flex min-h-24 flex-col gap-2 rounded-lg border p-2 transition-colors ${
+          isOver ? "border-accent-border bg-accent-bg/40" : "border-dashed border-border/60"
+        }`}
+      >
+        {adding && (
+          <div className="rounded-lg border border-border bg-surface p-2">
+            <textarea
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                } else if (e.key === "Escape") {
+                  setDraft("");
+                  setAdding(false);
+                }
+              }}
+              placeholder="Draft title… (Enter to add, Esc to cancel)"
+              rows={2}
+              className="w-full resize-none rounded-md bg-surface-elevated px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
+            />
+            <div className="mt-1.5 flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => { setDraft(""); setAdding(false); }}
+                className="rounded-md p-1 text-foreground-faint hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Cancel"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!draft.trim()}
+                className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-background disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+          </div>
         )}
+
+        <SortableContext items={column.items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+          {column.items.length === 0 && !adding ? (
+            <p className="px-2 py-6 text-center text-xs text-foreground-faint">Drop cards here</p>
+          ) : (
+            column.items.map((item) => (
+              <SortableCard key={item.id} item={item} onArchive={onArchive} onDelete={onDelete} busy={busy} />
+            ))
+          )}
+        </SortableContext>
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main board component
+// Board
 // ---------------------------------------------------------------------------
+
+type Board = Extract<KanbanResult, { ok: true }>;
 
 export function KanbanBoard() {
-  const [result, setResult] = useState<KanbanResult | null>(null);
+  const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeItem, setActiveItem] = useState<KanbanItem | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const load = useCallback(async () => {
     setLoading(true);
-    fetch("/api/kanban")
-      .then((r) => r.json())
-      .then((data: KanbanResult) => {
-        if (!cancelled) {
-          setResult(data);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          const message = err instanceof Error ? err.message : String(err);
-          setResult({ ok: false, error: message });
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const r = await fetch("/api/kanban");
+      const data = (await r.json()) as KanbanResult;
+      if (data.ok) {
+        setBoard(data);
+        setError(null);
+      } else {
+        setError(data.error);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // Loading state
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  function flash(msg: string) {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 4000);
+  }
+
+  // --- mutation helper ---
+  const mutate = useCallback(
+    async (payload: Record<string, unknown>) => {
+      const res = await fetch("/api/kanban", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string; itemId?: string };
+      return data;
+    },
+    [],
+  );
+
+  // --- DnD: locate the column a card / container id belongs to ---
+  function columnNameOf(id: string): string | undefined {
+    if (id.startsWith("container:")) return id.slice("container:".length);
+    return board?.columns.find((c) => c.items.some((it) => it.id === id))?.name;
+  }
+
+  function handleDragStart(e: DragStartEvent) {
+    const id = String(e.active.id);
+    const item = board?.columns.flatMap((c) => c.items).find((it) => it.id === id) ?? null;
+    setActiveItem(item);
+  }
+
+  // Move card between containers during drag for live preview.
+  function handleDragOver(e: DragOverEvent) {
+    const { active, over } = e;
+    if (!over || !board) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const fromCol = columnNameOf(activeId);
+    const toCol = columnNameOf(overId);
+    if (!fromCol || !toCol || fromCol === toCol) return;
+
+    setBoard((prev) => {
+      if (!prev) return prev;
+      const cols = prev.columns.map((c) => ({ ...c, items: [...c.items] }));
+      const from = cols.find((c) => c.name === fromCol)!;
+      const to = cols.find((c) => c.name === toCol)!;
+      const idx = from.items.findIndex((it) => it.id === activeId);
+      if (idx === -1) return prev;
+      const [moved] = from.items.splice(idx, 1);
+      // Insert at the over-card's position, or append if dropping on the container.
+      const overIdx = to.items.findIndex((it) => it.id === overId);
+      if (overIdx === -1) to.items.push(moved);
+      else to.items.splice(overIdx, 0, moved);
+      return { ...prev, columns: cols };
+    });
+  }
+
+  async function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    setActiveItem(null);
+    if (!over || !board) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    const toCol = columnNameOf(overId);
+    if (!toCol) return;
+    const targetCol = board.columns.find((c) => c.name === toCol)!;
+
+    // Reorder within the target column (state already reflects cross-column move
+    // from handleDragOver; here we settle same-column ordering).
+    let nextBoard = board;
+    const sameColOverItem = targetCol.items.findIndex((it) => it.id === overId);
+    const activeIdx = targetCol.items.findIndex((it) => it.id === activeId);
+    if (activeIdx !== -1 && sameColOverItem !== -1 && activeIdx !== sameColOverItem) {
+      const cols = board.columns.map((c) =>
+        c.name === toCol ? { ...c, items: arrayMove(c.items, activeIdx, sameColOverItem) } : c,
+      );
+      nextBoard = { ...board, columns: cols };
+      setBoard(nextBoard);
+    }
+
+    // Persist: set/clear status for the target column, then fix position.
+    const col = nextBoard.columns.find((c) => c.name === toCol)!;
+    const newIdx = col.items.findIndex((it) => it.id === activeId);
+    const afterId = newIdx > 0 ? col.items[newIdx - 1].id : null;
+
+    setBusy(true);
+    try {
+      if (nextBoard.statusFieldId) {
+        if (col.optionId) {
+          const r = await mutate({
+            action: "setStatus",
+            projectId: nextBoard.projectId,
+            fieldId: nextBoard.statusFieldId,
+            itemId: activeId,
+            optionId: col.optionId,
+          });
+          if (!r.ok) throw new Error(r.error || "Failed to set status");
+        } else {
+          // "No Status" column — clear the field.
+          const r = await mutate({
+            action: "clearStatus",
+            projectId: nextBoard.projectId,
+            fieldId: nextBoard.statusFieldId,
+            itemId: activeId,
+          });
+          if (!r.ok) throw new Error(r.error || "Failed to clear status");
+        }
+      }
+      const rp = await mutate({
+        action: "move",
+        projectId: nextBoard.projectId,
+        itemId: activeId,
+        afterId,
+      });
+      if (!rp.ok) throw new Error(rp.error || "Failed to reorder");
+    } catch (err) {
+      flash(err instanceof Error ? err.message : "Update failed — reverting");
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // --- card actions ---
+  async function onAddDraft(columnName: string, title: string) {
+    if (!board) return;
+    const col = board.columns.find((c) => c.name === columnName);
+    setBusy(true);
+    try {
+      const r = await mutate({ action: "addDraft", projectId: board.projectId, title });
+      if (!r.ok || !r.itemId) throw new Error(r.error || "Failed to add draft");
+      if (board.statusFieldId && col?.optionId) {
+        await mutate({
+          action: "setStatus",
+          projectId: board.projectId,
+          fieldId: board.statusFieldId,
+          itemId: r.itemId,
+          optionId: col.optionId,
+        });
+      }
+      await load();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : "Failed to add draft");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onArchive(itemId: string) {
+    if (!board) return;
+    setBusy(true);
+    try {
+      const r = await mutate({ action: "archive", projectId: board.projectId, itemId });
+      if (!r.ok) throw new Error(r.error || "Failed to archive");
+      setBoard((prev) =>
+        prev ? { ...prev, columns: prev.columns.map((c) => ({ ...c, items: c.items.filter((i) => i.id !== itemId) })) } : prev,
+      );
+    } catch (err) {
+      flash(err instanceof Error ? err.message : "Failed to archive");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDelete(itemId: string) {
+    if (!board) return;
+    if (!window.confirm("Permanently delete this card from the project? This cannot be undone.")) return;
+    setBusy(true);
+    try {
+      const r = await mutate({ action: "delete", projectId: board.projectId, itemId });
+      if (!r.ok) throw new Error(r.error || "Failed to delete");
+      setBoard((prev) =>
+        prev ? { ...prev, columns: prev.columns.map((c) => ({ ...c, items: c.items.filter((i) => i.id !== itemId) })) } : prev,
+      );
+    } catch (err) {
+      flash(err instanceof Error ? err.message : "Failed to delete");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // --- render ---
   if (loading) {
     return (
-      <div
-        className="flex items-center gap-3 py-12 text-foreground-muted"
-        aria-label="Loading Kanban board"
-      >
+      <div className="flex items-center gap-3 py-12 text-foreground-muted" aria-label="Loading Kanban board">
         <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
         <span className="text-sm">Loading board…</span>
       </div>
     );
   }
 
-  // Error state
-  if (!result || !result.ok) {
-    const message = result ? result.error : "Failed to load";
+  if (error || !board) {
+    const message = error ?? "Failed to load";
+    const hint = /scope|permission|token/i.test(message);
     return (
-      <div
-        className="rounded-lg border border-danger/30 bg-danger/5 p-6"
-        role="alert"
-        aria-label="Kanban board error"
-      >
+      <div className="rounded-lg border border-danger/30 bg-danger/5 p-6" role="alert">
         <p className="text-sm font-medium text-danger">Failed to load Kanban board</p>
         <p className="mt-1 text-xs text-foreground-muted">{message}</p>
-        {message.toLowerCase().includes("scope") ||
-        message.toLowerCase().includes("permission") ||
-        message.toLowerCase().includes("token") ? (
+        {hint && (
           <p className="mt-3 text-xs text-foreground-subtle">
-            Make sure <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">GITHUB_TOKEN</code> is set and has{" "}
+            Make sure <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">GITHUB_TOKEN</code> has{" "}
             <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">project</code>,{" "}
             <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">read:org</code>, and{" "}
             <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">repo</code> scopes.
           </p>
-        ) : null}
+        )}
       </div>
     );
   }
 
-  const { title, url, columns, truncated } = result;
-
-  // Empty state
-  const totalItems = columns.reduce((sum, col) => sum + col.items.length, 0);
-  if (totalItems === 0 && columns.length === 0) {
-    return (
-      <div
-        className="rounded-lg border border-dashed border-border py-12 text-center"
-        aria-label="Kanban board empty"
-      >
-        <p className="text-sm text-foreground-muted">No items found on this board.</p>
-      </div>
-    );
-  }
+  const { title, url, columns, truncated } = board;
 
   return (
     <div className="space-y-4">
-      {/* Board meta bar */}
+      {/* Meta bar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-foreground-subtle">
+        <p className="flex items-center gap-2 text-sm text-foreground-subtle">
           {title}
-          {truncated && (
-            <span className="ml-2 text-xs text-warning">
-              (showing first 100 items)
-            </span>
-          )}
+          {truncated && <span className="text-xs text-warning">(first 100 items)</span>}
+          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="Saving" />}
         </p>
         <a
           href={url}
@@ -343,17 +607,42 @@ export function KanbanBoard() {
         </a>
       </div>
 
-      {/* Horizontal scroll board */}
-      <div
-        className="overflow-x-auto pb-4"
-        aria-label="Kanban board"
-      >
-        <div className="flex gap-4" style={{ minWidth: "max-content" }}>
-          {columns.map((col) => (
-            <KanbanColumnView key={col.name} column={col} />
-          ))}
+      {toast && (
+        <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
+          {toast}
         </div>
-      </div>
+      )}
+
+      {/* Board */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="overflow-x-auto pb-4">
+          <div className="flex gap-4" style={{ minWidth: "max-content" }}>
+            {columns.map((col) => (
+              <ColumnView
+                key={col.name}
+                column={col}
+                onArchive={onArchive}
+                onDelete={onDelete}
+                onAddDraft={onAddDraft}
+                busy={busy}
+              />
+            ))}
+          </div>
+        </div>
+        <DragOverlay>
+          {activeItem ? (
+            <div className="w-64 rotate-2 rounded-lg border border-border-strong bg-surface p-3.5 shadow-lg">
+              <CardBody item={activeItem} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 }
