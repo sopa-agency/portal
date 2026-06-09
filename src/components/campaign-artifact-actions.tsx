@@ -19,6 +19,7 @@ import {
   toggleArtifactPosted,
 } from "@/app/actions/campaigns";
 import type { CampaignDocumentKind } from "@/components/campaign-document-preview";
+import { CampaignMagPublishDialog } from "@/components/campaign-mag-publish-dialog";
 
 type Props = {
   documentId: string;
@@ -57,9 +58,24 @@ export function CampaignArtifactActions({
 
   const remixInputRef = useRef<HTMLTextAreaElement>(null);
 
-  const supportsAutoSend = kind === "hive" || kind === "hive_mag" || kind === "farcaster" || kind === "discord";
+  // hive_mag has its own preview-confirmation dialog, so it's excluded from the
+  // generic one-click auto-send button below.
+  const supportsAutoSend = kind === "hive" || kind === "farcaster" || kind === "discord";
+  const isMag = kind === "hive_mag";
   const isTweets = kind === "tweets";
   const isEmail = kind === "email";
+
+  const [magDialogOpen, setMagDialogOpen] = useState(false);
+
+  // Publish the mag post (invoked from the confirmation dialog).
+  const confirmMagPublish = () => {
+    setSendStatus(null);
+    startSend(async () => {
+      const res = await sendCampaignArtifact(documentId);
+      setSendStatus(res);
+      if (res.ok) setPostedAt(new Date());
+    });
+  };
 
   // --- toggle posted ---
   const handleTogglePosted = () => {
@@ -73,7 +89,7 @@ export function CampaignArtifactActions({
   const handleSend = () => {
     if (!supportsAutoSend) return;
     const label =
-      kind === "discord" ? "Discord" : kind === "farcaster" ? "Farcaster" : kind === "hive_mag" ? "Hive blog (mag)" : "Hive";
+      kind === "discord" ? "Discord" : kind === "farcaster" ? "Farcaster" : "Hive";
     if (!window.confirm(`Publish this ${label} post now?`)) return;
     setSendStatus(null);
     startSend(async () => {
@@ -179,6 +195,30 @@ export function CampaignArtifactActions({
               ? "Send to Discord"
               : "Publish"}
           </button>
+        )}
+
+        {/* hive_mag — open preview/confirm dialog instead of a one-click send */}
+        {isMag && (
+          <button
+            type="button"
+            onClick={() => setMagDialogOpen(true)}
+            disabled={sendPending}
+            aria-label="Preview and publish Hive blog post"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Send className="h-3.5 w-3.5" />
+            Publish…
+          </button>
+        )}
+        {isMag && (
+          <CampaignMagPublishDialog
+            open={magDialogOpen}
+            documentId={documentId}
+            publishing={sendPending}
+            result={sendStatus}
+            onClose={() => setMagDialogOpen(false)}
+            onConfirm={confirmMagPublish}
+          />
         )}
 
         {/* tweets — open X composer intent in new tab */}

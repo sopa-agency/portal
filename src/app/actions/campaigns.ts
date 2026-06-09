@@ -985,6 +985,116 @@ export async function publishHiveSnap(
 }
 
 // ---------------------------------------------------------------------------
+// Resolve everything a Hive mag-post publish needs (title, body, images,
+// community, tags, beneficiaries, PT translation) WITHOUT broadcasting. Shared
+// by the publish action and the publish-confirmation preview so what you see is
+// exactly what gets posted.
+// ---------------------------------------------------------------------------
+
+type MagPostFields = {
+  campaignId: string;
+  account: string | null;
+  title: string;
+  body: string;
+  community: string;
+  imageUrls: string[];
+  tags: string[];
+  ptBody: string;
+  beneficiaries: { account: string; weight: number }[];
+};
+
+async function buildMagPostFields(
+  documentId: string,
+  magProject: Awaited<ReturnType<typeof getActiveProject>>,
+): Promise<{ ok: false; error: string } | ({ ok: true } & MagPostFields)> {
+  const prefix = magProject.agent.gatewayEnvPrefix;
+  const account =
+    process.env[`${prefix}_HIVE_POSTING_ACCOUNT`] ?? process.env.HIVE_POSTING_ACCOUNT ?? null;
+
+  const doc = await prisma.campaignDocument.findUnique({
+    where: { id: documentId },
+    select: { content: true, campaignId: true },
+  });
+  if (!doc) return { ok: false, error: "Document not found." };
+  let body = doc.content.trim();
+  if (!body) return { ok: false, error: "Mag post is empty — nothing to publish." };
+
+  // Sibling Portuguese translation → json_metadata.translations.pt
+  const ptDoc = await prisma.campaignDocument.findFirst({
+    where: { campaignId: doc.campaignId, name: "Hive mag post (PT)", isMain: false },
+    select: { content: true },
+  });
+  const ptBody = (ptDoc?.content ?? "").trim();
+
+  // Title = first markdown H1 (stripped from the body), else the campaign name.
+  let title = "";
+  const h1 = body.match(/^\s*#\s+(.+?)\s*$/m);
+  if (h1) {
+    title = h1[1].trim();
+    body = body.replace(h1[0], "").trim();
+  }
+  if (!title) {
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: doc.campaignId },
+      select: { name: true },
+    });
+    title = (campaign?.name ?? "Untitled").trim();
+  }
+
+  const community = magProject.hive.community;
+  const imageUrls = [
+    ...new Set([...body.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g)].map((m) => m[1])),
+  ];
+  const tags = [community, magProject.slug];
+  // Beneficiaries — drop any equal to the posting account (Hive rejects a
+  // self-beneficiary) and sort ascending by account (Hive requires it).
+  const beneficiaries = (account
+    ? MAG_POST_BENEFICIARIES.filter((b) => b.account !== account)
+    : MAG_POST_BENEFICIARIES
+  ).sort((a, b) => a.account.localeCompare(b.account));
+
+  return { ok: true, campaignId: doc.campaignId, account, title, body, community, imageUrls, tags, ptBody, beneficiaries };
+}
+
+/**
+ * Preview of what a Hive mag-post publish will look like — used by the
+ * confirmation dialog. Read-only; never broadcasts.
+ */
+export async function getHiveMagPostPreview(documentId: string): Promise<
+  | {
+      ok: true;
+      title: string;
+      account: string | null;
+      community: string;
+      tags: string[];
+      images: string[];
+      thumbnail: string | null;
+      bodyMarkdown: string;
+      hasPtTranslation: boolean;
+      beneficiaries: { account: string; weight: number }[];
+      frontend: string | null;
+    }
+  | { ok: false; error: string }
+> {
+  const project = await getActiveProject();
+  const built = await buildMagPostFields(documentId, project);
+  if (!built.ok) return built;
+  return {
+    ok: true,
+    title: built.title,
+    account: built.account,
+    community: built.community,
+    tags: built.tags,
+    images: built.imageUrls,
+    thumbnail: built.imageUrls[0] ?? null,
+    bodyMarkdown: built.body,
+    hasPtTranslation: built.ptBody.length > 0,
+    beneficiaries: built.beneficiaries,
+    frontend: project.hive.frontend ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Publish a "Hive mag post" document as a ROOT Hive blog post in the project's
 // community (as the project's own Hive account). The English body is the post;
 // the sibling "Hive mag post (PT)" doc rides along in json_metadata.translations.pt.
@@ -996,45 +1106,14 @@ export async function publishHiveMagPost(
   try {
     const magProject = await getActiveProject();
     const prefix = magProject.agent.gatewayEnvPrefix;
-    const account =
-      process.env[`${prefix}_HIVE_POSTING_ACCOUNT`] ?? process.env.HIVE_POSTING_ACCOUNT;
     const key = process.env[`${prefix}_HIVE_POSTING_KEY`] ?? process.env.HIVE_POSTING_KEY;
+
+    const built = await buildMagPostFields(documentId, magProject);
+    if (!built.ok) return built;
+    const { campaignId, account, title, body, community: communityTag, imageUrls, tags, ptBody, beneficiaries } = built;
     if (!account || !key) {
       return { ok: false, error: `Hive posting account/key not set for ${magProject.name}.` };
     }
-
-    const doc = await prisma.campaignDocument.findUnique({
-      where: { id: documentId },
-      select: { content: true, campaignId: true },
-    });
-    if (!doc) return { ok: false, error: "Document not found." };
-    let body = doc.content.trim();
-    if (!body) return { ok: false, error: "Mag post is empty — nothing to publish." };
-
-    // Sibling Portuguese translation → json_metadata.translations.pt
-    const ptDoc = await prisma.campaignDocument.findFirst({
-      where: { campaignId: doc.campaignId, name: "Hive mag post (PT)", isMain: false },
-      select: { content: true },
-    });
-    const ptBody = (ptDoc?.content ?? "").trim();
-
-    // Title = first markdown H1 (stripped from the body), else the campaign name.
-    let title = "";
-    const h1 = body.match(/^\s*#\s+(.+?)\s*$/m);
-    if (h1) {
-      title = h1[1].trim();
-      body = body.replace(h1[0], "").trim();
-    }
-    if (!title) {
-      const campaign = await prisma.campaign.findUnique({
-        where: { id: doc.campaignId },
-        select: { name: true },
-      });
-      title = (campaign?.name ?? "Untitled").trim();
-    }
-
-    const communityTag = magProject.hive.community;
-    const imageUrls = [...body.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g)].map((m) => m[1]);
 
     const slug =
       title
@@ -1048,8 +1127,8 @@ export async function publishHiveMagPost(
     const metadata: Record<string, unknown> = {
       app: `Marketing Portal ${magProject.name}`,
       format: "markdown",
-      tags: [communityTag, magProject.slug],
-      image: [...new Set(imageUrls)],
+      tags,
+      image: imageUrls,
     };
     if (ptBody) metadata.translations = { pt: ptBody };
 
@@ -1067,12 +1146,6 @@ export async function publishHiveMagPost(
         json_metadata: JSON.stringify(metadata),
       },
     ];
-
-    // Beneficiaries — drop any equal to the posting account (Hive rejects a
-    // self-beneficiary) and sort ascending by account (Hive requires it).
-    const beneficiaries = MAG_POST_BENEFICIARIES.filter((b) => b.account !== account).sort((a, b) =>
-      a.account.localeCompare(b.account),
-    );
 
     const ops: unknown[] = [op];
     if (beneficiaries.length > 0) {
@@ -1097,7 +1170,7 @@ export async function publishHiveMagPost(
       where: { id: documentId },
       data: { postedAt: new Date(), postedTo: "hive-blog" },
     });
-    revalidatePath(`/campaign-creator/${doc.campaignId}`);
+    revalidatePath(`/campaign-creator/${campaignId}`);
     const url = `https://peakd.com/@${account}/${permlink}`;
     return { ok: true, url };
   } catch (err) {
