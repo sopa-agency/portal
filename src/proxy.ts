@@ -10,6 +10,12 @@ export const config = {
 
 const PUBLIC_PATHS = ["/login", "/api/auth/challenge", "/api/auth/login", "/api/auth/logout"];
 
+// Machine-to-machine endpoints that authenticate themselves (e.g. via
+// SCHEDULER_TICK_SECRET) rather than a session cookie. The session gate below
+// would otherwise 307-redirect these to /login, silently breaking the
+// scheduled-post autopublisher (the PM2 worker tick AND the Vercel fallback cron).
+const MACHINE_PATHS = ["/api/scheduler"];
+
 export async function proxy(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl;
 
@@ -28,8 +34,12 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
       request: { headers: requestHeaders },
     });
 
-  // 2. Allow public paths through (login page, auth API endpoints).
+  // 2. Allow public paths through (login page, auth API endpoints) and
+  //    self-authenticating machine endpoints (scheduler tick / fallback cron).
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return withProject();
+  }
+  if (MACHINE_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return withProject();
   }
 
