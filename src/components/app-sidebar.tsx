@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition } from "react";
-import { GitBranch, Megaphone, Home, Moon, Sun, LogOut, Users, Sparkles, Brain, ChartColumn, SquarePen } from "lucide-react";
+import { GitBranch, Megaphone, Home, Moon, Sun, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 
 const NAV = [
@@ -16,6 +16,7 @@ const NAV = [
   { href: "/userbase", label: "Userbase", icon: Users },
   { href: "/brain", label: "Brain", icon: Brain },
   { href: "/analytics", label: "Analytics", icon: ChartColumn, requiresAnalytics: true },
+  { href: "/team", label: "Team", icon: UsersRound },
 ];
 
 function isActive(pathname: string, href: string): boolean {
