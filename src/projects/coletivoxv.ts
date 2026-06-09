@@ -66,8 +66,8 @@ const coletivoxv: ProjectConfig = {
     "sktbrd.eth@gmail.com",
   ],
   githubProject: {
-    org: "sktbrd",
-    number: 8,
+    org: "ReelflipOrg",
+    number: 1,
   },
 };
 
