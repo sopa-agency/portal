@@ -8,6 +8,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { fetchChannelMetrics } from "@/lib/social-metrics";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
+import { feedbackScope, feedbackPromptBlock } from "@/lib/insight-feedback";
 import type { ProjectConfig, SocialChannel } from "@/projects/types";
 import type { ChannelMetrics } from "@/lib/social-metrics";
 
@@ -152,7 +153,11 @@ export async function generateInsightForChannel(
   }
 
   const prompt = buildPrompt(project, channel, metrics);
-  const text = await callOpenClaw(prompt, project.agent.id, {
+  const feedback = await feedbackPromptBlock(
+    feedbackScope("social", project.slug, channel.platform),
+  );
+  const finalPrompt = feedback ? `${prompt}\n\n${feedback}` : prompt;
+  const text = await callOpenClaw(finalPrompt, project.agent.id, {
     project,
     timeoutMs: TIMEOUT_MS,
   });

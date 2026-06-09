@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect, useCallback } from "react";
 import { Sparkles, Loader2, RefreshCw } from "lucide-react";
 import { MarkdownContent } from "@/components/markdown-content";
+import { FeedbackButton } from "@/components/insight-feedback";
 import {
   generateAnalyticsInsights,
   getLatestAnalyticsInsight,
@@ -78,6 +79,8 @@ export function AnalyticsInsights({
             </p>
           </div>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <FeedbackButton kind="analytics" label="analytics insights" />
         <button
           type="button"
           onClick={run}
@@ -101,6 +104,7 @@ export function AnalyticsInsights({
             </>
           )}
         </button>
+        </div>
       </div>
 
       {lastUpdated && !pending && (

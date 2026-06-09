@@ -8,6 +8,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { todayIsoDate } from "@/lib/morning-briefing";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
+import { feedbackScope, feedbackPromptBlock } from "@/lib/insight-feedback";
 import { getActiveProject } from "@/projects/index";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import {
@@ -94,6 +95,10 @@ export async function regenerateBriefing(
       prompt +=
         "\n\n=== Social analytics context (use this when relevant) ===\n" + ctx;
     }
+
+    // Append the team's corrections for this briefing (if any).
+    const feedback = await feedbackPromptBlock(feedbackScope("briefing", project.slug, agentSlug));
+    if (feedback) prompt += `\n\n${feedback}`;
 
     await ensureLocalGatewayToken();
     const text = await callOpenClaw(prompt, agentSlug, { timeoutMs: TIMEOUT_MS, project });

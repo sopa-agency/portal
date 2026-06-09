@@ -8,6 +8,7 @@ import { freshnessLabel } from "@/lib/morning-briefing";
 import { BriefingSection, BriefingSources } from "@/components/briefing-section";
 import { MarkdownContent } from "@/components/markdown-content";
 import { ImprovePromptButton } from "@/components/improve-prompt-dialog";
+import { FeedbackButton } from "@/components/insight-feedback";
 import { TakeActionButton } from "@/components/take-action-dialog";
 import { EmailBriefingButton } from "@/components/email-briefing-dialog";
 
@@ -69,6 +70,7 @@ export function MorningBriefing({
             {freshness.label}
           </span>
           <ImprovePromptButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
+          <FeedbackButton kind="briefing" channelKey={briefing.agent.slug} label={`${briefing.agent.label} briefing`} />
           <TakeActionButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
           {teamEmails.length > 0 && (
             <EmailBriefingButton

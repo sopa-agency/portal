@@ -6,6 +6,7 @@ import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import { fetchGa4, fetchGsc } from "@/lib/google-analytics";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
+import { feedbackScope, feedbackPromptBlock } from "@/lib/insight-feedback";
 
 const TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 5 * 60_000);
 
@@ -162,7 +163,9 @@ export async function generateAnalyticsInsights(
     }
 
     const prompt = buildPrompt(ga4Result, gscResult, project.name);
-    const text = await callOpenClaw(prompt, project.agent.id, {
+    const feedback = await feedbackPromptBlock(feedbackScope("analytics", project.slug));
+    const finalPrompt = feedback ? `${prompt}\n\n${feedback}` : prompt;
+    const text = await callOpenClaw(finalPrompt, project.agent.id, {
       project,
       timeoutMs: TIMEOUT_MS,
     });

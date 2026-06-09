@@ -225,6 +225,20 @@ model AnalyticsInsight {
   generatedAt  DateTime @default(now())
 }
 
+// Human corrections on AI insights / morning briefings. Each note is grouped by
+// `scope` (e.g. "analytics:gnars", "social:gnars:instagram", "briefing:gnars-marketing")
+// and injected into that panel's prompt on the NEXT generation so the team can
+// steer the output ("don't call a 50-min-old post an underperformer", etc).
+model InsightFeedback {
+  id        String   @id @default(cuid())
+  scope     String
+  note      String   @db.Text
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([scope, createdAt(sort: Desc)])
+}
+
 // Instagram post drafts and published posts for the Post Creator feature.
 // One row per draft/post, scoped to a project slug.
 model InstagramPost {

@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect, useCallback } from "react";
 import { Sparkles, Loader2, RefreshCw } from "lucide-react";
 import { MarkdownContent } from "@/components/markdown-content";
+import { FeedbackButton } from "@/components/insight-feedback";
 import {
   generateSocialInsights,
   getLatestSocialInsight,
@@ -95,6 +96,8 @@ export function SocialInsights({
             </p>
           </div>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <FeedbackButton kind="social" channelKey={platform} label={`${platform} insights`} />
         <button
           type="button"
           onClick={run}
@@ -118,6 +121,7 @@ export function SocialInsights({
             </>
           )}
         </button>
+        </div>
       </div>
 
       {/* Last-updated line — shown once we have a result */}
