@@ -11,6 +11,7 @@ const reelflip: ProjectConfig = {
     "xvlad",
     "louzoshi",
     "willdias",
+    "reelflip",
   ],
   theme: {
     // Electric cyan — distinct from lime (skatehive) and red (gnars).
