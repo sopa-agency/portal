@@ -185,7 +185,7 @@ export type ProjectConfig = {
    * absent = nav hidden + /kanban returns 404.
    */
   githubProject?: {
-    /** GitHub org login that owns the project, e.g. "SkateHive" */
+    /** GitHub owner login that owns the project, e.g. "SkateHive" or "sktbrd" */
     org: string;
     /** GitHub Project number (Projects V2), e.g. 1 */
     number: number;

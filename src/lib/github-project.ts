@@ -42,82 +42,91 @@ export type KanbanResult =
 // GraphQL query
 // ---------------------------------------------------------------------------
 
+const PROJECT_FRAGMENT = `
+  id
+  title
+  url
+  field(name: "Status") {
+    ... on ProjectV2SingleSelectField {
+      id
+      options {
+        id
+        name
+      }
+    }
+  }
+  items(first: 100) {
+    nodes {
+      id
+      type
+      content {
+        ... on Issue {
+          title
+          number
+          url
+          state
+          assignees(first: 5) {
+            nodes {
+              login
+              avatarUrl
+            }
+          }
+          labels(first: 10) {
+            nodes {
+              name
+              color
+            }
+          }
+        }
+        ... on PullRequest {
+          title
+          number
+          url
+          state
+          merged
+          assignees(first: 5) {
+            nodes {
+              login
+              avatarUrl
+            }
+          }
+          labels(first: 10) {
+            nodes {
+              name
+              color
+            }
+          }
+        }
+        ... on DraftIssue {
+          title
+        }
+      }
+      fieldValues(first: 20) {
+        nodes {
+          ... on ProjectV2ItemFieldSingleSelectValue {
+            name
+            field {
+              ... on ProjectV2SingleSelectField {
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 const QUERY = `
   query GetProject($login: String!, $number: Int!) {
     organization(login: $login) {
       projectV2(number: $number) {
-        id
-        title
-        url
-        field(name: "Status") {
-          ... on ProjectV2SingleSelectField {
-            id
-            options {
-              id
-              name
-            }
-          }
-        }
-        items(first: 100) {
-          nodes {
-            id
-            type
-            content {
-              ... on Issue {
-                title
-                number
-                url
-                state
-                assignees(first: 5) {
-                  nodes {
-                    login
-                    avatarUrl
-                  }
-                }
-                labels(first: 10) {
-                  nodes {
-                    name
-                    color
-                  }
-                }
-              }
-              ... on PullRequest {
-                title
-                number
-                url
-                state
-                merged
-                assignees(first: 5) {
-                  nodes {
-                    login
-                    avatarUrl
-                  }
-                }
-                labels(first: 10) {
-                  nodes {
-                    name
-                    color
-                  }
-                }
-              }
-              ... on DraftIssue {
-                title
-              }
-            }
-            fieldValues(first: 20) {
-              nodes {
-                ... on ProjectV2ItemFieldSingleSelectValue {
-                  name
-                  field {
-                    ... on ProjectV2SingleSelectField {
-                      name
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        ${PROJECT_FRAGMENT}
+      }
+    }
+    user(login: $login) {
+      projectV2(number: $number) {
+        ${PROJECT_FRAGMENT}
       }
     }
   }
@@ -204,6 +213,38 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
             };
           };
         };
+        user?: {
+          projectV2?: {
+            id: string;
+            title: string;
+            url: string;
+            field?: {
+              id?: string;
+              options?: { id: string; name: string }[];
+            };
+            items: {
+              nodes: Array<{
+                id: string;
+                type: string;
+                content?: {
+                  title?: string;
+                  number?: number;
+                  url?: string;
+                  state?: string;
+                  merged?: boolean;
+                  assignees?: { nodes: { login: string; avatarUrl: string }[] };
+                  labels?: { nodes: { name: string; color: string }[] };
+                };
+                fieldValues: {
+                  nodes: Array<{
+                    name?: string;
+                    field?: { name?: string };
+                  }>;
+                };
+              }>;
+            };
+          };
+        };
       };
       errors?: { message: string }[];
     };
@@ -213,11 +254,11 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       return { ok: false, error: json.errors[0].message };
     }
 
-    const projectV2 = json.data?.organization?.projectV2;
+    const projectV2 = json.data?.organization?.projectV2 ?? json.data?.user?.projectV2;
     if (!projectV2) {
       return {
         ok: false,
-        error: `Project #${number} not found in org "${org}". Check that the token has project + read:org scopes.`,
+        error: `Project #${number} not found for owner "${org}". Check that the token has project + read:org scopes.`,
       };
     }
 
