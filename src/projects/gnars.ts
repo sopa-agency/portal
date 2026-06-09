@@ -94,6 +94,14 @@ const gnars: ProjectConfig = {
   ],
   // Gnars doesn't use the userbase (email) module.
   hiddenRoutes: ["/userbase"],
+  // GA4 + Search Console for gnars.com (service account: bobgnarley@gnars-489819,
+  // creds in GNARS_GOOGLE_SERVICE_ACCOUNT_JSON). GSC is a URL-prefix property
+  // (https://gnars.com/), NOT sc-domain.
+  analytics: {
+    ga4PropertyId: "527420949",
+    gscSiteUrl: "https://gnars.com/",
+    brandedTerms: ["gnars"],
+  },
   // Steve assembles the weekly recap from live governance, not Hive clips.
   weeklyRecap: {
     sourcesHint:
