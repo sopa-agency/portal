@@ -1496,6 +1496,15 @@ export async function sendCampaignArtifact(
   }
 }
 
+// TODO(email creds): wire SMTP per project so this actually sends.
+//   - SkateHive ALREADY has SMTP/email creds (in the skatehive3.0 setup —
+//     nodemailer over SMTP_HOST/EMAIL_USER/EMAIL_PASS). Pull those into the
+//     portal env as SKATEHIVE_SMTP_HOST / SKATEHIVE_EMAIL_USER / _PASS (or the
+//     global SMTP_*/EMAIL_* if it should be shared).
+//   - Gnars + Reelflip need their OWN email accounts/SMTP created first, then
+//     GNARS_SMTP_* / GNARS_EMAIL_* and REELFLIP_SMTP_* / REELFLIP_EMAIL_*.
+//   Until set, /team shows Email = "Not set" and this returns the graceful
+//   "Email is not configured" error. (User is creating the mailboxes later.)
 /** Send the email artifact via SMTP/nodemailer to a single recipient. */
 export async function sendCampaignEmail(
   documentId: string,

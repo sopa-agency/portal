@@ -124,7 +124,11 @@ export async function publishCastToFarcaster(
 ): Promise<PublishResult> {
   try {
     const prefix = project?.agent?.gatewayEnvPrefix;
-    const apiKey = process.env.NEYNAR_API_KEY;
+    // Per-project Neynar app: the signer must be used with ITS OWN api key
+    // (a signer created under one Neynar app is invalid under another's key).
+    const apiKey =
+      (prefix && process.env[`${prefix}_NEYNAR_API_KEY`]) ||
+      process.env.NEYNAR_API_KEY;
     const signerUuid =
       (prefix && process.env[`${prefix}_NEYNAR_SIGNER_UUID`]) ||
       process.env.NEYNAR_SIGNER_UUID;
