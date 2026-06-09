@@ -4,8 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { GitBranch, Megaphone, Home, Moon, Sun, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check } from "lucide-react";
-import { useTheme } from "@/components/theme-provider";
+import { GitBranch, Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check } from "lucide-react";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
@@ -40,7 +39,6 @@ type AppSidebarProps = {
 export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, analyticsEnabled, postCreatorEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { theme, toggle } = useTheme();
   const [pending, startTransition] = useTransition();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
@@ -107,14 +105,9 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                 className="shrink-0 rounded-md"
                 priority
               />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-lg font-bold tracking-tight text-accent">
-                  portal · {projectName.toLowerCase()}
-                </p>
-                <p className="mt-0.5 text-xs uppercase tracking-widest text-foreground-subtle">
-                  switch workspace
-                </p>
-              </div>
+              <p className="min-w-0 flex-1 truncate text-lg font-bold tracking-tight text-accent">
+                portal · {projectName.toLowerCase()}
+              </p>
               <ChevronsUpDown className="h-4 w-4 shrink-0 text-foreground-faint" />
             </button>
             {switcherOpen && (
@@ -180,45 +173,23 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           })}
         </ul>
       </nav>
-      <div className="mt-auto hidden lg:block">
-        <div className="space-y-1 border-t border-border px-3 py-3">
-          <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent">
-              {username.slice(0, 2)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-foreground">@{username}</p>
-              <p className="text-[10px] uppercase tracking-wider text-foreground-faint">
-                connected
-              </p>
-            </div>
+      <div className="mt-auto border-t border-border px-3 py-3">
+        <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent">
+            {username.slice(0, 2)}
           </div>
-          <button
-            type="button"
-            onClick={toggle}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
-          >
-            {theme === "dark" ? (
-              <>
-                <Sun className="h-4 w-4" />
-                Light mode
-              </>
-            ) : (
-              <>
-                <Moon className="h-4 w-4" />
-                Dark mode
-              </>
-            )}
-          </button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-foreground">@{username}</p>
+            <p className="text-[10px] uppercase tracking-wider text-foreground-faint">connected</p>
+          </div>
           <button
             type="button"
             onClick={logout}
             disabled={pending}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
+            aria-label="Log out"
+            className="shrink-0 rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
           >
             <LogOut className="h-4 w-4" />
-            Log out
           </button>
         </div>
       </div>
