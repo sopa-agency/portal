@@ -1171,7 +1171,12 @@ export async function publishHiveMagPost(
       data: { postedAt: new Date(), postedTo: "hive-blog" },
     });
     revalidatePath(`/campaign-creator/${campaignId}`);
-    const url = `https://peakd.com/@${account}/${permlink}`;
+    // Link to the project's own Hive frontend (skatehive.app) in its canonical
+    // /post/<author>/<permlink> form; fall back to peakd if no frontend is set.
+    const base = magProject.hive.frontend?.replace(/\/+$/, "");
+    const url = base
+      ? `${base}/post/${account}/${permlink}`
+      : `https://peakd.com/@${account}/${permlink}`;
     return { ok: true, url };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

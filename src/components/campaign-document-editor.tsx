@@ -11,10 +11,17 @@ export function CampaignDocumentEditor({
   documentId,
   initialName,
   initialContent,
+  editorOnly = false,
+  onContentChange,
 }: {
   documentId: string;
   initialName: string;
   initialContent: string;
+  /** Hide the built-in preview toggle and always show the textarea — used when
+   *  a parent panel owns the Preview/Edit switch (avoids a duplicate preview). */
+  editorOnly?: boolean;
+  /** Notify the parent on every keystroke so a shared preview can update live. */
+  onContentChange?: (content: string) => void;
 }) {
   const [name, setName] = useState(initialName);
   const [content, setContent] = useState(initialContent);
@@ -59,16 +66,19 @@ export function CampaignDocumentEditor({
           className="min-w-0 flex-1 bg-transparent text-lg font-semibold text-foreground outline-none focus:ring-0"
           aria-label="Document name"
         />
-        <ModeToggle mode={mode} onChange={setMode} />
+        {!editorOnly && <ModeToggle mode={mode} onChange={setMode} />}
         <span className="w-16 text-right text-[11px] text-foreground-subtle" aria-live="polite">
           {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : ""}
         </span>
       </div>
 
-      {mode === "edit" ? (
+      {editorOnly || mode === "edit" ? (
         <textarea
           value={content}
-          onChange={(e) => setContent(e.target.value)}
+          onChange={(e) => {
+            setContent(e.target.value);
+            onContentChange?.(e.target.value);
+          }}
           placeholder="Write the brief here. What's the goal, who's it for, what's the angle?"
           className="mt-4 min-h-[70vh] w-full resize-y rounded-xl border border-border bg-surface-elevated px-4 py-3 text-[14px] leading-7 text-foreground outline-none focus:border-accent-border focus:ring-1 focus:ring-lime-400/20"
         />

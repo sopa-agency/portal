@@ -17,8 +17,8 @@ import { useRouter } from "next/navigation";
 import { createDocument, deleteDocument } from "@/app/actions/campaigns";
 import { CampaignArtifactActions } from "@/components/campaign-artifact-actions";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
+import { CampaignDocumentPanel } from "@/components/campaign-document-panel";
 import {
-  CampaignDocumentPreview,
   classifyCampaignDocument,
   type CampaignDocumentKind,
   type CampaignPreviewBrand,
@@ -206,54 +206,24 @@ export function CampaignFolderShell({
               onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
             />
           </div>
-        ) : selected.kind === "hive" || selected.kind === "hive_mag" ? (
-          <div className="space-y-4">
-            <CampaignDocumentPreview
-              key={`${selected.id}-preview`}
-              name={selected.name}
-              content={getContent(selected)}
-              updatedAt={selected.updatedAt}
-              kind={selected.kind}
-              brand={brand}
-            />
-            <CampaignArtifactActions
-              documentId={selected.id}
-              kind={selected.kind}
-              content={getContent(selected)}
-              initialPostedAt={selected.postedAt}
-              onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
-            />
-            <CampaignDocumentEditor
-              key={selected.id}
-              documentId={selected.id}
-              initialName={selected.name}
-              initialContent={getContent(selected)}
-            />
-          </div>
-        ) : selected.kind === "farcaster" || selected.kind === "tweets" || selected.kind === "discord" ? (
-          <div className="space-y-4">
-            <CampaignDocumentPreview
-              key={`${selected.id}-preview`}
-              name={selected.name}
-              content={getContent(selected)}
-              updatedAt={selected.updatedAt}
-              kind={selected.kind}
-              brand={brand}
-            />
-            <CampaignArtifactActions
-              documentId={selected.id}
-              kind={selected.kind}
-              content={getContent(selected)}
-              initialPostedAt={selected.postedAt}
-              onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
-            />
-            <CampaignDocumentEditor
-              key={selected.id}
-              documentId={selected.id}
-              initialName={selected.name}
-              initialContent={getContent(selected)}
-            />
-          </div>
+        ) : selected.kind === "hive" ||
+          selected.kind === "hive_mag" ||
+          selected.kind === "farcaster" ||
+          selected.kind === "tweets" ||
+          selected.kind === "discord" ? (
+          <CampaignDocumentPanel
+            key={selected.id}
+            doc={{
+              id: selected.id,
+              name: selected.name,
+              updatedAt: selected.updatedAt,
+              postedAt: selected.postedAt,
+            }}
+            kind={selected.kind}
+            brand={brand}
+            content={getContent(selected)}
+            onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
+          />
         ) : (
           <CampaignDocumentEditor
             key={selected.id}
