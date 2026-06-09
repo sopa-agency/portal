@@ -32,7 +32,7 @@ const gnars: ProjectConfig = {
     channel: "gnars",
   },
   repos: [
-    "gnars-dao/gnars-website",
+    "r4topunk/gnars-website",
   ],
   socials: [
     {
