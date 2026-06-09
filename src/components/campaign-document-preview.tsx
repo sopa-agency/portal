@@ -5,6 +5,7 @@ import { ageFromDate } from "@/lib/utils";
 export type CampaignDocumentKind =
   | "brief"
   | "hive"
+  | "hive_mag"
   | "farcaster"
   | "tweets"
   | "discord"
@@ -15,6 +16,10 @@ export type CampaignDocumentKind =
 export function classifyCampaignDocument(name: string, isMain: boolean): CampaignDocumentKind {
   if (isMain) return "brief";
   const lower = name.toLowerCase();
+  // The Portuguese translation rides in the mag post's json_metadata — it's a
+  // plain doc, not separately publishable.
+  if (lower.includes("mag post") && lower.includes("(pt)")) return "doc";
+  if (lower.includes("mag post") || lower.includes("magazine")) return "hive_mag";
   if (lower.includes("hive") || lower.includes("snap")) return "hive";
   if (lower.includes("farcaster") || lower.includes("cast") || lower.includes("warpcast")) return "farcaster";
   if (lower.includes("tweet") || lower.includes("twitter") || lower.includes("x thread")) return "tweets";
@@ -75,6 +80,7 @@ export function CampaignDocumentPreview({
         {kind === "farcaster" ? <FarcasterCastPreview content={content} brand={brand} /> : null}
         {kind === "tweets" ? <TweetsPreview content={content} brand={brand} /> : null}
         {kind === "discord" ? <DiscordPreview content={content} brand={brand} /> : null}
+        {kind === "hive_mag" ? <MarkdownContent markdown={content} /> : null}
         {kind === "doc" ? <MarkdownContent markdown={content} /> : null}
       </div>
     </section>
@@ -83,6 +89,7 @@ export function CampaignDocumentPreview({
 
 const META: Record<PreviewKind, { label: string; tone: string; icon: typeof MessageSquare }> = {
   hive:      { label: "Hive snap",            tone: "bg-red-500/15 text-red-300",       icon: Flame },
+  hive_mag:  { label: "Hive blog (mag post)", tone: "bg-red-500/15 text-red-300",       icon: Flame },
   farcaster: { label: "Farcaster cast",       tone: "bg-purple-500/15 text-purple-300", icon: Send },
   tweets:    { label: "Twitter / X thread",   tone: "bg-foreground/10 text-foreground", icon: MessageCircleMore },
   discord:   { label: "Discord announcement", tone: "bg-indigo-500/15 text-indigo-300", icon: MessageSquare },

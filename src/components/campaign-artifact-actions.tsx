@@ -57,7 +57,7 @@ export function CampaignArtifactActions({
 
   const remixInputRef = useRef<HTMLTextAreaElement>(null);
 
-  const supportsAutoSend = kind === "hive" || kind === "farcaster" || kind === "discord";
+  const supportsAutoSend = kind === "hive" || kind === "hive_mag" || kind === "farcaster" || kind === "discord";
   const isTweets = kind === "tweets";
   const isEmail = kind === "email";
 
@@ -72,8 +72,9 @@ export function CampaignArtifactActions({
   // --- send (hive / farcaster / discord) ---
   const handleSend = () => {
     if (!supportsAutoSend) return;
-    const label = kind === "discord" ? "Discord" : kind === "farcaster" ? "Farcaster" : "Hive";
-    if (!window.confirm(`Send this ${label} post now?`)) return;
+    const label =
+      kind === "discord" ? "Discord" : kind === "farcaster" ? "Farcaster" : kind === "hive_mag" ? "Hive blog (mag)" : "Hive";
+    if (!window.confirm(`Publish this ${label} post now?`)) return;
     setSendStatus(null);
     startSend(async () => {
       const res = await sendCampaignArtifact(documentId);

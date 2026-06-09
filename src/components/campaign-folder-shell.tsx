@@ -38,6 +38,7 @@ type CampaignDocument = {
 const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail; tone: string }> = {
   brief:     { label: "Brief / Hive blog",       icon: FileText,          tone: "text-foreground-muted" },
   hive:      { label: "Hive snap",               icon: Flame,             tone: "text-red-400" },
+  hive_mag:  { label: "Hive blog (mag post)",    icon: BookOpenText,      tone: "text-red-400" },
   farcaster: { label: "Farcaster cast",          icon: Send,              tone: "text-purple-400" },
   tweets:    { label: "Twitter / X thread",      icon: MessageCircleMore, tone: "text-foreground" },
   discord:   { label: "Discord announcement",    icon: MessageSquare,     tone: "text-indigo-400" },

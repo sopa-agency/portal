@@ -547,6 +547,16 @@ This output IS the publishable recap, not an internal brief — no "Goal / Audie
   return { ok: true };
 }
 
+// Rewrite any IPFS gateway URL (Pinata, ipfs.io, dweb.link, cloudflare, etc.)
+// to the SkateHive gateway so Hive frontends load media from ipfs.skatehive.app.
+// Non-IPFS URLs (e.g. Instagram CDN) pass through unchanged.
+function toSkatehiveIpfsGateway(url: string): string {
+  const m = url.match(/\/ipfs\/([^\s)]+)$/i);
+  if (!m) return url;
+  if (/ipfs\.skatehive\.app/i.test(url)) return url; // already correct
+  return `https://ipfs.skatehive.app/ipfs/${m[1]}`;
+}
+
 export async function generateCampaignArtifacts(campaignId: string): Promise<GenerateResult> {
   let campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -639,6 +649,8 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
         .filter((u) => /^https?:\/\//.test(u));
     }
   }
+  // Serve carousel media through the SkateHive IPFS gateway, not Pinata's.
+  sourceMedia = sourceMedia.map(toSkatehiveIpfsGateway);
   const carouselBlock =
     sourceMedia.length > 0
       ? `\n\nSource Instagram carousel images — EMBED THESE (use these EXACT URLs in order; do not invent or omit them):\n${sourceMedia
@@ -648,9 +660,9 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
   const imageRules =
     sourceMedia.length > 0
       ? `\n\nImages (a source carousel is provided above):
-- "hive_snap": after the text, embed the first 1-2 carousel images as Hive markdown on their own lines: ![](url). Use the EXACT URLs.
+- "hive_snap": after the text, embed ALL carousel images as Hive markdown, each on its own line: ![](url), in order. Use the EXACT URLs — every one, none dropped.
 - "farcaster": append the first carousel image URL on its own final line (Farcaster auto-embeds image URLs). Use the EXACT URL.
-- "hive_mag_post": embed ALL carousel images with ![alt](url), interspersed between sections — lead with the strongest image. Use the EXACT URLs, in order, none invented.`
+- "hive_mag_post" / "hive_mag_post_pt": embed ALL carousel images with ![alt](url), interspersed between sections — lead with the strongest image. Use the EXACT URLs, in order, none invented or dropped.`
       : "";
 
   const artifactsVoiceHint = artifactsProject.campaignArtifacts?.voiceHint?.trim();
@@ -669,6 +681,7 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
 {
   "hive_snap": "...",
   "hive_mag_post": "...",
+  "hive_mag_post_pt": "...",
   "farcaster": "...",
   "tweets": ["...", "..."],
   "discord": "...",
@@ -698,7 +711,8 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
 
 Rules:
 - "hive_snap": a single Hive snap (short post) that will be published as a comment under peak.snaps' daily container on ${artifactsCommunity}. Plain text, real line breaks, under 280 characters when possible. Community voice. No hashtags in front — Hive frontends pick those up from json_metadata.
-- "hive_mag_post": a long-form Hive blog post (magazine style, ~300-600 words) ready to publish to ${artifactsCommunity} as @${artifactsHiveAccount}. Markdown with headings, paragraphs, and embedded images. Expand the core idea into a real read — context, the take, why it matters. Editorial, community-to-community, no corporate marketing-speak. This IS the publishable post body — no internal-brief sections (Goal / Audience / Window / Channels / Success metric / Risks).
+- "hive_mag_post": a long-form Hive blog post (magazine style, ~300-600 words) ready to publish to ${artifactsCommunity} as @${artifactsHiveAccount}. Markdown with headings, paragraphs, and embedded images. Expand the core idea into a real read — context, the take, why it matters. Editorial, community-to-community, no corporate marketing-speak. This IS the publishable post body — no internal-brief sections (Goal / Audience / Window / Channels / Success metric / Risks). ALWAYS WRITE THIS IN ENGLISH — Hive's audience is international — even if the brief, caption, or images are in Portuguese.
+- "hive_mag_post_pt": a faithful Brazilian Portuguese translation of "hive_mag_post" — same structure, same headings, the SAME embedded image URLs in the same places. This is stored in the post's json_metadata as the pt translation. Translate naturally, don't transliterate.
 - "farcaster": a single Farcaster cast for the /${artifactsFarcasterChannel} channel as @${artifactsHiveAccount}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.
 - "tweets": an array of 3-5 tweet strings posted from @${artifactsHiveAccount}. The first opens the thread with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them ("1/", "2/") — the UI handles that.
 - "discord": a single message for the ${artifactsProjectName} Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
@@ -756,6 +770,13 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
     await upsertNamedDocument(campaignId, "Hive mag post", parsed.hive_mag_post);
     saved.push("Hive mag post");
   } else missing.push("Hive mag post");
+
+  // Portuguese translation — kept as a sibling doc; published into the mag
+  // post's json_metadata (translations.pt) by publishHiveMagPost.
+  if (parsed.hive_mag_post_pt) {
+    await upsertNamedDocument(campaignId, "Hive mag post (PT)", parsed.hive_mag_post_pt);
+    saved.push("Hive mag post (PT)");
+  }
 
   if (parsed.farcaster) {
     await upsertNamedDocument(campaignId, "Farcaster cast", parsed.farcaster);
@@ -956,6 +977,105 @@ export async function publishHiveSnap(
 }
 
 // ---------------------------------------------------------------------------
+// Publish a "Hive mag post" document as a ROOT Hive blog post in the project's
+// community (as the project's own Hive account). The English body is the post;
+// the sibling "Hive mag post (PT)" doc rides along in json_metadata.translations.pt.
+// ---------------------------------------------------------------------------
+
+export async function publishHiveMagPost(
+  documentId: string,
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  try {
+    const magProject = await getActiveProject();
+    const prefix = magProject.agent.gatewayEnvPrefix;
+    const account =
+      process.env[`${prefix}_HIVE_POSTING_ACCOUNT`] ?? process.env.HIVE_POSTING_ACCOUNT;
+    const key = process.env[`${prefix}_HIVE_POSTING_KEY`] ?? process.env.HIVE_POSTING_KEY;
+    if (!account || !key) {
+      return { ok: false, error: `Hive posting account/key not set for ${magProject.name}.` };
+    }
+
+    const doc = await prisma.campaignDocument.findUnique({
+      where: { id: documentId },
+      select: { content: true, campaignId: true },
+    });
+    if (!doc) return { ok: false, error: "Document not found." };
+    let body = doc.content.trim();
+    if (!body) return { ok: false, error: "Mag post is empty — nothing to publish." };
+
+    // Sibling Portuguese translation → json_metadata.translations.pt
+    const ptDoc = await prisma.campaignDocument.findFirst({
+      where: { campaignId: doc.campaignId, name: "Hive mag post (PT)", isMain: false },
+      select: { content: true },
+    });
+    const ptBody = (ptDoc?.content ?? "").trim();
+
+    // Title = first markdown H1 (stripped from the body), else the campaign name.
+    let title = "";
+    const h1 = body.match(/^\s*#\s+(.+?)\s*$/m);
+    if (h1) {
+      title = h1[1].trim();
+      body = body.replace(h1[0], "").trim();
+    }
+    if (!title) {
+      const campaign = await prisma.campaign.findUnique({
+        where: { id: doc.campaignId },
+        select: { name: true },
+      });
+      title = (campaign?.name ?? "Untitled").trim();
+    }
+
+    const communityTag = magProject.hive.community;
+    const imageUrls = [...body.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g)].map((m) => m[1]);
+
+    const slug =
+      title
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || "post";
+    const permlink = `${slug}-${crypto.randomUUID().slice(0, 8)}`;
+
+    const metadata: Record<string, unknown> = {
+      app: `Marketing Portal ${magProject.name}`,
+      format: "markdown",
+      tags: [communityTag, magProject.slug],
+      image: [...new Set(imageUrls)],
+    };
+    if (ptBody) metadata.translations = { pt: ptBody };
+
+    const { Client, PrivateKey } = await import("@hiveio/dhive");
+    const client = new Client(HIVE_NODES);
+    const op = [
+      "comment",
+      {
+        parent_author: "",
+        parent_permlink: communityTag,
+        author: account,
+        permlink,
+        title,
+        body,
+        json_metadata: JSON.stringify(metadata),
+      },
+    ] as const;
+
+    const pk = PrivateKey.fromString(key);
+    await client.broadcast.sendOperations([op as never], pk);
+
+    await prisma.campaignDocument.update({
+      where: { id: documentId },
+      data: { postedAt: new Date(), postedTo: "hive-blog" },
+    });
+    revalidatePath(`/campaign-creator/${doc.campaignId}`);
+    const url = `https://peakd.com/@${account}/${permlink}`;
+    return { ok: true, url };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 async function upsertNamedDocument(campaignId: string, name: string, content: string) {
   if (!content) return;
@@ -1044,6 +1164,7 @@ EMAIL (this is the critical part — make it visual + clickable):
 function extractArtifactsJson(raw: string): {
   hive_snap: string;
   hive_mag_post: string;
+  hive_mag_post_pt: string;
   farcaster: string;
   tweets: string[];
   discord: string;
@@ -1053,6 +1174,7 @@ function extractArtifactsJson(raw: string): {
   let fallback: {
     hive_snap: string;
     hive_mag_post: string;
+    hive_mag_post_pt: string;
     farcaster: string;
     tweets: string[];
     discord: string;
@@ -1076,6 +1198,7 @@ function extractArtifactsJson(raw: string): {
 
     const hive_snap = pickString(obj.hive_snap) ?? pickString(obj.hive) ?? pickString(obj.snap) ?? "";
     const hive_mag_post = pickString(obj.hive_mag_post) ?? pickString(obj.hive_blog) ?? pickString(obj.mag_post) ?? "";
+    const hive_mag_post_pt = pickString(obj.hive_mag_post_pt) ?? pickString(obj.hive_mag_post_ptbr) ?? pickString(obj.mag_post_pt) ?? "";
     const farcaster = pickString(obj.farcaster) ?? pickString(obj.cast) ?? "";
     const tweetsRaw = Array.isArray(obj.tweets)
       ? obj.tweets
@@ -1085,7 +1208,7 @@ function extractArtifactsJson(raw: string): {
     const tweets = tweetsRaw.filter((t): t is string => typeof t === "string");
     const discord = pickString(obj.discord) ?? "";
     const email = obj.email && typeof obj.email === "object" ? obj.email : null;
-    const result = { hive_snap, hive_mag_post, farcaster, tweets, discord, email };
+    const result = { hive_snap, hive_mag_post, hive_mag_post_pt, farcaster, tweets, discord, email };
 
     // Prefer the candidate that actually carries the expected fields — a nested
     // blob (e.g. an email section) can parse cleanly but have none of them.
@@ -1514,6 +1637,12 @@ export async function sendCampaignArtifact(
       return { ok: true, url: result.url, platform: "hive" };
     }
 
+    if (kind === "hive_mag") {
+      const result = await publishHiveMagPost(documentId);
+      if (!result.ok) return { ok: false, error: result.error ?? "Failed to publish mag post." };
+      return { ok: true, url: result.url, platform: "hive-blog" };
+    }
+
     if (kind === "farcaster") {
       const { publishCastToFarcaster } = await import("@/lib/social-publish");
       const result = await publishCastToFarcaster(content, project);
@@ -1623,6 +1752,8 @@ export async function sendCampaignEmail(
 /** Map document name to artifact kind. */
 function classifyDocumentKindByName(name: string): CampaignDocumentKind {
   const lower = name.toLowerCase();
+  if (lower.includes("mag post") && lower.includes("(pt)")) return "doc";
+  if (lower.includes("mag post") || lower.includes("magazine")) return "hive_mag";
   if (lower.includes("hive") || lower.includes("snap")) return "hive";
   if (lower.includes("farcaster") || lower.includes("cast") || lower.includes("warpcast")) return "farcaster";
   if (lower.includes("tweet") || lower.includes("twitter") || lower.includes("x thread")) return "tweets";
@@ -1636,6 +1767,7 @@ function classifyDocumentKindByName(name: string): CampaignDocumentKind {
 type CampaignDocumentKind =
   | "brief"
   | "hive"
+  | "hive_mag"
   | "farcaster"
   | "tweets"
   | "discord"
