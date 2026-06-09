@@ -35,12 +35,46 @@ function summarizeMetrics(m: Extract<ChannelMetrics, { ok: true }>): string {
   }
 
   if (m.posts?.length) {
+    const now = Date.now();
+    const sortedPosts = [...m.posts].sort(
+      (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
+    );
+    const latest = sortedPosts[0];
+    const previous = sortedPosts[1];
+
     lines.push("Recent posts:");
-    m.posts.forEach((p, i) => {
+    sortedPosts.forEach((p, i) => {
       const eng = p.engagements.map((e) => `${e.label} ${e.value}`).join(", ");
       const title = (p.title ?? "post").replace(/\s+/g, " ").slice(0, 70);
-      lines.push(`  ${i + 1}. "${title}" — ${eng}`);
+      const ageHours = Math.max(0, (now - new Date(p.at).getTime()) / 3_600_000);
+      const ageLabel = ageHours < 1
+        ? `${Math.max(1, Math.round(ageHours * 60))}m ago`
+        : ageHours < 48
+          ? `${Math.round(ageHours)}h ago`
+          : `${Math.round(ageHours / 24)}d ago`;
+      lines.push(`  ${i + 1}. "${title}" — ${eng} — posted ${ageLabel}`);
     });
+
+    if (latest) {
+      const latestAgeHours = Math.max(0, (now - new Date(latest.at).getTime()) / 3_600_000);
+      lines.push(
+        latestAgeHours < 24
+          ? `Latest-post context: the newest post is only ${latestAgeHours < 1 ? `${Math.max(1, Math.round(latestAgeHours * 60))} minutes` : `${Math.round(latestAgeHours)} hours`} old, so its reach/share/save counts are still immature and should NOT be treated as a settled underperformer.`
+          : `Latest-post context: the newest post is ${Math.round(latestAgeHours / 24)} days old.`,
+      );
+    }
+
+    if (latest && previous) {
+      const gapDays = Math.max(
+        0,
+        (new Date(latest.at).getTime() - new Date(previous.at).getTime()) / 86_400_000,
+      );
+      if (gapDays >= 45) {
+        lines.push(
+          `Posting-gap context: there was roughly a ${Math.round(gapDays)}-day gap between the newest post and the previous one. Factor that restart effect into the analysis before judging momentum or declaring a miss.`,
+        );
+      }
+    }
   }
   return lines.join("\n");
 }
@@ -78,6 +112,7 @@ function buildPrompt(
     "",
     "=== Task ===",
     "Analyze the numbers and the progress (week-over-week, non-follower reach, per-post engagement). Then give concrete, prioritized, execution-ready suggestions to improve OUTREACH (reach — especially non-follower reach) and ENGAGEMENT (saves, shares, comments, watch time). Ground every recommendation in the actual numbers and the strategy/playbook — no generic advice. Be specific about formats, hooks, CTAs, and cadence.",
+    "Important: explicitly consider post recency and posting gaps. Do not call the newest post an underperformer if it is still fresh (especially <24h old), and do not compare a comeback post after a long inactive gap as if it had the same distribution baseline as mature posts.",
     "",
     "Respond in markdown with exactly these sections:",
     "## Read on the numbers",

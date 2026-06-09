@@ -48,6 +48,14 @@ const HIVE_NODES = [
 ];
 const SNAPS_CONTAINER_AUTHOR = "peak.snaps";
 
+// Beneficiaries applied to published Hive mag posts (weights in basis points;
+// 10000 = 100%). The posting account can't be its own beneficiary, so any entry
+// matching the author is dropped at publish time.
+const MAG_POST_BENEFICIARIES: { account: string; weight: number }[] = [
+  { account: "skatehive", weight: 500 }, // 5% — platform
+  { account: "xvlad", weight: 500 },     // 5% — operator
+];
+
 export async function createCampaignFromInstagramPost(
   postId: string,
 ): Promise<{ ok: true; campaignId: string } | { ok: false; error: string }> {
@@ -1058,10 +1066,32 @@ export async function publishHiveMagPost(
         body,
         json_metadata: JSON.stringify(metadata),
       },
-    ] as const;
+    ];
+
+    // Beneficiaries — drop any equal to the posting account (Hive rejects a
+    // self-beneficiary) and sort ascending by account (Hive requires it).
+    const beneficiaries = MAG_POST_BENEFICIARIES.filter((b) => b.account !== account).sort((a, b) =>
+      a.account.localeCompare(b.account),
+    );
+
+    const ops: unknown[] = [op];
+    if (beneficiaries.length > 0) {
+      ops.push([
+        "comment_options",
+        {
+          author: account,
+          permlink,
+          max_accepted_payout: "1000000.000 HBD",
+          percent_hbd: 10000,
+          allow_votes: true,
+          allow_curation_rewards: true,
+          extensions: [[0, { beneficiaries }]],
+        },
+      ]);
+    }
 
     const pk = PrivateKey.fromString(key);
-    await client.broadcast.sendOperations([op as never], pk);
+    await client.broadcast.sendOperations(ops as never[], pk);
 
     await prisma.campaignDocument.update({
       where: { id: documentId },
