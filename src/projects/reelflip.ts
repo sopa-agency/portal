@@ -126,6 +126,10 @@ const reelflip: ProjectConfig = {
     "sktbrd.eth@gmail.com",
     "totaltotalblack@gmail.com",
   ],
+  githubProject: {
+    org: "ReelflipOrg",
+    number: 1,
+  },
 };
 
 export default reelflip;
