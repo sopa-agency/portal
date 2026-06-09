@@ -291,6 +291,11 @@ export async function generateCampaignBrief(campaignId: string): Promise<Generat
     return generateWeeklyStokenBrief(campaignId, title, campaign.documents[0], project);
   }
 
+  // Best-effort brand context from Drive (only non-empty for projects with a
+  // Drive folder configured; never throws or breaks generation).
+  const { getDriveBrandContext } = await import("@/lib/google-drive");
+  const briefBrandCtx = await getDriveBrandContext(project);
+
   const prompt = `You are ${campaignPersona(project)}. Draft a marketing campaign brief for the campaign titled "${title}".
 
 Write it as a long-form Hive blog post (300-500 words) that is ready to publish to the ${projectName} community (tag: ${communityTag}). Editorial tone — direct, community-to-community, no corporate marketing-speak. Make concrete assumptions about goal, audience, offer, and channel mix based on the title; lean into the specifics the title implies.
@@ -325,7 +330,7 @@ Primary metric + 1 sentence on why it matters. Add a north-star metric as a foll
 ## Next steps
 A short bulleted to-do list owners can pick up immediately.
 
-Return ONLY the markdown body starting with the H1 title — no preamble, no code fences, no JSON.`;
+Return ONLY the markdown body starting with the H1 title — no preamble, no code fences, no JSON.${briefBrandCtx ? `\n\n${briefBrandCtx}` : ""}`;
 
   let raw: string;
   try {
@@ -586,6 +591,10 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
   const artifactsHiveAccount = artifactsProject.hive.account;
   const artifactsProjectName = artifactsProject.name;
 
+  // Best-effort brand context from Drive (only for projects with Drive configured).
+  const { getDriveBrandContext } = await import("@/lib/google-drive");
+  const artifactsBrandCtx = await getDriveBrandContext(artifactsProject);
+
   const templateRules = buildTemplateArtifactRules(template?.id, artifactsProject);
 
   // Weekly Stoken: fetch the same trending posts the brief drew from so the
@@ -614,7 +623,7 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
   const artifactsVoiceHint = artifactsProject.campaignArtifacts?.voiceHint?.trim();
   const prompt = `You are ${campaignPersona(artifactsProject)}. Draft five coordinated campaign artifacts based on the brief below.${
     artifactsVoiceHint ? `\n\nVoice: ${artifactsVoiceHint}` : ""
-  }
+  }${artifactsBrandCtx ? `\n\n${artifactsBrandCtx}` : ""}
 
 Campaign title: "${title}"
 

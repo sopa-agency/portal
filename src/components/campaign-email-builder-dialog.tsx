@@ -6,13 +6,16 @@ import {
   AlignRight,
   ArrowDown,
   ArrowUp,
+  ChevronRight,
   Columns2,
   Columns3,
+  Folder,
   Heading,
   Image as ImageIcon,
   Layout,
   List as ListIcon,
   ListOrdered,
+  Loader2,
   Minus,
   MousePointerClick,
   Move,
@@ -24,6 +27,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { importDriveImageToPinata } from "@/app/actions/drive-import";
 import {
   type Align,
   type ButtonBlock,
@@ -802,6 +806,7 @@ function ImageView({
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState(false);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
 
   const accept = (file: File) => {
     setError(null);
@@ -847,6 +852,17 @@ function ImageView({
           <p className="text-sm font-medium text-zinc-700">Drop image here</p>
           <p className="text-[11px] text-zinc-500">PNG / JPG / GIF / WebP, up to 2 MB</p>
         </button>
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="Insert image from Google Drive"
+            onClick={() => setDrivePickerOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+          >
+            <Folder className="h-3.5 w-3.5 text-zinc-500" />
+            Insert from Drive
+          </button>
+        </div>
         <input
           ref={fileRef}
           type="file"
@@ -859,6 +875,18 @@ function ImageView({
           }}
         />
         {error ? <p className="mt-1 text-[11px] text-rose-600">{error}</p> : null}
+        {drivePickerOpen
+          ? createPortal(
+              <DriveImagePicker
+                onSelect={(url) => {
+                  onUpdate({ src: url } as Partial<ImageBlock>);
+                  setDrivePickerOpen(false);
+                }}
+                onClose={() => setDrivePickerOpen(false)}
+              />,
+              document.body,
+            )
+          : null}
       </div>
     );
   }
@@ -1077,61 +1105,85 @@ function ImageInspector({
   onUpdate: (patch: Partial<EmailBlock>) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
   return (
-    <div className="flex flex-wrap items-center gap-3 text-xs">
-      <button
-        type="button"
-        onClick={() => fileRef.current?.click()}
-        className="rounded border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-50"
-      >
-        Replace image
-      </button>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          if (file.size > MAX_IMAGE_BYTES) {
+    <>
+      <div className="flex flex-wrap items-center gap-3 text-xs">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="rounded border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-50"
+        >
+          Replace image
+        </button>
+        <button
+          type="button"
+          aria-label="Insert image from Google Drive"
+          onClick={() => setDrivePickerOpen(true)}
+          className="inline-flex items-center gap-1 rounded border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-50"
+        >
+          <Folder className="h-3 w-3" />
+          Insert from Drive
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            if (file.size > MAX_IMAGE_BYTES) {
+              e.target.value = "";
+              return;
+            }
+            const r = new FileReader();
+            r.onload = () => onUpdate({ src: String(r.result || "") } as Partial<ImageBlock>);
+            r.readAsDataURL(file);
             e.target.value = "";
-            return;
-          }
-          const r = new FileReader();
-          r.onload = () => onUpdate({ src: String(r.result || "") } as Partial<ImageBlock>);
-          r.readAsDataURL(file);
-          e.target.value = "";
-        }}
-      />
-      <AlignControl align={block.align} onChange={(align) => onUpdate({ align } as Partial<ImageBlock>)} />
-      <Field label="Width">
-        <input
-          type="range"
-          min={20}
-          max={100}
-          step={5}
-          value={block.width}
-          onChange={(e) => onUpdate({ width: Number(e.target.value) } as Partial<ImageBlock>)}
+          }}
         />
-        <span className="w-10 text-right">{block.width}%</span>
-      </Field>
-      <Field label="Alt">
-        <input
-          value={block.alt}
-          onChange={(e) => onUpdate({ alt: e.target.value } as Partial<ImageBlock>)}
-          className="w-32 rounded border border-zinc-300 bg-white px-1.5 py-1"
-        />
-      </Field>
-      <Field label="Link">
-        <input
-          value={block.href ?? ""}
-          onChange={(e) => onUpdate({ href: e.target.value || undefined } as Partial<ImageBlock>)}
-          placeholder="https://"
-          className="w-40 rounded border border-zinc-300 bg-white px-1.5 py-1"
-        />
-      </Field>
-    </div>
+        <AlignControl align={block.align} onChange={(align) => onUpdate({ align } as Partial<ImageBlock>)} />
+        <Field label="Width">
+          <input
+            type="range"
+            min={20}
+            max={100}
+            step={5}
+            value={block.width}
+            onChange={(e) => onUpdate({ width: Number(e.target.value) } as Partial<ImageBlock>)}
+          />
+          <span className="w-10 text-right">{block.width}%</span>
+        </Field>
+        <Field label="Alt">
+          <input
+            value={block.alt}
+            onChange={(e) => onUpdate({ alt: e.target.value } as Partial<ImageBlock>)}
+            className="w-32 rounded border border-zinc-300 bg-white px-1.5 py-1"
+          />
+        </Field>
+        <Field label="Link">
+          <input
+            value={block.href ?? ""}
+            onChange={(e) => onUpdate({ href: e.target.value || undefined } as Partial<ImageBlock>)}
+            placeholder="https://"
+            className="w-40 rounded border border-zinc-300 bg-white px-1.5 py-1"
+          />
+        </Field>
+      </div>
+      {drivePickerOpen
+        ? createPortal(
+            <DriveImagePicker
+              onSelect={(url) => {
+                onUpdate({ src: url } as Partial<ImageBlock>);
+                setDrivePickerOpen(false);
+              }}
+              onClose={() => setDrivePickerOpen(false)}
+            />,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -1396,6 +1448,315 @@ function EmptyState() {
     <div className="p-12 text-center text-zinc-400">
       <Layout className="mx-auto mb-3 h-8 w-8" />
       <p className="text-sm">This email is empty. Add a section from the left panel to get started.</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Drive image picker
+// ---------------------------------------------------------------------------
+
+type DriveFileEntry = {
+  id: string;
+  name: string;
+  mimeType: string;
+};
+
+type DriveListResponse =
+  | { ok: true; folderId: string; files: DriveFileEntry[] }
+  | { ok: false; reason: string; saEmail?: string; note?: string; error?: string };
+
+type BreadcrumbEntry = { id: string; name: string };
+
+const GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder";
+
+function isImageMime(mime: string) {
+  return mime.startsWith("image/");
+}
+
+/**
+ * A modal Drive image browser.
+ * - Navigates folders with a breadcrumb trail.
+ * - Clicking an image file calls importDriveImageToPinata(id), shows a
+ *   spinner, then resolves the block src to the public Pinata URL.
+ * - If Drive is not configured for the project, shows a friendly message.
+ */
+function DriveImagePicker({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (url: string) => void;
+  onClose: () => void;
+}) {
+  const [breadcrumb, setBreadcrumb] = useState<BreadcrumbEntry[]>([
+    { id: "", name: "Drive" },
+  ]);
+  const [entries, setEntries] = useState<DriveFileEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [notConfigured, setNotConfigured] = useState(false);
+  const [notConfiguredProject, setNotConfiguredProject] = useState<string>("");
+  const [importing, setImporting] = useState<string | null>(null); // fileId being imported
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const currentFolderId = breadcrumb[breadcrumb.length - 1]?.id ?? "";
+
+  const fetchFolder = useCallback(async (folderId: string) => {
+    setLoading(true);
+    setListError(null);
+    setImportError(null);
+    try {
+      const url = folderId
+        ? `/api/brain/drive/list?folderId=${encodeURIComponent(folderId)}`
+        : "/api/brain/drive/list";
+      const res = await fetch(url);
+      const data = (await res.json()) as DriveListResponse;
+      if (!data.ok) {
+        if (data.reason === "not-configured") {
+          setNotConfigured(true);
+          // Try to extract the project name from the note if present
+          const noteMatch = (data.note ?? "").match(/tried (\w+)_GOOGLE/);
+          const prefix = noteMatch ? noteMatch[1].toLowerCase() : "";
+          setNotConfiguredProject(prefix || "this project");
+        } else {
+          setListError(
+            "error" in data && data.error ? data.error : "Failed to list Drive folder.",
+          );
+        }
+        setEntries([]);
+      } else {
+        setEntries(data.files);
+      }
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : "Network error.");
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    void fetchFolder("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const navigateInto = (folder: DriveFileEntry) => {
+    const next = [...breadcrumb, { id: folder.id, name: folder.name }];
+    setBreadcrumb(next);
+    void fetchFolder(folder.id);
+  };
+
+  const navigateTo = (idx: number) => {
+    const next = breadcrumb.slice(0, idx + 1);
+    setBreadcrumb(next);
+    void fetchFolder(next[next.length - 1]?.id ?? "");
+  };
+
+  const handleSelectImage = async (file: DriveFileEntry) => {
+    setImporting(file.id);
+    setImportError(null);
+    try {
+      const result = await importDriveImageToPinata(file.id);
+      if (result.ok) {
+        onSelect(result.url);
+      } else {
+        setImportError(result.error);
+      }
+    } finally {
+      setImporting(null);
+    }
+  };
+
+  const folders = entries.filter((e) => e.mimeType === GOOGLE_FOLDER_MIME);
+  const images = entries.filter((e) => isImageMime(e.mimeType));
+  const others = entries.filter(
+    (e) => e.mimeType !== GOOGLE_FOLDER_MIME && !isImageMime(e.mimeType),
+  );
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Insert image from Google Drive"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="flex w-full max-w-lg flex-col rounded-xl border border-border bg-surface shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground">Insert from Google Drive</h2>
+          <button
+            type="button"
+            aria-label="Close Drive image picker"
+            onClick={onClose}
+            className="rounded-md p-1 text-foreground-muted hover:bg-foreground/5 hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Breadcrumb */}
+        <nav
+          aria-label="Drive folder navigation"
+          className="flex items-center gap-1 border-b border-border px-4 py-2 text-xs text-foreground-muted"
+        >
+          {breadcrumb.map((crumb, idx) => (
+            <span key={crumb.id || "root"} className="flex items-center gap-1">
+              {idx > 0 && <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />}
+              <button
+                type="button"
+                onClick={() => navigateTo(idx)}
+                className={`rounded px-1 py-0.5 hover:bg-foreground/5 ${
+                  idx === breadcrumb.length - 1
+                    ? "font-semibold text-foreground"
+                    : "text-foreground-muted hover:text-foreground"
+                }`}
+              >
+                {crumb.name}
+              </button>
+            </span>
+          ))}
+        </nav>
+
+        {/* Body */}
+        <div className="min-h-[260px] overflow-y-auto p-4">
+          {loading ? (
+            <div className="flex h-40 items-center justify-center">
+              <Loader2
+                className="h-6 w-6 animate-spin text-foreground-muted"
+                aria-label="Loading Drive contents"
+              />
+            </div>
+          ) : notConfigured ? (
+            <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+              <p className="text-sm font-medium text-foreground">Drive not connected</p>
+              <p className="max-w-xs text-xs text-foreground-muted">
+                Google Drive is not configured for {notConfiguredProject}. Ask your admin to set a{" "}
+                <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[10px]">
+                  GOOGLE_DRIVE_FOLDER_ID
+                </code>{" "}
+                environment variable.
+              </p>
+            </div>
+          ) : listError ? (
+            <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+              <p className="text-sm font-medium text-danger">Error loading Drive</p>
+              <p className="max-w-xs text-xs text-foreground-muted">{listError}</p>
+              <button
+                type="button"
+                onClick={() => void fetchFolder(currentFolderId)}
+                className="mt-1 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-xs text-foreground hover:bg-foreground/5"
+              >
+                Retry
+              </button>
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="flex h-40 items-center justify-center text-sm text-foreground-muted">
+              This folder is empty.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {importError ? (
+                <p className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+                  {importError}
+                </p>
+              ) : null}
+
+              {/* Folders */}
+              {folders.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-[10px] uppercase tracking-widest text-foreground-subtle">
+                    Folders
+                  </p>
+                  <div className="space-y-0.5">
+                    {folders.map((folder) => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        aria-label={`Open folder ${folder.name}`}
+                        onClick={() => navigateInto(folder)}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-foreground/5"
+                      >
+                        <Folder className="h-4 w-4 shrink-0 text-foreground-muted" />
+                        <span className="truncate">{folder.name}</span>
+                        <ChevronRight className="ml-auto h-3.5 w-3.5 shrink-0 text-foreground-subtle" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Images */}
+              {images.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-[10px] uppercase tracking-widest text-foreground-subtle">
+                    Images
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {images.map((img) => {
+                      const isThis = importing === img.id;
+                      const thumbUrl = `/api/brain/drive/file?id=${encodeURIComponent(img.id)}&mode=raw`;
+                      return (
+                        <button
+                          key={img.id}
+                          type="button"
+                          disabled={importing !== null}
+                          aria-label={`Insert image ${img.name}`}
+                          onClick={() => void handleSelectImage(img)}
+                          className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-surface-elevated transition hover:border-accent-border disabled:cursor-wait disabled:opacity-60"
+                        >
+                          <div className="relative aspect-square w-full overflow-hidden bg-surface">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={thumbUrl}
+                              alt={img.name}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                            {isThis && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                                <Loader2
+                                  className="h-5 w-5 animate-spin text-white"
+                                  aria-label="Uploading to Pinata"
+                                />
+                              </div>
+                            )}
+                          </div>
+                          <p className="truncate px-1.5 py-1 text-[10px] text-foreground-muted">
+                            {img.name}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Other non-image files (shown dimmed, not selectable) */}
+              {others.length > 0 && images.length === 0 && folders.length === 0 && (
+                <div className="flex h-28 flex-col items-center justify-center gap-1 text-center">
+                  <ImageIcon className="h-6 w-6 text-foreground-subtle" />
+                  <p className="text-xs text-foreground-muted">
+                    No images found in this folder.
+                  </p>
+                  <p className="text-[11px] text-foreground-subtle">
+                    Only PNG, JPG, GIF, WebP etc. can be inserted.
+                  </p>
+                </div>
+              )}
+              {others.length > 0 && (images.length > 0 || folders.length > 0) && (
+                <p className="text-[11px] text-foreground-subtle">
+                  {others.length} non-image file{others.length !== 1 ? "s" : ""} in this folder
+                  (not selectable).
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

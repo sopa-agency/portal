@@ -316,3 +316,127 @@ export async function getDriveFileContent(
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+// ---------------------------------------------------------------------------
+// getDriveBrandContext
+// Builds a compact text block describing the project's Drive brand assets.
+// Returns "" when Drive is not configured or on any error (never throws).
+// Used by campaign generation to make the AI brand-aware.
+// ---------------------------------------------------------------------------
+
+const MAX_BRAND_CONTEXT_CHARS = 3000;
+const MAX_INDEX_CHARS = 2500;
+const MAX_TREE_ENTRIES = 60;
+
+/** Strip basic HTML tags to plain text. */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#?[a-zA-Z0-9]+;/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+export async function getDriveBrandContext(project: ProjectConfig): Promise<string> {
+  try {
+    const prefix = project.agent.gatewayEnvPrefix;
+    const folderId =
+      process.env[`${prefix}_GOOGLE_DRIVE_FOLDER_ID`] ?? process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+    // Not configured for this project — silently return empty.
+    if (!folderId) return "";
+
+    // List top-level folder.
+    const topResult = await listDriveFolder(project, folderId);
+    if (!topResult.ok) return "";
+
+    const { files: topFiles } = topResult;
+
+    // Separate folders from files at the top level.
+    const topFolders = topFiles.filter((f) => f.mimeType === GOOGLE_FOLDER);
+    const topNonFolders = topFiles.filter((f) => f.mimeType !== GOOGLE_FOLDER);
+
+    // Try to fetch _INDEX.md or INDEX.md for human-written context.
+    let indexText = "";
+    const indexFile = topNonFolders.find((f) =>
+      /^_?index\.md$/i.test(f.name),
+    );
+    if (indexFile) {
+      try {
+        const content = await getDriveFileContent(project, indexFile.id);
+        if ("kind" in content) {
+          if (content.kind === "html") {
+            indexText = stripHtml(content.html).slice(0, MAX_INDEX_CHARS);
+          } else if (content.kind === "binary" && content.contentType.startsWith("text/")) {
+            indexText = Buffer.from(content.base64, "base64")
+              .toString("utf8")
+              .slice(0, MAX_INDEX_CHARS);
+          }
+        }
+      } catch {
+        // Non-fatal; skip index.
+      }
+    }
+
+    // Build file tree — recurse one level into subfolders, cap total entries.
+    const treeLines: string[] = [];
+    let entryCount = 0;
+
+    // Top-level non-folder files.
+    for (const f of topNonFolders) {
+      if (/^_?index\.md$/i.test(f.name)) continue; // already used
+      if (entryCount >= MAX_TREE_ENTRIES) break;
+      treeLines.push(`- ${f.name}`);
+      entryCount++;
+    }
+
+    // Subfolders with their contents (one level deep).
+    for (const folder of topFolders) {
+      if (entryCount >= MAX_TREE_ENTRIES) break;
+      treeLines.push(`- ${folder.name}/`);
+      entryCount++;
+      try {
+        const subResult = await listDriveFolder(project, folder.id);
+        if (subResult.ok) {
+          for (const sf of subResult.files) {
+            if (entryCount >= MAX_TREE_ENTRIES) break;
+            if (sf.mimeType === GOOGLE_FOLDER) {
+              treeLines.push(`    - ${sf.name}/`);
+            } else {
+              treeLines.push(`    - ${sf.name}`);
+            }
+            entryCount++;
+          }
+        }
+      } catch {
+        // Skip subfolder on error.
+      }
+    }
+
+    if (treeLines.length === 0 && !indexText) return "";
+
+    const parts: string[] = ["=== Brand assets (Google Drive) ==="];
+    if (indexText) {
+      parts.push(indexText);
+      parts.push("");
+    }
+    if (treeLines.length > 0) {
+      parts.push("Files available:");
+      parts.push(treeLines.join("\n"));
+      parts.push("(Reference these real assets by name where relevant; don't invent asset names.)");
+    }
+
+    const ctx = parts.join("\n");
+    // Hard cap to stay within prompt budget.
+    return ctx.length > MAX_BRAND_CONTEXT_CHARS ? ctx.slice(0, MAX_BRAND_CONTEXT_CHARS) + "\n…" : ctx;
+  } catch {
+    // Never break campaign generation.
+    return "";
+  }
+}
