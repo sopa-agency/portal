@@ -206,19 +206,19 @@ export function CampaignFolderShell({
               onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
             />
           </div>
-        ) : selected.kind === "hive" ? (
+        ) : selected.kind === "hive" || selected.kind === "hive_mag" ? (
           <div className="space-y-4">
             <CampaignDocumentPreview
               key={`${selected.id}-preview`}
               name={selected.name}
               content={getContent(selected)}
               updatedAt={selected.updatedAt}
-              kind="hive"
+              kind={selected.kind}
               brand={brand}
             />
             <CampaignArtifactActions
               documentId={selected.id}
-              kind="hive"
+              kind={selected.kind}
               content={getContent(selected)}
               initialPostedAt={selected.postedAt}
               onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
