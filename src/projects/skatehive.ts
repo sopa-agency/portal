@@ -18,6 +18,7 @@ const skatehive: ProjectConfig = {
     "nogenta",
     "humbertoperes",
     "willdias",
+    "reelflip",
   ],
   theme: {
     // Lime green — darker for legibility on light bg, vivid on dark bg.
