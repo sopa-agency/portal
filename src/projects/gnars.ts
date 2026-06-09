@@ -133,6 +133,17 @@ const gnars: ProjectConfig = {
   prompts: {
     dir: "prompts/gnars",
   },
+  teamEmails: [
+    "ernatogalvao@gmail.com",
+    "gami@bitlabs.dev",
+    "humbertopereskt@gmail.com",
+    "joaopedroparmagnani@gmail.com",
+    "louzoshi.eth@gmail.com",
+    "nogentaskate@gmail.com",
+    "r4topunk.eth@gmail.com",
+    "sktbrd.eth@gmail.com",
+    "totaltotalblack@gmail.com",
+  ],
 };
 
 export default gnars;

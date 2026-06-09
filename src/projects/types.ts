@@ -166,4 +166,10 @@ export type ProjectConfig = {
     /** Directory (relative to project root) where prompt overrides live */
     dir: string;
   };
+  /**
+   * Email addresses of the project's core team. Used for the Morning Brief
+   * "Email to team" action — sends the briefing by BCC to all addresses.
+   * Omitting this (or leaving it empty) will disable the send action.
+   */
+  teamEmails?: string[];
 };

@@ -25,7 +25,12 @@ export default async function Home() {
       slug: agent.slug,
       label: agent.tabLabel ?? agent.label,
       content: result.ok ? (
-        <MorningBriefing briefing={result.briefing} today={today} />
+        <MorningBriefing
+          briefing={result.briefing}
+          today={today}
+          teamEmails={project.teamEmails ?? []}
+          projectName={project.name}
+        />
       ) : (
         <BriefingMissing agent={result.agent} error={result.error} />
       ),

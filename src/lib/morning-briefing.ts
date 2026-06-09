@@ -39,6 +39,8 @@ export type Briefing = {
   date: string;
   preamble: string;
   sections: BriefingSection[];
+  /** Raw markdown body as stored in the DB — used for email rendering. */
+  rawBody: string;
 };
 
 export type BriefingResult =
@@ -98,7 +100,7 @@ export async function loadLatestBriefing(agent: BriefingAgent): Promise<Briefing
   const { preamble, sections } = splitSections(row.body);
   return {
     ok: true,
-    briefing: { agent, date: row.date, preamble, sections },
+    briefing: { agent, date: row.date, preamble, sections, rawBody: row.body },
   };
 }
 

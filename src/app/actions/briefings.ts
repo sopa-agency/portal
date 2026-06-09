@@ -4,10 +4,12 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { todayIsoDate } from "@/lib/morning-briefing";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { getActiveProject } from "@/projects/index";
+import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import {
   getProjectSocialInsightsContext,
 } from "@/lib/social-insights-core";
@@ -409,4 +411,164 @@ export async function regenerateAllBriefings(
     }),
   );
   return { ok: results.every((r) => r.ok), results };
+}
+
+// ---------------------------------------------------------------------------
+// Briefing email — render + send
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a briefing as an inline-styled HTML email suitable for common email
+ * clients. Uses `marked` for markdown→HTML, then wraps in a minimal email
+ * skeleton with project accent color in the hero header.
+ */
+function renderBriefingEmailHtml(
+  project: { name: string; theme: { accentDark: string } },
+  { title, date, markdownBody }: { title: string; date: string; markdownBody: string },
+): string {
+  // marked.parse is synchronous when called with a string (no async walk).
+  // We import it dynamically at the top level but call it inline here via require-style.
+  // Because this is server-only, we can use a sync require.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { marked } = require("marked") as { marked: { parse: (md: string) => string } };
+  const bodyHtml = marked.parse(markdownBody);
+
+  const accent = project.theme.accentDark;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${escapeHtml(title)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;">
+        <!-- Hero header -->
+        <tr>
+          <td style="background:#0a0a0a;padding:32px 40px;">
+            <p style="margin:0 0 6px 0;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:${escapeHtml(accent)};font-weight:600;">${escapeHtml(project.name)}</p>
+            <h1 style="margin:0 0 6px 0;font-size:24px;font-weight:700;color:#ffffff;">Morning Brief</h1>
+            <p style="margin:0;font-size:13px;color:#a3a3a3;font-variant-numeric:tabular-nums;">${escapeHtml(date)}</p>
+          </td>
+        </tr>
+        <!-- Body -->
+        <tr>
+          <td style="padding:40px;color:#171717;font-size:15px;line-height:1.65;">
+            ${bodyHtml}
+          </td>
+        </tr>
+        <!-- Footer -->
+        <tr>
+          <td style="padding:24px 40px;border-top:1px solid #e5e5e5;font-size:12px;color:#a3a3a3;text-align:center;">
+            ${escapeHtml(project.name)} · Morning Brief · ${escapeHtml(date)}
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Send the latest morning briefing for `agentSlug` by email (BCC) to the
+ * project's team. Auth-gated.
+ */
+export async function sendBriefingEmail(
+  agentSlug: string,
+): Promise<{ ok: true; sentTo: number } | { ok: false; error: string }> {
+  try {
+    const project = await getActiveProject();
+    const cookieStore = await cookies();
+    const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+    if (!session) return { ok: false, error: "Unauthorized" };
+
+    const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
+    if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
+
+    const recipients = project.teamEmails ?? [];
+    if (recipients.length === 0) {
+      return { ok: false, error: "No team emails configured for this project." };
+    }
+
+    const row = await prisma.briefing.findFirst({
+      where: { agentSlug },
+      orderBy: [{ date: "desc" }, { generatedAt: "desc" }],
+    });
+    if (!row?.body) return { ok: false, error: "No briefing to send yet." };
+
+    const subject = `${project.name} — Morning Brief · ${row.date}`;
+    const html = renderBriefingEmailHtml(project, {
+      title: `${project.name} — Morning Brief`,
+      date: row.date,
+      markdownBody: row.body,
+    });
+    const text = row.body;
+
+    // Send TO the project's own email address (self), BCC the team so
+    // recipients don't see each other's addresses.
+    const prefix = project.agent.gatewayEnvPrefix;
+    const selfEmail =
+      (prefix ? process.env[`${prefix}_EMAIL_USER`] : undefined) ??
+      process.env.EMAIL_USER ??
+      recipients[0];
+
+    const { sendProjectEmail } = await import("@/lib/email");
+    const result = await sendProjectEmail(project, {
+      to: selfEmail,
+      bcc: recipients,
+      subject,
+      html,
+      text,
+    });
+
+    if (!result.ok) return result;
+    return { ok: true, sentTo: recipients.length };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Return metadata the email-briefing dialog needs — recipients, SMTP
+ * configured status, and whether a briefing exists — without exposing any
+ * secret values.
+ */
+export async function getBriefingEmailMeta(
+  agentSlug: string,
+): Promise<{ recipients: string[]; configured: boolean; hasBriefing: boolean }> {
+  try {
+    const project = await getActiveProject();
+    const cookieStore = await cookies();
+    const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+    if (!session) return { recipients: [], configured: false, hasBriefing: false };
+
+    const { isEmailConfigured } = await import("@/lib/email");
+    const configured = isEmailConfigured(project);
+
+    const hasBriefing = !!(await prisma.briefing.findFirst({
+      where: { agentSlug },
+      orderBy: [{ date: "desc" }, { generatedAt: "desc" }],
+      select: { agentSlug: true },
+    }));
+
+    return {
+      recipients: project.teamEmails ?? [],
+      configured,
+      hasBriefing,
+    };
+  } catch {
+    return { recipients: [], configured: false, hasBriefing: false };
+  }
 }

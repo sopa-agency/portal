@@ -119,6 +119,7 @@ const skatehive: ProjectConfig = {
   prompts: {
     dir: "prompts/skatehive",
   },
+  teamEmails: ["sktbrd.eth@gmail.com"],
   analytics: {
     ga4PropertyId: "527345741",
     gscSiteUrl: "sc-domain:skatehive.app",

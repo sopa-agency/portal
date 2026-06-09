@@ -117,6 +117,12 @@ const reelflip: ProjectConfig = {
   prompts: {
     dir: "prompts/reelflip",
   },
+  teamEmails: [
+    "ernatogalvao@gmail.com",
+    "r4topunk.eth@gmail.com",
+    "sktbrd.eth@gmail.com",
+    "totaltotalblack@gmail.com",
+  ],
 };
 
 export default reelflip;

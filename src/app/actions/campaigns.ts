@@ -1530,39 +1530,6 @@ export async function sendCampaignEmail(
     }
     const to = recipient.trim();
 
-    // Resolve SMTP config: per-project prefix first, then global fallback.
-    const prefix = project.agent.gatewayEnvPrefix;
-    const host =
-      (prefix ? process.env[`${prefix}_SMTP_HOST`] : undefined) ??
-      process.env.SMTP_HOST;
-    const portRaw =
-      (prefix ? process.env[`${prefix}_SMTP_PORT`] : undefined) ??
-      process.env.SMTP_PORT ??
-      "587";
-    const port = parseInt(portRaw, 10);
-    const secureRaw =
-      (prefix ? process.env[`${prefix}_SMTP_SECURE`] : undefined) ??
-      process.env.SMTP_SECURE ??
-      "false";
-    const secure = secureRaw === "true";
-    const user =
-      (prefix ? process.env[`${prefix}_EMAIL_USER`] : undefined) ??
-      process.env.EMAIL_USER;
-    const pass =
-      (prefix ? process.env[`${prefix}_EMAIL_PASS`] : undefined) ??
-      process.env.EMAIL_PASS;
-    const from =
-      (prefix ? process.env[`${prefix}_EMAIL_FROM`] : undefined) ??
-      process.env.EMAIL_FROM ??
-      user;
-
-    if (!host || !user || !pass) {
-      return {
-        ok: false,
-        error: "Email is not configured — set SMTP_HOST / EMAIL_USER / EMAIL_PASS.",
-      };
-    }
-
     // Build HTML from structured email doc or legacy HTML.
     const { parseEmail, renderEmail } = await import("@/lib/campaign-email");
     const parsed = parseEmail(doc.content);
@@ -1581,15 +1548,10 @@ export async function sendCampaignEmail(
     // Plain-text fallback: strip HTML tags.
     const text = html.replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim();
 
-    // Send via nodemailer.
-    const nodemailer = await import("nodemailer");
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: { user, pass },
-    });
-    await transporter.sendMail({ from, to, subject, html, text });
+    // Delegate SMTP resolution + send to the shared helper.
+    const { sendProjectEmail } = await import("@/lib/email");
+    const result = await sendProjectEmail(project, { to, subject, html, text });
+    if (!result.ok) return result;
 
     await prisma.campaignDocument.update({
       where: { id: documentId },

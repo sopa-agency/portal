@@ -9,6 +9,7 @@ import { BriefingSection, BriefingSources } from "@/components/briefing-section"
 import { MarkdownContent } from "@/components/markdown-content";
 import { ImprovePromptButton } from "@/components/improve-prompt-dialog";
 import { TakeActionButton } from "@/components/take-action-dialog";
+import { EmailBriefingButton } from "@/components/email-briefing-dialog";
 
 const FRESHNESS_BADGE: Record<
   ReturnType<typeof freshnessLabel>["tone"],
@@ -36,9 +37,13 @@ function partitionSections(sections: Section[]) {
 export function MorningBriefing({
   briefing,
   today,
+  teamEmails = [],
+  projectName = "",
 }: {
   briefing: Briefing;
   today: string;
+  teamEmails?: string[];
+  projectName?: string;
 }) {
   const { status, actions, sources, middle } = partitionSections(briefing.sections);
   const freshness = freshnessLabel(briefing.date, today);
@@ -65,6 +70,15 @@ export function MorningBriefing({
           </span>
           <ImprovePromptButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
           <TakeActionButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
+          {teamEmails.length > 0 && (
+            <EmailBriefingButton
+              agentSlug={briefing.agent.slug}
+              agentLabel={briefing.agent.label}
+              briefingDate={briefing.date}
+              markdownBody={briefing.rawBody}
+              projectName={projectName}
+            />
+          )}
         </div>
       </header>
 
