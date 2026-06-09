@@ -235,3 +235,29 @@ export async function getProjectSocialInsightsContext(
 
   return `## Social analytics (latest)\n\n${sections}`;
 }
+
+/**
+ * Freshly-fetched LIVE numbers for every connected channel, formatted for
+ * injection into the morning-briefing prompt (followers + 7d delta, account
+ * highlights, recent posts with per-post engagement + recency/gap context).
+ * Best-effort: channels that aren't connected or error out are skipped.
+ * Returns "" when nothing is live.
+ */
+export async function getProjectSocialMetricsContext(project: ProjectConfig): Promise<string> {
+  const blocks: string[] = [];
+  for (const channel of project.socials) {
+    const account = channel.metricsAccount ?? channel.handle?.replace(/^@/, "");
+    try {
+      const m = await fetchChannelMetrics(channel.platform, account, project);
+      if (m.ok) {
+        blocks.push(
+          `### ${channel.platform}${channel.handle ? ` (${channel.handle})` : ""}\n${summarizeMetrics(m)}`,
+        );
+      }
+    } catch {
+      // best-effort — skip a channel that errors out
+    }
+  }
+  if (!blocks.length) return "";
+  return `## Social live numbers (fetched now)\n\n${blocks.join("\n\n")}`;
+}

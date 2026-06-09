@@ -13,6 +13,7 @@ import { getActiveProject } from "@/projects/index";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import {
   getProjectSocialInsightsContext,
+  getProjectSocialMetricsContext,
 } from "@/lib/social-insights-core";
 
 const TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 5 * 60_000);
@@ -89,11 +90,20 @@ export async function regenerateBriefing(
         "including the top-level title. Keep the same structural format (## headings, bullet lists).";
     }
 
-    // Append social analytics context from persisted insights (if any).
+    // Append the per-channel AI analysis from saved insights (if any).
     const ctx = await getProjectSocialInsightsContext(project.slug);
     if (ctx) {
       prompt +=
-        "\n\n=== Social analytics context (use this when relevant) ===\n" + ctx;
+        "\n\n=== Social analytics context — the agent's prior AI analysis per channel (use when relevant) ===\n" + ctx;
+    }
+
+    // Append freshly-fetched LIVE social numbers so the briefing can ground its
+    // recommendations in current metrics (and cite them as [live]).
+    const liveNumbers = await getProjectSocialMetricsContext(project);
+    if (liveNumbers) {
+      prompt +=
+        "\n\n=== Social LIVE numbers, fetched THIS run — treat as current evidence, cite them, label [live] ===\n" +
+        liveNumbers;
     }
 
     // Append the team's corrections for this briefing (if any).
