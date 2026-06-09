@@ -47,12 +47,25 @@ export function resolveProjectSlug(host: string | null): string {
   // Bare localhost or single-label hosts get the default.
   if (candidate === "localhost" || candidate === "127" || candidate === "") return defaultSlug;
 
-  // If the candidate matches a registered slug, use it.
-  if (candidate in PROJECT_REGISTRY) return candidate;
+  // Match the leftmost label against each project's slug OR its `subdomain`
+  // alias (e.g. "admin" → reelflip on admin.reelflip.com, while "reelflip" also
+  // still resolves to reelflip on the legacy domain).
+  const slug = SUBDOMAIN_TO_SLUG[candidate];
+  if (slug) return slug;
 
   // Unknown subdomain — fall back to default so unknown subdomains don't 404.
   return defaultSlug;
 }
+
+/** Maps every accepted host label (slug AND optional `subdomain` alias) → slug. */
+const SUBDOMAIN_TO_SLUG: Record<string, string> = Object.values(PROJECT_REGISTRY).reduce(
+  (acc, p) => {
+    acc[p.slug.toLowerCase()] = p.slug;
+    if (p.subdomain) acc[p.subdomain.toLowerCase()] = p.slug;
+    return acc;
+  },
+  {} as Record<string, string>,
+);
 
 // ---------------------------------------------------------------------------
 // Lookup helpers

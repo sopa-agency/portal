@@ -50,6 +50,13 @@ export type SocialChannel = {
 export type ProjectConfig = {
   /** Subdomain key, e.g. "skatehive" */
   slug: string;
+  /**
+   * Host label used in the URL when it DIFFERS from the slug, e.g. Reelflip's
+   * portal lives at `admin.reelflip.com` → subdomain "admin" but slug "reelflip".
+   * The resolver accepts BOTH the slug and this subdomain (so old + new URLs
+   * work). The switcher uses this as the host label. Defaults to `slug`.
+   */
+  subdomain?: string;
   /** Display name, e.g. "SkateHive" */
   name: string;
   /** Used for <meta description> */

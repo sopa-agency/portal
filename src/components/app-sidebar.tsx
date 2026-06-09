@@ -24,7 +24,7 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-type SwitchProject = { slug: string; name: string; logo: string };
+type SwitchProject = { slug: string; subdomain?: string; name: string; logo: string };
 
 type AppSidebarProps = {
   username: string;
@@ -57,15 +57,18 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     return () => document.removeEventListener("mousedown", onDoc);
   }, [switcherOpen]);
 
-  // Switch portals by swapping the leftmost host label (the tenant slug) — works
-  // across prod (slug.portal.skatehive.app), Tailscale nip.io, and localhost.
-  const knownSlugs = switchProjects.map((p) => p.slug);
-  function switchTo(slug: string) {
-    if (slug === currentSlug) { setSwitcherOpen(false); return; }
+  // Switch portals by swapping the leftmost host label — works across prod
+  // (admin/skatehive/gnars.reelflip.com, legacy slug.portal.skatehive.app),
+  // Tailscale nip.io, and localhost. A project's host label is its `subdomain`
+  // when set (Reelflip → "admin"), else its slug.
+  const knownLabels = switchProjects.flatMap((p) => (p.subdomain ? [p.slug, p.subdomain] : [p.slug]));
+  function switchTo(target: SwitchProject) {
+    if (target.slug === currentSlug) { setSwitcherOpen(false); return; }
     const { protocol, hostname, port } = window.location;
     const labels = hostname.split(".");
-    const base = knownSlugs.includes(labels[0]) ? labels.slice(1) : labels;
-    const host = [slug, ...base].join(".");
+    const base = knownLabels.includes(labels[0]) ? labels.slice(1) : labels;
+    const targetLabel = target.subdomain ?? target.slug;
+    const host = [targetLabel, ...base].join(".");
     window.location.href = `${protocol}//${host}${port ? `:${port}` : ""}/`;
   }
 
@@ -125,7 +128,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                       key={p.slug}
                       type="button"
                       role="menuitem"
-                      onClick={() => switchTo(p.slug)}
+                      onClick={() => switchTo(p)}
                       className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-foreground/5 ${isCurrent ? "bg-accent-bg" : ""}`}
                     >
                       <Image src={p.logo} alt={p.name} width={24} height={24} className="shrink-0 rounded" />

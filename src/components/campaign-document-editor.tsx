@@ -70,7 +70,7 @@ export function CampaignDocumentEditor({
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Write the brief here. What's the goal, who's it for, what's the angle?"
-          className="mt-4 min-h-[70vh] w-full resize-y rounded-xl border border-border bg-black/30 px-4 py-3 text-[14px] leading-7 text-foreground outline-none focus:border-accent-border focus:ring-1 focus:ring-lime-400/20"
+          className="mt-4 min-h-[70vh] w-full resize-y rounded-xl border border-border bg-surface-elevated px-4 py-3 text-[14px] leading-7 text-foreground outline-none focus:border-accent-border focus:ring-1 focus:ring-lime-400/20"
         />
       ) : (
         <div className="mt-4 min-h-[70vh] rounded-xl border border-border bg-black/20 px-4 py-3">

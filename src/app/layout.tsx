@@ -76,7 +76,7 @@ export default async function RootLayout({
                 currentSlug={project.slug}
                 switchProjects={getAllProjects()
                   .filter((p) => p.allowlist.includes(session.username.toLowerCase()))
-                  .map((p) => ({ slug: p.slug, name: p.name, logo: p.theme.logo }))}
+                  .map((p) => ({ slug: p.slug, subdomain: p.subdomain, name: p.name, logo: p.theme.logo }))}
                 hiddenRoutes={project.hiddenRoutes}
                 analyticsEnabled={!!project.analytics}
                 postCreatorEnabled={!!project.postCreator}

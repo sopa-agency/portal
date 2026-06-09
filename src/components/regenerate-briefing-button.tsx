@@ -60,7 +60,7 @@ export function RegenerateBriefingButton() {
           ) : (
             <RefreshCw className="h-4 w-4" />
           )}
-          Regenerate
+          Regenerar
         </button>
         <button
           type="button"
@@ -68,7 +68,7 @@ export function RegenerateBriefingButton() {
           disabled={pending}
           aria-haspopup="menu"
           aria-expanded={open}
-          aria-label="Regenerate options"
+          aria-label="Opções de regeneração"
           className="inline-flex items-center justify-center rounded-r-lg border border-l-0 border-accent-border bg-accent-bg px-1.5 py-1.5 text-accent transition hover:bg-accent/20 disabled:opacity-50"
         >
           <ChevronDown
@@ -80,8 +80,18 @@ export function RegenerateBriefingButton() {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-[calc(100%+4px)] z-10 min-w-[200px] overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-lg"
+          className="absolute right-0 top-[calc(100%+4px)] z-10 min-w-[220px] overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-lg"
         >
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => run("pt")}
+            disabled={pending}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition hover:bg-foreground/5 disabled:opacity-50"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Regenerar em português
+          </button>
           <button
             role="menuitem"
             type="button"
