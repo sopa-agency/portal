@@ -168,7 +168,7 @@ export const PAGE_GUIDES: Record<string, PageGuide> = {
       },
       {
         heading: "Cards",
-        body: "Each card is an issue, PR, or draft with labels, state, and assignees. Hover a card for quick actions: open in GitHub, archive, or delete. Use the + on a column header to add a draft card directly into that status.",
+        body: "Each card is an issue, PR, or draft with labels, state, and assignees. Click a card to open its full content — description, checklists, links — rendered right in the portal. Hover a card for quick actions: open in GitHub, archive, or delete. Use the + on a column header to add a draft card directly into that status.",
       },
     ],
   },

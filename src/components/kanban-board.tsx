@@ -35,6 +35,7 @@ import {
   GripVertical,
 } from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
+import { MarkdownContent } from "@/components/markdown-content";
 
 // ---------------------------------------------------------------------------
 // Column status color (mid-tone hues that read on both light & dark surfaces)
@@ -139,11 +140,13 @@ function SortableCard({
   item,
   onArchive,
   onDelete,
+  onOpen,
   busy,
 }: {
   item: KanbanItem;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
+  onOpen: (item: KanbanItem) => void;
   busy: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
@@ -166,9 +169,14 @@ function SortableCard({
         >
           <GripVertical className="h-4 w-4" />
         </button>
-        <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => onOpen(item)}
+          aria-label={`Open ${item.title}`}
+          className="min-w-0 flex-1 cursor-pointer text-left"
+        >
           <CardBody item={item} />
-        </div>
+        </button>
       </div>
 
       {/* Action buttons — appear on hover */}
@@ -219,12 +227,14 @@ function ColumnView({
   onArchive,
   onDelete,
   onAddDraft,
+  onOpen,
   busy,
 }: {
   column: KanbanColumn;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
   onAddDraft: (columnName: string, title: string) => void;
+  onOpen: (item: KanbanItem) => void;
   busy: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `container:${column.name}` });
@@ -323,10 +333,128 @@ function ColumnView({
             </div>
           ) : (
             column.items.map((item) => (
-              <SortableCard key={item.id} item={item} onArchive={onArchive} onDelete={onDelete} busy={busy} />
+              <SortableCard key={item.id} item={item} onArchive={onArchive} onDelete={onDelete} onOpen={onOpen} busy={busy} />
             ))
           )}
         </SortableContext>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Card detail dialog — full issue/PR/draft content
+// ---------------------------------------------------------------------------
+
+/** Derive "owner/repo" from a GitHub issue/PR URL for #N autolinking. */
+function repoOf(url?: string): string | undefined {
+  const m = url?.match(/github\.com\/([^/]+\/[^/]+)\//);
+  return m?.[1];
+}
+
+function CardDetailDialog({ item, onClose }: { item: KanbanItem; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={item.title}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 border-b border-border p-5">
+          <div className="min-w-0 space-y-2">
+            <div className="flex items-center gap-2">
+              <TypeIcon type={item.type} />
+              {item.number != null && (
+                <span className="font-mono tabular-nums text-xs text-foreground-subtle">#{item.number}</span>
+              )}
+              <StateBadge item={item} />
+            </div>
+            <h3 className="text-lg font-semibold leading-snug text-foreground">{item.title}</h3>
+            {item.labels.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {item.labels.map((label) => (
+                  <span
+                    key={label.name}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] font-medium leading-tight text-foreground-muted"
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: `#${label.color}` }}
+                      aria-hidden="true"
+                    />
+                    {label.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close card"
+            className="shrink-0 rounded-lg border border-border p-2 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {item.body?.trim() ? (
+            <MarkdownContent markdown={item.body} githubRepo={repoOf(item.url)} />
+          ) : (
+            <p className="text-sm italic text-foreground-faint">No description.</p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 border-t border-border p-4">
+          {item.assignees.length > 0 ? (
+            <div className="flex items-center gap-2">
+              <div className="flex -space-x-1.5">
+                {item.assignees.map((a) => (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} width={24} height={24}
+                    className="h-6 w-6 rounded-full object-cover ring-2 ring-surface-elevated" />
+                ))}
+              </div>
+              <span className="text-xs text-foreground-subtle">
+                {item.assignees.map((a) => `@${a.login}`).join(", ")}
+              </span>
+            </div>
+          ) : (
+            <span className="text-xs text-foreground-faint">Unassigned</span>
+          )}
+          {item.url && (
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+            >
+              Open in GitHub
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -343,6 +471,7 @@ export function KanbanBoard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeItem, setActiveItem] = useState<KanbanItem | null>(null);
+  const [detailItem, setDetailItem] = useState<KanbanItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -638,6 +767,7 @@ export function KanbanBoard() {
                 onArchive={onArchive}
                 onDelete={onDelete}
                 onAddDraft={onAddDraft}
+                onOpen={setDetailItem}
                 busy={busy}
               />
             ))}
@@ -651,6 +781,8 @@ export function KanbanBoard() {
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {detailItem && <CardDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   );
 }

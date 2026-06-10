@@ -13,6 +13,8 @@ export type KanbanItem = {
   url?: string;
   state?: string;
   merged?: boolean;
+  /** Issue/PR/draft body, GitHub-flavored markdown. */
+  body?: string;
   assignees: { login: string; avatarUrl: string }[];
   labels: { name: string; color: string }[];
 };
@@ -65,6 +67,7 @@ const PROJECT_FRAGMENT = `
           number
           url
           state
+          body
           assignees(first: 5) {
             nodes {
               login
@@ -83,6 +86,7 @@ const PROJECT_FRAGMENT = `
           number
           url
           state
+          body
           merged
           assignees(first: 5) {
             nodes {
@@ -99,6 +103,7 @@ const PROJECT_FRAGMENT = `
         }
         ... on DraftIssue {
           title
+          body
         }
       }
       fieldValues(first: 20) {
@@ -199,6 +204,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   number?: number;
                   url?: string;
                   state?: string;
+                  body?: string;
                   merged?: boolean;
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
                   labels?: { nodes: { name: string; color: string }[] };
@@ -231,6 +237,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   number?: number;
                   url?: string;
                   state?: string;
+                  body?: string;
                   merged?: boolean;
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
                   labels?: { nodes: { name: string; color: string }[] };
@@ -289,6 +296,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       const url = content?.url;
       const state = content?.state?.toLowerCase();
       const merged = content?.merged;
+      const body = content?.body;
       const assignees = (content?.assignees?.nodes ?? []).map((a) => ({
         login: a.login,
         avatarUrl: a.avatarUrl,
@@ -298,7 +306,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
         color: l.color, // GitHub returns hex WITHOUT the #
       }));
 
-      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, assignees, labels };
+      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, body, assignees, labels };
 
       // Find the Status field value for this item
       const statusValue = node.fieldValues.nodes.find(
