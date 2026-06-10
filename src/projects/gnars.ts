@@ -9,6 +9,7 @@ const gnars: ProjectConfig = {
   allowlist: [
     "xvlad",
     "vaipraonde",
+    "mengao",
     "louzoshi",
     "willdias",
     "reelflip",

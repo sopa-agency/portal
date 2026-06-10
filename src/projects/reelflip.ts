@@ -12,6 +12,7 @@ const reelflip: ProjectConfig = {
   allowlist: [
     "xvlad",
     "vaipraonde",
+    "mengao",
     "louzoshi",
     "willdias",
     "reelflip",

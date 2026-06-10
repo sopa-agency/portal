@@ -7,6 +7,7 @@ const coletivoxv: ProjectConfig = {
   allowlist: [
     "xvlad",
     "vaipraonde",
+    "mengao",
     "louzoshi",
     "willdias",
     "reelflip",
