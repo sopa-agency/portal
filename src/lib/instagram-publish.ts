@@ -99,9 +99,9 @@ async function pollUntilFinished(
   containerId: string,
   token: string,
 ): Promise<void> {
-  const MAX_POLLS = 30; // 30 × 3s = 90s
+  const MAX_POLLS = 48; // 48 × 5s = 4min — Meta needs minutes to ingest big reels
   for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, 5000));
     const data = await graphGet<{ status_code?: string; id: string }>(
       `/${containerId}`,
       { fields: "status_code" },
@@ -113,7 +113,71 @@ async function pollUntilFinished(
     }
     // IN_PROGRESS / PUBLISHED / EXPIRED — keep polling for FINISHED
   }
-  throw new Error("Instagram reel container timed out after 90 seconds — the video may be too large or in an unsupported format.");
+  throw new Error("Instagram reel container timed out after 4 minutes — the video may be too large or in an unsupported format.");
+}
+
+// ---------------------------------------------------------------------------
+// media_publish with transient-error recovery
+// ---------------------------------------------------------------------------
+
+// Meta sometimes answers media_publish with a transient error (code 2,
+// "An unexpected error has occurred. Please retry your request later.") even
+// though the publish actually went through — especially for Reels.
+const TRANSIENT_IG_ERROR = /unexpected error|retry your request|temporarily unavailable|try again later/i;
+
+/**
+ * Run media_publish, recovering from Meta's transient errors: on failure,
+ * wait and check whether the container reached PUBLISHED anyway (recovering
+ * the media id from the account's most recent media), and retry the publish
+ * if it didn't. Throws the last error when all attempts fail.
+ */
+async function publishContainer(
+  igid: string,
+  containerId: string,
+  token: string,
+): Promise<string> {
+  const ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let i = 0; i < ATTEMPTS; i++) {
+    try {
+      const published = await graphPost(`/${igid}/media_publish`, {
+        creation_id: containerId,
+      }, token);
+      if (published.id) return published.id;
+      throw new Error("No media id returned by media_publish.");
+    } catch (err) {
+      lastErr = err;
+      const transient =
+        err instanceof Error && TRANSIENT_IG_ERROR.test(err.message);
+      if (!transient) throw err;
+    }
+
+    // Transient failure — give Meta a moment, then check whether the publish
+    // actually landed before retrying (retrying an already-published container
+    // would error and mask the success).
+    await new Promise((r) => setTimeout(r, 8000));
+    try {
+      const status = await graphGet<{ status_code?: string }>(
+        `/${containerId}`,
+        { fields: "status_code" },
+        token,
+      );
+      if (status.status_code === "PUBLISHED") {
+        // Container view doesn't expose the media id — take the newest media,
+        // which is the post we created seconds ago.
+        const recent = await graphGet<{ data?: Array<{ id: string }> }>(
+          `/${igid}/media`,
+          { fields: "id", limit: "1" },
+          token,
+        );
+        const id = recent.data?.[0]?.id;
+        if (id) return id;
+      }
+    } catch {
+      // Status check failed — fall through to the next publish attempt.
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +219,10 @@ export type IgPostInput = {
    * manual-only fields and are never sent to the Graph API.
    */
   userTags?: IgUserTag[];
+  /** REELS cover: custom image URL (Graph API cover_url). Wins over thumbOffsetMs. */
+  coverUrl?: string;
+  /** REELS cover: video frame at this offset in ms (Graph API thumb_offset). */
+  thumbOffsetMs?: number;
 };
 
 export type IgPublishResult =
@@ -254,19 +322,16 @@ export async function publishInstagramPost(
       }, token);
       if (!container.id) throw new Error("No container id returned for IMAGE.");
 
-      const published = await graphPost(`/${igid}/media_publish`, {
-        creation_id: container.id,
-      }, token);
-      if (!published.id) throw new Error("No media id returned after publish.");
+      const igMediaId = await publishContainer(igid, container.id, token);
 
-      const permalink = await fetchPermalink(published.id, token);
+      const permalink = await fetchPermalink(igMediaId, token);
 
       let firstCommentPosted: boolean | undefined;
       if (firstComment?.trim()) {
-        firstCommentPosted = await postFirstComment(published.id, firstComment.trim(), token);
+        firstCommentPosted = await postFirstComment(igMediaId, firstComment.trim(), token);
       }
 
-      return { ok: true, igMediaId: published.id, permalink, firstCommentPosted };
+      return { ok: true, igMediaId, permalink, firstCommentPosted };
     }
 
     // ------------------------------------------------------------------
@@ -295,19 +360,16 @@ export async function publishInstagramPost(
       }, token);
       if (!parent.id) throw new Error("No parent container id returned for CAROUSEL.");
 
-      const published = await graphPost(`/${igid}/media_publish`, {
-        creation_id: parent.id,
-      }, token);
-      if (!published.id) throw new Error("No media id returned after carousel publish.");
+      const igMediaId = await publishContainer(igid, parent.id, token);
 
-      const permalink = await fetchPermalink(published.id, token);
+      const permalink = await fetchPermalink(igMediaId, token);
 
       let firstCommentPosted: boolean | undefined;
       if (firstComment?.trim()) {
-        firstCommentPosted = await postFirstComment(published.id, firstComment.trim(), token);
+        firstCommentPosted = await postFirstComment(igMediaId, firstComment.trim(), token);
       }
 
-      return { ok: true, igMediaId: published.id, permalink, firstCommentPosted };
+      return { ok: true, igMediaId, permalink, firstCommentPosted };
     }
 
     // ------------------------------------------------------------------
@@ -315,30 +377,36 @@ export async function publishInstagramPost(
     // ------------------------------------------------------------------
     if (type === "REELS") {
       if (!mediaUrls[0]) return { ok: false, error: "No video URL provided." };
+      // Cover: custom image wins; otherwise a frame offset into the video.
+      // (The profile grid shows a CENTER CROP of this cover — the Graph API
+      // has no parameter for adjusting the grid crop.)
+      const coverParam: Record<string, string> = input.coverUrl
+        ? { cover_url: input.coverUrl }
+        : input.thumbOffsetMs !== undefined && input.thumbOffsetMs >= 0
+          ? { thumb_offset: String(Math.round(input.thumbOffsetMs)) }
+          : {};
       const container = await graphPost(`/${igid}/media`, {
         media_type: "REELS",
         video_url: mediaUrls[0],
         caption,
         ...collabParam,
+        ...coverParam,
       }, token);
       if (!container.id) throw new Error("No container id returned for REELS.");
 
       // Poll until reel is processed by Meta's servers
       await pollUntilFinished(container.id, token);
 
-      const published = await graphPost(`/${igid}/media_publish`, {
-        creation_id: container.id,
-      }, token);
-      if (!published.id) throw new Error("No media id returned after reel publish.");
+      const igMediaId = await publishContainer(igid, container.id, token);
 
-      const permalink = await fetchPermalink(published.id, token);
+      const permalink = await fetchPermalink(igMediaId, token);
 
       let firstCommentPosted: boolean | undefined;
       if (firstComment?.trim()) {
-        firstCommentPosted = await postFirstComment(published.id, firstComment.trim(), token);
+        firstCommentPosted = await postFirstComment(igMediaId, firstComment.trim(), token);
       }
 
-      return { ok: true, igMediaId: published.id, permalink, firstCommentPosted };
+      return { ok: true, igMediaId, permalink, firstCommentPosted };
     }
 
     return { ok: false, error: `Unknown post type: ${type as string}` };

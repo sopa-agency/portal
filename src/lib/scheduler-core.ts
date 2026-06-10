@@ -216,6 +216,8 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
         collaborators: collaborators.length > 0 ? collaborators : undefined,
         firstComment: post.firstComment ?? undefined,
         userTags,
+        coverUrl: post.coverUrl ?? undefined,
+        thumbOffsetMs: post.thumbOffsetMs ?? undefined,
       });
 
       if (result.ok) {

@@ -7,6 +7,10 @@ import { prisma } from "@/lib/prisma";
 import { uploadMediaToPinata, createPinataSignedUploadUrl } from "@/lib/social-publish";
 import { publishInstagramPost } from "@/lib/instagram-publish";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
+import {
+  buildGenerateCaptionPrompt,
+  buildImproveCaptionPrompt,
+} from "@/lib/post-creator-prompts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +41,8 @@ export type DraftRow = {
   scheduledFor: string | null; // ISO string
   publishMode: "auto" | "manual";
   userTags: UserTag[];
+  coverUrl: string | null;
+  thumbOffsetMs: number | null;
   musicNote: string;
   brandedPartner: string;
   locationNote: string;
@@ -45,6 +51,25 @@ export type DraftRow = {
 // ---------------------------------------------------------------------------
 // Auth helper
 // ---------------------------------------------------------------------------
+
+const PROMPT_OVERRIDE_MAX = 8000;
+
+/**
+ * Validate a custom prompt from the "Edit prompt" UI. Returns undefined when
+ * none was provided (use the default prompt), an error result when invalid,
+ * or the prompt to send verbatim.
+ */
+function resolvePromptOverride(
+  raw: string | undefined,
+): { ok: true; prompt: string } | { ok: false; error: string } | undefined {
+  if (raw === undefined) return undefined;
+  const prompt = raw.trim();
+  if (!prompt) return { ok: false, error: "Custom prompt is empty." };
+  if (prompt.length > PROMPT_OVERRIDE_MAX) {
+    return { ok: false, error: `Custom prompt exceeds ${PROMPT_OVERRIDE_MAX} characters.` };
+  }
+  return { ok: true, prompt };
+}
 
 async function authGate() {
   const project = await getActiveProject();
@@ -74,6 +99,8 @@ function rowToPlain(row: {
   scheduledFor?: Date | null;
   publishMode?: string | null;
   userTags?: unknown;
+  coverUrl?: string | null;
+  thumbOffsetMs?: number | null;
   musicNote?: string | null;
   brandedPartner?: string | null;
   locationNote?: string | null;
@@ -97,6 +124,8 @@ function rowToPlain(row: {
     scheduledFor: row.scheduledFor?.toISOString() ?? null,
     publishMode: (row.publishMode === "manual" ? "manual" : "auto"),
     userTags: Array.isArray(row.userTags) ? (row.userTags as UserTag[]) : [],
+    coverUrl: row.coverUrl ?? null,
+    thumbOffsetMs: row.thumbOffsetMs ?? null,
     musicNote: row.musicNote ?? "",
     brandedPartner: row.brandedPartner ?? "",
     locationNote: row.locationNote ?? "",
@@ -210,6 +239,8 @@ export async function createDraft(params: {
   collaborators?: string[];
   aspectRatio?: string;
   userTags?: UserTag[];
+  coverUrl?: string | null;
+  thumbOffsetMs?: number | null;
   musicNote?: string;
   brandedPartner?: string;
   locationNote?: string;
@@ -229,6 +260,8 @@ export async function createDraft(params: {
         collaborators: sanitiseCollaboratorsSrv(params.collaborators),
         aspectRatio: params.aspectRatio ?? null,
         userTags: params.type === "IMAGE" ? sanitiseUserTagsSrv(params.userTags) : [],
+        coverUrl: params.type === "REELS" ? (params.coverUrl ?? null) : null,
+        thumbOffsetMs: params.type === "REELS" ? (params.thumbOffsetMs ?? null) : null,
         musicNote: params.musicNote?.trim() ?? null,
         brandedPartner: params.brandedPartner?.trim() ?? null,
         locationNote: params.locationNote?.trim() ?? null,
@@ -255,6 +288,8 @@ export async function updateDraft(
     collaborators?: string[];
     aspectRatio?: string | null;
     userTags?: UserTag[];
+    coverUrl?: string | null;
+    thumbOffsetMs?: number | null;
     musicNote?: string;
     brandedPartner?: string;
     locationNote?: string;
@@ -286,6 +321,8 @@ export async function updateDraft(
         ...(params.collaborators !== undefined ? { collaborators: sanitiseCollaboratorsSrv(params.collaborators) } : {}),
         ...(params.aspectRatio !== undefined ? { aspectRatio: params.aspectRatio ?? null } : {}),
         ...(params.userTags !== undefined ? { userTags: effectiveType === "IMAGE" ? sanitiseUserTagsSrv(params.userTags) : [] } : {}),
+        ...(params.coverUrl !== undefined ? { coverUrl: effectiveType === "REELS" ? params.coverUrl : null } : {}),
+        ...(params.thumbOffsetMs !== undefined ? { thumbOffsetMs: effectiveType === "REELS" ? params.thumbOffsetMs : null } : {}),
         ...(params.musicNote !== undefined ? { musicNote: params.musicNote.trim() || null } : {}),
         ...(params.brandedPartner !== undefined ? { brandedPartner: params.brandedPartner.trim() || null } : {}),
         ...(params.locationNote !== undefined ? { locationNote: params.locationNote.trim() || null } : {}),
@@ -359,29 +396,21 @@ export async function signPostMediaUpload(
 export async function generateCaption(params: {
   topic: string;
   type: PostType;
+  /** Custom prompt from the "Edit prompt" UI — sent to the agent as-is. */
+  promptOverride?: string;
 }): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   try {
     const { project } = await authGate();
 
-    const formatHint: Record<PostType, string> = {
-      IMAGE: "single image post",
-      CAROUSEL: "carousel post (multi-slide narrative)",
-      REELS: "Reel (short-form video caption)",
-    };
-
-    const prompt = `You are the ${project.agent.displayName} Instagram content agent.
-
-Read your brand playbook (docs/playbook.md) for voice rules, content formats, hero lines, and what NOT to do.
-
-Write an Instagram caption for a ${formatHint[params.type]} about:
-"${params.topic}"
-
-Rules:
-- Write in the brand voice as defined in your playbook.
-- Keep it under 2200 characters total.
-- Instagram-native formatting: line breaks are fine, no markdown.
-- Use hashtags ONLY if the playbook says they're on-brand for this format; when in doubt keep them minimal or omit entirely.
-- Return ONLY the caption text — no preamble, no explanation, no quotes wrapping it.`;
+    const override = resolvePromptOverride(params.promptOverride);
+    if (override && !override.ok) return override;
+    const prompt = override
+      ? override.prompt
+      : buildGenerateCaptionPrompt({
+          agentName: project.agent.displayName,
+          topic: params.topic,
+          type: params.type,
+        });
 
     const text = await callOpenClaw(prompt, project.agent.id, {
       project,
@@ -402,31 +431,21 @@ Rules:
 export async function improveCaption(params: {
   caption: string;
   type: PostType;
+  /** Custom prompt from the "Edit prompt" UI — sent to the agent as-is. */
+  promptOverride?: string;
 }): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   try {
     const { project } = await authGate();
 
-    const formatHint: Record<PostType, string> = {
-      IMAGE: "single image post",
-      CAROUSEL: "carousel post",
-      REELS: "Reel",
-    };
-
-    const prompt = `You are the ${project.agent.displayName} Instagram content agent.
-
-Read your brand playbook (docs/playbook.md) for voice rules and what makes a great ${formatHint[params.type]} caption.
-
-Refine the following Instagram caption to be sharper, more on-brand, and more effective — while preserving the author's intent:
-
----
-${params.caption}
----
-
-Rules:
-- Keep it under 2200 characters.
-- Preserve the essential idea but tighten the language and make it more on-voice.
-- Instagram-native formatting only (line breaks ok, no markdown).
-- Return ONLY the improved caption — no explanation, no commentary.`;
+    const override = resolvePromptOverride(params.promptOverride);
+    if (override && !override.ok) return override;
+    const prompt = override
+      ? override.prompt
+      : buildImproveCaptionPrompt({
+          agentName: project.agent.displayName,
+          caption: params.caption,
+          type: params.type,
+        });
 
     const text = await callOpenClaw(prompt, project.agent.id, {
       project,
@@ -497,6 +516,8 @@ export async function publishDraft(
       collaborators: post.collaborators.length > 0 ? post.collaborators : undefined,
       firstComment: post.firstComment || undefined,
       userTags: post.userTags.length > 0 ? post.userTags : undefined,
+      coverUrl: post.coverUrl ?? undefined,
+      thumbOffsetMs: post.thumbOffsetMs ?? undefined,
     });
 
     if (result.ok) {

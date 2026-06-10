@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
     "*.trycloudflare.com",
   ],
   experimental: {
+    // The proxy buffers request bodies with a 10MB default cap — bigger bodies
+    // are silently TRUNCATED ("Unexpected end of form" in the upload action).
+    // Must match the server-action limit below or the fallback upload path
+    // breaks for videos.
+    proxyClientMaxBodySize: "110mb",
     serverActions: {
       // Media uploads prefer the direct browser→Pinata signed-URL path, which
       // never touches this transport. This limit only governs the FALLBACK

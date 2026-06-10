@@ -11,6 +11,7 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Heart,
   MessageCircle,
   Bookmark,
@@ -52,6 +53,10 @@ import {
   type UserTag,
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
+import {
+  buildGenerateCaptionPrompt,
+  buildImproveCaptionPrompt,
+} from "@/lib/post-creator-prompts";
 
 const CAPTION_MAX = 2200;
 const COMMENT_MAX = 2200;
@@ -1707,6 +1712,15 @@ export function PostCreator({
   const [brandedPartner, setBrandedPartner] = useState("");
   const [locationNote, setLocationNote] = useState("");
 
+  // REELS cover — custom image (cover_url) wins over a frame offset (thumb_offset)
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [thumbOffsetMs, setThumbOffsetMs] = useState<number | null>(null);
+  const [coverDurationMs, setCoverDurationMs] = useState<number | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [coverError, setCoverError] = useState<string | null>(null);
+  const coverVideoRef = useRef<HTMLVideoElement | null>(null);
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
+
   // User tags (IMAGE only)
   const [userTags, setUserTags] = useState<UserTag[]>([]);
   const [taggingActive, setTaggingActive] = useState(false);
@@ -1736,6 +1750,11 @@ export function PostCreator({
   >(null);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  // "Edit prompt" UI for the AI actions: which action's dropdown is open, and
+  // the custom-prompt editor (the edited text is sent verbatim instead of the
+  // default prompt).
+  const [aiMenuOpen, setAiMenuOpen] = useState<"generate" | "improve" | null>(null);
+  const [promptEditor, setPromptEditor] = useState<{ action: "generate" | "improve"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   // Step animation direction (used for CSS transitions)
@@ -1772,6 +1791,7 @@ export function PostCreator({
     setUploads([]);
     setUploadError(null);
     setUserTags([]);
+    resetCover();
     setTaggingActive(false);
     setPendingTag(null);
     if (postType === "REELS") {
@@ -1918,9 +1938,57 @@ export function PostCreator({
 
   function removeUpload(index: number) {
     setUploads((prev) => {
+      if (prev[index]?.isVideo) resetCover();
       URL.revokeObjectURL(prev[index]?.previewUrl ?? "");
       return prev.filter((_, i) => i !== index);
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // REELS cover
+  // ---------------------------------------------------------------------------
+
+  function resetCover() {
+    setCoverUrl(null);
+    setThumbOffsetMs(null);
+    setCoverDurationMs(null);
+    setCoverError(null);
+  }
+
+  function handleCoverScrub(ms: number | null) {
+    setThumbOffsetMs(ms);
+    const v = coverVideoRef.current;
+    if (v) v.currentTime = (ms ?? 0) / 1000;
+  }
+
+  async function handleCoverFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    if (!/^image\//.test(file.type)) {
+      setCoverError("Cover must be an image.");
+      return;
+    }
+    setCoverError(null);
+    setCoverUploading(true);
+    try {
+      let result = await uploadMediaDirect(file);
+      if (!result.ok) {
+        const fd = new FormData();
+        fd.set("file", file);
+        result = await uploadPostMedia(fd);
+      }
+      if (result.ok) {
+        setCoverUrl(result.url);
+        setThumbOffsetMs(null);
+      } else {
+        setCoverError(result.error);
+      }
+    } catch (err) {
+      setCoverError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCoverUploading(false);
+      if (coverInputRef.current) coverInputRef.current.value = "";
+    }
   }
 
   function moveUpload(index: number, dir: -1 | 1) {
@@ -1991,11 +2059,24 @@ export function PostCreator({
   // AI caption
   // ---------------------------------------------------------------------------
 
+  /** Open the custom-prompt editor pre-filled with the default prompt. */
+  function openPromptEditor(action: "generate" | "improve") {
+    setAiMenuOpen(null);
+    setPromptEditor({
+      action,
+      text:
+        action === "generate"
+          ? buildGenerateCaptionPrompt({ agentName, topic, type: postType })
+          : buildImproveCaptionPrompt({ agentName, caption, type: postType }),
+    });
+  }
+
   function handleGenerateCaption() {
-    if (!topic.trim()) return;
+    const override = promptEditor?.action === "generate" ? promptEditor.text : undefined;
+    if (override !== undefined ? !override.trim() : !topic.trim()) return;
     setAiError(null);
     startGenTransition(async () => {
-      const res = await generateCaption({ topic, type: postType });
+      const res = await generateCaption({ topic, type: postType, promptOverride: override });
       if (res.ok) {
         setCaption(res.text);
       } else {
@@ -2005,10 +2086,11 @@ export function PostCreator({
   }
 
   function handleImproveCaption() {
-    if (!caption.trim()) return;
+    const override = promptEditor?.action === "improve" ? promptEditor.text : undefined;
+    if (override !== undefined ? !override.trim() : !caption.trim()) return;
     setAiError(null);
     startImproveTransition(async () => {
-      const res = await improveCaption({ caption, type: postType });
+      const res = await improveCaption({ caption, type: postType, promptOverride: override });
       if (res.ok) {
         setCaption(res.text);
       } else {
@@ -2030,6 +2112,8 @@ export function PostCreator({
       collaborators,
       aspectRatio,
       userTags: postType === "IMAGE" ? userTags : [],
+      coverUrl: postType === "REELS" ? coverUrl : null,
+      thumbOffsetMs: postType === "REELS" ? thumbOffsetMs : null,
       musicNote,
       brandedPartner,
       locationNote,
@@ -2078,6 +2162,10 @@ export function PostCreator({
     setCollaborators(d.collaborators ?? []);
     setCollabInput("");
     setUserTags(d.userTags ?? []);
+    setCoverUrl(d.coverUrl ?? null);
+    setThumbOffsetMs(d.thumbOffsetMs ?? null);
+    setCoverDurationMs(null);
+    setCoverError(null);
     setMusicNote(d.musicNote ?? "");
     setBrandedPartner(d.brandedPartner ?? "");
     setLocationNote(d.locationNote ?? "");
@@ -2139,6 +2227,7 @@ export function PostCreator({
     setCollabInput("");
     setFirstComment("");
     setUserTags([]);
+    resetCover();
     setMusicNote("");
     setBrandedPartner("");
     setLocationNote("");
@@ -2520,6 +2609,108 @@ export function PostCreator({
               </p>
             )}
 
+            {/* Reel cover picker — frame scrubber or custom image */}
+            {postType === "REELS" && uploads[0]?.isVideo && (
+              <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
+                <p className="text-[12px] font-semibold uppercase tracking-wider text-foreground-subtle">
+                  Reel cover
+                </p>
+                {coverUrl ? (
+                  <div className="flex items-start gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={coverUrl}
+                      alt="Custom cover"
+                      className="h-44 w-[100px] rounded-lg border border-border object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCoverUrl(null)}
+                      className="text-[12px] text-foreground-muted transition-colors hover:text-danger"
+                    >
+                      Remove custom cover
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <video
+                      ref={coverVideoRef}
+                      src={uploads[0].previewUrl}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={(e) => {
+                        const d = e.currentTarget.duration;
+                        if (Number.isFinite(d) && d > 0) setCoverDurationMs(Math.floor(d * 1000));
+                      }}
+                      className="h-44 w-[100px] rounded-lg border border-border bg-surface-elevated object-cover"
+                    />
+                    <input
+                      type="range"
+                      min={0}
+                      max={coverDurationMs ?? 0}
+                      step={100}
+                      value={thumbOffsetMs ?? 0}
+                      disabled={!coverDurationMs}
+                      onChange={(e) => handleCoverScrub(Number(e.target.value))}
+                      className="w-full accent-current text-accent"
+                      aria-label="Cover frame position"
+                    />
+                    <div className="flex items-center gap-3">
+                      <p className="text-[11px] text-foreground-muted">
+                        {thumbOffsetMs === null
+                          ? "Cover: first frame. Drag the slider to pick a different frame."
+                          : `Cover frame at ${(thumbOffsetMs / 1000).toFixed(1)}s`}
+                      </p>
+                      {thumbOffsetMs !== null && (
+                        <button
+                          type="button"
+                          onClick={() => handleCoverScrub(null)}
+                          className="text-[11px] text-foreground-muted underline transition-colors hover:text-foreground"
+                        >
+                          Reset to first frame
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => coverInputRef.current?.click()}
+                  disabled={coverUploading}
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                >
+                  {coverUploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ImagePlus className="h-3.5 w-3.5" />
+                  )}
+                  {coverUploading
+                    ? "Uploading cover…"
+                    : coverUrl
+                    ? "Replace custom cover"
+                    : "Upload custom cover image"}
+                </button>
+                <input
+                  ref={coverInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => handleCoverFile(e.target.files)}
+                />
+                {coverError && (
+                  <p className="flex items-center gap-1.5 text-sm text-danger">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    {coverError}
+                  </p>
+                )}
+                <p className="text-[11px] text-foreground-faint">
+                  The profile grid shows a centered crop of this cover — Instagram&apos;s API has no
+                  separate grid-crop control, so use a 9:16 cover with the subject centered.
+                </p>
+              </div>
+            )}
+
             {carouselAspectMismatch && (
               <p className="flex items-center gap-1.5 text-sm text-warning">
                 <AlertCircle className="h-4 w-4 shrink-0" />
@@ -2634,33 +2825,120 @@ export function PostCreator({
                     if (e.key === "Enter") handleGenerateCaption();
                   }}
                 />
+                <div className="relative flex shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleGenerateCaption}
+                    disabled={genPending || (promptEditor?.action === "generate" ? !promptEditor.text.trim() : !topic.trim())}
+                    className="flex items-center gap-1.5 rounded-l-lg bg-accent-bg px-3 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                  >
+                    {genPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    Draft with AI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiMenuOpen(aiMenuOpen === "generate" ? null : "generate")}
+                    aria-label="Draft with AI options"
+                    className="flex items-center rounded-r-lg border-l border-accent-border bg-accent-bg px-1.5 py-2 text-accent transition-colors hover:bg-accent/20"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                  {aiMenuOpen === "generate" && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setAiMenuOpen(null)} />
+                      <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-border bg-surface-elevated py-1 shadow-lg">
+                        <button
+                          type="button"
+                          onClick={() => openPromptEditor("generate")}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground-muted transition-colors hover:bg-surface hover:text-foreground"
+                        >
+                          <FileEdit className="h-3.5 w-3.5" />
+                          Edit prompt
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="relative inline-flex">
                 <button
                   type="button"
-                  onClick={handleGenerateCaption}
-                  disabled={genPending || !topic.trim()}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-bg px-3 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                  onClick={handleImproveCaption}
+                  disabled={improvePending || (promptEditor?.action === "improve" ? !promptEditor.text.trim() : !caption.trim())}
+                  className="flex items-center gap-1.5 rounded-l-lg border border-border px-3 py-2 text-sm text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
                 >
-                  {genPending ? (
+                  {improvePending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Sparkles className="h-4 w-4" />
+                    <Wand2 className="h-4 w-4" />
                   )}
-                  Draft with AI
+                  Improve caption
                 </button>
-              </div>
-              <button
-                type="button"
-                onClick={handleImproveCaption}
-                disabled={improvePending || !caption.trim()}
-                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
-              >
-                {improvePending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Wand2 className="h-4 w-4" />
+                <button
+                  type="button"
+                  onClick={() => setAiMenuOpen(aiMenuOpen === "improve" ? null : "improve")}
+                  aria-label="Improve caption options"
+                  className="flex items-center rounded-r-lg border border-l-0 border-border px-1.5 py-2 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+                {aiMenuOpen === "improve" && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setAiMenuOpen(null)} />
+                    <div className="absolute left-0 top-full z-20 mt-1 w-40 rounded-lg border border-border bg-surface-elevated py-1 shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => openPromptEditor("improve")}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground-muted transition-colors hover:bg-surface hover:text-foreground"
+                      >
+                        <FileEdit className="h-3.5 w-3.5" />
+                        Edit prompt
+                      </button>
+                    </div>
+                  </>
                 )}
-                Improve caption
-              </button>
+              </div>
+              {promptEditor && (
+                <div className="space-y-2 rounded-lg border border-border bg-surface-elevated p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
+                      Custom prompt · {promptEditor.action === "generate" ? "Draft with AI" : "Improve caption"}
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openPromptEditor(promptEditor.action)}
+                        className="text-[12px] text-foreground-muted transition-colors hover:text-foreground"
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPromptEditor(null)}
+                        className="text-[12px] text-foreground-muted transition-colors hover:text-foreground"
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    value={promptEditor.text}
+                    onChange={(e) => setPromptEditor({ ...promptEditor, text: e.target.value })}
+                    rows={10}
+                    className="w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  />
+                  <p className="text-[11px] text-foreground-faint">
+                    Sent to the agent exactly as written when you hit{" "}
+                    {promptEditor.action === "generate" ? "Draft with AI" : "Improve caption"} — the
+                    topic/caption fields above are no longer substituted in. Reset re-fills it from
+                    their current values.
+                  </p>
+                </div>
+              )}
               {aiError && (
                 <p className="flex items-center gap-1.5 text-sm text-danger">
                   <AlertCircle className="h-4 w-4 shrink-0" />

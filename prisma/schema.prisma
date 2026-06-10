@@ -262,6 +262,8 @@ model InstagramPost {
   scheduledFor    DateTime? // when to auto-publish (or remind for manual)
   publishMode     String    @default("auto") // "auto" | "manual"
   userTags        Json? // [{username, x, y}] — IMAGE only; x/y clamped 0..1
+  coverUrl        String? // REELS cover image URL → Graph API cover_url (wins over thumbOffsetMs)
+  thumbOffsetMs   Int? // REELS cover frame offset in ms → Graph API thumb_offset
   musicNote       String? // music/audio note — manual only (not sent to API)
   brandedPartner  String? // paid partnership @brand — manual only (not sent to API)
   locationNote    String? // location name — manual only (not sent to API)
