@@ -1,15 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
 import { ThemeToggle } from "@/components/theme-toggle";
 import PixelCard from "@/components/reactbits/PixelCard";
 
 /* eslint-disable @next/next/no-img-element */
-
-// three.js-powered pieces load client-side only, and only on this route.
-const PixelBlast = dynamic(() => import("@/components/reactbits/PixelBlast"), { ssr: false });
-const GhostCursor = dynamic(() => import("@/components/reactbits/GhostCursor"), { ssr: false });
 
 // ---------------------------------------------------------------------------
 // Theme sampling — the canvas/WebGL pieces need concrete colors. Sample the
@@ -88,34 +83,6 @@ export function HomeClient() {
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* Background — re-keyed on theme flip so the shader picks up the new color */}
-      {theme && (
-        <div className="fixed inset-0 z-0 opacity-60" aria-hidden>
-          <PixelBlast
-            key={theme.isDark ? "dark" : "light"}
-            variant="square"
-            color={theme.accent}
-            pixelSize={5}
-            patternScale={2.5}
-            patternDensity={1}
-            enableRipples
-            rippleSpeed={0.5}
-            speed={0.5}
-            edgeFade={0.3}
-          />
-        </div>
-      )}
-
-      {/* Ghost trail above everything; blend mode adapts per theme */}
-      {theme && (
-        <GhostCursor
-          key={`ghost-${theme.isDark ? "dark" : "light"}`}
-          color={theme.accent}
-          mixBlendMode={theme.isDark ? "screen" : "multiply"}
-          zIndex={40}
-        />
-      )}
-
       <ThemeToggle />
 
       <main className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center px-6 py-16">
