@@ -74,5 +74,8 @@ export function getTeamMessageOptions(
     options.push({ channel: "email", target: email, visibility: "private" });
   }
 
-  return options;
+  // Private channels first — they're the default pick in the composer.
+  return options.sort((a, b) =>
+    a.visibility === b.visibility ? 0 : a.visibility === "private" ? -1 : 1,
+  );
 }

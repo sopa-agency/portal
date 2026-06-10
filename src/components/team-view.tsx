@@ -149,8 +149,11 @@ function deliveryHint(option: TeamMessageOption, username: string): string {
 }
 
 function MessageComposer({ member }: { member: TeamMember }) {
+  // Default to a private channel when the member has one.
   const [selected, setSelected] = useState<TeamMessageOption | null>(
-    member.messageOptions[0] ?? null,
+    member.messageOptions.find((o) => o.visibility === "private") ??
+      member.messageOptions[0] ??
+      null,
   );
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
