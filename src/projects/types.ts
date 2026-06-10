@@ -47,6 +47,12 @@ export type SocialChannel = {
   donts?: string[];
 };
 
+export type TeamContact = {
+  label: string;
+  value: string;
+  url?: string;
+};
+
 export type ProjectConfig = {
   /** Subdomain key, e.g. "skatehive" */
   slug: string;
@@ -63,6 +69,8 @@ export type ProjectConfig = {
   description: string;
   /** Lowercase Hive usernames allowed to access this portal */
   allowlist: string[];
+  /** Optional known public/team contacts keyed by lowercase Hive username. */
+  teamContacts?: Record<string, TeamContact[]>;
   /** CSS-var overrides for accent family + asset paths */
   theme: ProjectTheme;
   hive: {

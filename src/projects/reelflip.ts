@@ -11,6 +11,7 @@ const reelflip: ProjectConfig = {
   description: "Internal ops portal for Reelflip — editorial brand applying the skater's lens to culture.",
   allowlist: [
     "xvlad",
+    "vaipraonde",
     "louzoshi",
     "willdias",
     "reelflip",

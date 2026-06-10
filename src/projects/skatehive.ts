@@ -21,6 +21,25 @@ const skatehive: ProjectConfig = {
     "reelflip",
     "joaoparmagnani",
   ],
+  teamContacts: {
+    xvlad: [
+      { label: "Telegram", value: "@gnarlyvlad", url: "https://t.me/gnarlyvlad" },
+      { label: "Farcaster", value: "@skateboard", url: "https://warpcast.com/skateboard" },
+      { label: "Email", value: "sktbrd.eth@gmail.com", url: "mailto:sktbrd.eth@gmail.com" },
+    ],
+    skatehive: [
+      { label: "Instagram", value: "@skatehive", url: "https://instagram.com/skatehive" },
+      { label: "X", value: "@Skate_Hive", url: "https://x.com/Skate_Hive" },
+      { label: "Farcaster", value: "@skatehive", url: "https://warpcast.com/skatehive" },
+      { label: "Discord", value: "SkateHive", url: "https://chat.skatehive.app" },
+    ],
+    skatedev: [
+      { label: "GitHub", value: "SkateHive", url: "https://github.com/SkateHive" },
+    ],
+    mengao: [
+      { label: "Farcaster", value: "@mengao", url: "https://warpcast.com/mengao" },
+    ],
+  },
   postCreator: true,
   theme: {
     // Lime green — darker for legibility on light bg, vivid on dark bg.
