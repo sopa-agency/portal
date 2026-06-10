@@ -1867,12 +1867,19 @@ export function PostCreator({
       // Preferred path: signed-URL handshake, then the browser uploads straight
       // to Pinata — required for videos, which blow past the server-action body
       // limit. Falls back to the original through-the-server route if signing
-      // is unavailable (older Pinata plans, etc.).
-      let result = await uploadMediaDirect(file);
-      if (!result.ok) {
-        const formData = new FormData();
-        formData.set("file", file);
-        result = await uploadPostMedia(formData);
+      // is unavailable (older Pinata plans, etc.). The server-action calls can
+      // THROW on transport errors (stale build, body too large) rather than
+      // return {ok:false} — without the catch the spinner never clears.
+      let result: { ok: true; url: string } | { ok: false; error: string };
+      try {
+        result = await uploadMediaDirect(file);
+        if (!result.ok) {
+          const formData = new FormData();
+          formData.set("file", file);
+          result = await uploadPostMedia(formData);
+        }
+      } catch (err) {
+        result = { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
 
       if (!result.ok) {
