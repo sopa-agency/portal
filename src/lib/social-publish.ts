@@ -376,7 +376,12 @@ export async function uploadMediaToPinata(
     }
     const payload = (await res.json()) as { IpfsHash?: string };
     if (!payload.IpfsHash) return { ok: false, error: "Pinata returned no IpfsHash" };
-    return { ok: true, url: `${PINATA_GATEWAY}/${payload.IpfsHash}` };
+    // ?filename= keeps the original extension on the CID URL so consumers
+    // (draft reload, carousel publish) can tell videos from images.
+    return {
+      ok: true,
+      url: `${PINATA_GATEWAY}/${payload.IpfsHash}?filename=${encodeURIComponent(file.name)}`,
+    };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

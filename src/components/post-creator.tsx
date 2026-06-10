@@ -84,14 +84,16 @@ async function uploadMediaDirect(
     const json = (await res.json().catch(() => null)) as { data?: { cid?: string } } | null;
     const cid = json?.data?.cid;
     if (!cid) return { ok: false, error: "Pinata returned no CID" };
-    return { ok: true, url: `${signed.gateway}/${cid}` };
+    // ?filename= keeps the original extension on the CID URL so consumers
+    // (draft reload, carousel publish) can tell videos from images.
+    return { ok: true, url: `${signed.gateway}/${cid}?filename=${encodeURIComponent(file.name)}` };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 const POST_TYPES: { value: PostType; label: string; hint: string }[] = [
   { value: "IMAGE", label: "Single Image", hint: "1 image" },
-  { value: "CAROUSEL", label: "Carousel", hint: "2–10 images" },
+  { value: "CAROUSEL", label: "Carousel", hint: "2–10 photos or videos" },
   { value: "REELS", label: "Reel", hint: "1 video" },
 ];
 
@@ -1880,9 +1882,22 @@ export function PostCreator({
     const toUpload = Array.from(files).slice(0, remaining);
 
     for (const file of toUpload) {
+      const isVideo = /^video\//.test(file.type);
+      const isImage = /^image\//.test(file.type);
+      if (postType === "IMAGE" && !isImage) {
+        setUploadError("Single Image posts take an image — switch to Reel for video.");
+        return;
+      }
+      if (postType === "REELS" && !isVideo) {
+        setUploadError("Reels take a video — switch to Single Image or Carousel for photos.");
+        return;
+      }
+      if (!isImage && !isVideo) {
+        setUploadError(`Unsupported file type: ${file.type || file.name}`);
+        return;
+      }
       setUploadingIndex(uploads.length);
       const preview = URL.createObjectURL(file);
-      const isVideo = /^video\//.test(file.type);
 
       // Preferred path: signed-URL handshake, then the browser uploads straight
       // to Pinata — required for videos, which blow past the server-action body
@@ -2495,11 +2510,11 @@ export function PostCreator({
             <div>
               <h2 className="text-2xl font-bold text-foreground">
                 Add your{" "}
-                {postType === "REELS" ? "video" : postType === "CAROUSEL" ? "photos" : "photo"}.
+                {postType === "REELS" ? "video" : postType === "CAROUSEL" ? "media" : "photo"}.
               </h2>
               <p className="mt-1.5 text-sm text-foreground-muted">
                 {postType === "IMAGE" && "Upload exactly 1 image."}
-                {postType === "CAROUSEL" && `Upload 2–10 images. You can reorder them. (${uploads.length}/10)`}
+                {postType === "CAROUSEL" && `Upload 2–10 photos or videos — mix them freely. You can reorder them. (${uploads.length}/10)`}
                 {postType === "REELS" && "Upload exactly 1 video."}
               </p>
             </div>
@@ -2581,7 +2596,7 @@ export function PostCreator({
                     : postType === "REELS"
                     ? "Add video"
                     : postType === "CAROUSEL"
-                    ? "Add image"
+                    ? "Add photo / video"
                     : "Add image"}
                 </button>
               )}
@@ -2589,7 +2604,7 @@ export function PostCreator({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={postType === "CAROUSEL" ? "image/*,video/*" : "image/*"}
               multiple={multipleFiles}
               className="sr-only"
               onChange={(e) => handleFiles(e.target.files)}

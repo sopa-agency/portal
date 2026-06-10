@@ -109,11 +109,27 @@ async function pollUntilFinished(
     );
     if (data.status_code === "FINISHED") return;
     if (data.status_code === "ERROR") {
-      throw new Error("Instagram reel container processing failed — check video format and codec (H.264, AAC audio, MP4).");
+      throw new Error("Instagram video container processing failed — check video format and codec (H.264, AAC audio, MP4).");
     }
     // IN_PROGRESS / PUBLISHED / EXPIRED — keep polling for FINISHED
   }
-  throw new Error("Instagram reel container timed out after 4 minutes — the video may be too large or in an unsupported format.");
+  throw new Error("Instagram video container timed out after 4 minutes — the video may be too large or in an unsupported format.");
+}
+
+// ---------------------------------------------------------------------------
+// Media-kind detection — Pinata CID URLs carry a ?filename= hint; fall back
+// to a HEAD content-type check for URLs without a usable extension.
+// ---------------------------------------------------------------------------
+
+async function isVideoUrl(url: string): Promise<boolean> {
+  if (/\.(mp4|mov|m4v|webm|avi)(\?|#|&|$)/i.test(url)) return true;
+  if (/\.(jpe?g|png|gif|webp|heic|heif)(\?|#|&|$)/i.test(url)) return false;
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    return (res.headers.get("content-type") ?? "").startsWith("video/");
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -339,16 +355,23 @@ export async function publishInstagramPost(
     // ------------------------------------------------------------------
     if (type === "CAROUSEL") {
       if (mediaUrls.length < 2 || mediaUrls.length > 10) {
-        return { ok: false, error: "Carousel requires 2–10 images." };
+        return { ok: false, error: "Carousel requires 2–10 items (photos or videos)." };
       }
+      // Mixed media: video children use media_type VIDEO and need server-side
+      // processing before the parent container will accept them.
       const childIds: string[] = [];
+      const videoChildIds: string[] = [];
       for (const url of mediaUrls) {
-        const child = await graphPost(`/${igid}/media`, {
-          image_url: url,
-          is_carousel_item: true,
-        }, token);
+        const video = await isVideoUrl(url);
+        const child = await graphPost(`/${igid}/media`, video
+          ? { media_type: "VIDEO", video_url: url, is_carousel_item: true }
+          : { image_url: url, is_carousel_item: true }, token);
         if (!child.id) throw new Error("No child container id returned.");
         childIds.push(child.id);
+        if (video) videoChildIds.push(child.id);
+      }
+      for (const childId of videoChildIds) {
+        await pollUntilFinished(childId, token);
       }
 
       // collaborators go on the PARENT container, not the children

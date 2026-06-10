@@ -473,7 +473,7 @@ function validateForPublish(post: DraftRow): string | null {
     if (post.mediaUrls.length !== 1) return "Single image post requires exactly 1 image.";
   } else if (post.type === "CAROUSEL") {
     if (post.mediaUrls.length < 2 || post.mediaUrls.length > 10) {
-      return "Carousel requires 2–10 images.";
+      return "Carousel requires 2–10 items (photos or videos).";
     }
   } else if (post.type === "REELS") {
     if (post.mediaUrls.length !== 1) return "Reel requires exactly 1 video.";
