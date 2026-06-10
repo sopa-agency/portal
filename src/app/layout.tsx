@@ -5,6 +5,7 @@ import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ContentShell } from "@/components/content-shell";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { PageInfo } from "@/components/page-info";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getActiveProject, getAllProjects } from "@/projects/index";
@@ -84,6 +85,7 @@ export default async function RootLayout({
                 kanbanEnabled={!!project.githubProject}
               />
               <ThemeToggle />
+              <PageInfo />
               <main className="min-w-0 flex-1">
                 <ContentShell>{children}</ContentShell>
               </main>
