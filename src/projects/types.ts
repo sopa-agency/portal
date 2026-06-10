@@ -81,6 +81,10 @@ export type ProjectConfig = {
     /** Hive web frontend base URL for this project, e.g. "https://skatehive.app".
      *  When absent, universal frontends (peakd.com) are used instead. */
     frontend?: string;
+    /** Beneficiaries applied to published Hive mag posts (weights in basis
+     *  points; 10000 = 100%). When absent, only the portal operator's default
+     *  share applies. Entries matching the posting account are dropped. */
+    magBeneficiaries?: { account: string; weight: number }[];
   };
   farcaster: {
     /** Farcaster channel ID, e.g. "skateboard" */

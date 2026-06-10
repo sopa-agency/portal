@@ -56,6 +56,10 @@ const skatehive: ProjectConfig = {
     account: "skatehive",
     community: "hive-173115",
     frontend: "https://skatehive.app",
+    magBeneficiaries: [
+      { account: "skatehive", weight: 500 }, // 5% — platform
+      { account: "xvlad", weight: 500 }, // 5% — operator
+    ],
   },
   farcaster: {
     channel: "skateboard",

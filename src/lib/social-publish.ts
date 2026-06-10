@@ -81,7 +81,7 @@ export async function publishSnapToHive(
       .map((m) => m[1])
       .concat(text.match(/https?:\/\/[^\s)]+\.(?:png|jpe?g|gif|webp)(?:\?[^\s)]*)?/gi) ?? []);
 
-    const projectName = project?.name ?? "SkateHive";
+    const projectName = project?.name ?? "Portal";
     const metadata = {
       app: `Marketing Portal ${projectName}`,
       tags: [communityTag, "snaps"],

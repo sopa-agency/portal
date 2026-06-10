@@ -43,6 +43,7 @@ import {
   type TextBlock,
   newBlock,
   newColumn,
+  type EmailBrand,
   newSection,
   renderEmail,
 } from "@/lib/campaign-email";
@@ -58,10 +59,12 @@ export function CampaignEmailBuilderDialog({
   onClose,
   initialDocument,
   onSave,
+  emailBrand,
 }: {
   onClose: () => void;
   initialDocument: EmailDocument;
   onSave: (doc: EmailDocument) => void;
+  emailBrand?: EmailBrand;
 }) {
   const [doc, setDoc] = useState<EmailDocument>(initialDocument);
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
@@ -143,7 +146,7 @@ export function CampaignEmailBuilderDialog({
   // ----- Block ops ----------------------------------------------------------
 
   const addBlock = (sectionId: string, columnId: string, type: EmailBlock["type"]) => {
-    const block = newBlock(type);
+    const block = newBlock(type, emailBrand);
     setDoc((d) => ({
       ...d,
       sections: d.sections.map((s) =>

@@ -112,6 +112,26 @@ export const SKATEHIVE_ACCENT_DARK = "#65a30d"; // lime-600
 export const SKATEHIVE_INK = "#0a0a0a";
 export const SKATEHIVE_HERO_GRADIENT = "linear-gradient(90deg,#0a0a0a,#1f2937)";
 
+/**
+ * Active project's identity for builder defaults (new buttons, the starter
+ * email). Inline hex colors because email clients can't read theme tokens.
+ * Defaults to SkateHive when not provided (legacy callers).
+ */
+export type EmailBrand = {
+  name: string;
+  /** The brand's main site, used as the default button href. */
+  url: string;
+  accent: string;
+  accentDark: string;
+};
+
+export const DEFAULT_EMAIL_BRAND: EmailBrand = {
+  name: "SkateHive",
+  url: "https://skatehive.app",
+  accent: SKATEHIVE_ACCENT,
+  accentDark: SKATEHIVE_ACCENT_DARK,
+};
+
 export function newId(prefix = "id"): string {
   return prefix + "_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
 }
@@ -130,7 +150,7 @@ export function newColumn(): EmailColumn {
   return { id: newId("col"), blocks: [] };
 }
 
-export function newBlock(type: EmailBlock["type"]): EmailBlock {
+export function newBlock(type: EmailBlock["type"], brand: EmailBrand = DEFAULT_EMAIL_BRAND): EmailBlock {
   switch (type) {
     case "heading":
       return { id: newId("h"), type: "heading", level: 2, text: "New heading", align: "left", color: SKATEHIVE_INK };
@@ -139,7 +159,7 @@ export function newBlock(type: EmailBlock["type"]): EmailBlock {
     case "image":
       return { id: newId("img"), type: "image", src: "", alt: "", align: "center", width: 100 };
     case "button":
-      return { id: newId("btn"), type: "button", label: "Drop in", href: "https://skatehive.app", bg: SKATEHIVE_ACCENT_DARK, color: "#ffffff", align: "center" };
+      return { id: newId("btn"), type: "button", label: "Open", href: brand.url, bg: brand.accentDark, color: "#ffffff", align: "center" };
     case "divider":
       return { id: newId("div"), type: "divider", color: "#e5e5e5", thickness: 1 };
     case "spacer":
@@ -149,7 +169,7 @@ export function newBlock(type: EmailBlock["type"]): EmailBlock {
   }
 }
 
-export function createEmptyEmail(): EmailDocument {
+export function createEmptyEmail(brand: EmailBrand = DEFAULT_EMAIL_BRAND): EmailDocument {
   const heroSection: EmailSection = {
     id: newId("sec"),
     background: SKATEHIVE_HERO_GRADIENT,
@@ -159,7 +179,7 @@ export function createEmptyEmail(): EmailDocument {
       {
         id: newId("col"),
         blocks: [
-          { id: newId("h"), type: "heading", level: 3, text: "SKATEHIVE UPDATE", align: "left", color: SKATEHIVE_ACCENT },
+          { id: newId("h"), type: "heading", level: 3, text: `${brand.name.toUpperCase()} UPDATE`, align: "left", color: brand.accent },
         ],
       },
     ],
@@ -174,9 +194,9 @@ export function createEmptyEmail(): EmailDocument {
       {
         id: newId("col"),
         blocks: [
-          { id: newId("h"), type: "heading", level: 1, text: "{{first_name}}, your skate clips deserve a home", align: "left", color: SKATEHIVE_INK },
-          { id: newId("t"), type: "text", html: "SkateHive is a community-owned skateboarding platform built on Hive. Post clips, get tipped in $HIVE, and connect with skaters worldwide — no algorithm, no ads.", align: "left", color: "#404040" },
-          { id: newId("btn"), type: "button", label: "Drop your first clip", href: "https://skatehive.app", bg: SKATEHIVE_ACCENT_DARK, color: "#ffffff", align: "left" },
+          { id: newId("h"), type: "heading", level: 1, text: "{{first_name}}, here's what's new", align: "left", color: SKATEHIVE_INK },
+          { id: newId("t"), type: "text", html: `News from the ${brand.name} community.`, align: "left", color: "#404040" },
+          { id: newId("btn"), type: "button", label: "Check it out", href: brand.url, bg: brand.accentDark, color: "#ffffff", align: "left" },
         ],
       },
     ],
@@ -184,8 +204,8 @@ export function createEmptyEmail(): EmailDocument {
 
   return {
     version: 1,
-    subject: "Your skate clips deserve a home",
-    preheader: "Post, earn, repeat — on a platform owned by skaters.",
+    subject: `News from ${brand.name}`,
+    preheader: `What's new in the ${brand.name} community.`,
     pageBackground: "#f4f4f5",
     contentBackground: "#ffffff",
     contentWidth: 640,

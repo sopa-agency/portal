@@ -24,6 +24,7 @@ import {
   type CampaignPreviewBrand,
 } from "@/components/campaign-document-preview";
 import { CampaignEmailEditor } from "@/components/campaign-email-editor";
+import { DEFAULT_EMAIL_BRAND } from "@/lib/campaign-email";
 import { CampaignGenerateBar } from "@/components/campaign-generate-bar";
 
 type CampaignDocument = {
@@ -197,6 +198,16 @@ export function CampaignFolderShell({
               initialName={selected.name}
               initialContent={selected.content}
               updatedAt={selected.updatedAt}
+              emailBrand={
+                brand
+                  ? {
+                      name: brand.displayName,
+                      url: brand.siteUrl ?? DEFAULT_EMAIL_BRAND.url,
+                      accent: brand.accent ?? DEFAULT_EMAIL_BRAND.accent,
+                      accentDark: brand.accentDark ?? DEFAULT_EMAIL_BRAND.accentDark,
+                    }
+                  : undefined
+              }
             />
             <CampaignArtifactActions
               documentId={selected.id}

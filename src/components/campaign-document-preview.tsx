@@ -37,6 +37,11 @@ export type CampaignPreviewBrand = {
   handle: string;
   hiveAccount: string;
   hiveCommunity: string;
+  /** Brand site for default email button hrefs, e.g. "https://skatehive.app" */
+  siteUrl?: string;
+  /** Inline hex accents for email builder defaults (email needs literal colors). */
+  accent?: string;
+  accentDark?: string;
 };
 
 type PreviewKind = Exclude<CampaignDocumentKind, "brief" | "email" | "markdown">;

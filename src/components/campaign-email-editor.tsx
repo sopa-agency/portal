@@ -7,6 +7,7 @@ import { CampaignEmailBuilderDialog } from "@/components/campaign-email-builder-
 import {
   type EmailDocument,
   createEmptyEmail,
+  type EmailBrand,
   parseEmail,
   renderEmail,
   serializeEmail,
@@ -18,11 +19,13 @@ export function CampaignEmailEditor({
   initialName,
   initialContent,
   updatedAt,
+  emailBrand,
 }: {
   documentId: string;
   initialName: string;
   initialContent: string;
   updatedAt: Date;
+  emailBrand?: EmailBrand;
 }) {
   const [name, setName] = useState(initialName);
   const [content, setContent] = useState(initialContent);
@@ -60,7 +63,7 @@ export function CampaignEmailEditor({
 
   const handleOpenBuilder = () => {
     if (parsed.kind === "empty") {
-      setContent(serializeEmail(createEmptyEmail()));
+      setContent(serializeEmail(createEmptyEmail(emailBrand)));
     }
     setDialogOpen(true);
   };
@@ -80,7 +83,7 @@ export function CampaignEmailEditor({
 
   const builderDocument = useMemo<EmailDocument>(() => {
     if (parsed.kind === "document") return parsed.document;
-    return createEmptyEmail();
+    return createEmptyEmail(emailBrand);
   }, [parsed]);
 
   return (
@@ -161,6 +164,7 @@ export function CampaignEmailEditor({
           onClose={() => setDialogOpen(false)}
           initialDocument={builderDocument}
           onSave={handleSaveFromBuilder}
+          emailBrand={emailBrand}
         />
       ) : null}
     </section>

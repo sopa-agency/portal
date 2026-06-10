@@ -49,12 +49,13 @@ const HIVE_NODES = [
 ];
 const SNAPS_CONTAINER_AUTHOR = "peak.snaps";
 
-// Beneficiaries applied to published Hive mag posts (weights in basis points;
-// 10000 = 100%). The posting account can't be its own beneficiary, so any entry
-// matching the author is dropped at publish time.
-const MAG_POST_BENEFICIARIES: { account: string; weight: number }[] = [
-  { account: "skatehive", weight: 500 }, // 5% — platform
-  { account: "xvlad", weight: 500 },     // 5% — operator
+// Default beneficiaries applied to published Hive mag posts when the project
+// doesn't configure its own (weights in basis points; 10000 = 100%). The
+// posting account can't be its own beneficiary, so any entry matching the
+// author is dropped at publish time. Per-project overrides live in
+// ProjectConfig.hive.magBeneficiaries (SkateHive adds its platform share).
+const DEFAULT_MAG_POST_BENEFICIARIES: { account: string; weight: number }[] = [
+  { account: "xvlad", weight: 500 }, // 5% — portal operator
 ];
 
 export async function createCampaignFromInstagramPost(
@@ -810,7 +811,7 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
   } else missing.push("Discord announcement");
 
   if (parsed.email) {
-    const emailDocument = normalizeAiEmail(parsed.email);
+    const emailDocument = normalizeAiEmail(parsed.email, artifactsProject.hive.frontend ?? "https://peakd.com");
     const emailContent = serializeEmail(emailDocument);
     await upsertNamedDocument(campaignId, "Email", emailContent);
     saved.push("Email");
@@ -903,7 +904,7 @@ ${html}`;
     return { ok: false, error: "AI returned malformed JSON. Try again." };
   }
 
-  const document = normalizeAiEmail(aiEmail);
+  const document = normalizeAiEmail(aiEmail, emailProject.hive.frontend ?? "https://peakd.com");
   const content = serializeEmail(document);
 
   await prisma.campaignDocument.update({ where: { id: documentId }, data: { content } });
@@ -1059,9 +1060,10 @@ async function buildMagPostFields(
   const tags = [community, magProject.slug];
   // Beneficiaries — drop any equal to the posting account (Hive rejects a
   // self-beneficiary) and sort ascending by account (Hive requires it).
+  const configured = magProject.hive.magBeneficiaries ?? DEFAULT_MAG_POST_BENEFICIARIES;
   const beneficiaries = (account
-    ? MAG_POST_BENEFICIARIES.filter((b) => b.account !== account)
-    : MAG_POST_BENEFICIARIES
+    ? configured.filter((b) => b.account !== account)
+    : configured
   ).sort((a, b) => a.account.localeCompare(b.account));
 
   return { ok: true, campaignId: doc.campaignId, account, title, body, community, imageUrls, tags, ptBody, beneficiaries };
@@ -1290,7 +1292,7 @@ EMAIL (this is the critical part — make it visual + clickable):
 - Hive snap + Farcaster cast: short, public-facing "if you've been gone for a minute…" framing — they're the reminder, not the personal outreach.
 - Tweets: broad reminder the door is open; no @-mentions of lapsed accounts.
 - Discord: a DM template mods can copy/paste, with first_name placeholder and the lapsed user's last-post date placeholder ([last_post_date]).
-- Email: personalization tokens {{first_name}} in the H1 and \`{{last_post_date}}\` in the body. Subject is conversational ("Long time, {{first_name}}?"). Single button "Join us again" linking to https://skatehive.app.`;
+- Email: personalization tokens {{first_name}} in the H1 and \`{{last_post_date}}\` in the body. Subject is conversational ("Long time, {{first_name}}?"). Single button "Join us again" linking to ${project.hive.frontend ?? "https://peakd.com"}.`;
   }
   // Suppress unused-variable warning for communityTag; it's available for future template rules.
   void communityTag;
@@ -1451,12 +1453,12 @@ function extractBalancedBraces(text: string, startIdx: number): string | null {
 // we coerce to a valid EmailDocument with IDs filled in.
 // ---------------------------------------------------------------------------
 
-function normalizeAiEmail(input: unknown): EmailDocument {
+function normalizeAiEmail(input: unknown, fallbackHref: string): EmailDocument {
   const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const subject = typeof obj.subject === "string" ? obj.subject : "";
   const preheader = typeof obj.preheader === "string" ? obj.preheader : "";
   const sectionsRaw = Array.isArray(obj.sections) ? obj.sections : [];
-  const sections: EmailSection[] = sectionsRaw.map(normalizeAiSection);
+  const sections: EmailSection[] = sectionsRaw.map((s) => normalizeAiSection(s, fallbackHref));
   return {
     version: 1,
     subject,
@@ -1470,10 +1472,10 @@ function normalizeAiEmail(input: unknown): EmailDocument {
   };
 }
 
-function normalizeAiSection(input: unknown): EmailSection {
+function normalizeAiSection(input: unknown, fallbackHref: string): EmailSection {
   const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const columnsRaw = Array.isArray(obj.columns) ? obj.columns : [];
-  const columns: EmailColumn[] = columnsRaw.map(normalizeAiColumn);
+  const columns: EmailColumn[] = columnsRaw.map((c) => normalizeAiColumn(c, fallbackHref));
   return {
     id: newId("sec"),
     background: typeof obj.background === "string" ? obj.background : "#ffffff",
@@ -1483,16 +1485,16 @@ function normalizeAiSection(input: unknown): EmailSection {
   };
 }
 
-function normalizeAiColumn(input: unknown): EmailColumn {
+function normalizeAiColumn(input: unknown, fallbackHref: string): EmailColumn {
   const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const blocksRaw = Array.isArray(obj.blocks) ? obj.blocks : [];
   const blocks = blocksRaw
-    .map(normalizeAiBlock)
+    .map((b) => normalizeAiBlock(b, fallbackHref))
     .filter((b): b is EmailBlock => b !== null);
   return { id: newId("col"), blocks };
 }
 
-function normalizeAiBlock(input: unknown): EmailBlock | null {
+function normalizeAiBlock(input: unknown, fallbackHref: string): EmailBlock | null {
   const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const type = obj.type;
   const align = pickAlign(obj.align);
@@ -1527,7 +1529,7 @@ function normalizeAiBlock(input: unknown): EmailBlock | null {
         id: newId("btn"),
         type: "button",
         label: typeof obj.label === "string" ? obj.label : "Drop in",
-        href: typeof obj.href === "string" ? obj.href : "https://skatehive.app",
+        href: typeof obj.href === "string" ? obj.href : fallbackHref,
         bg: pickColor(obj.bg, "#65a30d"),
         color: pickColor(obj.color, "#ffffff"),
         align,
@@ -1719,7 +1721,7 @@ ${kind === "tweets"
           return { ok: false, error: "AI returned malformed JSON for email. Try again." };
         }
       }
-      const emailDocument = normalizeAiEmail(aiEmail);
+      const emailDocument = normalizeAiEmail(aiEmail, project.hive.frontend ?? "https://peakd.com");
       content = serializeEmail(emailDocument);
     } else {
       content = stripCodeFence(raw).trim();
