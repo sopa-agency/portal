@@ -249,16 +249,16 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       errors?: { message: string }[];
     };
 
-    // Surface GraphQL errors
-    if (json.errors && json.errors.length > 0) {
-      return { ok: false, error: json.errors[0].message };
-    }
-
+    // The query resolves the owner as BOTH organization and user — exactly one
+    // matches, and the other always errors ("Could not resolve to a User/Organization").
+    // So errors are only fatal when neither half returned a project.
     const projectV2 = json.data?.organization?.projectV2 ?? json.data?.user?.projectV2;
     if (!projectV2) {
       return {
         ok: false,
-        error: `Project #${number} not found for owner "${org}". Check that the token has project + read:org scopes.`,
+        error:
+          json.errors?.[0]?.message ??
+          `Project #${number} not found for owner "${org}". Check that the token has project + read:org scopes.`,
       };
     }
 
