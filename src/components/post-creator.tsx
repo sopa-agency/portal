@@ -85,7 +85,7 @@ async function uploadMediaDirect(
   }
 }
 const POST_TYPES: { value: PostType; label: string; hint: string }[] = [
-  { value: "IMAGE", label: "Single Image", hint: "1 image · Quocrete or PERSPECTIVA" },
+  { value: "IMAGE", label: "Single Image", hint: "1 image" },
   { value: "CAROUSEL", label: "Carousel", hint: "2–10 images" },
   { value: "REELS", label: "Reel", hint: "1 video" },
 ];
@@ -2628,7 +2628,7 @@ export function PostCreator({
                   type="text"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Topic or brief (e.g. 'new Quocrete about skate aesthetics')"
+                  placeholder="Topic or brief (e.g. 'post about skate aesthetics')"
                   className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleGenerateCaption();

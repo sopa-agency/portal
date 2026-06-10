@@ -52,6 +52,7 @@ const coletivoxv: ProjectConfig = {
     },
   ],
   hiddenRoutes: ["/userbase", "/repo-to-social", "/analytics"],
+  postCreator: true,
   briefingAgents: [
     { slug: "municipela", label: "Municipela", tabLabel: "MUNI", workspace: "workspace-municipela" },
   ],

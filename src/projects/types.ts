@@ -107,7 +107,8 @@ export type ProjectConfig = {
   hiddenRoutes?: string[];
   /**
    * When true, the Post Creator nav item and /post-creator route are enabled
-   * for this project. Reelflip only for now.
+   * for this project. Publishing uses the project's own Instagram credentials
+   * (`${gatewayEnvPrefix}_INSTAGRAM_*` env vars).
    */
   postCreator?: boolean;
   /**

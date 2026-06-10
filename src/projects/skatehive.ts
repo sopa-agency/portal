@@ -21,6 +21,7 @@ const skatehive: ProjectConfig = {
     "reelflip",
     "joaoparmagnani",
   ],
+  postCreator: true,
   theme: {
     // Lime green — darker for legibility on light bg, vivid on dark bg.
     accentLight: "#5b9c00",

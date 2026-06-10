@@ -364,14 +364,14 @@ export async function generateCaption(params: {
     const { project } = await authGate();
 
     const formatHint: Record<PostType, string> = {
-      IMAGE: "single image post (Quocrete or Post Opinion / PERSPECTIVA style)",
-      CAROUSEL: "carousel post (Post Opinion / PERSPECTIVA narrative style)",
+      IMAGE: "single image post",
+      CAROUSEL: "carousel post (multi-slide narrative)",
       REELS: "Reel (short-form video caption)",
     };
 
     const prompt = `You are the ${project.agent.displayName} Instagram content agent.
 
-Read your brand playbook (docs/playbook.md) for voice rules, formats (PERSPECTIVA / Post Opinion, Quocrete, Moodboard, Originals), hero lines, and what NOT to do.
+Read your brand playbook (docs/playbook.md) for voice rules, content formats, hero lines, and what NOT to do.
 
 Write an Instagram caption for a ${formatHint[params.type]} about:
 "${params.topic}"
@@ -380,7 +380,7 @@ Rules:
 - Write in the brand voice as defined in your playbook.
 - Keep it under 2200 characters total.
 - Instagram-native formatting: line breaks are fine, no markdown.
-- Use hashtags ONLY if the playbook says they're on-brand for this format; for Reelflip keep them minimal or omit entirely.
+- Use hashtags ONLY if the playbook says they're on-brand for this format; when in doubt keep them minimal or omit entirely.
 - Return ONLY the caption text — no preamble, no explanation, no quotes wrapping it.`;
 
     const text = await callOpenClaw(prompt, project.agent.id, {
