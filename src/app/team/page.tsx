@@ -4,26 +4,34 @@ import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { TeamView } from "@/components/team-view";
 import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
-import { getTeamMessageOptions, mergeEmailContact } from "@/lib/team-messaging";
+import { getTeamMessageOptions, mergeContacts } from "@/lib/team-messaging";
 import { prisma } from "@/lib/prisma";
 
 export default async function TeamPage() {
   const project = await getActiveProject();
 
-  // Coworker-edited emails override the static teamContacts config.
-  const emailRows = await prisma.teamMemberEmail.findMany({
+  // Coworker-edited contacts override the static teamContacts config.
+  const contactRows = await prisma.teamMemberContact.findMany({
     where: { projectSlug: project.slug },
   });
-  const emailOverrides = new Map(emailRows.map((r) => [r.username, r.email]));
+  const rowsByUser = new Map<string, { label: string; value: string }[]>();
+  for (const row of contactRows) {
+    const list = rowsByUser.get(row.username) ?? [];
+    list.push({ label: row.label, value: row.value });
+    rowsByUser.set(row.username, list);
+  }
 
   const members = project.allowlist.map((username) => {
-    const emailOverride = emailOverrides.get(username);
+    const contacts = mergeContacts(
+      project.teamContacts?.[username] ?? [],
+      rowsByUser.get(username) ?? [],
+    );
     return {
       username,
       avatarUrl: `https://images.hive.blog/u/${username}/avatar`,
       profileUrl: `${project.hive.frontend ?? "https://peakd.com"}/@${username}`,
-      contacts: mergeEmailContact(project.teamContacts?.[username] ?? [], emailOverride),
-      messageOptions: getTeamMessageOptions(project, username, { emailOverride }),
+      contacts,
+      messageOptions: getTeamMessageOptions(project, username, { contacts }),
     };
   });
 

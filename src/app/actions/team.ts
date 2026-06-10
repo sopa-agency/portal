@@ -10,30 +10,45 @@ import {
 } from "@/lib/social-publish";
 import { sendProjectEmail } from "@/lib/email";
 import {
+  CONTACT_PLATFORMS,
   getTeamMessageOptions,
-  mergeEmailContact,
+  mergeContacts,
+  type ContactPlatform,
   type TeamMessageChannel,
   type TeamMessageOption,
 } from "@/lib/team-messaging";
 import { prisma } from "@/lib/prisma";
-import type { TeamContact } from "@/projects/types";
+import type { ProjectConfig, TeamContact } from "@/projects/types";
 
 const MAX_MESSAGE_LENGTH = 2000;
+const MAX_CONTACT_LENGTH = 200;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export type UpdateTeamMemberEmailResult =
+/** Merged (config + DB) contacts for one member. */
+async function loadMemberContacts(
+  project: ProjectConfig,
+  username: string,
+): Promise<TeamContact[]> {
+  const rows = await prisma.teamMemberContact.findMany({
+    where: { projectSlug: project.slug, username },
+  });
+  return mergeContacts(project.teamContacts?.[username] ?? [], rows);
+}
+
+export type UpdateTeamMemberContactResult =
   | { ok: true; contacts: TeamContact[]; messageOptions: TeamMessageOption[] }
   | { ok: false; error: string };
 
 /**
- * Set (or clear, with an empty string) a team member's email. Any allowlisted
- * member of the portal can edit any other member's email — it's shared team
- * contact data. Stored per (project, member) and overrides the static config.
+ * Set (or clear, with an empty value) one of a team member's contacts. Any
+ * allowlisted member of the portal can edit any other member's contacts —
+ * it's shared team data the agent uses to reach people.
  */
-export async function updateTeamMemberEmail(input: {
+export async function updateTeamMemberContact(input: {
   username: string;
-  email: string;
-}): Promise<UpdateTeamMemberEmailResult> {
+  label: string;
+  value: string;
+}): Promise<UpdateTeamMemberContactResult> {
   try {
     const project = await getActiveProject();
     const cookieStore = await cookies();
@@ -45,32 +60,51 @@ export async function updateTeamMemberEmail(input: {
       return { ok: false, error: "Unknown team member." };
     }
 
-    const email = input.email.trim().toLowerCase();
-    if (email && !EMAIL_RE.test(email)) {
+    const label = input.label.trim() as ContactPlatform;
+    if (!CONTACT_PLATFORMS.includes(label)) {
+      return { ok: false, error: "Unknown contact platform." };
+    }
+
+    const value = input.value.trim();
+    if (value.length > MAX_CONTACT_LENGTH) {
+      return { ok: false, error: `Too long (max ${MAX_CONTACT_LENGTH} characters).` };
+    }
+    if (value && label === "Email" && !EMAIL_RE.test(value.toLowerCase())) {
       return { ok: false, error: "That doesn't look like a valid email address." };
     }
 
-    if (email) {
-      await prisma.teamMemberEmail.upsert({
-        where: { projectSlug_username: { projectSlug: project.slug, username } },
-        create: { projectSlug: project.slug, username, email, updatedBy: session.username },
-        update: { email, updatedBy: session.username },
+    if (value) {
+      await prisma.teamMemberContact.upsert({
+        where: {
+          projectSlug_username_label: { projectSlug: project.slug, username, label },
+        },
+        create: {
+          projectSlug: project.slug,
+          username,
+          label,
+          value: label === "Email" ? value.toLowerCase() : value,
+          updatedBy: session.username,
+        },
+        update: {
+          value: label === "Email" ? value.toLowerCase() : value,
+          updatedBy: session.username,
+        },
       });
     } else {
-      // Clearing the override falls back to the static config email (if any).
-      await prisma.teamMemberEmail.deleteMany({
-        where: { projectSlug: project.slug, username },
+      // Clearing the override falls back to the static config contact (if any).
+      await prisma.teamMemberContact.deleteMany({
+        where: { projectSlug: project.slug, username, label },
       });
     }
 
-    const emailOverride = email || undefined;
+    const contacts = await loadMemberContacts(project, username);
     return {
       ok: true,
-      contacts: mergeEmailContact(project.teamContacts?.[username] ?? [], emailOverride),
-      messageOptions: getTeamMessageOptions(project, username, { emailOverride }),
+      contacts,
+      messageOptions: getTeamMessageOptions(project, username, { contacts }),
     };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Failed to update email." };
+    return { ok: false, error: err instanceof Error ? err.message : "Failed to update contact." };
   }
 }
 
@@ -81,7 +115,7 @@ export type SendTeamMessageResult =
 /**
  * Send a message to a team member over one of the channels the portal can
  * actually deliver on. Targets are resolved server-side from the project's
- * teamContacts — the client only picks a channel.
+ * teamContacts + coworker-edited contacts — the client only picks a channel.
  */
 export async function sendTeamMessage(input: {
   username: string;
@@ -105,7 +139,8 @@ export async function sendTeamMessage(input: {
       return { ok: false, error: `Message too long (max ${MAX_MESSAGE_LENGTH} characters).` };
     }
 
-    const option = getTeamMessageOptions(project, username).find(
+    const contacts = await loadMemberContacts(project, username);
+    const option = getTeamMessageOptions(project, username, { contacts }).find(
       (o) => o.channel === input.channel,
     );
     if (!option) {

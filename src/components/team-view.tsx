@@ -22,12 +22,15 @@ import {
   Lock,
   Pencil,
   Check,
+  Plus,
+  Phone,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
 import type { TeamMessageOption } from "@/lib/team-messaging";
-import { sendTeamMessage, updateTeamMemberEmail } from "@/app/actions/team";
+import { sendTeamMessage, updateTeamMemberContact } from "@/app/actions/team";
+import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -58,6 +61,8 @@ function networkIcon(network: string) {
   if (name.includes("analytics")) return <BarChart2 className="h-4 w-4 shrink-0" aria-hidden />;
   if (name.includes("github")) return <Hash className="h-4 w-4 shrink-0" aria-hidden />;
   if (name.includes("telegram")) return <MessageSquare className="h-4 w-4 shrink-0" aria-hidden />;
+  if (name.includes("whatsapp")) return <Phone className="h-4 w-4 shrink-0" aria-hidden />;
+  if (name.includes("website")) return <Globe className="h-4 w-4 shrink-0" aria-hidden />;
   return <Info className="h-4 w-4 shrink-0" aria-hidden />;
 }
 
@@ -284,30 +289,58 @@ function MessageComposer({ member }: { member: TeamMember }) {
   );
 }
 
-function EmailEditor({
+const PLATFORM_PLACEHOLDER: Record<string, string> = {
+  Email: "name@example.com",
+  Telegram: "@username",
+  WhatsApp: "+55 11 91234-5678",
+  Farcaster: "@handle",
+  Instagram: "@handle",
+  X: "@handle",
+  GitHub: "username",
+  Discord: "username",
+  Website: "https://…",
+};
+
+function ContactsEditor({
   member,
+  editing,
+  onStartAdd,
+  onCancel,
   onSaved,
 }: {
   member: TeamMember;
+  editing: { label: string; value: string } | null;
+  onStartAdd: () => void;
+  onCancel: () => void;
   onSaved: (patch: { contacts: TeamContact[]; messageOptions: TeamMessageOption[] }) => void;
 }) {
   const router = useRouter();
-  const currentEmail =
-    member.contacts.find((c) => c.label.toLowerCase().includes("email"))?.value ?? "";
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(currentEmail);
+  const [label, setLabel] = useState<string>(editing?.label ?? CONTACT_PLATFORMS[0]);
+  const [draft, setDraft] = useState(editing?.value ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Re-seed the form when a different contact enters edit mode.
+  useEffect(() => {
+    setLabel(editing?.label ?? CONTACT_PLATFORMS[0]);
+    setDraft(editing?.value ?? "");
+    setError(null);
+  }, [editing]);
+
+  const isEditingExisting = editing !== null && editing.value !== "";
 
   async function save() {
     if (saving) return;
     setSaving(true);
     setError(null);
     try {
-      const r = await updateTeamMemberEmail({ username: member.username, email: draft });
+      const r = await updateTeamMemberContact({
+        username: member.username,
+        label,
+        value: draft,
+      });
       if (r.ok) {
         onSaved({ contacts: r.contacts, messageOptions: r.messageOptions });
-        setEditing(false);
         router.refresh();
       } else {
         setError(r.error);
@@ -319,19 +352,15 @@ function EmailEditor({
     }
   }
 
-  if (!editing) {
+  if (editing === null) {
     return (
       <button
         type="button"
-        onClick={() => {
-          setDraft(currentEmail);
-          setError(null);
-          setEditing(true);
-        }}
+        onClick={onStartAdd}
         className="mt-2 inline-flex items-center gap-1.5 text-xs text-foreground-subtle transition-colors hover:text-foreground"
       >
-        <Pencil className="h-3 w-3" aria-hidden />
-        {currentEmail ? "Edit email" : "Add email"}
+        <Plus className="h-3 w-3" aria-hidden />
+        Add contact
       </button>
     );
   }
@@ -339,8 +368,21 @@ function EmailEditor({
   return (
     <div className="mt-2 rounded-xl border border-border bg-surface p-2.5">
       <div className="flex items-center gap-2">
+        <select
+          value={label}
+          disabled={isEditingExisting}
+          onChange={(e) => setLabel(e.target.value as ContactPlatform)}
+          className="h-8 shrink-0 rounded-md bg-surface-elevated px-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-accent-border disabled:opacity-60"
+          aria-label="Contact platform"
+        >
+          {CONTACT_PLATFORMS.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
         <input
-          type="email"
+          type={label === "Email" ? "email" : "text"}
           value={draft}
           autoFocus
           onChange={(e) => setDraft(e.target.value)}
@@ -349,24 +391,24 @@ function EmailEditor({
               e.preventDefault();
               void save();
             } else if (e.key === "Escape") {
-              setEditing(false);
+              onCancel();
             }
           }}
-          placeholder={`@${member.username}'s email…`}
+          placeholder={PLATFORM_PLACEHOLDER[label] ?? "value…"}
           className="min-w-0 flex-1 rounded-md bg-surface-elevated px-2.5 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
         />
         <button
           type="button"
           onClick={save}
           disabled={saving}
-          aria-label="Save email"
+          aria-label="Save contact"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-background disabled:opacity-50"
         >
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
         </button>
         <button
           type="button"
-          onClick={() => setEditing(false)}
+          onClick={onCancel}
           aria-label="Cancel"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-foreground-muted hover:text-foreground"
         >
@@ -377,7 +419,7 @@ function EmailEditor({
         {error ? (
           <span className="text-danger">{error}</span>
         ) : (
-          "Visible to the whole team. Leave empty to remove."
+          "Visible to the whole team — the agent uses these to reach people. Leave empty to remove."
         )}
       </p>
     </div>
@@ -386,9 +428,12 @@ function EmailEditor({
 
 function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => void }) {
   const titleId = useId();
-  // Local copy so email edits reflect immediately (server re-render catches up
-  // via router.refresh()).
+  // Local copy so contact edits reflect immediately (server re-render catches
+  // up via router.refresh()).
   const [current, setCurrent] = useState(member);
+  const [editingContact, setEditingContact] = useState<{ label: string; value: string } | null>(
+    null,
+  );
   const contacts = [
     { label: "Hive", value: `@${current.username}`, url: current.profileUrl },
     ...current.contacts,
@@ -444,43 +489,62 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
 
         <div className="mt-5 space-y-2">
           {contacts.map((contact) => {
+            const editable = (CONTACT_PLATFORMS as readonly string[]).includes(contact.label);
             const content = (
               <>
                 <span className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <span className="text-foreground-subtle">{networkIcon(contact.label)}</span>
                   {contact.label}
                 </span>
-                <span className="flex items-center gap-1 text-sm text-foreground-muted tabular-nums">
+                <span className="flex min-w-0 items-center gap-1 truncate text-sm text-foreground-muted tabular-nums">
                   {contact.value}
-                  {contact.url && <ExternalLink className="h-3 w-3" aria-hidden />}
+                  {contact.url && <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />}
                 </span>
               </>
             );
+            const rowClass =
+              "flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3";
 
-            return contact.url ? (
-              <a
-                key={`${contact.label}-${contact.value}`}
-                href={contact.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3 transition-colors hover:border-border-strong hover:bg-background"
-              >
-                {content}
-              </a>
-            ) : (
-              <div
-                key={`${contact.label}-${contact.value}`}
-                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3"
-              >
-                {content}
+            return (
+              <div key={`${contact.label}-${contact.value}`} className="flex items-center gap-1.5">
+                {contact.url ? (
+                  <a
+                    href={contact.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${rowClass} transition-colors hover:border-border-strong hover:bg-background`}
+                  >
+                    {content}
+                  </a>
+                ) : (
+                  <div className={rowClass}>{content}</div>
+                )}
+                {editable && (
+                  <button
+                    type="button"
+                    aria-label={`Edit ${contact.label}`}
+                    onClick={() =>
+                      setEditingContact({ label: contact.label, value: contact.value })
+                    }
+                    className="shrink-0 rounded-md p-1.5 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
 
-        <EmailEditor
+        <ContactsEditor
           member={current}
-          onSaved={(patch) => setCurrent((c) => ({ ...c, ...patch }))}
+          editing={editingContact}
+          onStartAdd={() => setEditingContact({ label: CONTACT_PLATFORMS[0], value: "" })}
+          onCancel={() => setEditingContact(null)}
+          onSaved={(patch) => {
+            setCurrent((c) => ({ ...c, ...patch }));
+            setEditingContact(null);
+          }}
         />
 
         <MessageComposer
