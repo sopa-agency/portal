@@ -10,6 +10,13 @@ export const config = {
 
 const PUBLIC_PATHS = ["/login", "/api/auth/challenge", "/api/auth/login", "/api/auth/logout"];
 
+// Hosts that serve the PUBLIC brand homepage instead of a portal — the apex
+// domain. Portals live on subdomains (admin.reelflip.com, gnars.reelflip.com…).
+const HOME_HOSTS = (process.env.PORTAL_HOME_HOSTS ?? "reelflip.com,www.reelflip.com")
+  .split(",")
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
 // Machine-to-machine endpoints that authenticate themselves (e.g. via
 // SCHEDULER_TICK_SECRET) rather than a session cookie. The session gate below
 // would otherwise 307-redirect these to /login, silently breaking the
@@ -26,6 +33,23 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   const slug = resolveProjectSlug(host);
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-portal-project", slug);
+
+  // Public homepage hosts: "/" serves the landing page (no session gate; the
+  // cookie is stripped so even logged-in teammates get the visitor view) and
+  // every other path bounces back to "/". Portals live on the subdomains.
+  const hostNoPort = (host ?? "").split(":")[0].toLowerCase();
+  if (HOME_HOSTS.includes(hostNoPort)) {
+    if (pathname === "/" || pathname === "/home") {
+      requestHeaders.delete("cookie");
+      const homeUrl = req.nextUrl.clone();
+      homeUrl.pathname = "/home";
+      return NextResponse.rewrite(homeUrl, { request: { headers: requestHeaders } });
+    }
+    const rootUrl = req.nextUrl.clone();
+    rootUrl.pathname = "/";
+    rootUrl.search = "";
+    return NextResponse.redirect(rootUrl);
+  }
 
   // Helper: forward modified request headers upstream while also allowing
   // further manipulation of the response below.
