@@ -241,6 +241,20 @@ model InsightFeedback {
 
 // Instagram post drafts and published posts for the Post Creator feature.
 // One row per draft/post, scoped to a project slug.
+// Newsletter subscription preferences for campaign email blasts. Keyed by
+// lowercase email. OPT-OUT model: a userbase email with no row here is
+// included in blasts; the unsubscribe link (and later the frontend checkbox)
+// writes subscribed=false. Lives in OUR db (not Supabase) so the portal owns
+// the migration and the unsubscribe endpoint.
+model NewsletterPref {
+  email       String   @id
+  subscribed  Boolean  @default(true)
+  source      String? // "unsubscribe-link" | "frontend-checkbox" | "manual"
+  projectSlug String   @default("skatehive")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model InstagramPost {
   id              String    @id @default(cuid())
   projectSlug     String

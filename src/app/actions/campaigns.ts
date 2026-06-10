@@ -1888,6 +1888,96 @@ export async function sendCampaignEmail(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Newsletter blast — send the email artifact to every subscribed userbase
+// email (opt-out model; see src/lib/newsletter.ts). Sequential with a small
+// delay to stay friendly with Gmail SMTP.
+// ---------------------------------------------------------------------------
+
+/** Subscriber count for the blast confirmation UI. */
+export async function getNewsletterBlastInfo(): Promise<
+  { ok: true; recipients: number } | { ok: false; error: string }
+> {
+  try {
+    await getActiveProject(); // session/project gate happens in the page; this is informational
+    const { resolveBlastRecipients } = await import("@/lib/newsletter");
+    const recipients = await resolveBlastRecipients();
+    return { ok: true, recipients: recipients.length };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function sendCampaignEmailBlast(
+  documentId: string,
+  opts?: { testTo?: string },
+): Promise<
+  | { ok: true; sent: number; failed: { email: string; error: string }[]; test?: boolean }
+  | { ok: false; error: string }
+> {
+  try {
+    const project = await getActiveProject();
+    const doc = await prisma.campaignDocument.findUnique({
+      where: { id: documentId },
+      select: {
+        id: true,
+        content: true,
+        campaignId: true,
+        campaign: { select: { projectSlug: true, name: true } },
+      },
+    });
+    if (!doc) return { ok: false, error: "Document not found." };
+    if (doc.campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
+
+    const { parseEmail, renderEmail } = await import("@/lib/campaign-email");
+    const parsed = parseEmail(doc.content);
+    let html: string;
+    let subject: string;
+    if (parsed.kind === "document") {
+      html = renderEmail(parsed.document);
+      subject = parsed.document.subject || doc.campaign.name;
+    } else if (parsed.kind === "legacy_html") {
+      html = parsed.html;
+      subject = doc.campaign.name;
+    } else {
+      return { ok: false, error: "Email document is empty — nothing to send." };
+    }
+
+    const { resolveBlastRecipients, blastFooterHtml } = await import("@/lib/newsletter");
+    const { sendProjectEmail } = await import("@/lib/email");
+
+    const recipients = opts?.testTo
+      ? [{ email: opts.testTo.trim().toLowerCase(), username: "test" }]
+      : await resolveBlastRecipients();
+    if (recipients.length === 0) return { ok: false, error: "No subscribed recipients found." };
+
+    let sent = 0;
+    const failed: { email: string; error: string }[] = [];
+    for (const r of recipients) {
+      const personalized = html
+        .replace(/\{\{\s*first_name\s*\}\}/g, r.username || "skater")
+        .replace(/<\/body>/i, `${blastFooterHtml(project, r.email)}</body>`);
+      const text =
+        personalized.replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim();
+      const result = await sendProjectEmail(project, { to: r.email, subject, html: personalized, text });
+      if (result.ok) sent++;
+      else failed.push({ email: r.email, error: result.error ?? "send failed" });
+      await new Promise((res) => setTimeout(res, 150));
+    }
+
+    if (!opts?.testTo && sent > 0) {
+      await prisma.campaignDocument.update({
+        where: { id: documentId },
+        data: { postedAt: new Date(), postedTo: "email-blast" },
+      });
+      revalidatePath(`/campaign-creator/${doc.campaignId}`);
+    }
+    return { ok: true, sent, failed, test: !!opts?.testTo };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** Map document name to artifact kind. */
 function classifyDocumentKindByName(name: string): CampaignDocumentKind {
   const lower = name.toLowerCase();

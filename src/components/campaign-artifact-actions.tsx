@@ -13,9 +13,11 @@ import {
 } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import {
+  getNewsletterBlastInfo,
   remixCampaignArtifact,
   sendCampaignArtifact,
   sendCampaignEmail,
+  sendCampaignEmailBlast,
   toggleArtifactPosted,
 } from "@/app/actions/campaigns";
 import type { CampaignDocumentKind } from "@/components/campaign-document-preview";
@@ -51,6 +53,14 @@ export function CampaignArtifactActions({
   const [emailInputOpen, setEmailInputOpen] = useState(false);
   const [emailRecipient, setEmailRecipient] = useState("");
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
+
+  // Newsletter blast UI state: load subscriber count → confirm → send.
+  const [blastCount, setBlastCount] = useState<number | null>(null);
+  const [blastConfirm, setBlastConfirm] = useState(false);
+  const [blastResult, setBlastResult] = useState<
+    null | { ok: true; sent: number; failed: number; test: boolean } | { ok: false; error: string }
+  >(null);
+  const [blastPending, startBlastTransition] = useTransition();
 
   const [togglePending, startToggle] = useTransition();
   const [sendPending, startSend] = useTransition();
@@ -122,6 +132,36 @@ export function CampaignArtifactActions({
         setSendStatus({ ok: true });
       } else {
         setSendStatus(res);
+      }
+    });
+  };
+
+  // --- newsletter blast ---
+  const handleBlastPrepare = () => {
+    setBlastResult(null);
+    startBlastTransition(async () => {
+      const info = await getNewsletterBlastInfo();
+      if (info.ok) {
+        setBlastCount(info.recipients);
+        setBlastConfirm(true);
+      } else {
+        setBlastResult({ ok: false, error: info.error });
+      }
+    });
+  };
+
+  const handleBlastSend = (testTo?: string) => {
+    setBlastResult(null);
+    startBlastTransition(async () => {
+      const res = await sendCampaignEmailBlast(documentId, testTo ? { testTo } : undefined);
+      if (res.ok) {
+        setBlastResult({ ok: true, sent: res.sent, failed: res.failed.length, test: !!res.test });
+        if (!res.test) {
+          setPostedAt(new Date());
+          setBlastConfirm(false);
+        }
+      } else {
+        setBlastResult(res);
       }
     });
   };
@@ -345,6 +385,66 @@ export function CampaignArtifactActions({
           <p className="text-[10px] text-foreground-faint">
             Sends to one recipient via SMTP. Requires SMTP_HOST / EMAIL_USER / EMAIL_PASS in your env.
           </p>
+
+          {/* Newsletter blast — userbase recipients with unsubscribe footer */}
+          <div className="mt-1 flex flex-col gap-2 border-t border-border pt-3">
+            <p className="text-[11px] text-foreground-subtle">Newsletter blast (userbase)</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {!blastConfirm ? (
+                <button
+                  type="button"
+                  onClick={handleBlastPrepare}
+                  disabled={blastPending}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-medium text-accent transition hover:bg-accent/20 disabled:opacity-50"
+                >
+                  {blastPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Blast to userbase…
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleBlastSend()}
+                    disabled={blastPending}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger transition hover:bg-danger/20 disabled:opacity-50"
+                  >
+                    {blastPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    {blastPending ? "Sending…" : `Confirm: send to ${blastCount} subscriber${blastCount === 1 ? "" : "s"}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBlastConfirm(false)}
+                    disabled={blastPending}
+                    className="rounded-lg border border-border px-3 py-2 text-xs text-foreground-muted transition hover:border-border-strong hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => handleBlastSend(emailRecipient)}
+                disabled={blastPending || !emailRecipient.trim()}
+                title="Sends the blast version (with unsubscribe footer) only to the address above"
+                className="rounded-lg border border-border px-3 py-2 text-xs text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+              >
+                Test blast → address above
+              </button>
+            </div>
+            {blastResult && (
+              <p className={`text-[11px] ${blastResult.ok ? "text-success" : "text-danger"}`}>
+                {blastResult.ok
+                  ? blastResult.test
+                    ? "Test sent — check the inbox (and the unsubscribe link)."
+                    : `Blast sent to ${blastResult.sent} recipient${blastResult.sent === 1 ? "" : "s"}${blastResult.failed > 0 ? ` — ${blastResult.failed} failed` : ""}.`
+                  : blastResult.error}
+              </p>
+            )}
+            <p className="text-[10px] text-foreground-faint">
+              Sends to every userbase email that hasn&apos;t unsubscribed, personalised with
+              username + unsubscribe link. Takes ~1s per 2 recipients.
+            </p>
+          </div>
         </div>
       )}
 

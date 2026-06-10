@@ -8,7 +8,14 @@ export const config = {
   matcher: ["/((?!_next/|favicon\\.ico|.*\\.svg$|.*\\.png$|.*\\.jpg$|.*\\.webp$|.*\\.ico$).*)"],
 };
 
-const PUBLIC_PATHS = ["/login", "/api/auth/challenge", "/api/auth/login", "/api/auth/logout"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/challenge",
+  "/api/auth/login",
+  "/api/auth/logout",
+  // Unsubscribe links in newsletter emails land here without a session.
+  "/api/newsletter/unsubscribe",
+];
 
 // Hosts that serve the PUBLIC brand homepage instead of a portal — the apex
 // domain. Portals live on subdomains (admin.reelflip.com, gnars.reelflip.com…).
