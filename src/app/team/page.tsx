@@ -4,6 +4,7 @@ import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { TeamView } from "@/components/team-view";
 import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
+import { getTeamMessageOptions } from "@/lib/team-messaging";
 
 export default async function TeamPage() {
   const project = await getActiveProject();
@@ -12,6 +13,8 @@ export default async function TeamPage() {
     username,
     avatarUrl: `https://images.hive.blog/u/${username}/avatar`,
     profileUrl: `${project.hive.frontend ?? "https://peakd.com"}/@${username}`,
+    contacts: project.teamContacts?.[username] ?? [],
+    messageOptions: getTeamMessageOptions(project, username),
   }));
 
   const connections = getPortalConnections(project);
