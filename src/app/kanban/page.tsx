@@ -13,7 +13,9 @@ export default async function KanbanPage() {
   }
 
   return (
-    <div className="space-y-8">
+    // Fixed viewport height on md+ (100dvh minus the shell's md:p-8 padding)
+    // so the board fills the screen and columns scroll internally.
+    <div className="flex flex-col gap-6 md:h-[calc(100dvh-4rem)]">
       <PageHeader
         eyebrow={project.name}
         title="Kanban"

@@ -37,29 +37,17 @@ import {
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 
 // ---------------------------------------------------------------------------
-// Label color helpers (luminance → readable text color)
+// Column status color (mid-tone hues that read on both light & dark surfaces)
 // ---------------------------------------------------------------------------
 
-function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const clean = hex.replace(/^#/, "");
-  if (clean.length !== 6 && clean.length !== 3) return null;
-  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
-  const num = parseInt(full, 16);
-  return { r: (num >> 16) & 0xff, g: (num >> 8) & 0xff, b: num & 0xff };
-}
-
-function relativeLuminance(r: number, g: number, b: number): number {
-  const [rs, gs, bs] = [r, g, b].map((c) => {
-    const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  });
-  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
-}
-
-function labelTextColor(hexColor: string): string {
-  const rgb = hexToRgb(hexColor);
-  if (!rgb) return "#000000";
-  return relativeLuminance(rgb.r, rgb.g, rgb.b) > 0.179 ? "#000000" : "#ffffff";
+function statusColor(name: string): string {
+  const n = name.toLowerCase();
+  if (/backlog|icebox|later/.test(n)) return "#8b949e"; // gray
+  if (/ready|todo|to do|next/.test(n)) return "#3b82f6"; // blue
+  if (/progress|doing|wip|active/.test(n)) return "#f59e0b"; // amber
+  if (/review|qa|test/.test(n)) return "#a371f7"; // purple
+  if (/done|complete|shipped|closed/.test(n)) return "#22c55e"; // green
+  return "#8b949e";
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +57,7 @@ function labelTextColor(hexColor: string): string {
 function StateBadge({ item }: { item: KanbanItem }) {
   if (item.type === "pr") {
     if (item.merged)
-      return <span className="rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] font-medium text-accent">merged</span>;
+      return <span className="rounded-full border border-[#a371f7]/30 bg-[#a371f7]/10 px-2 py-0.5 text-[10px] font-medium text-[#a371f7]">merged</span>;
     if (item.state === "closed")
       return <span className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">closed</span>;
     return <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">open</span>;
@@ -84,7 +72,7 @@ function StateBadge({ item }: { item: KanbanItem }) {
 
 function TypeIcon({ type }: { type: KanbanItem["type"] }) {
   if (type === "issue") return <CircleDot className="h-3.5 w-3.5 shrink-0 text-success" aria-label="Issue" />;
-  if (type === "pr") return <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-accent" aria-label="Pull request" />;
+  if (type === "pr") return <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-[#a371f7]" aria-label="Pull request" />;
   return <SquareDashed className="h-3.5 w-3.5 shrink-0 text-foreground-faint" aria-label="Draft issue" />;
 }
 
@@ -98,47 +86,47 @@ function CardBody({ item }: { item: KanbanItem }) {
   const visible = item.assignees.slice(0, MAX_AVATARS);
   return (
     <div className="space-y-2.5">
-      <div className="flex items-start gap-2">
-        <div className="mt-0.5 shrink-0">
-          <TypeIcon type={item.type} />
-        </div>
-        <p className="flex-1 text-sm font-medium leading-snug text-foreground">{item.title}</p>
-      </div>
-      {(item.number != null || item.type !== "draft") && (
-        <div className="flex items-center gap-2">
-          {item.number != null && (
-            <span className="font-mono tabular-nums text-xs text-foreground-subtle">#{item.number}</span>
-          )}
-          <StateBadge item={item} />
-        </div>
-      )}
+      <p className="pr-5 text-[13px] font-medium leading-snug text-foreground">{item.title}</p>
+
       {item.labels.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {item.labels.map((label) => (
             <span
               key={label.name}
-              className="rounded-full px-2 py-0.5 text-[10px] font-medium leading-tight"
-              style={{ backgroundColor: `#${label.color}`, color: labelTextColor(label.color) }}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] font-medium leading-tight text-foreground-muted"
             >
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: `#${label.color}` }}
+                aria-hidden="true"
+              />
               {label.name}
             </span>
           ))}
         </div>
       )}
-      {item.assignees.length > 0 && (
-        <div className="flex items-center gap-1">
-          {visible.map((a) => (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} width={20} height={20}
-              className="h-5 w-5 rounded-full border border-border object-cover" />
-          ))}
-          {extra > 0 && (
-            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface-elevated text-[9px] font-semibold tabular-nums text-foreground-subtle">
-              +{extra}
-            </span>
-          )}
-        </div>
-      )}
+
+      <div className="flex items-center gap-2">
+        <TypeIcon type={item.type} />
+        {item.number != null && (
+          <span className="font-mono tabular-nums text-[11px] text-foreground-subtle">#{item.number}</span>
+        )}
+        <StateBadge item={item} />
+        {item.assignees.length > 0 && (
+          <div className="ml-auto flex items-center -space-x-1.5">
+            {visible.map((a) => (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} width={22} height={22}
+                className="h-[22px] w-[22px] rounded-full object-cover ring-2 ring-surface-elevated" />
+            ))}
+            {extra > 0 && (
+              <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-surface text-[9px] font-semibold tabular-nums text-foreground-subtle ring-2 ring-surface-elevated">
+                +{extra}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -165,10 +153,10 @@ function SortableCard({
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative rounded-lg border border-border bg-surface p-3.5 transition-colors hover:border-border-strong"
+      className="group relative rounded-xl border border-border bg-surface-elevated p-3 shadow-sm transition-all hover:border-border-strong hover:shadow-md"
     >
       {/* Drag handle + body */}
-      <div className="flex items-start gap-1">
+      <div className="flex items-start gap-1.5">
         <button
           type="button"
           aria-label="Drag card"
@@ -178,13 +166,13 @@ function SortableCard({
         >
           <GripVertical className="h-4 w-4" />
         </button>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <CardBody item={item} />
         </div>
       </div>
 
       {/* Action buttons — appear on hover */}
-      <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100">
         {item.url && (
           <a
             href={item.url}
@@ -256,30 +244,40 @@ function ColumnView({
   }
 
   return (
-    <div className="flex w-72 shrink-0 flex-col gap-3" aria-label={`${column.name} column`}>
-      <div className="flex items-center justify-between px-0.5">
-        <h2 className="text-sm font-semibold text-foreground">{column.name}</h2>
-        <div className="flex items-center gap-2">
-          <span className="font-mono tabular-nums text-xs text-foreground-subtle">{column.items.length}</span>
-          <button
-            type="button"
-            aria-label={`Add card to ${column.name}`}
-            onClick={() => setAdding((a) => !a)}
-            className="rounded p-0.5 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+    <div
+      className="flex h-full min-h-0 min-w-64 flex-1 basis-80 flex-col rounded-xl border border-border bg-surface/60"
+      aria-label={`${column.name} column`}
+    >
+      <div className="flex items-center justify-between px-3 pb-2 pt-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: statusColor(column.optionId ? column.name : "") }}
+            aria-hidden="true"
+          />
+          <h2 className="truncate text-sm font-semibold text-foreground">{column.name}</h2>
+          <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium tabular-nums text-foreground-subtle">
+            {column.items.length}
+          </span>
         </div>
+        <button
+          type="button"
+          aria-label={`Add card to ${column.name}`}
+          onClick={() => setAdding((a) => !a)}
+          className="rounded-md p-1 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
       </div>
 
       <div
         ref={setNodeRef}
-        className={`flex min-h-24 flex-col gap-2 rounded-lg border p-2 transition-colors ${
-          isOver ? "border-accent-border bg-accent-bg/40" : "border-dashed border-border/60"
+        className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-b-xl p-2 pt-0.5 transition-colors ${
+          isOver ? "bg-accent-bg/40" : ""
         }`}
       >
         {adding && (
-          <div className="rounded-lg border border-border bg-surface p-2">
+          <div className="rounded-xl border border-border bg-surface-elevated p-2 shadow-sm">
             <textarea
               ref={inputRef}
               value={draft}
@@ -295,7 +293,7 @@ function ColumnView({
               }}
               placeholder="Draft title… (Enter to add, Esc to cancel)"
               rows={2}
-              className="w-full resize-none rounded-md bg-surface-elevated px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
+              className="w-full resize-none rounded-md bg-surface px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
             />
             <div className="mt-1.5 flex items-center justify-end gap-1.5">
               <button
@@ -320,7 +318,9 @@ function ColumnView({
 
         <SortableContext items={column.items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
           {column.items.length === 0 && !adding ? (
-            <p className="px-2 py-6 text-center text-xs text-foreground-faint">Drop cards here</p>
+            <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-border/70 py-8">
+              <p className="text-xs text-foreground-faint">Drop cards here</p>
+            </div>
           ) : (
             column.items.map((item) => (
               <SortableCard key={item.id} item={item} onArchive={onArchive} onDelete={onDelete} busy={busy} />
@@ -558,9 +558,17 @@ export function KanbanBoard() {
   // --- render ---
   if (loading) {
     return (
-      <div className="flex items-center gap-3 py-12 text-foreground-muted" aria-label="Loading Kanban board">
-        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-        <span className="text-sm">Loading board…</span>
+      <div className="flex min-h-0 flex-1 gap-4 overflow-hidden" aria-label="Loading Kanban board">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex h-full min-h-64 min-w-64 flex-1 basis-80 animate-pulse flex-col rounded-xl border border-border bg-surface/60 p-2">
+            <div className="m-1 mb-3 h-4 w-24 rounded bg-foreground/[0.07]" />
+            <div className="space-y-2">
+              <div className="h-20 rounded-xl bg-foreground/[0.05]" />
+              <div className="h-14 rounded-xl bg-foreground/[0.05]" />
+              {i % 2 === 0 && <div className="h-20 rounded-xl bg-foreground/[0.05]" />}
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -587,7 +595,7 @@ export function KanbanBoard() {
   const { title, url, columns, truncated } = board;
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       {/* Meta bar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-2 text-sm text-foreground-subtle">
@@ -621,8 +629,8 @@ export function KanbanBoard() {
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="overflow-x-auto pb-4">
-          <div className="flex gap-4" style={{ minWidth: "max-content" }}>
+        <div className="min-h-0 flex-1 overflow-x-auto pb-2">
+          <div className="flex h-full min-h-64 gap-4">
             {columns.map((col) => (
               <ColumnView
                 key={col.name}
@@ -637,7 +645,7 @@ export function KanbanBoard() {
         </div>
         <DragOverlay>
           {activeItem ? (
-            <div className="w-64 rotate-2 rounded-lg border border-border-strong bg-surface p-3.5 shadow-lg">
+            <div className="w-72 rotate-2 rounded-xl border border-accent-border bg-surface-elevated p-3 shadow-2xl">
               <CardBody item={activeItem} />
             </div>
           ) : null}

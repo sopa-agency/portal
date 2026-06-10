@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ContentShell } from "@/components/content-shell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
@@ -84,9 +85,7 @@ export default async function RootLayout({
               />
               <ThemeToggle />
               <main className="min-w-0 flex-1">
-                <div className="mx-auto min-h-screen max-w-6xl p-6 md:p-10">
-                  {children}
-                </div>
+                <ContentShell>{children}</ContentShell>
               </main>
               <FloatingAgentChat
                 projectSlug={project.slug}
