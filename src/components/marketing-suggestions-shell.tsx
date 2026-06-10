@@ -11,6 +11,7 @@ import {
   type MarketingSuggestionWorkerHealth,
 } from "@/app/actions/marketing-suggestions";
 import { MarketingSuggestionsDialog } from "@/components/marketing-suggestions-batch-dialog";
+import type { TweetBrand } from "@/components/tweet-batch-dialog";
 import { effectiveTweetStatus } from "@/components/tweet-batch-dialog";
 
 type KanbanColId = "generating" | "drafted" | "approved" | "published";
@@ -549,11 +550,13 @@ export function MarketingSuggestionsShell({
   runs: initialRuns,
   health,
   projectName = "the community",
+  brand,
 }: {
   config: MarketingSuggestionConfig;
   runs: MarketingSuggestionRunRow[];
   health: MarketingSuggestionWorkerHealth;
   projectName?: string;
+  brand: TweetBrand;
 }) {
   const router = useRouter();
   const [config, setConfigState] = useState(initialConfig);
@@ -639,6 +642,7 @@ export function MarketingSuggestionsShell({
 
       <MarketingSuggestionsDialog
         run={selectedRun}
+        brand={brand}
         open={selectedRun !== null}
         focusTweetIndex={focusedTweetIndex}
         onFocusTweetIndexChange={setFocusedTweetIndex}

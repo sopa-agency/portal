@@ -131,6 +131,13 @@ export function effectiveTweetStatus<R extends TweetRunData>(
 // to their concrete row type — the extra fields just stay untouched.
 export type TweetRunPatch = Partial<TweetRunData> & { id: string };
 
+/** Active project's identity for the X-style preview card. */
+export type TweetBrand = {
+  name: string;
+  handle: string;
+  avatarUrl: string;
+};
+
 type Props<R extends TweetRunData> = {
   run: R | null;
   open: boolean;
@@ -139,6 +146,7 @@ type Props<R extends TweetRunData> = {
   onClose: () => void;
   onUpdate: (patch: TweetRunPatch) => void;
   actions: TweetBatchActions;
+  brand: TweetBrand;
 };
 
 // X intent URLs only accept text — there is no way to attach media. So when the
@@ -228,6 +236,7 @@ export function TweetBatchDialog<R extends TweetRunData>({
   onClose,
   onUpdate,
   actions,
+  brand,
 }: Props<R>) {
   const [editedTweets, setEditedTweets] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
@@ -472,6 +481,7 @@ export function TweetBatchDialog<R extends TweetRunData>({
           ) : (
             <SingleTweetView
               tweet={currentTweet}
+              brand={brand}
               status={currentStatus}
               charCount={charCount}
               overLimit={overLimit}
@@ -1344,21 +1354,21 @@ function StepBox({
   );
 }
 
-function TweetPreview({ tweet }: { tweet: string }) {
+function TweetPreview({ tweet, brand }: { tweet: string; brand: TweetBrand }) {
   return (
     <div className="rounded-2xl border border-border bg-surface-elevated px-4 py-3">
       <div className="flex items-start gap-3">
         <Image
-          src="/skatehive-logo-circle.svg"
-          alt="SkateHive"
+          src={brand.avatarUrl}
+          alt={brand.name}
           width={40}
           height={40}
           className="shrink-0 rounded-full"
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1 text-[15px] leading-tight">
-            <span className="font-bold text-foreground">SkateHive</span>
-            <span className="text-foreground-subtle">@Skate_Hive</span>
+            <span className="font-bold text-foreground">{brand.name}</span>
+            <span className="text-foreground-subtle">{brand.handle}</span>
             <span className="text-foreground-subtle">·</span>
             <span className="text-foreground-subtle">now</span>
           </div>
@@ -1427,6 +1437,7 @@ function TweetPreview({ tweet }: { tweet: string }) {
 
 function SingleTweetView({
   tweet,
+  brand,
   status,
   charCount,
   overLimit,
@@ -1448,6 +1459,7 @@ function SingleTweetView({
   uploadImage,
 }: {
   tweet: string;
+  brand: TweetBrand;
   status: TweetStatus;
   charCount: number;
   overLimit: boolean;
@@ -1509,7 +1521,7 @@ function SingleTweetView({
     <div className="space-y-5">
       <section>
         <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-foreground-subtle">Preview</p>
-        <TweetPreview tweet={tweet} />
+        <TweetPreview tweet={tweet} brand={brand} />
       </section>
 
       <section>

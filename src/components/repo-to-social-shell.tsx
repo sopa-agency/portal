@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/repo-to-social";
 import { parseRepoUrls, repoUrlToLabel } from "@/lib/repo-to-social-utils";
 import { RepoToSocialDialog } from "@/components/repo-to-social-batch-dialog";
+import type { TweetBrand } from "@/components/tweet-batch-dialog";
 import { effectiveTweetStatus as effectiveTweetStatusBase } from "@/components/tweet-batch-dialog";
 
 type Config = {
@@ -466,11 +467,13 @@ export function RepoToSocialShell({
   runs: initialRuns,
   health,
   repoPlaceholder,
+  brand,
 }: {
   config: Config;
   runs: RepoToSocialRunRow[];
   health: RepoToSocialWorkerHealth;
   repoPlaceholder?: string;
+  brand: TweetBrand;
 }) {
   const router = useRouter();
   const [repoUrl, setRepoUrl] = useState(initialConfig.repoUrl);
@@ -553,6 +556,7 @@ export function RepoToSocialShell({
 
       <RepoToSocialDialog
         run={selectedRun}
+        brand={brand}
         open={selectedRun !== null}
         focusTweetIndex={focusedTweetIndex}
         onFocusTweetIndexChange={setFocusedTweetIndex}

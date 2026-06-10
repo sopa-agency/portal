@@ -17,6 +17,7 @@ import {
   TweetBatchDialog,
   type TweetBatchActions,
   type TweetRunPatch,
+  type TweetBrand,
 } from "@/components/tweet-batch-dialog";
 
 // Wires the marketing-suggestions server actions into the generic
@@ -41,6 +42,7 @@ type Props = {
   focusTweetIndex: number | null;
   onFocusTweetIndexChange: (idx: number | null) => void;
   onClose: () => void;
+  brand: TweetBrand;
   onUpdate: (patch: Partial<MarketingSuggestionRunRow> & { id: string }) => void;
 };
 

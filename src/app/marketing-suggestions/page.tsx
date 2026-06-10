@@ -11,6 +11,7 @@ import {
   type MarketingSuggestionWorkerHealth,
 } from "@/app/actions/marketing-suggestions";
 import { getActiveProject } from "@/projects";
+import { tweetBrand } from "@/lib/project-brand";
 
 const DEFAULT_CONFIG: MarketingSuggestionConfig = {
   prompt: "",
@@ -70,7 +71,17 @@ export default async function MarketingSuggestionsPage() {
         </div>
       )}
 
-      <MarketingSuggestionsShell config={config} runs={runs} health={health} projectName={projectName} />
+      <MarketingSuggestionsShell
+        config={config}
+        runs={runs}
+        health={health}
+        projectName={projectName}
+        brand={
+          project
+            ? tweetBrand(project)
+            : { name: projectName, handle: "", avatarUrl: "/favicon.ico" }
+        }
+      />
     </div>
   );
 }

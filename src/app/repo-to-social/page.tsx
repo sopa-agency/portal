@@ -10,6 +10,7 @@ import {
   type RepoToSocialRunRow,
 } from "@/app/actions/repo-to-social";
 import { getActiveProject } from "@/projects";
+import { tweetBrand } from "@/lib/project-brand";
 import { notFound } from "next/navigation";
 
 const DEFAULT_HEALTH: RepoToSocialWorkerHealth = {
@@ -74,6 +75,7 @@ export default async function RepoToSocialPage() {
         runs={runs}
         health={health}
         repoPlaceholder={defaultRepoUrl || "https://github.com/owner/repo"}
+        brand={tweetBrand(activeProject)}
       />
     </div>
   );
