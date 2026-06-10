@@ -166,8 +166,10 @@ export async function fetchTopSkatehivePosts(opts: FetchOptions = {}): Promise<S
 }
 
 // Looks at a Hive account's recent root posts and returns the highest issue
-// number matching `the-weekly-stoken-N`, so the next issue can be numbered
-// without the user doing it by hand.
+// number matching `the-weekly-stoken-N` (legacy hand-posted issues) or
+// `weekly-stoken-N-<campaignId8>` (portal-published via the deterministic
+// mag-post permlink), so the next issue can be numbered without the user
+// doing it by hand.
 export async function fetchLatestWeeklyStokenIssue(account = "skatehive"): Promise<number> {
   type Discussion = { permlink?: string; parent_author?: string; created?: string };
   // Hive's condenser_api caps limit at 20 — exceeding it returns an Assert Exception.
@@ -177,7 +179,7 @@ export async function fetchLatestWeeklyStokenIssue(account = "skatehive"): Promi
   );
   const numbers = result
     .filter((p) => !p.parent_author)
-    .map((p) => p.permlink?.match(/^the-weekly-stoken-(\d+)$/)?.[1])
+    .map((p) => p.permlink?.match(/^(?:the-)?weekly-stoken-(\d+)(?:-|$)/)?.[1])
     .filter((n): n is string => Boolean(n))
     .map(Number);
   return numbers.length ? Math.max(...numbers) : 0;

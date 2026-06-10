@@ -18,6 +18,7 @@ import { detectTemplate, getCampaignTemplate } from "@/lib/campaign-templates";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { prisma } from "@/lib/prisma";
 import { getActiveProject } from "@/projects/index";
+import type { ProjectConfig } from "@/projects/types";
 import {
   fetchLatestWeeklyStokenIssue,
   fetchTopSkatehivePosts,
@@ -718,7 +719,11 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
 }
 
 Rules:
-- "hive_snap": a single Hive snap (short post) that will be published as a comment under peak.snaps' daily container on ${artifactsCommunity}. Plain text, real line breaks, under 280 characters when possible. Community voice. No hashtags in front — Hive frontends pick those up from json_metadata.
+${
+  artifactsHiveAccount
+    ? `- The mag post will be published at EXACTLY this URL: ${magPostUrl(artifactsProject, artifactsHiveAccount, magPostPermlink(title, campaignId))} — wherever "hive_snap", "farcaster", "tweets", "discord", or "email" link to the mag post / recap / full read, use that EXACT URL. Never invent, alter, or shorten it. Do NOT put this link inside "hive_mag_post" or "hive_mag_post_pt" (the post must not link to itself).\n`
+    : ""
+}- "hive_snap": a single Hive snap (short post) that will be published as a comment under peak.snaps' daily container on ${artifactsCommunity}. Plain text, real line breaks, under 280 characters when possible. Community voice. No hashtags in front — Hive frontends pick those up from json_metadata.
 - "hive_mag_post": a long-form Hive blog post (magazine style, ~300-600 words) ready to publish to ${artifactsCommunity} as @${artifactsHiveAccount}. Markdown with headings, paragraphs, and embedded images. Expand the core idea into a real read — context, the take, why it matters. Editorial, community-to-community, no corporate marketing-speak. This IS the publishable post body — no internal-brief sections (Goal / Audience / Window / Channels / Success metric / Risks). ALWAYS WRITE THIS IN ENGLISH — Hive's audience is international — even if the brief, caption, or images are in Portuguese.
 - "hive_mag_post_pt": a faithful Brazilian Portuguese translation of "hive_mag_post" — same structure, same headings, the SAME embedded image URLs in the same places. This is stored in the post's json_metadata as the pt translation. Translate naturally, don't transliterate.
 - "farcaster": a single Farcaster cast for the /${artifactsFarcasterChannel} channel as @${artifactsHiveAccount}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.
@@ -1101,6 +1106,32 @@ export async function getHiveMagPostPreview(documentId: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Mag-post permlink + URL — DETERMINISTIC so the URL is knowable at artifact
+// generation time. The artifacts prompt hands the AI this exact URL (so casts/
+// tweets/discord/email never invent one), and publishHiveMagPost derives the
+// same permlink at broadcast time. Derived from the campaign NAME + id suffix:
+// renaming the campaign between generation and publish breaks the match, so
+// don't. Bonus: re-publishing the same campaign's mag post becomes a Hive
+// EDIT (same permlink) instead of a duplicate post.
+// ---------------------------------------------------------------------------
+
+function magPostPermlink(campaignName: string, campaignId: string): string {
+  const slug =
+    campaignName
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "post";
+  return `${slug}-${campaignId.slice(-8)}`;
+}
+
+function magPostUrl(project: ProjectConfig, account: string, permlink: string): string {
+  const base = project.hive.frontend?.replace(/\/+$/, "");
+  return base ? `${base}/post/${account}/${permlink}` : `https://peakd.com/@${account}/${permlink}`;
+}
+
+// ---------------------------------------------------------------------------
 // Publish a "Hive mag post" document as a ROOT Hive blog post in the project's
 // community (as the project's own Hive account). The English body is the post;
 // the sibling "Hive mag post (PT)" doc rides along in json_metadata.translations.pt.
@@ -1121,14 +1152,14 @@ export async function publishHiveMagPost(
       return { ok: false, error: `Hive posting account/key not set for ${magProject.name}.` };
     }
 
-    const slug =
-      title
-        .toLowerCase()
-        .normalize("NFKD")
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 60) || "post";
-    const permlink = `${slug}-${crypto.randomUUID().slice(0, 8)}`;
+    // Deterministic — must match the predicted URL the artifacts prompt handed
+    // to the AI (see magPostPermlink). Falls back to the doc title for legacy
+    // campaigns whose row vanished.
+    const magCampaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: { name: true },
+    });
+    const permlink = magPostPermlink(magCampaign?.name?.trim() || title, campaignId);
 
     const metadata: Record<string, unknown> = {
       app: `Marketing Portal ${magProject.name}`,
@@ -1177,13 +1208,7 @@ export async function publishHiveMagPost(
       data: { postedAt: new Date(), postedTo: "hive-blog" },
     });
     revalidatePath(`/campaign-creator/${campaignId}`);
-    // Link to the project's own Hive frontend (skatehive.app) in its canonical
-    // /post/<author>/<permlink> form; fall back to peakd if no frontend is set.
-    const base = magProject.hive.frontend?.replace(/\/+$/, "");
-    const url = base
-      ? `${base}/post/${account}/${permlink}`
-      : `https://peakd.com/@${account}/${permlink}`;
-    return { ok: true, url };
+    return { ok: true, url: magPostUrl(magProject, account, permlink) };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
