@@ -178,7 +178,7 @@ export const PAGE_GUIDES: Record<string, PageGuide> = {
     sections: [
       {
         heading: "Members",
-        body: "Everyone allowlisted on this portal. Click a member to open their contact card: all their known handles (Hive, Telegram, Farcaster, email…) with direct links.",
+        body: "Everyone allowlisted on this portal. Click a member to open their contact card: all their known handles (Hive, Telegram, Farcaster, email…) with direct links. Anyone on the team can add or correct a member's email from their card — use \"Add email\" / \"Edit email\"; it's shared with the whole team and unlocks the private email channel in the composer.",
         image: "/guides/team.png",
         imageAlt: "Team members grid and linked networks",
       },

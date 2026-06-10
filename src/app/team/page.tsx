@@ -4,18 +4,28 @@ import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { TeamView } from "@/components/team-view";
 import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
-import { getTeamMessageOptions } from "@/lib/team-messaging";
+import { getTeamMessageOptions, mergeEmailContact } from "@/lib/team-messaging";
+import { prisma } from "@/lib/prisma";
 
 export default async function TeamPage() {
   const project = await getActiveProject();
 
-  const members = project.allowlist.map((username) => ({
-    username,
-    avatarUrl: `https://images.hive.blog/u/${username}/avatar`,
-    profileUrl: `${project.hive.frontend ?? "https://peakd.com"}/@${username}`,
-    contacts: project.teamContacts?.[username] ?? [],
-    messageOptions: getTeamMessageOptions(project, username),
-  }));
+  // Coworker-edited emails override the static teamContacts config.
+  const emailRows = await prisma.teamMemberEmail.findMany({
+    where: { projectSlug: project.slug },
+  });
+  const emailOverrides = new Map(emailRows.map((r) => [r.username, r.email]));
+
+  const members = project.allowlist.map((username) => {
+    const emailOverride = emailOverrides.get(username);
+    return {
+      username,
+      avatarUrl: `https://images.hive.blog/u/${username}/avatar`,
+      profileUrl: `${project.hive.frontend ?? "https://peakd.com"}/@${username}`,
+      contacts: mergeEmailContact(project.teamContacts?.[username] ?? [], emailOverride),
+      messageOptions: getTeamMessageOptions(project, username, { emailOverride }),
+    };
+  });
 
   const connections = getPortalConnections(project);
 

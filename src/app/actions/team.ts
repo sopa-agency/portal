@@ -11,10 +11,68 @@ import {
 import { sendProjectEmail } from "@/lib/email";
 import {
   getTeamMessageOptions,
+  mergeEmailContact,
   type TeamMessageChannel,
+  type TeamMessageOption,
 } from "@/lib/team-messaging";
+import { prisma } from "@/lib/prisma";
+import type { TeamContact } from "@/projects/types";
 
 const MAX_MESSAGE_LENGTH = 2000;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export type UpdateTeamMemberEmailResult =
+  | { ok: true; contacts: TeamContact[]; messageOptions: TeamMessageOption[] }
+  | { ok: false; error: string };
+
+/**
+ * Set (or clear, with an empty string) a team member's email. Any allowlisted
+ * member of the portal can edit any other member's email — it's shared team
+ * contact data. Stored per (project, member) and overrides the static config.
+ */
+export async function updateTeamMemberEmail(input: {
+  username: string;
+  email: string;
+}): Promise<UpdateTeamMemberEmailResult> {
+  try {
+    const project = await getActiveProject();
+    const cookieStore = await cookies();
+    const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+    if (!session) return { ok: false, error: "Unauthorized" };
+
+    const username = input.username.toLowerCase().trim();
+    if (!project.allowlist.includes(username)) {
+      return { ok: false, error: "Unknown team member." };
+    }
+
+    const email = input.email.trim().toLowerCase();
+    if (email && !EMAIL_RE.test(email)) {
+      return { ok: false, error: "That doesn't look like a valid email address." };
+    }
+
+    if (email) {
+      await prisma.teamMemberEmail.upsert({
+        where: { projectSlug_username: { projectSlug: project.slug, username } },
+        create: { projectSlug: project.slug, username, email, updatedBy: session.username },
+        update: { email, updatedBy: session.username },
+      });
+    } else {
+      // Clearing the override falls back to the static config email (if any).
+      await prisma.teamMemberEmail.deleteMany({
+        where: { projectSlug: project.slug, username },
+      });
+    }
+
+    const emailOverride = email || undefined;
+    return {
+      ok: true,
+      contacts: mergeEmailContact(project.teamContacts?.[username] ?? [], emailOverride),
+      messageOptions: getTeamMessageOptions(project, username, { emailOverride }),
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Failed to update email." };
+  }
+}
 
 export type SendTeamMessageResult =
   | { ok: true; url?: string }

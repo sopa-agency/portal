@@ -20,11 +20,14 @@ import {
   Loader2,
   Globe,
   Lock,
+  Pencil,
+  Check,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
 import type { TeamMessageOption } from "@/lib/team-messaging";
-import { sendTeamMessage } from "@/app/actions/team";
+import { sendTeamMessage, updateTeamMemberEmail } from "@/app/actions/team";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -281,11 +284,114 @@ function MessageComposer({ member }: { member: TeamMember }) {
   );
 }
 
+function EmailEditor({
+  member,
+  onSaved,
+}: {
+  member: TeamMember;
+  onSaved: (patch: { contacts: TeamContact[]; messageOptions: TeamMessageOption[] }) => void;
+}) {
+  const router = useRouter();
+  const currentEmail =
+    member.contacts.find((c) => c.label.toLowerCase().includes("email"))?.value ?? "";
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(currentEmail);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await updateTeamMemberEmail({ username: member.username, email: draft });
+      if (r.ok) {
+        onSaved({ contacts: r.contacts, messageOptions: r.messageOptions });
+        setEditing(false);
+        router.refresh();
+      } else {
+        setError(r.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(currentEmail);
+          setError(null);
+          setEditing(true);
+        }}
+        className="mt-2 inline-flex items-center gap-1.5 text-xs text-foreground-subtle transition-colors hover:text-foreground"
+      >
+        <Pencil className="h-3 w-3" aria-hidden />
+        {currentEmail ? "Edit email" : "Add email"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-xl border border-border bg-surface p-2.5">
+      <div className="flex items-center gap-2">
+        <input
+          type="email"
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void save();
+            } else if (e.key === "Escape") {
+              setEditing(false);
+            }
+          }}
+          placeholder={`@${member.username}'s email…`}
+          className="min-w-0 flex-1 rounded-md bg-surface-elevated px-2.5 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          aria-label="Save email"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-background disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          aria-label="Cancel"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-foreground-muted hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <p className="mt-1.5 text-[11px] text-foreground-faint">
+        {error ? (
+          <span className="text-danger">{error}</span>
+        ) : (
+          "Visible to the whole team. Leave empty to remove."
+        )}
+      </p>
+    </div>
+  );
+}
+
 function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => void }) {
   const titleId = useId();
+  // Local copy so email edits reflect immediately (server re-render catches up
+  // via router.refresh()).
+  const [current, setCurrent] = useState(member);
   const contacts = [
-    { label: "Hive", value: `@${member.username}`, url: member.profileUrl },
-    ...member.contacts,
+    { label: "Hive", value: `@${current.username}`, url: current.profileUrl },
+    ...current.contacts,
   ];
 
   useEffect(() => {
@@ -372,7 +478,15 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
           })}
         </div>
 
-        <MessageComposer member={member} />
+        <EmailEditor
+          member={current}
+          onSaved={(patch) => setCurrent((c) => ({ ...c, ...patch }))}
+        />
+
+        <MessageComposer
+          key={current.messageOptions.map((o) => `${o.channel}:${o.target}`).join("|")}
+          member={current}
+        />
       </div>
     </div>
   );

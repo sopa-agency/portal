@@ -311,3 +311,18 @@ model SocialMetricSnapshot {
 
   @@index([projectSlug, platform, capturedAt])
 }
+
+// Coworker-editable email per portal member. Overrides the static
+// teamContacts email in src/projects/*.ts; any allowlisted member of the
+// portal can add/correct another member's email from the Team page.
+model TeamMemberEmail {
+  id          String   @id @default(cuid())
+  projectSlug String
+  username    String
+  email       String
+  updatedBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectSlug, username])
+}

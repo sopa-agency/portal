@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ProjectConfig } from "@/projects/types";
+import type { ProjectConfig, TeamContact } from "@/projects/types";
 import { isEmailConfigured } from "@/lib/email";
 
 // ---------------------------------------------------------------------------
@@ -27,9 +27,24 @@ function contactValue(
   return list.find((c) => c.label.toLowerCase().includes(labelMatch))?.value;
 }
 
+/**
+ * Merge a coworker-edited email (TeamMemberEmail row) into a member's
+ * config contacts — replaces the static Email entry, or appends one.
+ * Passing undefined leaves the config contacts untouched.
+ */
+export function mergeEmailContact(
+  contacts: TeamContact[],
+  emailOverride: string | undefined,
+): TeamContact[] {
+  if (!emailOverride) return contacts;
+  const rest = contacts.filter((c) => !c.label.toLowerCase().includes("email"));
+  return [...rest, { label: "Email", value: emailOverride, url: `mailto:${emailOverride}` }];
+}
+
 export function getTeamMessageOptions(
   project: ProjectConfig,
   username: string,
+  opts?: { emailOverride?: string },
 ): TeamMessageOption[] {
   const prefix = project.agent.gatewayEnvPrefix;
   const options: TeamMessageOption[] = [];
@@ -68,8 +83,9 @@ export function getTeamMessageOptions(
     options.push({ channel: "discord", target: "project channel", visibility: "public" });
   }
 
-  // Email — private; needs the member's email contact + project SMTP.
-  const email = contactValue(project, username, "email");
+  // Email — private; needs the member's email (coworker-edited override
+  // wins over the static contact) + project SMTP.
+  const email = opts?.emailOverride ?? contactValue(project, username, "email");
   if (email && isEmailConfigured(project)) {
     options.push({ channel: "email", target: email, visibility: "private" });
   }
