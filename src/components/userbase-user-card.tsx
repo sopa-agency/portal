@@ -8,7 +8,7 @@ import {
   getUserbaseUserDetail,
   type FarcasterInfo,
   type HiveInfo,
-  type UserbaseEmailUser,
+  type UserbaseRow,
   type UserbaseUserDetail,
 } from "@/app/actions/userbase";
 
@@ -42,7 +42,7 @@ const IDENTITY_LINK: Record<string, (i: { handle: string | null; address: string
   evm: (i) => (i.address ? `https://etherscan.io/address/${i.address}` : null),
 };
 
-export function UserbaseUserCard({ user, onClose }: { user: UserbaseEmailUser; onClose: () => void }) {
+export function UserbaseUserCard({ user, onClose }: { user: UserbaseRow; onClose: () => void }) {
   const [tab, setTab] = useState<TabId>("account");
   const [detail, setDetail] = useState<Loadable<UserbaseUserDetail>>({ state: "loading" });
   const [hive, setHive] = useState<Loadable<HiveInfo>>({ state: "idle" });
@@ -102,7 +102,7 @@ export function UserbaseUserCard({ user, onClose }: { user: UserbaseEmailUser; o
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`User ${user.handle ?? user.email}`}
+      aria-label={`User ${user.handle ?? user.email ?? user.id}`}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
@@ -117,7 +117,7 @@ export function UserbaseUserCard({ user, onClose }: { user: UserbaseEmailUser; o
               <img src={user.avatarUrl} alt="" className="h-12 w-12 shrink-0 rounded-full border border-border object-cover" />
             ) : (
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent-bg text-sm font-bold uppercase text-accent">
-                {(user.handle || user.email).slice(0, 2)}
+                {(user.handle || user.email || "??").slice(0, 2)}
               </div>
             )}
             <div className="min-w-0">

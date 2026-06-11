@@ -1,9 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Search, Mail, Copy, Check, Pencil, Loader2, AtSign } from "lucide-react";
-import { setUserbaseInstagram, type UserbaseEmailUser } from "@/app/actions/userbase";
+import { listUserbaseUsersPage, setUserbaseInstagram, type UserbaseRow } from "@/app/actions/userbase";
 import { UserbaseUserCard } from "@/components/userbase-user-card";
 
 function formatDate(iso: string | null): string {
@@ -34,13 +34,13 @@ function statusBadge(status: string | null) {
   );
 }
 
-function Avatar({ user }: { user: UserbaseEmailUser }) {
-  const initials = (user.handle || user.displayName || user.email).slice(0, 2).toUpperCase();
+function Avatar({ user }: { user: UserbaseRow }) {
+  const initials = (user.handle || user.displayName || user.email || "??").slice(0, 2).toUpperCase();
   if (user.avatarUrl) {
     return (
       <Image
         src={user.avatarUrl}
-        alt={user.handle ?? user.email}
+        alt={user.handle ?? user.email ?? "user"}
         width={36}
         height={36}
         className="h-9 w-9 shrink-0 rounded-full border border-border object-cover"
@@ -56,7 +56,7 @@ function Avatar({ user }: { user: UserbaseEmailUser }) {
 }
 
 /** Inline editor for a user's Instagram handle (userbase_identities). */
-function InstagramCell({ user }: { user: UserbaseEmailUser }) {
+function InstagramCell({ user }: { user: UserbaseRow }) {
   const [value, setValue] = useState(user.instagram ?? "");
   const [saved, setSaved] = useState(user.instagram ?? "");
   const [editing, setEditing] = useState(false);
@@ -96,7 +96,7 @@ function InstagramCell({ user }: { user: UserbaseEmailUser }) {
         <button
           type="button"
           onClick={() => setEditing(true)}
-          aria-label={`Edit Instagram for ${user.handle ?? user.email}`}
+          aria-label={`Edit Instagram for ${user.handle ?? user.email ?? user.id}`}
           className="rounded p-1 text-foreground-faint transition-colors hover:bg-surface-elevated hover:text-foreground"
         >
           <Pencil className="h-3 w-3" />
@@ -159,46 +159,92 @@ function CopyEmailButton({ email }: { email: string }) {
 }
 
 export function UserbaseTable({
-  users,
+  initialUsers,
+  initialCursor,
+  initialTotal,
   subscribedEmails,
   subscriptionPartial,
 }: {
-  users: UserbaseEmailUser[];
+  initialUsers: UserbaseRow[];
+  initialCursor: string | null;
+  initialTotal: number;
   /** Lowercased emails subscribed on Paragraph; undefined = newsletter not configured (column hidden). */
   subscribedEmails?: string[];
   /** Paragraph's list API couldn't enumerate everyone — misses show "unknown", not "not subscribed". */
   subscriptionPartial?: boolean;
 }) {
+  const [users, setUsers] = useState<UserbaseRow[]>(initialUsers);
+  const [cursor, setCursor] = useState<string | null>(initialCursor);
+  const [total, setTotal] = useState(initialTotal);
   const [query, setQuery] = useState("");
-  const [cardUser, setCardUser] = useState<UserbaseEmailUser | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [cardUser, setCardUser] = useState<UserbaseRow | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // Monotonic id discards stale responses when search/scroll race.
+  const reqRef = useRef(0);
+
   const subscribedSet = useMemo(
     () => (subscribedEmails ? new Set(subscribedEmails) : null),
     [subscribedEmails],
   );
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) => {
-      return (
-        u.email.toLowerCase().includes(q) ||
-        (u.handle ?? "").toLowerCase().includes(q) ||
-        (u.displayName ?? "").toLowerCase().includes(q)
-      );
-    });
-  }, [users, query]);
+  // Debounced server-side search — resets the list from page one.
+  useEffect(() => {
+    const req = ++reqRef.current;
+    const t = setTimeout(async () => {
+      setBusy(true);
+      const res = await listUserbaseUsersPage({ search: query.trim() || undefined });
+      if (reqRef.current !== req) return; // superseded
+      if (res.ok) {
+        setUsers(res.users);
+        setCursor(res.nextCursor);
+        setTotal(res.total);
+      }
+      setBusy(false);
+    }, query ? 300 : 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
-  const allEmails = useMemo(() => filtered.map((u) => u.email).join(", "), [filtered]);
-  const [copiedAll, setCopiedAll] = useState(false);
+  const loadMore = useCallback(async () => {
+    if (!cursor || busy) return;
+    const req = ++reqRef.current;
+    setBusy(true);
+    const res = await listUserbaseUsersPage({ cursor, search: query.trim() || undefined });
+    if (reqRef.current !== req) return;
+    if (res.ok) {
+      setUsers((prev) => {
+        const seen = new Set(prev.map((u) => u.id));
+        return [...prev, ...res.users.filter((u) => !seen.has(u.id))];
+      });
+      setCursor(res.nextCursor);
+      setTotal(res.total);
+    } else {
+      setCursor(null); // stop hammering on errors
+    }
+    setBusy(false);
+  }, [cursor, busy, query]);
 
-  if (users.length === 0) {
-    return (
-      <div className="rounded-2xl border border-border bg-surface px-6 py-12 text-center">
-        <Mail className="mx-auto h-8 w-8 text-foreground-faint" />
-        <p className="mt-3 text-sm text-foreground-muted">No users with registered emails yet.</p>
-      </div>
+  // Infinite scroll — one IntersectionObserver on a bottom sentinel.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { rootMargin: "600px" }, // prefetch well before the edge
     );
-  }
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadMore]);
+
+  const filtered = users;
+  const allEmails = useMemo(
+    () => filtered.map((u) => u.email).filter((e): e is string => !!e).join(", "),
+    [filtered],
+  );
+  const [copiedAll, setCopiedAll] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -215,7 +261,7 @@ export function UserbaseTable({
         </div>
         <div className="flex items-center gap-3 text-xs text-foreground-subtle">
           <span>
-            {filtered.length} of {users.length}
+            {users.length} of {total} loaded
           </span>
           <button
             type="button"
@@ -229,7 +275,7 @@ export function UserbaseTable({
             disabled={filtered.length === 0}
             className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
           >
-            {copiedAll ? "Copied!" : "Copy all emails"}
+            {copiedAll ? "Copied!" : "Copy loaded emails"}
           </button>
         </div>
       </div>
@@ -271,19 +317,25 @@ export function UserbaseTable({
                     </button>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="truncate text-foreground" title={u.email}>
-                        {u.email}
-                      </span>
-                      <CopyEmailButton email={u.email} />
-                    </div>
+                    {u.email ? (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate text-foreground" title={u.email}>
+                          {u.email}
+                        </span>
+                        <CopyEmailButton email={u.email} />
+                      </div>
+                    ) : (
+                      <span className="text-foreground-faint">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs">
                     <InstagramCell user={u} />
                   </td>
                   {subscribedSet && (
                     <td className="px-4 py-3">
-                      {subscribedSet.has(u.email.toLowerCase()) ? (
+                      {!u.email ? (
+                        <span className="text-foreground-faint">—</span>
+                      ) : subscribedSet.has(u.email.toLowerCase()) ? (
                         <span className="rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] uppercase tracking-wider text-accent">
                           subscribed
                         </span>
@@ -310,7 +362,7 @@ export function UserbaseTable({
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-foreground-subtle">
+                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-foreground-subtle">
                     No matches for &ldquo;{query}&rdquo;.
                   </td>
                 </tr>
@@ -319,6 +371,19 @@ export function UserbaseTable({
           </table>
         </div>
       </div>
+
+      {/* Infinite-scroll sentinel + tail state */}
+      <div ref={sentinelRef} aria-hidden className="h-px" />
+      {busy && (
+        <p className="flex items-center justify-center gap-2 py-2 text-xs text-foreground-subtle">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+        </p>
+      )}
+      {!busy && !cursor && users.length > 0 && users.length >= total && (
+        <p className="py-2 text-center text-[11px] text-foreground-faint">
+          All {total} users loaded.
+        </p>
+      )}
 
       {cardUser && <UserbaseUserCard user={cardUser} onClose={() => setCardUser(null)} />}
     </div>

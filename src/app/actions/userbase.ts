@@ -111,6 +111,129 @@ export async function listUsersWithEmail(): Promise<UserbaseEmailListResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Full userbase listing — ALL users (email or not), keyset-paginated for the
+// infinite-scroll table. Email-only flows (blast, Paragraph sync) keep using
+// listUsersWithEmail above.
+// ---------------------------------------------------------------------------
+
+export type UserbaseRow = Omit<UserbaseEmailUser, "email" | "emailLinkedAt"> & {
+  email: string | null;
+  emailLinkedAt: string | null;
+};
+
+export type UserbasePage =
+  | { ok: true; users: UserbaseRow[]; nextCursor: string | null; total: number }
+  | { ok: false; error: string };
+
+const PAGE_SIZE = 60;
+
+export async function listUserbaseUsersPage(params?: {
+  /** Keyset cursor: `${created_at}|${id}` of the last row of the previous page. */
+  cursor?: string | null;
+  /** Server-side search over handle / display name / email. */
+  search?: string;
+}): Promise<UserbasePage> {
+  try {
+    const client = getUserbaseClient();
+    if (!client) {
+      return { ok: false, error: "Supabase userbase not configured." };
+    }
+
+    const search = params?.search?.trim().toLowerCase() ?? "";
+
+    // Email search resolves user ids first (emails live in auth_methods).
+    let emailMatchIds: string[] | null = null;
+    if (search) {
+      const { data } = await client
+        .from("userbase_auth_methods")
+        .select("user_id")
+        .eq("type", "email_magic")
+        .ilike("identifier", `%${search}%`)
+        .limit(200);
+      emailMatchIds = [...new Set((data ?? []).map((r) => r.user_id as string))];
+    }
+
+    let query = client
+      .from("userbase_users")
+      .select("id, handle, display_name, avatar_url, status, onboarding_step, created_at", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(PAGE_SIZE);
+
+    if (search) {
+      const like = `%${search.replace(/[%_]/g, "")}%`;
+      const ors = [`handle.ilike.${like}`, `display_name.ilike.${like}`];
+      if (emailMatchIds && emailMatchIds.length > 0) {
+        ors.push(`id.in.(${emailMatchIds.join(",")})`);
+      }
+      query = query.or(ors.join(","));
+    }
+
+    if (params?.cursor) {
+      const [createdAt, id] = params.cursor.split("|");
+      // Keyset: rows strictly after the cursor in (created_at desc, id desc)
+      // order. Values quoted — timestamps carry "+" and ":".
+      query = query.or(`created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt."${id}")`);
+    }
+
+    const { data: userRows, error, count } = await query;
+    if (error) return { ok: false, error: error.message };
+
+    const ids = (userRows ?? []).map((u) => u.id as string);
+    const [emailRes, identRes] = ids.length
+      ? await Promise.all([
+          client
+            .from("userbase_auth_methods")
+            .select("user_id, identifier, created_at")
+            .eq("type", "email_magic")
+            .in("user_id", ids)
+            .order("created_at", { ascending: false }),
+          client.from("userbase_identities").select("user_id, type, handle").in("user_id", ids),
+        ])
+      : [{ data: [] }, { data: [] }];
+
+    const emailByUser = new Map<string, { email: string; linkedAt: string }>();
+    for (const r of emailRes.data ?? []) {
+      const uid = r.user_id as string;
+      if (!emailByUser.has(uid)) {
+        emailByUser.set(uid, { email: r.identifier as string, linkedAt: r.created_at as string });
+      }
+    }
+    const identCount = new Map<string, number>();
+    const instagramByUser = new Map<string, string>();
+    for (const r of identRes.data ?? []) {
+      const uid = r.user_id as string;
+      identCount.set(uid, (identCount.get(uid) ?? 0) + 1);
+      if (r.type === "instagram" && r.handle) instagramByUser.set(uid, r.handle as string);
+    }
+
+    const users: UserbaseRow[] = (userRows ?? []).map((u) => ({
+      id: u.id as string,
+      handle: (u.handle as string | null) ?? null,
+      displayName: (u.display_name as string | null) ?? null,
+      avatarUrl: (u.avatar_url as string | null) ?? null,
+      status: (u.status as string | null) ?? null,
+      onboardingStep: (u.onboarding_step as number | null) ?? null,
+      email: emailByUser.get(u.id as string)?.email ?? null,
+      emailLinkedAt: emailByUser.get(u.id as string)?.linkedAt ?? null,
+      createdAt: (u.created_at as string | null) ?? null,
+      identitiesCount: identCount.get(u.id as string) ?? 0,
+      instagram: instagramByUser.get(u.id as string) ?? null,
+    }));
+
+    const last = userRows?.[userRows.length - 1];
+    const nextCursor =
+      userRows && userRows.length === PAGE_SIZE && last
+        ? `${last.created_at}|${last.id}`
+        : null;
+
+    return { ok: true, users, nextCursor, total: count ?? users.length };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Editing — portal users can attach an Instagram handle to a userbase account
 // (powers IG cross-posting / collab tagging). Stored as a userbase_identities
 // row (type "instagram"), the same convention skatehive3.0 already uses.
