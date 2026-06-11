@@ -13,8 +13,10 @@ const PUBLIC_PATHS = [
   "/api/auth/challenge",
   "/api/auth/login",
   "/api/auth/logout",
-  // Unsubscribe links in newsletter emails land here without a session.
+  // Unsubscribe links in newsletter emails land here without a session, and
+  // the skatehive.app signup checkbox posts to subscribe cross-origin.
   "/api/newsletter/unsubscribe",
+  "/api/newsletter/subscribe",
 ];
 
 // Hosts that serve the PUBLIC brand homepage instead of a portal — the apex

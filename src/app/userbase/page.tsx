@@ -26,7 +26,12 @@ export default async function UserbasePage() {
       <ParagraphSyncCard initial={paragraphStatus} />
 
       {result.ok ? (
-        <UserbaseTable users={result.users} />
+        <UserbaseTable
+          users={result.users}
+          subscribedEmails={
+            paragraphStatus.ok && paragraphStatus.configured ? paragraphStatus.subscribedEmails : undefined
+          }
+        />
       ) : (
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 px-5 py-4 text-sm text-amber-200">
           <p className="font-medium text-warning">Userbase unavailable</p>

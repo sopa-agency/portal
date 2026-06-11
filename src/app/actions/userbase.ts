@@ -110,7 +110,16 @@ export async function listUsersWithEmail(): Promise<UserbaseEmailListResult> {
 // ---------------------------------------------------------------------------
 
 export type ParagraphSyncStatus =
-  | { ok: true; configured: true; publication: string; paragraphCount: number; userbaseEmails: number; missing: number }
+  | {
+      ok: true;
+      configured: true;
+      publication: string;
+      paragraphCount: number;
+      userbaseEmails: number;
+      missing: number;
+      /** Lowercased emails currently subscribed on Paragraph — drives the per-user badge. */
+      subscribedEmails: string[];
+    }
   | { ok: true; configured: false }
   | { ok: false; error: string };
 
@@ -147,6 +156,7 @@ export async function getParagraphSyncStatus(): Promise<ParagraphSyncStatus> {
       paragraphCount: await getSubscriberCount(pub.id),
       userbaseEmails: eligible.length,
       missing,
+      subscribedEmails: [...onParagraph] as string[],
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

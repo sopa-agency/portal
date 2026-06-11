@@ -74,8 +74,19 @@ function CopyEmailButton({ email }: { email: string }) {
   );
 }
 
-export function UserbaseTable({ users }: { users: UserbaseEmailUser[] }) {
+export function UserbaseTable({
+  users,
+  subscribedEmails,
+}: {
+  users: UserbaseEmailUser[];
+  /** Lowercased emails subscribed on Paragraph; undefined = newsletter not configured (column hidden). */
+  subscribedEmails?: string[];
+}) {
   const [query, setQuery] = useState("");
+  const subscribedSet = useMemo(
+    () => (subscribedEmails ? new Set(subscribedEmails) : null),
+    [subscribedEmails],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -142,6 +153,7 @@ export function UserbaseTable({ users }: { users: UserbaseEmailUser[] }) {
               <tr>
                 <th className="px-4 py-3 font-medium">User</th>
                 <th className="px-4 py-3 font-medium">Email</th>
+                {subscribedSet && <th className="px-4 py-3 font-medium">Newsletter</th>}
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Onboarding</th>
                 <th className="px-4 py-3 font-medium">Identities</th>
@@ -172,6 +184,19 @@ export function UserbaseTable({ users }: { users: UserbaseEmailUser[] }) {
                       <CopyEmailButton email={u.email} />
                     </div>
                   </td>
+                  {subscribedSet && (
+                    <td className="px-4 py-3">
+                      {subscribedSet.has(u.email.toLowerCase()) ? (
+                        <span className="rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] uppercase tracking-wider text-accent">
+                          subscribed
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wider text-foreground-subtle">
+                          not subscribed
+                        </span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3">{statusBadge(u.status)}</td>
                   <td className="px-4 py-3">
                     <span className="text-foreground-muted">
