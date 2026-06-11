@@ -67,6 +67,85 @@ const LINKS: LinkItem[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Newsletter subscribe box — posts to the portal endpoint, which adds the
+// email to the Reelflip Paragraph publication (the proxy resolves the apex
+// host to the reelflip project).
+// ---------------------------------------------------------------------------
+
+function SubscribeBox() {
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
+
+  async function submit() {
+    const clean = email.trim();
+    if (!/.+@.+\..+/.test(clean) || state === "sending") return;
+    setState("sending");
+    try {
+      const res = await fetch("/api/newsletter/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: clean }),
+      });
+      const data = (await res.json().catch(() => null)) as { ok?: boolean } | null;
+      if (!res.ok || !data?.ok) throw new Error("subscribe failed");
+      setState("done");
+    } catch {
+      setState("error");
+    }
+  }
+
+  if (state === "done") {
+    return (
+      <div className="home-card mt-8 w-full rounded-2xl border border-accent-border bg-accent-bg/60 px-5 py-4 text-center backdrop-blur-md">
+        <p className="font-mono text-[13px] font-bold uppercase tracking-wider text-accent">
+          ✓ Na lista
+        </p>
+        <p className="mt-1 text-[13px] text-foreground-muted">
+          Até o próximo drop. Sem spam — só o que importa.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="home-card mt-8 w-full" style={{ animationDelay: "640ms" }}>
+      <p className="mb-2 text-center font-mono text-[11px] uppercase tracking-[0.25em] text-foreground-subtle">
+        ▸ newsletter ◂
+      </p>
+      <div className="flex w-full items-center gap-2 rounded-2xl border border-border bg-surface/70 p-2 backdrop-blur-md transition-colors focus-within:border-accent-border">
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            if (state === "error") setState("idle");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          placeholder="seu@email.com"
+          autoComplete="email"
+          className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={submit}
+          disabled={state === "sending" || !/.+@.+\..+/.test(email.trim())}
+          className="shrink-0 rounded-xl bg-accent-bg px-4 py-2 font-mono text-[12px] font-bold uppercase tracking-wider text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+        >
+          {state === "sending" ? "…" : "Assinar"}
+        </button>
+      </div>
+      <p className="mt-2 text-center text-[11px] text-foreground-faint">
+        {state === "error"
+          ? "Não rolou — confere o email e tenta de novo."
+          : "O olhar do skate na sua inbox. Cancele quando quiser."}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page — 8-bit arcade: PixelBlast background, GhostCursor trail, PixelCard
 // links. All three take the project accent so light/dark both look right.
 // ---------------------------------------------------------------------------
@@ -118,8 +197,11 @@ export function HomeClient() {
           <span className="text-accent">É sobre enxergar como quem anda.</span>
         </p>
 
+        {/* Newsletter subscribe */}
+        <SubscribeBox />
+
         {/* Links — pixel dissolve on hover */}
-        <div className="mt-10 w-full space-y-3">
+        <div className="mt-8 w-full space-y-3">
           {LINKS.map((item, i) => (
             <div key={item.href} className="home-card" style={{ animationDelay: `${280 + i * 110}ms` }}>
               <PixelCard

@@ -50,6 +50,10 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   // every other path bounces back to "/". Portals live on the subdomains.
   const hostNoPort = (host ?? "").split(":")[0].toLowerCase();
   if (HOME_HOSTS.includes(hostNoPort)) {
+    // The homepage's subscribe box posts here; project resolves to reelflip.
+    if (pathname.startsWith("/api/newsletter/")) {
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    }
     if (pathname === "/" || pathname === "/home") {
       requestHeaders.delete("cookie");
       const homeUrl = req.nextUrl.clone();

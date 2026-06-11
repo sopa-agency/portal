@@ -73,12 +73,14 @@ export async function getSubscriberCount(publicationId: string): Promise<number>
 /**
  * All ACTIVE subscribers (their API never returns unsubscribed ones), deduped.
  *
- * DEFENSIVE: the alpha cursor (createdAt:id) breaks on rows with null
- * createdAt and starts re-serving the same items forever (observed live:
- * 173 looping pages from a 236-subscriber publication). We therefore stop as
- * soon as a page contributes nothing new, and cap pages hard.
+ * DEFENSIVE: their alpha cursor used to loop forever on null-createdAt rows
+ * (reported 2026-06-11, fixed by Paragraph next day). The loop guard stays as
+ * a backstop; `complete` tells callers whether enumeration finished cleanly
+ * (hasMore=false) or was cut short by the guard / page cap.
  */
-export async function listAllSubscribers(apiKey: string): Promise<ParagraphSubscriber[]> {
+export async function listAllSubscribers(
+  apiKey: string,
+): Promise<{ items: ParagraphSubscriber[]; complete: boolean }> {
   const out: ParagraphSubscriber[] = [];
   const seen = new Set<string>();
   let cursor: string | undefined;
@@ -96,12 +98,14 @@ export async function listAllSubscribers(apiKey: string): Promise<ParagraphSubsc
       out.push(it);
       fresh++;
     }
-    if (fresh === 0) break; // wrapped around — see note above
-    if (!data.pagination?.hasMore || !data.pagination.cursor) break;
+    if (fresh === 0) return { items: out, complete: false }; // wrapped — loop guard
+    if (!data.pagination?.hasMore || !data.pagination.cursor) {
+      return { items: out, complete: true };
+    }
     cursor = data.pagination.cursor;
     await new Promise((r) => setTimeout(r, 350)); // stay under their page-rate limit
   }
-  return out;
+  return { items: out, complete: false }; // page cap hit
 }
 
 /** Add one subscriber. Paragraph dedupes by email/wallet; silent (no email sent). */

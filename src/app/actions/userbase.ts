@@ -410,14 +410,14 @@ export async function getParagraphSyncStatus(): Promise<ParagraphSyncStatus> {
     const apiKey = paragraphApiKey(project);
     if (!apiKey) return { ok: true, configured: false };
 
-    const [pub, list, local] = await Promise.all([
+    const [pub, listing, local] = await Promise.all([
       getPublication(apiKey),
       listAllSubscribers(apiKey),
       listUsersWithEmail(),
     ]);
     if (!local.ok) return { ok: false, error: local.error };
 
-    const onParagraph = new Set(list.map((s) => s.email?.toLowerCase()).filter(Boolean));
+    const onParagraph = new Set(listing.items.map((s) => s.email?.toLowerCase()).filter(Boolean));
     const { prisma } = await import("@/lib/prisma");
     const prefs = await prisma.newsletterPref.findMany({ select: { email: true, subscribed: true } });
     const optedOut = new Set(prefs.filter((p) => !p.subscribed).map((p) => p.email.toLowerCase()));
@@ -436,7 +436,7 @@ export async function getParagraphSyncStatus(): Promise<ParagraphSyncStatus> {
       userbaseEmails: eligible.length,
       missing,
       subscribedEmails: [...new Set([...onParagraph, ...optedIn])] as string[],
-      partial: list.length < paragraphCount,
+      partial: !listing.complete,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -454,10 +454,10 @@ export async function syncUserbaseToParagraph(): Promise<
     const apiKey = paragraphApiKey(project);
     if (!apiKey) return { ok: false, error: "Paragraph API key not configured for this project." };
 
-    const [list, local] = await Promise.all([listAllSubscribers(apiKey), listUsersWithEmail()]);
+    const [listing, local] = await Promise.all([listAllSubscribers(apiKey), listUsersWithEmail()]);
     if (!local.ok) return { ok: false, error: local.error };
 
-    const onParagraph = new Set(list.map((s) => s.email?.toLowerCase()).filter(Boolean));
+    const onParagraph = new Set(listing.items.map((s) => s.email?.toLowerCase()).filter(Boolean));
     const { prisma } = await import("@/lib/prisma");
     const optedOut = new Set(
       (await prisma.newsletterPref.findMany({ where: { subscribed: false }, select: { email: true } })).map((r) =>
