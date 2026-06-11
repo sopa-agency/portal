@@ -133,6 +133,13 @@ export type ProjectConfig = {
     ethWallets: { label: string; address: string }[];
     /** Hive accounts — balances from condenser_api, valued via CoinGecko. */
     hiveAccounts?: { label: string; account: string }[];
+    /**
+     * Slugs of OTHER projects whose treasuries are also shown on this portal's
+     * /treasury (admin overview) — e.g. Reelflip, as the operator of all
+     * portals, shows its own Safe plus Gnars and SkateHive, with per-project
+     * views and a combined total.
+     */
+    includeProjects?: string[];
   };
   /**
    * Overrides for campaign-artifact generation (brief + cross-platform drafts).

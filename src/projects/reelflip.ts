@@ -90,6 +90,15 @@ const reelflip: ProjectConfig = {
     },
   ],
   postCreator: true,
+  // Reelflip operates all the portals — its treasury page shows its own Safe
+  // plus the Gnars and SkateHive treasuries, with per-project views.
+  treasury: {
+    ethWallets: [
+      { label: "Reelflip Safe", address: "0xF82e7290d6538fE365a0ed4E4AFB9ae9E1656485" },
+    ],
+    hiveAccounts: [{ label: "Reelflip Hive Account", account: "reelflip" }],
+    includeProjects: ["gnars", "skatehive"],
+  },
   // Reelflip is an Instagram-first editorial brand — NOT a Hive platform — so
   // override the default campaign-artifact framing with its real persona/voice.
   campaignArtifacts: {

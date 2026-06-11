@@ -210,6 +210,33 @@ async function fetchHiveAccounts(
 
 // --- entry --------------------------------------------------------------------
 
+export type TreasuryGroup = { slug: string; name: string; report: TreasuryReport };
+
+/**
+ * The active project's treasury plus any `includeProjects` treasuries (admin
+ * overview, e.g. Reelflip showing Gnars + SkateHive). Groups without a
+ * treasury config are skipped.
+ */
+export async function fetchTreasuryGroups(project: ProjectConfig): Promise<TreasuryGroup[]> {
+  const { getProject } = await import("@/projects/index");
+  const wanted: ProjectConfig[] = [
+    project,
+    ...(project.treasury?.includeProjects ?? [])
+      .map((slug) => {
+        try {
+          return getProject(slug);
+        } catch {
+          return null;
+        }
+      })
+      .filter((p): p is ProjectConfig => !!p && p.slug !== project.slug),
+  ];
+  const reports = await Promise.all(wanted.map((p) => fetchTreasury(p)));
+  return wanted
+    .map((p, i) => ({ slug: p.slug, name: p.name, report: reports[i] }))
+    .filter((g): g is TreasuryGroup => g.report !== null);
+}
+
 export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryReport | null> {
   const cfg = project.treasury;
   if (!cfg) return null;
