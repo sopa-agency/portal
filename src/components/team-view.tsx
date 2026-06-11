@@ -29,7 +29,7 @@ import { useRouter } from "next/navigation";
 import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
 import type { TeamMessageOption } from "@/lib/team-messaging";
-import { sendTeamMessage, updateTeamMemberContact } from "@/app/actions/team";
+import { resolveDiscordUser, sendTeamMessage, updateTeamMemberContact } from "@/app/actions/team";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -108,6 +108,43 @@ function statusBadge(status: ConnectionStatus): BadgeConfig {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
+
+/**
+ * Resolves a Discord user ID to avatar + username via the project's bot —
+ * best-effort: while loading / on failure only the raw ID shows.
+ */
+function DiscordUserChip({ userId }: { userId: string }) {
+  const [resolved, setResolved] = useState<{ username: string; displayName: string | null; avatarUrl: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!/^\d{17,20}$/.test(userId.trim())) return;
+    resolveDiscordUser(userId).then((r) => {
+      if (!cancelled && r.ok) setResolved(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  if (!resolved) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={resolved.avatarUrl}
+        alt=""
+        width={18}
+        height={18}
+        className="h-[18px] w-[18px] shrink-0 rounded-full border border-border object-cover"
+      />
+      <span className="truncate text-foreground">@{resolved.username}</span>
+      {resolved.displayName && (
+        <span className="truncate text-foreground-faint">({resolved.displayName})</span>
+      )}
+    </span>
+  );
+}
 
 /** Strip "@", profile URLs, and trailing path from a stored GitHub contact value. */
 function githubLoginOf(member: TeamMember): string | null {
@@ -332,7 +369,7 @@ const PLATFORM_PLACEHOLDER: Record<string, string> = {
   Instagram: "@handle",
   X: "@handle",
   GitHub: "username",
-  Discord: "username",
+  Discord: "user ID — 1234567890123456789",
   Website: "https://…",
 };
 
@@ -538,6 +575,7 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
                   {contact.label}
                 </span>
                 <span className="flex min-w-0 items-center gap-1.5 truncate text-sm text-foreground-muted tabular-nums">
+                  {contact.label === "Discord" && <DiscordUserChip userId={contact.value} />}
                   {ghRowLogin && (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
