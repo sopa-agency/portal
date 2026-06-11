@@ -17,6 +17,8 @@ const PUBLIC_PATHS = [
   // the skatehive.app signup checkbox posts to subscribe cross-origin.
   "/api/newsletter/unsubscribe",
   "/api/newsletter/subscribe",
+  // Server-to-server, gated by NEWSLETTER_API_SECRET inside the route.
+  "/api/newsletter/preference",
 ];
 
 // Hosts that serve the PUBLIC brand homepage instead of a portal — the apex

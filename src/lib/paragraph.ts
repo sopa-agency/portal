@@ -112,6 +112,14 @@ export async function addSubscriber(
   await call(apiKey, "/subscribers", { method: "POST", body: JSON.stringify(sub) });
 }
 
+/** Remove a subscriber by email (used when someone opts out from settings). */
+export async function removeSubscriber(apiKey: string, email: string): Promise<void> {
+  await call(apiKey, "/subscribers", {
+    method: "DELETE",
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  });
+}
+
 /**
  * Send a custom email to explicit recipients (max 10k). Markdown body.
  * GATED: requires Paragraph approval for the publication; throws the 403
