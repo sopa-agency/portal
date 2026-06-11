@@ -15,6 +15,8 @@ export type KanbanItem = {
   merged?: boolean;
   /** Issue/PR/draft body, GitHub-flavored markdown. */
   body?: string;
+  /** Content node id (Issue/PullRequest/DraftIssue) — needed to mutate assignees. */
+  contentId: string | null;
   assignees: { login: string; avatarUrl: string }[];
   labels: { name: string; color: string }[];
 };
@@ -63,6 +65,7 @@ const PROJECT_FRAGMENT = `
       type
       content {
         ... on Issue {
+          id
           title
           number
           url
@@ -82,6 +85,7 @@ const PROJECT_FRAGMENT = `
           }
         }
         ... on PullRequest {
+          id
           title
           number
           url
@@ -102,8 +106,15 @@ const PROJECT_FRAGMENT = `
           }
         }
         ... on DraftIssue {
+          id
           title
           body
+          assignees(first: 5) {
+            nodes {
+              login
+              avatarUrl
+            }
+          }
         }
       }
       fieldValues(first: 20) {
@@ -200,6 +211,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                 id: string;
                 type: string;
                 content?: {
+                  id?: string;
                   title?: string;
                   number?: number;
                   url?: string;
@@ -233,6 +245,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                 id: string;
                 type: string;
                 content?: {
+                  id?: string;
                   title?: string;
                   number?: number;
                   url?: string;
@@ -306,7 +319,8 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
         color: l.color, // GitHub returns hex WITHOUT the #
       }));
 
-      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, body, assignees, labels };
+      const contentId = content?.id ?? null;
+      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, body, contentId, assignees, labels };
 
       // Find the Status field value for this item
       const statusValue = node.fieldValues.nodes.find(
@@ -484,4 +498,72 @@ export async function deleteItem(args: {
       }
     }`;
   return githubGraphQL(args.token, query, args);
+}
+
+// ---------------------------------------------------------------------------
+// Assignees
+// ---------------------------------------------------------------------------
+
+/** Resolve GitHub logins → user node ids. Unknown logins are omitted. */
+export async function resolveUserIds(
+  token: string,
+  logins: string[],
+): Promise<Record<string, string>> {
+  const unique = [...new Set(logins.map((l) => l.trim()).filter(Boolean))];
+  if (unique.length === 0) return {};
+  const fields = unique
+    .map((login, i) => `u${i}: user(login: ${JSON.stringify(login)}) { id login }`)
+    .join("\n");
+  const res = await fetch("https://api.github.com/graphql", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: `query { ${fields} }` }),
+  });
+  const json = (await res.json()) as { data?: Record<string, { id: string; login: string } | null> };
+  const out: Record<string, string> = {};
+  for (const v of Object.values(json.data ?? {})) {
+    if (v?.id) out[v.login.toLowerCase()] = v.id;
+  }
+  return out;
+}
+
+/** Add/remove assignees on an Issue or PullRequest (content node id, not item id). */
+export async function setIssueAssignees(args: {
+  token: string;
+  contentId: string;
+  addIds: string[];
+  removeIds: string[];
+}): Promise<MutationResult> {
+  const parts: string[] = [];
+  if (args.addIds.length > 0) {
+    parts.push(`add: addAssigneesToAssignable(input: { assignableId: $contentId, assigneeIds: $addIds }) { clientMutationId }`);
+  }
+  if (args.removeIds.length > 0) {
+    parts.push(`remove: removeAssigneesFromAssignable(input: { assignableId: $contentId, assigneeIds: $removeIds }) { clientMutationId }`);
+  }
+  if (parts.length === 0) return { ok: true };
+  const query = `
+    mutation($contentId: ID!, $addIds: [ID!]!, $removeIds: [ID!]!) {
+      ${parts.join("\n")}
+    }`;
+  return githubGraphQL(args.token, query, {
+    contentId: args.contentId,
+    addIds: args.addIds,
+    removeIds: args.removeIds,
+  });
+}
+
+/** Replace the assignee set on a draft-issue card. */
+export async function setDraftAssignees(args: {
+  token: string;
+  draftId: string;
+  assigneeIds: string[];
+}): Promise<MutationResult> {
+  const query = `
+    mutation($draftId: ID!, $assigneeIds: [ID!]) {
+      updateProjectV2DraftIssue(input: { draftIssueId: $draftId, assigneeIds: $assigneeIds }) {
+        draftIssue { id }
+      }
+    }`;
+  return githubGraphQL(args.token, query, { draftId: args.draftId, assigneeIds: args.assigneeIds });
 }

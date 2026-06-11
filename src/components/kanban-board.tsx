@@ -352,7 +352,35 @@ function repoOf(url?: string): string | undefined {
   return m?.[1];
 }
 
-function CardDetailDialog({ item, onClose }: { item: KanbanItem; onClose: () => void }) {
+function CardDetailDialog({
+  item,
+  team,
+  onSetAssignees,
+  onClose,
+}: {
+  item: KanbanItem;
+  /** Teammates with a GitHub contact on their team card — the assign options. */
+  team: { username: string; login: string }[];
+  onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const canAssign = item.contentId != null && team.length > 0;
+
+  async function toggleAssignee(login: string) {
+    const has = item.assignees.some((a) => a.login.toLowerCase() === login.toLowerCase());
+    const desired = has
+      ? item.assignees.filter((a) => a.login.toLowerCase() !== login.toLowerCase()).map((a) => a.login)
+      : [...item.assignees.map((a) => a.login), login];
+    setAssignBusy(true);
+    try {
+      await onSetAssignees(item, desired);
+    } finally {
+      setAssignBusy(false);
+    }
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -427,22 +455,72 @@ function CardDetailDialog({ item, onClose }: { item: KanbanItem; onClose: () => 
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 border-t border-border p-4">
-          {item.assignees.length > 0 ? (
-            <div className="flex items-center gap-2">
-              <div className="flex -space-x-1.5">
-                {item.assignees.map((a) => (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} width={24} height={24}
-                    className="h-6 w-6 rounded-full object-cover ring-2 ring-surface-elevated" />
-                ))}
-              </div>
-              <span className="text-xs text-foreground-subtle">
-                {item.assignees.map((a) => `@${a.login}`).join(", ")}
-              </span>
-            </div>
-          ) : (
-            <span className="text-xs text-foreground-faint">Unassigned</span>
-          )}
+          <div className="relative flex min-w-0 items-center gap-2">
+            {item.assignees.length > 0 ? (
+              <>
+                <div className="flex -space-x-1.5">
+                  {item.assignees.map((a) => (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} width={24} height={24}
+                      className="h-6 w-6 rounded-full object-cover ring-2 ring-surface-elevated" />
+                  ))}
+                </div>
+                <span className="truncate text-xs text-foreground-subtle">
+                  {item.assignees.map((a) => `@${a.login}`).join(", ")}
+                </span>
+              </>
+            ) : (
+              <span className="text-xs text-foreground-faint">Unassigned</span>
+            )}
+            {canAssign && (
+              <button
+                type="button"
+                onClick={() => setAssignOpen((v) => !v)}
+                aria-expanded={assignOpen}
+                className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+              >
+                Assign
+              </button>
+            )}
+            {assignOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setAssignOpen(false)} />
+                <div className="absolute bottom-full left-0 z-20 mb-2 w-60 rounded-xl border border-border bg-surface-elevated py-1 shadow-xl">
+                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-foreground-faint">
+                    Team (GitHub from team cards)
+                  </p>
+                  {team.map((m) => {
+                    const checked = item.assignees.some(
+                      (a) => a.login.toLowerCase() === m.login.toLowerCase(),
+                    );
+                    return (
+                      <button
+                        key={m.login}
+                        type="button"
+                        disabled={assignBusy}
+                        onClick={() => toggleAssignee(m.login)}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground-muted transition-colors hover:bg-surface hover:text-foreground disabled:opacity-50"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`https://github.com/${m.login}.png?size=48`}
+                          alt={m.login}
+                          width={22}
+                          height={22}
+                          className="h-[22px] w-[22px] rounded-full object-cover"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] text-foreground">@{m.login}</span>
+                          <span className="block truncate text-[11px] text-foreground-subtle">{m.username}</span>
+                        </span>
+                        {checked && <span className="text-accent">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
           {item.url && (
             <a
               href={item.url}
@@ -464,7 +542,10 @@ function CardDetailDialog({ item, onClose }: { item: KanbanItem; onClose: () => 
 // Board
 // ---------------------------------------------------------------------------
 
-type Board = Extract<KanbanResult, { ok: true }>;
+type Board = Extract<KanbanResult, { ok: true }> & {
+  /** Portal-username → GitHub-login mapping sourced from the team cards. */
+  teamGithub?: { username: string; login: string }[];
+};
 
 export function KanbanBoard() {
   const [board, setBoard] = useState<Board | null>(null);
@@ -684,6 +765,38 @@ export function KanbanBoard() {
     }
   }
 
+  async function onSetAssignees(item: KanbanItem, logins: string[]) {
+    if (!board || !item.contentId) return;
+    const currentLogins = item.assignees.map((a) => a.login);
+    // Optimistic: GitHub avatars are predictable from the login.
+    const optimistic = logins.map(
+      (login) =>
+        item.assignees.find((a) => a.login.toLowerCase() === login.toLowerCase()) ?? {
+          login,
+          avatarUrl: `https://github.com/${login}.png?size=48`,
+        },
+    );
+    const patch = (i: KanbanItem) => (i.id === item.id ? { ...i, assignees: optimistic } : i);
+    setBoard((prev) =>
+      prev ? { ...prev, columns: prev.columns.map((c) => ({ ...c, items: c.items.map(patch) })) } : prev,
+    );
+    setDetailItem((prev) => (prev && prev.id === item.id ? { ...prev, assignees: optimistic } : prev));
+    try {
+      const r = await mutate({
+        action: "setAssignees",
+        projectId: board.projectId,
+        contentId: item.contentId,
+        itemType: item.type,
+        logins,
+        currentLogins,
+      });
+      if (!r.ok) throw new Error(r.error || "Failed to update assignees");
+    } catch (err) {
+      flash(err instanceof Error ? err.message : "Failed to update assignees");
+      await load();
+    }
+  }
+
   // --- render ---
   if (loading) {
     return (
@@ -782,7 +895,14 @@ export function KanbanBoard() {
         </DragOverlay>
       </DndContext>
 
-      {detailItem && <CardDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />}
+      {detailItem && (
+        <CardDetailDialog
+          item={detailItem}
+          team={board.teamGithub ?? []}
+          onSetAssignees={onSetAssignees}
+          onClose={() => setDetailItem(null)}
+        />
+      )}
     </div>
   );
 }

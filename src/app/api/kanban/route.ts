@@ -5,13 +5,44 @@ import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import {
   fetchGitHubProject,
   resolveGitHubToken,
+  resolveUserIds,
   setItemStatus,
   clearItemStatus,
   moveItemPosition,
   addDraftIssue,
   archiveItem,
   deleteItem,
+  setIssueAssignees,
+  setDraftAssignees,
 } from "@/lib/github-project";
+import { prisma } from "@/lib/prisma";
+
+/** Strip "@", full profile URLs, and whitespace from a stored GitHub contact value. */
+function normalizeGithubLogin(value: string): string {
+  return value
+    .trim()
+    .replace(/^https?:\/\/(www\.)?github\.com\//i, "")
+    .replace(/^@/, "")
+    .replace(/\/.*$/, "")
+    .trim();
+}
+
+/** Portal-username → GitHub-login mapping from the team cards' GitHub contacts. */
+async function teamGithubLogins(projectSlug: string): Promise<{ username: string; login: string }[]> {
+  const rows = await prisma.teamMemberContact.findMany({
+    where: { projectSlug, label: "GitHub" },
+    select: { username: true, value: true },
+  });
+  const seen = new Set<string>();
+  const out: { username: string; login: string }[] = [];
+  for (const r of rows) {
+    const login = normalizeGithubLogin(r.value);
+    if (!login || seen.has(login.toLowerCase())) continue;
+    seen.add(login.toLowerCase());
+    out.push({ username: r.username, login });
+  }
+  return out;
+}
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,8 +57,11 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await fetchGitHubProject(project);
-  return NextResponse.json(result);
+  const [result, teamGithub] = await Promise.all([
+    fetchGitHubProject(project),
+    teamGithubLogins(project.slug).catch(() => []),
+  ]);
+  return NextResponse.json(result.ok ? { ...result, teamGithub } : result);
 }
 
 // ---------------------------------------------------------------------------
@@ -37,7 +71,7 @@ export async function GET() {
 // ---------------------------------------------------------------------------
 
 type Body = {
-  action: "setStatus" | "clearStatus" | "move" | "addDraft" | "archive" | "delete";
+  action: "setStatus" | "clearStatus" | "move" | "addDraft" | "archive" | "delete" | "setAssignees";
   projectId?: string;
   fieldId?: string;
   itemId?: string;
@@ -45,6 +79,13 @@ type Body = {
   afterId?: string | null;
   title?: string;
   body?: string;
+  // setAssignees
+  contentId?: string;
+  itemType?: "issue" | "pr" | "draft";
+  /** Desired final assignee set (GitHub logins). */
+  logins?: string[];
+  /** Assignees currently on the item — used to diff add/remove for issues/PRs. */
+  currentLogins?: string[];
 };
 
 export async function POST(req: Request) {
@@ -105,6 +146,35 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "itemId required" }, { status: 400 });
       result = await deleteItem({ token, projectId, itemId });
       break;
+    case "setAssignees": {
+      const { contentId, itemType, logins, currentLogins } = body;
+      if (!contentId || !itemType || !Array.isArray(logins))
+        return NextResponse.json(
+          { ok: false, error: "contentId, itemType, logins required" },
+          { status: 400 },
+        );
+      const desired = [...new Set(logins.map((l) => l.toLowerCase()))];
+      const current = [...new Set((currentLogins ?? []).map((l) => l.toLowerCase()))];
+      const ids = await resolveUserIds(token, [...desired, ...current]);
+      const missing = desired.filter((l) => !ids[l]);
+      if (missing.length > 0)
+        return NextResponse.json(
+          { ok: false, error: `Unknown GitHub user(s): ${missing.join(", ")}` },
+          { status: 400 },
+        );
+      if (itemType === "draft") {
+        result = await setDraftAssignees({
+          token,
+          draftId: contentId,
+          assigneeIds: desired.map((l) => ids[l]),
+        });
+      } else {
+        const addIds = desired.filter((l) => !current.includes(l)).map((l) => ids[l]);
+        const removeIds = current.filter((l) => !desired.includes(l) && ids[l]).map((l) => ids[l]);
+        result = await setIssueAssignees({ token, contentId, addIds, removeIds });
+      }
+      break;
+    }
     default:
       return NextResponse.json({ ok: false, error: `Unknown action: ${action}` }, { status: 400 });
   }
