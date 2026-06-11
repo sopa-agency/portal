@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useTransition, useCallback } from "react";
-import { MessageSquarePlus, Loader2, X, Trash2 } from "lucide-react";
+import { MessageSquarePlus, Loader2, X, Trash2, RefreshCw, CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   listInsightFeedback,
   addInsightFeedback,
   removeInsightFeedback,
 } from "@/app/actions/insight-feedback";
+import { regenerateBriefing } from "@/app/actions/briefings";
 import type { FeedbackKind, FeedbackNote } from "@/lib/insight-feedback";
 
 function relativeTime(iso: string): string {
@@ -42,6 +44,25 @@ export function FeedbackButton({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [regen, setRegen] = useState<"idle" | "busy" | "done" | "error">("idle");
+  const router = useRouter();
+
+  // Briefings can be regenerated straight from this dialog so corrections take
+  // effect immediately instead of silently waiting for the next manual run.
+  const canRegenerate = kind === "briefing" && !!channelKey;
+
+  async function applyNow() {
+    if (!canRegenerate || regen === "busy") return;
+    setRegen("busy");
+    const r = await regenerateBriefing(channelKey!);
+    if (r.ok) {
+      setRegen("done");
+      router.refresh();
+    } else {
+      setRegen("error");
+      setError(r.error ?? "Regeneration failed");
+    }
+  }
 
   // Lazily fetch the count once so the badge reflects existing feedback.
   useEffect(() => {
@@ -167,6 +188,31 @@ export function FeedbackButton({
                 </button>
               </div>
               {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+
+              {canRegenerate && notes.length > 0 && (
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-accent-border bg-accent-bg px-3 py-2.5">
+                  <p className="text-xs text-foreground-muted">
+                    {regen === "done"
+                      ? "Briefing regenerated with the corrections applied."
+                      : "Corrections only take effect on the next generation."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={applyNow}
+                    disabled={regen === "busy" || regen === "done"}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-60"
+                  >
+                    {regen === "busy" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : regen === "done" ? (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    {regen === "busy" ? "Regenerating…" : regen === "done" ? "Done" : "Apply now — regenerate"}
+                  </button>
+                </div>
+              )}
 
               <div className="mt-5 border-t border-border pt-4">
                 <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-foreground-subtle">

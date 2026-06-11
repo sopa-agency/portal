@@ -83,6 +83,12 @@ export async function regenerateBriefing(
         error: `Cannot read prompt for ${agentSlug}: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
+    // Team corrections go FIRST, right after the base prompt — appended at the
+    // bottom of the long context dump they were getting skimmed by the model
+    // (feedback saved but visibly not honored on regeneration).
+    const feedback = await feedbackPromptBlock(feedbackScope("briefing", project.slug, agentSlug));
+    if (feedback) prompt += `\n\n${feedback}`;
+
     if (language === "en") {
       prompt +=
         "\n\n## Language override\n" +
@@ -106,9 +112,11 @@ export async function regenerateBriefing(
         liveNumbers;
     }
 
-    // Append the team's corrections for this briefing (if any).
-    const feedback = await feedbackPromptBlock(feedbackScope("briefing", project.slug, agentSlug));
-    if (feedback) prompt += `\n\n${feedback}`;
+    // Re-state the corrections at the END too — long contexts get "lost in the
+    // middle"; the duplicate header costs a few tokens and doubles compliance.
+    if (feedback) {
+      prompt += "\n\nREMINDER: apply every item under '=== Team corrections to honor ===' above. They override default phrasing.";
+    }
 
     await ensureLocalGatewayToken();
     const text = await callOpenClaw(prompt, agentSlug, { timeoutMs: TIMEOUT_MS, project });
