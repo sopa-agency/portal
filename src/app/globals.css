@@ -145,3 +145,87 @@ body {
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Studio (vendored from r4topunk/reelflip-studio) — token bridge + brand fonts.
+   The studio's shadcn-style UI expects the full shadcn variable set; we map it
+   onto the portal tokens, so both themes work without touching vendored code.
+   The artwork canvas itself uses fixed brand colors (lib/studio/tokens.ts). */
+
+@font-face {
+  font-family: "TOOM";
+  src: url("/studio/fonts/TOOM-Regular.otf") format("opentype");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "TOOM";
+  src: url("/studio/fonts/TOOM-Bold-Italic.otf") format("opentype");
+  font-weight: 700;
+}
+@font-face {
+  font-family: "Bazinga";
+  src: url("/studio/fonts/Bazinga-Regular.otf") format("opentype");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "MADE GoodTime Grotesk";
+  src: url("/studio/fonts/MADE-GoodTime-Grotesk.otf") format("opentype");
+  font-weight: 400;
+}
+
+:root {
+  --card: var(--surface-elevated);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface-elevated);
+  --popover-foreground: var(--foreground);
+  --primary: var(--accent);
+  --primary-foreground: var(--background);
+  --secondary: var(--surface-elevated);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-elevated);
+  --muted-foreground: var(--foreground-muted);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--background);
+  --input: var(--border);
+  --ring: var(--accent);
+  --selection: var(--accent);
+  --radius: 0.625rem;
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--accent);
+  --sidebar-primary: var(--accent);
+  --sidebar-primary-foreground: var(--background);
+  --sidebar-accent: var(--surface-elevated);
+  --sidebar-accent-foreground: var(--foreground);
+}
+
+@theme inline {
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-selection: var(--selection);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}

@@ -1,0 +1,55 @@
+import { NextRequest } from "next/server";
+import satori from "satori";
+import { Resvg } from "@resvg/resvg-js";
+import { cookies } from "next/headers";
+import { CardArtwork } from "@/components/studio/card-artwork";
+import { ZCard } from "@/lib/studio/schema";
+import { CARD_W, CARD_H } from "@/lib/studio/tokens";
+import { loadFonts, loadAssets, resolveImg } from "@/lib/studio/render-assets.server";
+import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { getActiveProject } from "@/projects/index";
+
+export const runtime = "nodejs";
+
+// POST { card: Card } -> image/png 1080x1350. Session-gated (the proxy already
+// blocks anonymous traffic; this is defense in depth for direct invocations).
+export async function POST(req: NextRequest) {
+  try {
+    const project = await getActiveProject();
+    const cookieStore = await cookies();
+    const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+    if (!session) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
+    const body = await req.json();
+    const parsed = ZCard.safeParse(body?.card);
+    if (!parsed.success) {
+      return new Response(JSON.stringify({ error: "card inválido" }), {
+        status: 422,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    let card = parsed.data;
+    if ("imagem" in card && card.imagem) {
+      card = { ...card, imagem: await resolveImg(card.imagem) };
+    }
+    const [fonts, assets] = await Promise.all([loadFonts(), loadAssets()]);
+
+    const svg = await satori(CardArtwork({ card, assets }) as React.ReactElement, {
+      width: CARD_W,
+      height: CARD_H,
+      fonts: fonts.map((f) => ({ name: f.name, data: f.data, weight: f.weight, style: f.style })),
+    });
+
+    const png = new Resvg(svg, { fitTo: { mode: "width", value: CARD_W } }).render().asPng();
+    return new Response(new Uint8Array(png), {
+      headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}

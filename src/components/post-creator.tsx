@@ -57,6 +57,15 @@ import {
   buildGenerateCaptionPrompt,
   buildImproveCaptionPrompt,
 } from "@/lib/post-creator-prompts";
+import dynamic from "next/dynamic";
+import { Toaster as StudioToaster } from "@/components/studio/ui/sonner";
+
+// Studio (vendored Figma-like design tool) — heavy + browser-only, so it loads
+// on demand when the tab opens.
+const StudioEditor = dynamic(
+  () => import("@/components/studio/editor").then((m) => m.Editor),
+  { ssr: false },
+);
 
 const CAPTION_MAX = 2200;
 const COMMENT_MAX = 2200;
@@ -98,7 +107,7 @@ const POST_TYPES: { value: PostType; label: string; hint: string }[] = [
 ];
 
 type AspectRatio = "1:1" | "4:5" | "1.91:1" | "9:16";
-type ViewTab = "create" | "drafts" | "calendar";
+type ViewTab = "create" | "studio" | "drafts" | "calendar";
 
 // Step IDs — used to compute the visible sequence
 type StepId =
@@ -1788,8 +1797,16 @@ export function PostCreator({
       .finally(() => setDraftsLoading(false));
   }, []);
 
+  // Studio seeding sets postType + uploads together — the type-reset effect
+  // below must skip exactly that one transition.
+  const studioSeedRef = useRef(false);
+
   // Reset uploads when type changes (keep caption)
   useEffect(() => {
+    if (studioSeedRef.current) {
+      studioSeedRef.current = false;
+      return;
+    }
     setUploads([]);
     setUploadError(null);
     setUserTags([]);
@@ -2112,6 +2129,42 @@ export function PostCreator({
         setAiError(res.error);
       }
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Studio → post: upload the rendered cards and seed the wizard
+  // ---------------------------------------------------------------------------
+
+  async function handleUseInPost(files: File[], legenda: string) {
+    const capped = files.slice(0, 10); // Instagram carousel hard limit
+    const seeded: UploadState[] = [];
+    for (const file of capped) {
+      let result = await uploadMediaDirect(file);
+      if (!result.ok) {
+        const fd = new FormData();
+        fd.set("file", file);
+        result = await uploadPostMedia(fd);
+      }
+      if (!result.ok) throw new Error(result.error);
+      seeded.push({ url: result.url, previewUrl: URL.createObjectURL(file), isVideo: false, aspect: 1080 / 1350 });
+    }
+
+    const nextType: PostType = seeded.length > 1 ? "CAROUSEL" : "IMAGE";
+    if (nextType !== postType) studioSeedRef.current = true;
+    setPostType(nextType);
+    setUploads(seeded);
+    if (legenda.trim()) setCaption(legenda.trim());
+    setAspectRatio("4:5");
+    setAspectTouched(true);
+    setUserTags([]);
+    resetCover();
+    setCurrentDraftId(null);
+    setLoadedStatus(null);
+    setLoadedPermalink(null);
+    setPublishResult(null);
+    setUploadError(null);
+    setViewTab("create");
+    navigate("caption", "forward");
   }
 
   // ---------------------------------------------------------------------------
@@ -3474,6 +3527,12 @@ export function PostCreator({
             label="Create"
           />
           <TabButton
+            active={viewTab === "studio"}
+            onClick={() => setViewTab("studio")}
+            icon={<Sparkles className="h-3.5 w-3.5" />}
+            label="Studio"
+          />
+          <TabButton
             active={viewTab === "drafts"}
             onClick={() => setViewTab("drafts")}
             icon={<LayoutList className="h-3.5 w-3.5" />}
@@ -3509,6 +3568,16 @@ export function PostCreator({
           </div>
         )}
       </div>
+
+      {/* -------------------------------------------------------------------- */}
+      {/* Studio view — vendored reelflip-studio design tool                    */}
+      {/* -------------------------------------------------------------------- */}
+      {viewTab === "studio" && (
+        <section className="h-[calc(100dvh-11rem)] min-h-[480px] overflow-hidden rounded-2xl border border-border">
+          <StudioEditor onUseInPost={handleUseInPost} />
+          <StudioToaster />
+        </section>
+      )}
 
       {/* -------------------------------------------------------------------- */}
       {/* Drafts view                                                           */}

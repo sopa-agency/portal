@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Native addon (Studio's SVG→PNG renderer) — must stay external to the bundle.
+  serverExternalPackages: ["@resvg/resvg-js"],
   allowedDevOrigins: [
     "100.101.51.48",
     "192.168.15.5",
