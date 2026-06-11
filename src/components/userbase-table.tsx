@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useMemo, useState, useTransition } from "react";
 import { Search, Mail, Copy, Check, Pencil, Loader2, AtSign } from "lucide-react";
 import { setUserbaseInstagram, type UserbaseEmailUser } from "@/app/actions/userbase";
+import { UserbaseUserCard } from "@/components/userbase-user-card";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -169,6 +170,7 @@ export function UserbaseTable({
   subscriptionPartial?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [cardUser, setCardUser] = useState<UserbaseEmailUser | null>(null);
   const subscribedSet = useMemo(
     () => (subscribedEmails ? new Set(subscribedEmails) : null),
     [subscribedEmails],
@@ -251,7 +253,12 @@ export function UserbaseTable({
               {filtered.map((u) => (
                 <tr key={u.id} className="border-b border-border/60 last:border-b-0">
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setCardUser(u)}
+                      aria-label={`Open card for ${u.handle ?? u.email}`}
+                      className="flex min-w-0 items-center gap-3 rounded-lg text-left transition-opacity hover:opacity-80"
+                    >
                       <Avatar user={u} />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-foreground">
@@ -261,7 +268,7 @@ export function UserbaseTable({
                           {u.handle ? `@${u.handle}` : "no handle"}
                         </p>
                       </div>
-                    </div>
+                    </button>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 min-w-0">
@@ -312,6 +319,8 @@ export function UserbaseTable({
           </table>
         </div>
       </div>
+
+      {cardUser && <UserbaseUserCard user={cardUser} onClose={() => setCardUser(null)} />}
     </div>
   );
 }

@@ -182,6 +182,202 @@ export async function setUserbaseInstagram(
 }
 
 // ---------------------------------------------------------------------------
+// User detail card — full database row + identities, and on-demand Hive /
+// Farcaster profile lookups for the card's tabs.
+// ---------------------------------------------------------------------------
+
+export type UserbaseIdentity = {
+  type: string;
+  handle: string | null;
+  address: string | null;
+  externalId: string | null;
+  isPrimary: boolean;
+  verifiedAt: string | null;
+};
+
+export type UserbaseUserDetail = {
+  id: string;
+  handle: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  coverUrl: string | null;
+  bio: string | null;
+  location: string | null;
+  status: string | null;
+  onboardingStep: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  emails: { email: string; linkedAt: string }[];
+  identities: UserbaseIdentity[];
+};
+
+export async function getUserbaseUserDetail(
+  userId: string,
+): Promise<{ ok: true; user: UserbaseUserDetail } | { ok: false; error: string }> {
+  try {
+    await editGate();
+    const client = getUserbaseClient();
+    if (!client) return { ok: false, error: "Supabase userbase not configured." };
+
+    const [userRes, identRes, emailRes] = await Promise.all([
+      client.from("userbase_users").select("*").eq("id", userId).maybeSingle(),
+      client
+        .from("userbase_identities")
+        .select("type, handle, address, external_id, is_primary, verified_at")
+        .eq("user_id", userId)
+        .order("type"),
+      client
+        .from("userbase_auth_methods")
+        .select("identifier, created_at")
+        .eq("user_id", userId)
+        .eq("type", "email_magic")
+        .order("created_at", { ascending: false }),
+    ]);
+    if (userRes.error) return { ok: false, error: userRes.error.message };
+    if (!userRes.data) return { ok: false, error: "User not found." };
+    const u = userRes.data;
+
+    return {
+      ok: true,
+      user: {
+        id: u.id,
+        handle: u.handle ?? null,
+        displayName: u.display_name ?? null,
+        avatarUrl: u.avatar_url ?? null,
+        coverUrl: u.cover_url ?? null,
+        bio: u.bio ?? null,
+        location: u.location ?? null,
+        status: u.status ?? null,
+        onboardingStep: u.onboarding_step ?? null,
+        createdAt: u.created_at ?? null,
+        updatedAt: u.updated_at ?? null,
+        emails: (emailRes.data ?? []).map((r) => ({ email: r.identifier as string, linkedAt: r.created_at as string })),
+        identities: (identRes.data ?? []).map((r) => ({
+          type: r.type as string,
+          handle: (r.handle as string | null) ?? null,
+          address: (r.address as string | null) ?? null,
+          externalId: (r.external_id as string | null) ?? null,
+          isPrimary: !!r.is_primary,
+          verifiedAt: (r.verified_at as string | null) ?? null,
+        })),
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type HiveInfo = {
+  username: string;
+  about: string | null;
+  location: string | null;
+  reputation: number | null;
+  postCount: number | null;
+  followers: number | null;
+  following: number | null;
+  created: string | null;
+};
+
+export async function getHiveInfo(
+  username: string,
+): Promise<{ ok: true; info: HiveInfo } | { ok: false; error: string }> {
+  try {
+    await editGate();
+    const res = await fetch("https://api.hive.blog", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "bridge.get_profile",
+        params: { account: username.toLowerCase() },
+        id: 1,
+      }),
+      cache: "no-store",
+    });
+    const json = (await res.json()) as {
+      result?: {
+        name: string;
+        created: string;
+        post_count: number;
+        reputation: number;
+        stats?: { followers?: number; following?: number };
+        metadata?: { profile?: { about?: string; location?: string } };
+      };
+      error?: { message?: string };
+    };
+    if (!json.result) return { ok: false, error: json.error?.message ?? `Hive account @${username} not found.` };
+    const r = json.result;
+    return {
+      ok: true,
+      info: {
+        username: r.name,
+        about: r.metadata?.profile?.about ?? null,
+        location: r.metadata?.profile?.location ?? null,
+        reputation: r.reputation ?? null,
+        postCount: r.post_count ?? null,
+        followers: r.stats?.followers ?? null,
+        following: r.stats?.following ?? null,
+        created: r.created ?? null,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type FarcasterInfo = {
+  fid: number;
+  username: string;
+  displayName: string | null;
+  pfpUrl: string | null;
+  bio: string | null;
+  followers: number | null;
+  following: number | null;
+};
+
+export async function getFarcasterInfo(
+  fid: string,
+): Promise<{ ok: true; info: FarcasterInfo } | { ok: false; error: string }> {
+  try {
+    await editGate();
+    const apiKey = process.env.NEYNAR_API_KEY;
+    if (!apiKey) return { ok: false, error: "NEYNAR_API_KEY not set." };
+    if (!/^\d+$/.test(fid.trim())) return { ok: false, error: "Invalid fid." };
+    const res = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid.trim()}`, {
+      headers: { "x-api-key": apiKey },
+      cache: "no-store",
+    });
+    const json = (await res.json()) as {
+      users?: Array<{
+        fid: number;
+        username: string;
+        display_name?: string;
+        pfp_url?: string;
+        profile?: { bio?: { text?: string } };
+        follower_count?: number;
+        following_count?: number;
+      }>;
+    };
+    const u = json.users?.[0];
+    if (!u) return { ok: false, error: `Farcaster user fid ${fid} not found.` };
+    return {
+      ok: true,
+      info: {
+        fid: u.fid,
+        username: u.username,
+        displayName: u.display_name ?? null,
+        pfpUrl: u.pfp_url ?? null,
+        bio: u.profile?.bio?.text ?? null,
+        followers: u.follower_count ?? null,
+        following: u.following_count ?? null,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Paragraph (paragraph.com) — subscriber sync for the newsletter publication.
 // ---------------------------------------------------------------------------
 
