@@ -334,7 +334,10 @@ export function Editor({
     try { raw = window.localStorage.getItem(STORAGE_KEY); } catch { return; }
     if (!raw) return;
     try {
-      const parsed = ZCarousel.safeParse(JSON.parse(raw));
+      // Portal adaptation: docs salvos no app standalone usam /posts/… — no
+      // portal os samples vivem em /studio/posts/…. Migra no restore.
+      const migrated = raw.replaceAll('"/posts/', '"/studio/posts/');
+      const parsed = ZCarousel.safeParse(JSON.parse(migrated));
       if (!parsed.success || !parsed.data.cards.length) return;
       replaceDoc(normalizeDoc(parsed.data));
     } catch { /* ignora restauro corrompido — segue com o seed */ }
