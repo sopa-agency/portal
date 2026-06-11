@@ -3,18 +3,24 @@ import { cookies } from "next/headers";
 import { getActiveProject } from "@/projects";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import {
-  fetchAssignableUsers,
-  fetchGitHubProject,
-  resolveGitHubToken,
-  resolveUserIds,
-  setItemStatus,
-  clearItemStatus,
-  moveItemPosition,
+  addItemComment,
   addDraftIssue,
   archiveItem,
+  clearItemStatus,
+  createRepoIssue,
   deleteItem,
-  setIssueAssignees,
+  fetchAssignableUsers,
+  fetchGitHubProject,
+  fetchItemComments,
+  fetchRepoMeta,
+  moveItemPosition,
+  resolveGitHubToken,
+  resolveUserIds,
   setDraftAssignees,
+  setIssueAssignees,
+  setItemLabels,
+  setItemStatus,
+  updateItemContent,
 } from "@/lib/github-project";
 import { prisma } from "@/lib/prisma";
 
@@ -115,7 +121,9 @@ export async function GET() {
 // ---------------------------------------------------------------------------
 
 type Body = {
-  action: "setStatus" | "clearStatus" | "move" | "addDraft" | "archive" | "delete" | "setAssignees";
+  action:
+    | "setStatus" | "clearStatus" | "move" | "addDraft" | "archive" | "delete" | "setAssignees"
+    | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "createIssue";
   projectId?: string;
   fieldId?: string;
   itemId?: string;
@@ -130,6 +138,14 @@ type Body = {
   logins?: string[];
   /** Assignees currently on the item — used to diff add/remove for issues/PRs. */
   currentLogins?: string[];
+  // updateContent / createIssue / addComment
+  newTitle?: string;
+  newBody?: string;
+  // repoMeta / createIssue — "owner/name"
+  repo?: string;
+  // setLabels
+  addLabelIds?: string[];
+  removeLabelIds?: string[];
 };
 
 export async function POST(req: Request) {
@@ -217,6 +233,64 @@ export async function POST(req: Request) {
         const removeIds = current.filter((l) => !desired.includes(l) && ids[l]).map((l) => ids[l]);
         result = await setIssueAssignees({ token, contentId, addIds, removeIds });
       }
+      break;
+    }
+    case "updateContent": {
+      const { contentId, itemType, newTitle, newBody } = body;
+      if (!contentId || !itemType || !newTitle?.trim())
+        return NextResponse.json({ ok: false, error: "contentId, itemType, newTitle required" }, { status: 400 });
+      result = await updateItemContent({
+        token,
+        type: itemType,
+        contentId,
+        title: newTitle.trim(),
+        body: newBody ?? "",
+      });
+      break;
+    }
+    case "getComments": {
+      if (!body.contentId)
+        return NextResponse.json({ ok: false, error: "contentId required" }, { status: 400 });
+      result = await fetchItemComments(token, body.contentId);
+      break;
+    }
+    case "addComment": {
+      if (!body.contentId || !body.newBody?.trim())
+        return NextResponse.json({ ok: false, error: "contentId, newBody required" }, { status: 400 });
+      result = await addItemComment({ token, contentId: body.contentId, body: body.newBody.trim() });
+      break;
+    }
+    case "repoMeta": {
+      const [owner, name] = (body.repo ?? "").split("/");
+      if (!owner || !name)
+        return NextResponse.json({ ok: false, error: "repo (owner/name) required" }, { status: 400 });
+      result = await fetchRepoMeta(token, owner, name);
+      break;
+    }
+    case "setLabels": {
+      if (!body.contentId)
+        return NextResponse.json({ ok: false, error: "contentId required" }, { status: 400 });
+      result = await setItemLabels({
+        token,
+        contentId: body.contentId,
+        addIds: body.addLabelIds ?? [],
+        removeIds: body.removeLabelIds ?? [],
+      });
+      break;
+    }
+    case "createIssue": {
+      const [owner, name] = (body.repo ?? "").split("/");
+      if (!owner || !name || !body.newTitle?.trim())
+        return NextResponse.json({ ok: false, error: "repo, newTitle required" }, { status: 400 });
+      const meta = await fetchRepoMeta(token, owner, name);
+      if (!meta.ok) { result = meta; break; }
+      result = await createRepoIssue({
+        token,
+        projectId,
+        repoId: meta.repoId,
+        title: body.newTitle.trim(),
+        body: body.newBody,
+      });
       break;
     }
     default:

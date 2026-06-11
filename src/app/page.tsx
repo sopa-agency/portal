@@ -74,11 +74,16 @@ export default async function Home() {
   const today = todayIsoDate();
   const project = await getActiveProject();
   const briefingAgents = project.briefingAgents;
+  // Instagram leads the socials pane (and the band) — it's the primary channel.
+  const socials = [...project.socials].sort((a, b) => {
+    const ig = (p: string) => (p.toLowerCase() === "instagram" ? 0 : 1);
+    return ig(a.platform) - ig(b.platform);
+  });
 
   const [briefResults, channelMetrics] = await Promise.all([
     Promise.all(briefingAgents.map((a) => loadLatestBriefing(a))),
     Promise.all(
-      project.socials.map((s) =>
+      socials.map((s) =>
         fetchChannelMetrics(s.platform, s.metricsAccount ?? s.handle?.replace(/^@/, ""), project).catch(
           () => null,
         ),
@@ -111,7 +116,7 @@ export default async function Home() {
   }
 
   // --- right pane: one tab per social channel ------------------------------
-  const channelTabs: SplitTab[] = project.socials.map((channel) => ({
+  const channelTabs: SplitTab[] = socials.map((channel) => ({
     slug: channel.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     label: channel.platform,
     content: <ChannelStrategy channel={channel} agentName={project.agent.displayName} />,
@@ -125,7 +130,7 @@ export default async function Home() {
       sub: freshBriefs === briefTabs.length && briefTabs.length > 0 ? "fresh today" : "stale — regenerate",
       tone: freshBriefs === briefTabs.length && briefTabs.length > 0 ? "ok" : "warn",
     },
-    ...project.socials.map((s, i): BandTile => {
+    ...socials.map((s, i): BandTile => {
       const m = channelMetrics[i];
       if (m && m.ok && m.followers != null) {
         return { label: s.platform, value: formatNumber(m.followers), delta: m.followersDelta7d };

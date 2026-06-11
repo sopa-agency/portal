@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -28,8 +28,12 @@ import {
   SquareDashed,
   ExternalLink,
   Loader2,
+  MessageSquare,
+  Pencil,
   Plus,
   Archive,
+  Send,
+  Tag,
   Trash2,
   X,
   GripVertical,
@@ -227,19 +231,23 @@ function ColumnView({
   onArchive,
   onDelete,
   onAddDraft,
+  issueRepo,
   onOpen,
   busy,
 }: {
   column: KanbanColumn;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
-  onAddDraft: (columnName: string, title: string) => void;
+  onAddDraft: (columnName: string, title: string, kind: "draft" | "issue") => void;
+  /** owner/name of the board's primary repo — enables the "Issue" kind. */
+  issueRepo?: string | null;
   onOpen: (item: KanbanItem) => void;
   busy: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `container:${column.name}` });
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
+  const [kind, setKind] = useState<"draft" | "issue">("draft");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -248,7 +256,7 @@ function ColumnView({
 
   function submit() {
     const t = draft.trim();
-    if (t) onAddDraft(column.name, t);
+    if (t) onAddDraft(column.name, t, kind);
     setDraft("");
     setAdding(false);
   }
@@ -301,11 +309,31 @@ function ColumnView({
                   setAdding(false);
                 }
               }}
-              placeholder="Draft title… (Enter to add, Esc to cancel)"
+              placeholder={kind === "issue" ? "Issue title… (Enter to add, Esc to cancel)" : "Draft title… (Enter to add, Esc to cancel)"}
               rows={2}
               className="w-full resize-none rounded-md bg-surface px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
             />
-            <div className="mt-1.5 flex items-center justify-end gap-1.5">
+            <div className="mt-1.5 flex items-center justify-between gap-1.5">
+              {issueRepo ? (
+                <div className="flex gap-0.5 rounded-md bg-surface p-0.5">
+                  {(["draft", "issue"] as const).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setKind(k)}
+                      title={k === "issue" ? `Creates a real issue in ${issueRepo}` : "Board-only draft card"}
+                      className={`rounded px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide transition-colors ${
+                        kind === k ? "bg-surface-elevated text-accent shadow-sm" : "text-foreground-faint hover:text-foreground"
+                      }`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span />
+              )}
+              <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => { setDraft(""); setAdding(false); }}
@@ -322,6 +350,7 @@ function ColumnView({
               >
                 Add
               </button>
+              </div>
             </div>
           </div>
         )}
@@ -356,17 +385,69 @@ function CardDetailDialog({
   item,
   team,
   onSetAssignees,
+  onMutate,
+  onPatchItem,
   onClose,
 }: {
   item: KanbanItem;
   /** Assignable collaborators (with portal username when team-card-mapped). */
   team: { login: string; avatarUrl: string; username: string | null }[];
   onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
+  onMutate: MutateFn;
+  onPatchItem: (itemId: string, patch: Partial<KanbanItem>) => void;
   onClose: () => void;
 }) {
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignBusy, setAssignBusy] = useState(false);
   const canAssign = item.contentId != null && team.length > 0;
+
+  // --- edit mode (title/body — issues, PRs, drafts) ---
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(item.title);
+  const [draftBody, setDraftBody] = useState(item.body ?? "");
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // --- comments (issues + PRs) ---
+  const canComment = item.type !== "draft" && !!item.contentId;
+  const [comments, setComments] = useState<ItemComment[] | null>(null);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentBusy, setCommentBusy] = useState(false);
+
+  // --- labels (issues + PRs, repo derived from the item URL) ---
+  const repo = repoOf(item.url);
+  const canLabel = item.type !== "draft" && !!item.contentId && !!repo;
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const [repoLabels, setRepoLabels] = useState<RepoLabel[] | null>(null);
+  const [labelBusy, setLabelBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  // Comments load once per dialog open.
+  useEffect(() => {
+    if (!canComment) return;
+    let cancelled = false;
+    onMutate({ action: "getComments", contentId: item.contentId }).then((r) => {
+      if (cancelled) return;
+      if (r.ok && r.comments) setComments(r.comments);
+      else setCommentsError(r.error ?? "Couldn't load comments");
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.contentId]);
 
   async function toggleAssignee(login: string) {
     const has = item.assignees.some((a) => a.login.toLowerCase() === login.toLowerCase());
@@ -381,17 +462,69 @@ function CardDetailDialog({
     }
   }
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [onClose]);
+  async function saveEdit() {
+    if (!item.contentId || saving) return;
+    const title = draftTitle.trim();
+    if (!title) return;
+    setSaving(true);
+    setEditError(null);
+    const r = await onMutate({
+      action: "updateContent",
+      contentId: item.contentId,
+      itemType: item.type,
+      newTitle: title,
+      newBody: draftBody,
+    });
+    setSaving(false);
+    if (r.ok) {
+      onPatchItem(item.id, { title, body: draftBody });
+      setEditing(false);
+    } else {
+      setEditError(r.error ?? "Save failed");
+    }
+  }
+
+  async function sendComment() {
+    const text = commentDraft.trim();
+    if (!text || !item.contentId || commentBusy) return;
+    setCommentBusy(true);
+    const r = await onMutate({ action: "addComment", contentId: item.contentId, newBody: text });
+    if (r.ok) {
+      setCommentDraft("");
+      const refreshed = await onMutate({ action: "getComments", contentId: item.contentId });
+      if (refreshed.ok && refreshed.comments) setComments(refreshed.comments);
+    } else {
+      setCommentsError(r.error ?? "Comment failed");
+    }
+    setCommentBusy(false);
+  }
+
+  async function openLabels() {
+    setLabelsOpen((v) => !v);
+    if (repoLabels || !repo) return;
+    const r = await onMutate({ action: "repoMeta", repo });
+    if (r.ok && r.labels) setRepoLabels(r.labels);
+  }
+
+  async function toggleLabel(label: RepoLabel) {
+    if (!item.contentId || labelBusy) return;
+    const has = item.labels.some((l) => l.id === label.id);
+    setLabelBusy(label.id);
+    const r = await onMutate({
+      action: "setLabels",
+      contentId: item.contentId,
+      addLabelIds: has ? [] : [label.id],
+      removeLabelIds: has ? [label.id] : [],
+    });
+    if (r.ok) {
+      onPatchItem(item.id, {
+        labels: has
+          ? item.labels.filter((l) => l.id !== label.id)
+          : [...item.labels, { id: label.id, name: label.name, color: label.color }],
+      });
+    }
+    setLabelBusy(null);
+  }
 
   return (
     <div
@@ -402,12 +535,12 @@ function CardDetailDialog({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl"
+        className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-border p-5">
-          <div className="min-w-0 space-y-2">
+          <div className="min-w-0 flex-1 space-y-2">
             <div className="flex items-center gap-2">
               <TypeIcon type={item.type} />
               {item.number != null && (
@@ -415,41 +548,200 @@ function CardDetailDialog({
               )}
               <StateBadge item={item} />
             </div>
-            <h3 className="text-lg font-semibold leading-snug text-foreground">{item.title}</h3>
-            {item.labels.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {item.labels.map((label) => (
-                  <span
-                    key={label.name}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] font-medium leading-tight text-foreground-muted"
-                  >
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: `#${label.color}` }}
-                      aria-hidden="true"
-                    />
-                    {label.name}
-                  </span>
-                ))}
-              </div>
+            {editing ? (
+              <input
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-lg font-semibold text-foreground focus:border-border-strong focus:outline-none"
+                autoFocus
+              />
+            ) : (
+              <h3 className="text-lg font-semibold leading-snug text-foreground">{item.title}</h3>
             )}
+            <div className="relative flex flex-wrap items-center gap-1">
+              {item.labels.map((label) => (
+                <span
+                  key={label.name}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] font-medium leading-tight text-foreground-muted"
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: `#${label.color}` }}
+                    aria-hidden="true"
+                  />
+                  {label.name}
+                </span>
+              ))}
+              {canLabel && (
+                <button
+                  type="button"
+                  onClick={openLabels}
+                  aria-expanded={labelsOpen}
+                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] font-medium text-foreground-subtle transition-colors hover:border-border-strong hover:text-foreground"
+                >
+                  <Tag className="h-2.5 w-2.5" /> Labels
+                </button>
+              )}
+              {labelsOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setLabelsOpen(false)} />
+                  <div className="absolute left-0 top-full z-20 mt-1 max-h-60 w-64 overflow-y-auto rounded-xl border border-border bg-surface-elevated py-1 shadow-xl">
+                    {!repoLabels ? (
+                      <p className="flex items-center gap-2 px-3 py-2 text-xs text-foreground-muted">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading labels…
+                      </p>
+                    ) : (
+                      repoLabels.map((l) => {
+                        const checked = item.labels.some((x) => x.id === l.id);
+                        return (
+                          <button
+                            key={l.id}
+                            type="button"
+                            disabled={labelBusy === l.id}
+                            onClick={() => toggleLabel(l)}
+                            className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-foreground-muted transition-colors hover:bg-surface hover:text-foreground disabled:opacity-50"
+                          >
+                            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: `#${l.color}` }} />
+                            <span className="min-w-0 flex-1 truncate">{l.name}</span>
+                            {labelBusy === l.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : checked ? (
+                              <span className="text-accent">✓</span>
+                            ) : null}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close card"
-            className="shrink-0 rounded-lg border border-border p-2 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {item.contentId && !editing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDraftTitle(item.title);
+                  setDraftBody(item.body ?? "");
+                  setEditing(true);
+                }}
+                aria-label="Edit card"
+                className="rounded-lg border border-border p-2 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close card"
+              className="rounded-lg border border-border p-2 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {item.body?.trim() ? (
+          {editing ? (
+            <div className="space-y-3">
+              <textarea
+                value={draftBody}
+                onChange={(e) => setDraftBody(e.target.value)}
+                rows={12}
+                placeholder="Description (GitHub-flavored markdown)…"
+                className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+              />
+              {editError && <p className="text-xs text-danger">{editError}</p>}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  disabled={saving}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  disabled={saving || !draftTitle.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-50"
+                >
+                  {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Save changes
+                </button>
+              </div>
+            </div>
+          ) : item.body?.trim() ? (
             <MarkdownContent markdown={item.body} githubRepo={repoOf(item.url)} />
           ) : (
             <p className="text-sm italic text-foreground-faint">No description.</p>
+          )}
+
+          {/* Comments thread */}
+          {canComment && !editing && (
+            <div className="mt-6 border-t border-border pt-4">
+              <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
+                <MessageSquare className="h-3.5 w-3.5" />
+                Comments{comments ? ` (${comments.length})` : ""}
+              </p>
+              {commentsError ? (
+                <p className="text-xs text-danger">{commentsError}</p>
+              ) : !comments ? (
+                <p className="flex items-center gap-2 text-xs text-foreground-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+                </p>
+              ) : comments.length === 0 ? (
+                <p className="text-xs italic text-foreground-faint">No comments yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {comments.map((c) => (
+                    <div key={c.id} className="flex gap-2.5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={c.avatarUrl} alt={c.author} width={24} height={24}
+                        className="mt-0.5 h-6 w-6 shrink-0 rounded-full object-cover" />
+                      <div className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-2">
+                        <p className="mb-1 text-[11px] text-foreground-subtle">
+                          <span className="font-semibold text-foreground-muted">@{c.author}</span>{" "}
+                          · {new Date(c.createdAt).toLocaleString()}
+                        </p>
+                        <div className="text-[13px]">
+                          <MarkdownContent markdown={c.body} githubRepo={repoOf(item.url)} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Composer */}
+              <div className="mt-3 flex items-end gap-2">
+                <textarea
+                  value={commentDraft}
+                  onChange={(e) => setCommentDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      void sendComment();
+                    }
+                  }}
+                  rows={2}
+                  placeholder="Write a comment… (⌘+Enter to send)"
+                  className="min-w-0 flex-1 resize-none rounded-xl border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={sendComment}
+                  disabled={commentBusy || !commentDraft.trim()}
+                  aria-label="Send comment"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-background disabled:opacity-50"
+                >
+                  {commentBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
@@ -528,7 +820,7 @@ function CardDetailDialog({
               href={item.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+              className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
             >
               Open in GitHub
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -543,6 +835,18 @@ function CardDetailDialog({
 // ---------------------------------------------------------------------------
 // Board
 // ---------------------------------------------------------------------------
+
+type ItemComment = { id: string; author: string; avatarUrl: string; body: string; createdAt: string };
+type RepoLabel = { id: string; name: string; color: string };
+type MutateFn = (payload: Record<string, unknown>) => Promise<{
+  ok: boolean;
+  error?: string;
+  itemId?: string;
+  url?: string;
+  comments?: ItemComment[];
+  repoId?: string;
+  labels?: RepoLabel[];
+}>;
 
 type Board = Extract<KanbanResult, { ok: true }> & {
   /** Everyone assignable on the board's repos (GitHub collaborators), with the
@@ -710,14 +1014,30 @@ export function KanbanBoard() {
     }
   }
 
+  // Primary repo = the one most cards point at; powers "new Issue" + labels.
+  const primaryRepo = useMemo(() => {
+    if (!board) return null;
+    const counts = new Map<string, number>();
+    for (const c of board.columns) {
+      for (const i of c.items) {
+        const r = repoOf(i.url);
+        if (r) counts.set(r, (counts.get(r) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  }, [board]);
+
   // --- card actions ---
-  async function onAddDraft(columnName: string, title: string) {
+  async function onAddDraft(columnName: string, title: string, kind: "draft" | "issue" = "draft") {
     if (!board) return;
     const col = board.columns.find((c) => c.name === columnName);
     setBusy(true);
     try {
-      const r = await mutate({ action: "addDraft", projectId: board.projectId, title });
-      if (!r.ok || !r.itemId) throw new Error(r.error || "Failed to add draft");
+      const r =
+        kind === "issue" && primaryRepo
+          ? await mutate({ action: "createIssue", projectId: board.projectId, repo: primaryRepo, newTitle: title })
+          : await mutate({ action: "addDraft", projectId: board.projectId, title });
+      if (!r.ok || !r.itemId) throw new Error(r.error || "Failed to add card");
       if (board.statusFieldId && col?.optionId) {
         await mutate({
           action: "setStatus",
@@ -767,6 +1087,23 @@ export function KanbanBoard() {
       setBusy(false);
     }
   }
+
+  // Optimistically patch a card everywhere it lives (board columns + the
+  // open detail dialog).
+  const patchItem = useCallback((itemId: string, patch: Partial<KanbanItem>) => {
+    setBoard((prev) =>
+      prev
+        ? {
+            ...prev,
+            columns: prev.columns.map((c) => ({
+              ...c,
+              items: c.items.map((i) => (i.id === itemId ? { ...i, ...patch } : i)),
+            })),
+          }
+        : prev,
+    );
+    setDetailItem((prev) => (prev && prev.id === itemId ? { ...prev, ...patch } : prev));
+  }, []);
 
   async function onSetAssignees(item: KanbanItem, logins: string[]) {
     if (!board || !item.contentId) return;
@@ -883,6 +1220,7 @@ export function KanbanBoard() {
                 onArchive={onArchive}
                 onDelete={onDelete}
                 onAddDraft={onAddDraft}
+                issueRepo={primaryRepo}
                 onOpen={setDetailItem}
                 busy={busy}
               />
@@ -903,6 +1241,8 @@ export function KanbanBoard() {
           item={detailItem}
           team={board.assignable ?? []}
           onSetAssignees={onSetAssignees}
+          onMutate={(payload) => mutate({ ...payload, projectId: board.projectId })}
+          onPatchItem={patchItem}
           onClose={() => setDetailItem(null)}
         />
       )}

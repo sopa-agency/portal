@@ -18,7 +18,7 @@ export type KanbanItem = {
   /** Content node id (Issue/PullRequest/DraftIssue) — needed to mutate assignees. */
   contentId: string | null;
   assignees: { login: string; avatarUrl: string }[];
-  labels: { name: string; color: string }[];
+  labels: { id?: string; name: string; color: string }[];
 };
 
 export type KanbanColumn = {
@@ -79,6 +79,7 @@ const PROJECT_FRAGMENT = `
           }
           labels(first: 10) {
             nodes {
+              id
               name
               color
             }
@@ -100,6 +101,7 @@ const PROJECT_FRAGMENT = `
           }
           labels(first: 10) {
             nodes {
+              id
               name
               color
             }
@@ -219,7 +221,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   body?: string;
                   merged?: boolean;
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
-                  labels?: { nodes: { name: string; color: string }[] };
+                  labels?: { nodes: { id?: string; name: string; color: string }[] };
                 };
                 fieldValues: {
                   nodes: Array<{
@@ -253,7 +255,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   body?: string;
                   merged?: boolean;
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
-                  labels?: { nodes: { name: string; color: string }[] };
+                  labels?: { nodes: { id?: string; name: string; color: string }[] };
                 };
                 fieldValues: {
                   nodes: Array<{
@@ -315,6 +317,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
         avatarUrl: a.avatarUrl,
       }));
       const labels = (content?.labels?.nodes ?? []).map((l) => ({
+        id: l.id,
         name: l.name,
         color: l.color, // GitHub returns hex WITHOUT the #
       }));
@@ -602,4 +605,188 @@ export async function setDraftAssignees(args: {
       }
     }`;
   return githubGraphQL(args.token, query, { draftId: args.draftId, assigneeIds: args.assigneeIds });
+}
+
+// ---------------------------------------------------------------------------
+// Content editing — title/body for issues, PRs, and draft cards
+// ---------------------------------------------------------------------------
+
+export async function updateItemContent(args: {
+  token: string;
+  type: "issue" | "pr" | "draft";
+  contentId: string;
+  title: string;
+  body: string;
+}): Promise<MutationResult> {
+  const { token, type, contentId, title, body } = args;
+  if (type === "draft") {
+    const query = `
+      mutation($id: ID!, $title: String!, $body: String) {
+        updateProjectV2DraftIssue(input: { draftIssueId: $id, title: $title, body: $body }) {
+          draftIssue { id }
+        }
+      }`;
+    return githubGraphQL(token, query, { id: contentId, title, body });
+  }
+  if (type === "pr") {
+    const query = `
+      mutation($id: ID!, $title: String!, $body: String) {
+        updatePullRequest(input: { pullRequestId: $id, title: $title, body: $body }) {
+          pullRequest { id }
+        }
+      }`;
+    return githubGraphQL(token, query, { id: contentId, title, body });
+  }
+  const query = `
+    mutation($id: ID!, $title: String!, $body: String) {
+      updateIssue(input: { id: $id, title: $title, body: $body }) {
+        issue { id }
+      }
+    }`;
+  return githubGraphQL(token, query, { id: contentId, title, body });
+}
+
+// ---------------------------------------------------------------------------
+// Comments — read the thread and reply (issues + PRs)
+// ---------------------------------------------------------------------------
+
+export type ItemComment = {
+  id: string;
+  author: string;
+  avatarUrl: string;
+  body: string;
+  createdAt: string;
+};
+
+export async function fetchItemComments(
+  token: string,
+  contentId: string,
+): Promise<MutationResult<{ comments: ItemComment[] }>> {
+  const query = `
+    query($id: ID!) {
+      node(id: $id) {
+        ... on Issue { comments(last: 30) { nodes { id body createdAt author { login avatarUrl } } } }
+        ... on PullRequest { comments(last: 30) { nodes { id body createdAt author { login avatarUrl } } } }
+      }
+    }`;
+  const r = await githubGraphQL<{
+    node?: { comments?: { nodes?: Array<{ id: string; body: string; createdAt: string; author?: { login: string; avatarUrl: string } }> } };
+  }>(token, query, { id: contentId });
+  if (!r.ok) return r;
+  const comments: ItemComment[] = (r.data?.node?.comments?.nodes ?? []).map((c) => ({
+    id: c.id,
+    author: c.author?.login ?? "ghost",
+    avatarUrl: c.author?.avatarUrl ?? "",
+    body: c.body,
+    createdAt: c.createdAt,
+  }));
+  return { ok: true, comments } as MutationResult<{ comments: ItemComment[] }> & { comments: ItemComment[] };
+}
+
+export async function addItemComment(args: {
+  token: string;
+  contentId: string;
+  body: string;
+}): Promise<MutationResult> {
+  const query = `
+    mutation($id: ID!, $body: String!) {
+      addComment(input: { subjectId: $id, body: $body }) { clientMutationId }
+    }`;
+  return githubGraphQL(args.token, query, { id: args.contentId, body: args.body });
+}
+
+// ---------------------------------------------------------------------------
+// Labels — repo label list + toggle on a labelable
+// ---------------------------------------------------------------------------
+
+export type RepoLabel = { id: string; name: string; color: string };
+
+export async function fetchRepoMeta(
+  token: string,
+  owner: string,
+  name: string,
+): Promise<MutationResult<{ repoId: string; labels: RepoLabel[] }>> {
+  const query = `
+    query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        id
+        labels(first: 100) { nodes { id name color } }
+      }
+    }`;
+  const r = await githubGraphQL<{ repository?: { id: string; labels?: { nodes?: RepoLabel[] } } }>(
+    token,
+    query,
+    { owner, name },
+  );
+  if (!r.ok) return r;
+  if (!r.data?.repository) return { ok: false, error: `Repository ${owner}/${name} not found` };
+  return {
+    ok: true,
+    repoId: r.data.repository.id,
+    labels: r.data.repository.labels?.nodes ?? [],
+  } as MutationResult<{ repoId: string; labels: RepoLabel[] }> & { repoId: string; labels: RepoLabel[] };
+}
+
+export async function setItemLabels(args: {
+  token: string;
+  contentId: string;
+  addIds: string[];
+  removeIds: string[];
+}): Promise<MutationResult> {
+  const parts: string[] = [];
+  if (args.addIds.length > 0) {
+    parts.push(`add: addLabelsToLabelable(input: { labelableId: $contentId, labelIds: $addIds }) { clientMutationId }`);
+  }
+  if (args.removeIds.length > 0) {
+    parts.push(`remove: removeLabelsFromLabelable(input: { labelableId: $contentId, labelIds: $removeIds }) { clientMutationId }`);
+  }
+  if (parts.length === 0) return { ok: true };
+  const query = `
+    mutation($contentId: ID!, $addIds: [ID!]!, $removeIds: [ID!]!) {
+      ${parts.join("\n")}
+    }`;
+  return githubGraphQL(args.token, query, {
+    contentId: args.contentId,
+    addIds: args.addIds,
+    removeIds: args.removeIds,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Real issues — create in a repo and drop onto the board
+// ---------------------------------------------------------------------------
+
+export async function createRepoIssue(args: {
+  token: string;
+  projectId: string;
+  repoId: string;
+  title: string;
+  body?: string;
+}): Promise<MutationResult<{ itemId: string; url: string }>> {
+  const create = await githubGraphQL<{ createIssue: { issue: { id: string; url: string } } }>(
+    args.token,
+    `mutation($repoId: ID!, $title: String!, $body: String) {
+      createIssue(input: { repositoryId: $repoId, title: $title, body: $body }) {
+        issue { id url }
+      }
+    }`,
+    { repoId: args.repoId, title: args.title, body: args.body ?? "" },
+  );
+  if (!create.ok) return create;
+  const issue = create.data.createIssue.issue;
+  const add = await githubGraphQL<{ addProjectV2ItemById: { item: { id: string } } }>(
+    args.token,
+    `mutation($projectId: ID!, $contentId: ID!) {
+      addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+        item { id }
+      }
+    }`,
+    { projectId: args.projectId, contentId: issue.id },
+  );
+  if (!add.ok) return add;
+  return {
+    ok: true,
+    itemId: add.data.addProjectV2ItemById.item.id,
+    url: issue.url,
+  } as MutationResult<{ itemId: string; url: string }> & { itemId: string; url: string };
 }
