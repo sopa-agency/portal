@@ -10,12 +10,14 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
-import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
-// Live presence over Supabase Realtime (the userbase project's public key):
-// - presence: who's online in THIS portal (avatars at the sidebar bottom)
-// - broadcast: cursor positions, rendered live for teammates on the SAME page
+// Live presence over our own WebSocket relay (presence-relay/server.mjs on the
+// Mac mini, exposed via Tailscale Funnel). Nothing is stored anywhere — the
+// relay just fans messages out between connected browsers:
+// - sync: who's online in THIS portal (avatars at the sidebar bottom)
+// - cursor: pointer positions, rendered live for teammates on the SAME page
+// Without NEXT_PUBLIC_PRESENCE_WS_URL the whole feature is a clean no-op.
 // ---------------------------------------------------------------------------
 
 type OnlineUser = { username: string; path: string };
@@ -40,15 +42,22 @@ export function usePresence() {
 
 const CURSOR_THROTTLE_MS = 50;
 const CURSOR_TTL_MS = 6000; // hide cursors that stopped moving
+const RECONNECT_MIN_MS = 2000;
+const RECONNECT_MAX_MS = 30_000;
 
-function getRealtimeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLIC_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    realtime: { params: { eventsPerSecond: 25 } },
-  });
+function relayUrl(projectSlug: string, username: string): string | null {
+  const base = process.env.NEXT_PUBLIC_PRESENCE_WS_URL;
+  if (!base) return null;
+  try {
+    const url = new URL(base);
+    if (url.protocol === "https:") url.protocol = "wss:";
+    if (url.protocol === "http:") url.protocol = "ws:";
+    url.searchParams.set("room", `portal-presence:${projectSlug}`);
+    url.searchParams.set("u", username);
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function PresenceProvider({
@@ -63,58 +72,80 @@ export function PresenceProvider({
   const pathname = usePathname();
   const [online, setOnline] = useState<OnlineUser[]>([]);
   const [cursors, setCursors] = useState<Record<string, CursorState>>({});
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const pathRef = useRef(pathname);
   pathRef.current = pathname;
 
   useEffect(() => {
-    const client = getRealtimeClient();
-    if (!client) return;
+    const target = relayUrl(projectSlug, username);
+    if (!target) return;
 
-    const channel = client.channel(`portal-presence:${projectSlug}`, {
-      config: { presence: { key: username }, broadcast: { self: false } },
-    });
-    channelRef.current = channel;
+    let ws: WebSocket | null = null;
+    let closed = false;
+    let retryDelay = RECONNECT_MIN_MS;
+    let retryTimer: number | undefined;
 
-    channel
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState<{ username: string; path: string }>();
-        const users: OnlineUser[] = [];
-        for (const key of Object.keys(state)) {
-          const metas = state[key];
-          const last = metas[metas.length - 1];
-          if (last) users.push({ username: last.username ?? key, path: last.path ?? "/" });
+    const connect = () => {
+      if (closed) return;
+      try {
+        ws = new WebSocket(target);
+      } catch {
+        return; // bad URL — stay dormant
+      }
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        retryDelay = RECONNECT_MIN_MS;
+        ws?.send(JSON.stringify({ type: "track", path: pathRef.current }));
+      };
+
+      ws.onmessage = (event) => {
+        let msg: { type?: string } & Record<string, unknown>;
+        try {
+          msg = JSON.parse(String(event.data));
+        } catch {
+          return;
         }
-        users.sort((a, b) => a.username.localeCompare(b.username));
-        setOnline(users);
-      })
-      .on("broadcast", { event: "cursor" }, ({ payload }) => {
-        const c = payload as CursorState;
-        if (!c?.username || c.username === username) return;
-        setCursors((prev) => ({ ...prev, [c.username]: { ...c, at: Date.now() } }));
-      })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          await channel.track({ username, path: pathRef.current });
+        if (msg.type === "sync" && Array.isArray(msg.users)) {
+          setOnline(
+            (msg.users as OnlineUser[]).filter((u) => typeof u?.username === "string"),
+          );
+        } else if (msg.type === "cursor") {
+          const c = msg as unknown as CursorState;
+          if (!c.username || c.username === username) return;
+          setCursors((prev) => ({ ...prev, [c.username]: { ...c, at: Date.now() } }));
         }
-      });
+      };
+
+      // Reconnect with backoff — the relay lives on a Mac mini; if it
+      // restarts, browsers should quietly find their way back.
+      ws.onclose = (event) => {
+        wsRef.current = null;
+        setOnline([]);
+        if (closed || event.code === 4001) return; // unauthorized — don't hammer
+        retryTimer = window.setTimeout(connect, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, RECONNECT_MAX_MS);
+      };
+    };
+
+    connect();
 
     // Cursor broadcasting — viewport fractions, throttled.
     let lastSent = 0;
     const onMove = (e: PointerEvent) => {
+      const sock = wsRef.current;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
       const now = Date.now();
       if (now - lastSent < CURSOR_THROTTLE_MS) return;
       lastSent = now;
-      void channel.send({
-        type: "broadcast",
-        event: "cursor",
-        payload: {
-          username,
+      sock.send(
+        JSON.stringify({
+          type: "cursor",
           x: e.clientX / window.innerWidth,
           y: e.clientY / window.innerHeight,
           path: pathRef.current,
-        },
-      });
+        }),
+      );
     };
     window.addEventListener("pointermove", onMove, { passive: true });
 
@@ -133,22 +164,22 @@ export function PresenceProvider({
     }, 2000);
 
     return () => {
+      closed = true;
+      window.clearTimeout(retryTimer);
       window.removeEventListener("pointermove", onMove);
       window.clearInterval(sweep);
-      void channel.unsubscribe();
-      void client.removeChannel(channel);
-      channelRef.current = null;
+      ws?.close();
+      wsRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectSlug, username]);
 
   // Re-track on route change so presence shows where everyone is.
   useEffect(() => {
-    const channel = channelRef.current;
-    if (channel?.state === "joined") {
-      void channel.track({ username, path: pathname });
+    const sock = wsRef.current;
+    if (sock?.readyState === WebSocket.OPEN) {
+      sock.send(JSON.stringify({ type: "track", path: pathname }));
     }
-  }, [pathname, username]);
+  }, [pathname]);
 
   const value = useMemo(() => ({ online, self: username }), [online, username]);
 
