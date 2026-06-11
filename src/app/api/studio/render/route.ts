@@ -47,6 +47,9 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
     });
   } catch (err) {
+    // Surfaces the real failure in Vercel runtime logs (the 400 body only
+    // reaches the browser console).
+    console.error("[studio/render]", err);
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
