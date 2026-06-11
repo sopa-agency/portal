@@ -54,16 +54,16 @@ Personalização total é conforto total. E conforto total é estagnação disfa
 
 // Enriquecimento fiel ao Figma 1:4: imagem de fundo + posição da caixa de texto + largura do sub-título (por card).
 const ENRICH: { img: string; bloco?: { x: number; y: number; w: number }; subW?: number }[] = [
-  { img: "/posts/perspectiva/01.jpg" }, // capa
-  { img: "/posts/perspectiva/02.jpg", bloco: { x: 69, y: 882, w: 934 }, subW: 432 },
-  { img: "/posts/perspectiva/03.jpg", bloco: { x: 67, y: 172, w: 821 }, subW: 617 },
-  { img: "/posts/perspectiva/04.jpg", bloco: { x: 60, y: 956, w: 957 }, subW: 512 },
-  { img: "/posts/perspectiva/05.jpg", bloco: { x: 83, y: 203, w: 913 }, subW: 581 },
-  { img: "/posts/perspectiva/06.jpg", bloco: { x: 141, y: 886, w: 798 }, subW: 607 },
-  { img: "/posts/perspectiva/07.jpg", bloco: { x: 91, y: 716, w: 897 }, subW: 493 },
-  { img: "/posts/perspectiva/08.jpg", bloco: { x: 130, y: 869, w: 819 }, subW: 323 },
-  { img: "/posts/perspectiva/09.jpg", bloco: { x: 24, y: 223, w: 1029 }, subW: 593 },
-  { img: "/posts/perspectiva/10.jpg", bloco: { x: 56, y: 824, w: 484 }, subW: 281 },
+  { img: "/studio/posts/perspectiva/01.jpg" }, // capa
+  { img: "/studio/posts/perspectiva/02.jpg", bloco: { x: 69, y: 882, w: 934 }, subW: 432 },
+  { img: "/studio/posts/perspectiva/03.jpg", bloco: { x: 67, y: 172, w: 821 }, subW: 617 },
+  { img: "/studio/posts/perspectiva/04.jpg", bloco: { x: 60, y: 956, w: 957 }, subW: 512 },
+  { img: "/studio/posts/perspectiva/05.jpg", bloco: { x: 83, y: 203, w: 913 }, subW: 581 },
+  { img: "/studio/posts/perspectiva/06.jpg", bloco: { x: 141, y: 886, w: 798 }, subW: 607 },
+  { img: "/studio/posts/perspectiva/07.jpg", bloco: { x: 91, y: 716, w: 897 }, subW: 493 },
+  { img: "/studio/posts/perspectiva/08.jpg", bloco: { x: 130, y: 869, w: 819 }, subW: 323 },
+  { img: "/studio/posts/perspectiva/09.jpg", bloco: { x: 24, y: 223, w: 1029 }, subW: 593 },
+  { img: "/studio/posts/perspectiva/10.jpg", bloco: { x: 56, y: 824, w: 484 }, subW: 281 },
 ];
 
 export function buildSeed(): Carousel {

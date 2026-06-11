@@ -48,7 +48,14 @@ export async function resolveImg(src: string | null | undefined): Promise<string
   const publicDir = path.resolve(root, "public");
   const abs = path.resolve(publicDir, "." + src);
   if (abs !== publicDir && !abs.startsWith(publicDir + path.sep)) return null;
-  const buf = await readFile(abs);
+  // Portal adaptation: a missing/stale image path must not kill the render —
+  // the card just renders without its background.
+  let buf: Buffer;
+  try {
+    buf = await readFile(abs);
+  } catch {
+    return null;
+  }
   const ext = src.toLowerCase().endsWith(".png") ? "png" : "jpeg";
   const uri = `data:image/${ext};base64,` + buf.toString("base64");
   _imgCache.set(src, uri);
