@@ -10,6 +10,7 @@ import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getActiveProject, getAllProjects } from "@/projects/index";
 import { FloatingAgentChat } from "@/components/floating-agent-chat";
+import { PresenceProvider } from "@/components/presence";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -69,7 +70,8 @@ export default async function RootLayout({
       <body className="min-h-full bg-background text-foreground">
         <ThemeProvider>
           {session ? (
-            // Authenticated layout: sidebar + main.
+            // Authenticated layout: sidebar + main, with live team presence.
+            <PresenceProvider username={session.username} projectSlug={project.slug}>
             <div className="min-h-screen lg:flex">
               <AppSidebar
                 username={session.username}
@@ -97,6 +99,7 @@ export default async function RootLayout({
                 logo={project.theme.logo}
               />
             </div>
+            </PresenceProvider>
           ) : (
             // Unauthenticated — middleware allows /login through; render bare.
             children

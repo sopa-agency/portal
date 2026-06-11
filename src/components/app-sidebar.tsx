@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
 import { GitBranch, Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark } from "lucide-react";
+import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
@@ -179,6 +180,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
         </ul>
       </nav>
       <div className="mt-auto border-t border-border px-3 py-3">
+        <OnlineAvatars />
         <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent">
             {username.slice(0, 2)}
