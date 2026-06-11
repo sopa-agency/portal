@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { MorningBriefing, BriefingMissing } from "@/components/morning-briefing";
 import { RegenerateBriefingButton } from "@/components/regenerate-briefing-button";
 import { ChannelStrategy } from "@/components/social-dashboard";
@@ -26,6 +27,8 @@ type BandTile = {
   delta?: number | null;
   sub?: string;
   tone?: "ok" | "warn";
+  /** Social platform name — renders the brand mark next to the label. */
+  platform?: string;
 };
 
 function SummaryBand({ tiles }: { tiles: BandTile[] }) {
@@ -40,6 +43,7 @@ function SummaryBand({ tiles }: { tiles: BandTile[] }) {
           }`}
         >
           <span className="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-[0.12em] text-foreground-faint">
+            {t.platform && <SocialBrandIcon platform={t.platform} className="h-3 w-3 shrink-0" />}
             {t.tone && (
               <span
                 className={`h-[7px] w-[7px] shrink-0 rounded-full ${t.tone === "ok" ? "bg-success" : "bg-warning"}`}
@@ -133,11 +137,12 @@ export default async function Home() {
     ...socials.map((s, i): BandTile => {
       const m = channelMetrics[i];
       if (m && m.ok && m.followers != null) {
-        return { label: s.platform, value: formatNumber(m.followers), delta: m.followersDelta7d };
+        return { label: s.platform, value: formatNumber(m.followers), delta: m.followersDelta7d, platform: s.platform };
       }
       return {
         label: s.platform,
         value: "—",
+        platform: s.platform,
         sub: m && !m.ok && m.reason === "not-connected" ? "not connected" : "no data",
       };
     }),
