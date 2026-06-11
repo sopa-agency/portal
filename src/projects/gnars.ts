@@ -97,7 +97,6 @@ const gnars: ProjectConfig = {
     },
   ],
   // Gnars doesn't use the userbase (email) module.
-  hiddenRoutes: ["/userbase"],
   postCreator: true,
   // Mirrors gnars.com/treasury — the DAO treasury on Base.
   treasury: {

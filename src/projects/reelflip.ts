@@ -89,8 +89,6 @@ const reelflip: ProjectConfig = {
       ],
     },
   ],
-  // Reelflip doesn't use the userbase (email) or repo-to-social modules yet.
-  hiddenRoutes: ["/userbase", "/repo-to-social"],
   postCreator: true,
   // Reelflip is an Instagram-first editorial brand — NOT a Hive platform — so
   // override the default campaign-artifact framing with its real persona/voice.

@@ -53,7 +53,6 @@ const coletivoxv: ProjectConfig = {
       donts: ["Não cair em copy genérica de marca", "Não perder a voz comunitária"],
     },
   ],
-  hiddenRoutes: ["/userbase", "/repo-to-social", "/analytics"],
   postCreator: true,
   briefingAgents: [
     { slug: "municipela", label: "Municipela", tabLabel: "MUNI", workspace: "workspace-municipela" },
