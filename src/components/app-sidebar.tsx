@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { GitBranch, Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban } from "lucide-react";
+import { GitBranch, Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark } from "lucide-react";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
@@ -16,6 +16,7 @@ const NAV = [
   { href: "/brain", label: "Brain", icon: Brain },
   { href: "/analytics", label: "Analytics", icon: ChartColumn, requiresAnalytics: true },
   { href: "/kanban", label: "Kanban", icon: SquareKanban, requiresKanban: true },
+  { href: "/treasury", label: "Treasury", icon: Landmark, requiresTreasury: true },
   { href: "/team", label: "Team", icon: UsersRound },
 ];
 
@@ -36,9 +37,10 @@ type AppSidebarProps = {
   analyticsEnabled?: boolean;
   postCreatorEnabled?: boolean;
   kanbanEnabled?: boolean;
+  treasuryEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, analyticsEnabled, postCreatorEnabled, kanbanEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, analyticsEnabled, postCreatorEnabled, kanbanEnabled, treasuryEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -77,6 +79,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if ("requiresAnalytics" in item && item.requiresAnalytics && !analyticsEnabled) return false;
     if ("requiresPostCreator" in item && item.requiresPostCreator && !postCreatorEnabled) return false;
     if ("requiresKanban" in item && item.requiresKanban && !kanbanEnabled) return false;
+    if ("requiresTreasury" in item && item.requiresTreasury && !treasuryEnabled) return false;
     return true;
   });
 

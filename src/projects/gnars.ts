@@ -99,6 +99,13 @@ const gnars: ProjectConfig = {
   // Gnars doesn't use the userbase (email) module.
   hiddenRoutes: ["/userbase"],
   postCreator: true,
+  // Mirrors gnars.com/treasury — the DAO treasury on Base.
+  treasury: {
+    ethWallets: [
+      { label: "Gnars DAO Treasury", address: "0x72ad986ebac0246d2b3c565ab2a1ce3a14ce6f88" },
+    ],
+    hiveAccounts: [{ label: "Gnars Hive Account", account: "gnars" }],
+  },
   // GA4 + Search Console for gnars.com (service account: bobgnarley@gnars-489819,
   // creds in GNARS_GOOGLE_SERVICE_ACCOUNT_JSON). GSC is a URL-prefix property
   // (https://gnars.com/), NOT sc-domain.

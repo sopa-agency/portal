@@ -41,6 +41,19 @@ const skatehive: ProjectConfig = {
     ],
   },
   postCreator: true,
+  // Mirrors skatehive.app/dao "DAO Assets & Addresses" — same wallets, same sources.
+  treasury: {
+    ethWallets: [
+      { label: "SkateHive Hot Wallet", address: "0xB4964e1ecA55Db36a94e8aeFfBFBAb48529a2f6c" },
+      { label: "SkateHive Base Multisig", address: "0xC1afA4c0A70B622d7b71d42241Bb4d52B6F3E218" },
+      { label: "Treasury Contract", address: "0x4c5086086fda01fb8fcffe491862e7504984a75f" },
+    ],
+    hiveAccounts: [
+      { label: "SkateHive Community Account", account: "skatehive" },
+      { label: "SteemSkate Community Account", account: "steemskate" },
+      { label: "Gnars Community Account", account: "gnars" },
+    ],
+  },
   theme: {
     // Lime green — darker for legibility on light bg, vivid on dark bg.
     accentLight: "#5b9c00",

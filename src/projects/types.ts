@@ -124,6 +124,17 @@ export type ProjectConfig = {
    */
   postCreator?: boolean;
   /**
+   * Treasury wallets shown on /treasury — the SAME wallets/sources the
+   * project's native app shows (skatehive.app/dao, gnars.com/treasury).
+   * Omitted = nav item hidden and route 404s.
+   */
+  treasury?: {
+    /** EVM wallets — balances aggregated via the Zapper proxy (api.keepkey.info). */
+    ethWallets: { label: string; address: string }[];
+    /** Hive accounts — balances from condenser_api, valued via CoinGecko. */
+    hiveAccounts?: { label: string; account: string }[];
+  };
+  /**
    * Overrides for campaign-artifact generation (brief + cross-platform drafts).
    * When absent, the default "growth lead at a community-owned Hive platform"
    * framing is used (SkateHive/Gnars). Set this for brands where that's wrong

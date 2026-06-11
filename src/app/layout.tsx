@@ -83,6 +83,7 @@ export default async function RootLayout({
                 analyticsEnabled={!!project.analytics}
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject}
+                treasuryEnabled={!!project.treasury}
               />
               <ThemeToggle />
               <PageInfo />
