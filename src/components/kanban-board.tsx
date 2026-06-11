@@ -359,8 +359,8 @@ function CardDetailDialog({
   onClose,
 }: {
   item: KanbanItem;
-  /** Teammates with a GitHub contact on their team card — the assign options. */
-  team: { username: string; login: string }[];
+  /** Assignable collaborators (with portal username when team-card-mapped). */
+  team: { login: string; avatarUrl: string; username: string | null }[];
   onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
   onClose: () => void;
 }) {
@@ -485,9 +485,9 @@ function CardDetailDialog({
             {assignOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setAssignOpen(false)} />
-                <div className="absolute bottom-full left-0 z-20 mb-2 w-60 rounded-xl border border-border bg-surface-elevated py-1 shadow-xl">
+                <div className="absolute bottom-full left-0 z-20 mb-2 max-h-72 w-60 overflow-y-auto rounded-xl border border-border bg-surface-elevated py-1 shadow-xl">
                   <p className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-foreground-faint">
-                    Team (GitHub from team cards)
+                    Collaborators with access
                   </p>
                   {team.map((m) => {
                     const checked = item.assignees.some(
@@ -503,7 +503,7 @@ function CardDetailDialog({
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={`https://github.com/${m.login}.png?size=48`}
+                          src={m.avatarUrl}
                           alt={m.login}
                           width={22}
                           height={22}
@@ -511,7 +511,9 @@ function CardDetailDialog({
                         />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] text-foreground">@{m.login}</span>
-                          <span className="block truncate text-[11px] text-foreground-subtle">{m.username}</span>
+                          {m.username && (
+                            <span className="block truncate text-[11px] text-foreground-subtle">{m.username}</span>
+                          )}
                         </span>
                         {checked && <span className="text-accent">✓</span>}
                       </button>
@@ -543,8 +545,9 @@ function CardDetailDialog({
 // ---------------------------------------------------------------------------
 
 type Board = Extract<KanbanResult, { ok: true }> & {
-  /** Portal-username → GitHub-login mapping sourced from the team cards. */
-  teamGithub?: { username: string; login: string }[];
+  /** Everyone assignable on the board's repos (GitHub collaborators), with the
+   *  portal username attached when a team card maps the login. */
+  assignable?: { login: string; avatarUrl: string; username: string | null }[];
 };
 
 export function KanbanBoard() {
@@ -898,7 +901,7 @@ export function KanbanBoard() {
       {detailItem && (
         <CardDetailDialog
           item={detailItem}
-          team={board.teamGithub ?? []}
+          team={board.assignable ?? []}
           onSetAssignees={onSetAssignees}
           onClose={() => setDetailItem(null)}
         />

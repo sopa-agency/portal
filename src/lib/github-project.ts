@@ -504,6 +504,42 @@ export async function deleteItem(args: {
 // Assignees
 // ---------------------------------------------------------------------------
 
+/**
+ * Everyone GitHub allows assigning in the given repos (collaborators with
+ * access) — the same list github.com offers in its own assignee picker.
+ */
+export async function fetchAssignableUsers(
+  token: string,
+  repos: { owner: string; name: string }[],
+): Promise<{ login: string; avatarUrl: string }[]> {
+  if (repos.length === 0) return [];
+  const fields = repos
+    .slice(0, 10)
+    .map(
+      (r, i) =>
+        `r${i}: repository(owner: ${JSON.stringify(r.owner)}, name: ${JSON.stringify(r.name)}) {
+          assignableUsers(first: 100) { nodes { login avatarUrl } }
+        }`,
+    )
+    .join("\n");
+  const res = await fetch("https://api.github.com/graphql", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: `query { ${fields} }` }),
+    cache: "no-store",
+  });
+  const json = (await res.json()) as {
+    data?: Record<string, { assignableUsers?: { nodes?: { login: string; avatarUrl: string }[] } } | null>;
+  };
+  const seen = new Map<string, { login: string; avatarUrl: string }>();
+  for (const repo of Object.values(json.data ?? {})) {
+    for (const u of repo?.assignableUsers?.nodes ?? []) {
+      if (!seen.has(u.login.toLowerCase())) seen.set(u.login.toLowerCase(), u);
+    }
+  }
+  return [...seen.values()];
+}
+
 /** Resolve GitHub logins → user node ids. Unknown logins are omitted. */
 export async function resolveUserIds(
   token: string,

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { getActiveProject } from "@/projects";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import {
+  fetchAssignableUsers,
   fetchGitHubProject,
   resolveGitHubToken,
   resolveUserIds,
@@ -61,7 +62,50 @@ export async function GET() {
     fetchGitHubProject(project),
     teamGithubLogins(project.slug).catch(() => []),
   ]);
-  return NextResponse.json(result.ok ? { ...result, teamGithub } : result);
+  if (!result.ok) return NextResponse.json(result);
+
+  // Assignable users = everyone with access to the repos on the board (same
+  // list GitHub's own picker offers), enriched with the portal username when
+  // a team card maps the login. Team-card-only logins stay as a fallback so
+  // drafts remain assignable even when the board has no repo items yet.
+  const ghToken = resolveGitHubToken(project);
+  const repos = [
+    ...new Map(
+      result.columns
+        .flatMap((c) => c.items)
+        .map((i) => i.url?.match(/github\.com\/([^/]+)\/([^/]+)\//))
+        .filter((m): m is RegExpMatchArray => !!m)
+        .map((m) => [`${m[1]}/${m[2]}`.toLowerCase(), { owner: m[1], name: m[2] }]),
+    ).values(),
+  ];
+  const collaborators = ghToken
+    ? await fetchAssignableUsers(ghToken, repos).catch(() => [])
+    : [];
+  const usernameByLogin = new Map(teamGithub.map((t) => [t.login.toLowerCase(), t.username]));
+  const byLogin = new Map<string, { login: string; avatarUrl: string; username: string | null }>();
+  for (const c of collaborators) {
+    byLogin.set(c.login.toLowerCase(), {
+      login: c.login,
+      avatarUrl: c.avatarUrl,
+      username: usernameByLogin.get(c.login.toLowerCase()) ?? null,
+    });
+  }
+  for (const t of teamGithub) {
+    if (!byLogin.has(t.login.toLowerCase())) {
+      byLogin.set(t.login.toLowerCase(), {
+        login: t.login,
+        avatarUrl: `https://github.com/${encodeURIComponent(t.login)}.png?size=48`,
+        username: t.username,
+      });
+    }
+  }
+  // Mapped teammates first, then alphabetical.
+  const assignable = [...byLogin.values()].sort((a, b) => {
+    if (!!a.username !== !!b.username) return a.username ? -1 : 1;
+    return a.login.localeCompare(b.login);
+  });
+
+  return NextResponse.json({ ...result, assignable });
 }
 
 // ---------------------------------------------------------------------------
