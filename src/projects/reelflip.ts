@@ -94,6 +94,7 @@ const reelflip: ProjectConfig = {
   // there). Read via the SkateHive service account (Viewer on the property).
   analytics: {
     ga4PropertyId: "541423360",
+    gscSiteUrl: "sc-domain:reelflip.com",
   },
   // Reelflip operates all the portals — its treasury page shows its own Safe
   // plus the Gnars and SkateHive treasuries, with per-project views.
