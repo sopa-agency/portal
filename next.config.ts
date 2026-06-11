@@ -3,6 +3,12 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Native addon (Studio's SVG→PNG renderer) — must stay external to the bundle.
   serverExternalPackages: ["@resvg/resvg-js"],
+  // The render route reads brand fonts/assets from disk at runtime; file
+  // tracing can't see those dynamic paths, so include them explicitly or the
+  // Vercel function 500s with ENOENT.
+  outputFileTracingIncludes: {
+    "/api/studio/render": ["./public/studio/**/*", "./node_modules/@fontsource/inter/files/*"],
+  },
   allowedDevOrigins: [
     "100.101.51.48",
     "192.168.15.5",
