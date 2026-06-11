@@ -80,10 +80,8 @@ export default async function RootLayout({
                   .filter((p) => p.allowlist.includes(session.username.toLowerCase()))
                   .map((p) => ({ slug: p.slug, subdomain: p.subdomain, name: p.name, logo: p.theme.logo }))}
                 hiddenRoutes={project.hiddenRoutes}
-                analyticsEnabled={!!project.analytics}
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject}
-                treasuryEnabled={!!project.treasury}
               />
               <ThemeToggle />
               <PageInfo />

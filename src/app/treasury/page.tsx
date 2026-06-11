@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { SetupGuide, Code, CodeBlock } from "@/components/setup-guide";
 import { fetchTreasury } from "@/lib/treasury";
 import { getActiveProject } from "@/projects";
 
@@ -27,7 +28,57 @@ function TotalCard({ label, value, accent }: { label: string; value: string; acc
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
-  if (!project.treasury) notFound();
+
+  if (!project.treasury) {
+    return (
+      <div className="space-y-8">
+        <PageHeader
+          eyebrow="Treasury"
+          title={`${project.name} treasury`}
+          description="Live balances of the project's wallets across chains."
+        />
+        <SetupGuide
+          feature="Treasury"
+          intro={`Para mostrar o tesouro do ${project.name}, o portal só precisa saber quais carteiras acompanhar — as fontes de dados são públicas (Zapper, RPC da Base, Hive, CoinGecko), sem chave nenhuma.`}
+          steps={[
+            {
+              title: "Levante os endereços do tesouro",
+              body: (
+                <>
+                  Carteiras EVM (multisig, treasury contract, hot wallet — Ethereum ou Base) e/ou
+                  contas Hive da comunidade. Qualquer combinação funciona; cada carteira vira um
+                  card com saldo ao vivo.
+                </>
+              ),
+            },
+            {
+              title: "Adicione o bloco treasury no config do projeto",
+              body: (
+                <CodeBlock>{`// src/projects/${project.slug}.ts
+treasury: {
+  ethWallets: [
+    { label: "Treasury Multisig", address: "0x..." },
+  ],
+  hiveAccounts: [
+    { label: "Conta da comunidade", account: "nome-da-conta" },
+  ],
+},`}</CodeBlock>
+              ),
+            },
+            {
+              title: "Deploy",
+              body: (
+                <>
+                  Build + deploy e pronto — o item some deste estado e mostra os saldos. Sem env
+                  vars: os dados vêm de APIs públicas com cache de 5 minutos.
+                </>
+              ),
+            },
+          ]}
+        />
+      </div>
+    );
+  }
 
   const report = await fetchTreasury(project);
   if (!report) notFound();
