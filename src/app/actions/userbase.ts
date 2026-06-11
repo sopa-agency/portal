@@ -13,6 +13,8 @@ export type UserbaseEmailUser = {
   emailLinkedAt: string;
   createdAt: string | null;
   identitiesCount: number;
+  /** Instagram handle from userbase_identities (type "instagram") — used for cross-posting/collabs. */
+  instagram: string | null;
 };
 
 export type UserbaseEmailListResult =
@@ -67,7 +69,7 @@ export async function listUsersWithEmail(): Promise<UserbaseEmailListResult> {
 
   const { data: identityRows, error: identityError } = await client
     .from("userbase_identities")
-    .select("user_id")
+    .select("user_id, type, handle")
     .in("user_id", userIds);
 
   if (identityError) {
@@ -75,9 +77,11 @@ export async function listUsersWithEmail(): Promise<UserbaseEmailListResult> {
   }
 
   const identitiesCountByUser = new Map<string, number>();
+  const instagramByUser = new Map<string, string>();
   for (const row of identityRows ?? []) {
     const uid = row.user_id as string;
     identitiesCountByUser.set(uid, (identitiesCountByUser.get(uid) ?? 0) + 1);
+    if (row.type === "instagram" && row.handle) instagramByUser.set(uid, row.handle as string);
   }
 
   const usersById = new Map<string, NonNullable<typeof userRows>[number]>();
@@ -98,11 +102,83 @@ export async function listUsersWithEmail(): Promise<UserbaseEmailListResult> {
         emailLinkedAt: email.emailLinkedAt,
         createdAt: (u?.created_at as string | null) ?? null,
         identitiesCount: identitiesCountByUser.get(id) ?? 0,
+        instagram: instagramByUser.get(id) ?? null,
       };
     })
     .sort((a, b) => (a.emailLinkedAt < b.emailLinkedAt ? 1 : -1));
 
   return { ok: true, users, total: users.length };
+}
+
+// ---------------------------------------------------------------------------
+// Editing — portal users can attach an Instagram handle to a userbase account
+// (powers IG cross-posting / collab tagging). Stored as a userbase_identities
+// row (type "instagram"), the same convention skatehive3.0 already uses.
+// ---------------------------------------------------------------------------
+
+async function editGate(): Promise<string> {
+  const { cookies } = await import("next/headers");
+  const { SESSION_COOKIE, verifySession } = await import("@/lib/auth");
+  const { getActiveProject } = await import("@/projects/index");
+  const project = await getActiveProject();
+  const cookieStore = await cookies();
+  const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+  if (!session) throw new Error("Unauthorized");
+  return session.username;
+}
+
+export async function setUserbaseInstagram(
+  userId: string,
+  handle: string,
+): Promise<{ ok: true; instagram: string | null } | { ok: false; error: string }> {
+  try {
+    await editGate();
+    const client = getUserbaseClient();
+    if (!client) return { ok: false, error: "Supabase userbase not configured." };
+
+    const clean = handle
+      .trim()
+      .replace(/^https?:\/\/(www\.)?instagram\.com\//i, "")
+      .replace(/^@/, "")
+      .replace(/\/.*$/, "")
+      .trim()
+      .toLowerCase();
+    if (clean && !/^[a-z0-9._]{1,30}$/.test(clean)) {
+      return { ok: false, error: "Invalid Instagram handle." };
+    }
+
+    const { data: existing, error: findError } = await client
+      .from("userbase_identities")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("type", "instagram")
+      .maybeSingle();
+    if (findError) return { ok: false, error: findError.message };
+
+    if (!clean) {
+      if (existing) {
+        const { error } = await client.from("userbase_identities").delete().eq("id", existing.id);
+        if (error) return { ok: false, error: error.message };
+      }
+      return { ok: true, instagram: null };
+    }
+
+    if (existing) {
+      const { error } = await client
+        .from("userbase_identities")
+        .update({ handle: clean })
+        .eq("id", existing.id);
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { error } = await client
+        .from("userbase_identities")
+        .insert({ user_id: userId, type: "instagram", handle: clean, is_primary: false });
+      if (error) return { ok: false, error: error.message };
+    }
+    return { ok: true, instagram: clean };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 // ---------------------------------------------------------------------------

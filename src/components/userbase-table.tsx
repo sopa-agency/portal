@@ -1,9 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
-import { Search, Mail, Copy, Check } from "lucide-react";
-import type { UserbaseEmailUser } from "@/app/actions/userbase";
+import { useMemo, useState, useTransition } from "react";
+import { Search, Mail, Copy, Check, Pencil, Loader2, AtSign } from "lucide-react";
+import { setUserbaseInstagram, type UserbaseEmailUser } from "@/app/actions/userbase";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -50,6 +50,89 @@ function Avatar({ user }: { user: UserbaseEmailUser }) {
   return (
     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent">
       {initials}
+    </div>
+  );
+}
+
+/** Inline editor for a user's Instagram handle (userbase_identities). */
+function InstagramCell({ user }: { user: UserbaseEmailUser }) {
+  const [value, setValue] = useState(user.instagram ?? "");
+  const [saved, setSaved] = useState(user.instagram ?? "");
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      const res = await setUserbaseInstagram(user.id, value);
+      if (res.ok) {
+        setSaved(res.instagram ?? "");
+        setValue(res.instagram ?? "");
+        setEditing(false);
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        {saved ? (
+          <a
+            href={`https://instagram.com/${saved}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-foreground transition-colors hover:text-accent"
+          >
+            <AtSign className="h-3.5 w-3.5 text-foreground-faint" />
+            @{saved}
+          </a>
+        ) : (
+          <span className="text-foreground-faint">—</span>
+        )}
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          aria-label={`Edit Instagram for ${user.handle ?? user.email}`}
+          className="rounded p-1 text-foreground-faint transition-colors hover:bg-surface-elevated hover:text-foreground"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") {
+              setValue(saved);
+              setEditing(false);
+              setError(null);
+            }
+          }}
+          placeholder="@handle"
+          className="w-32 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending}
+          aria-label="Save Instagram handle"
+          className="rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+        </button>
+      </div>
+      {error && <p className="text-[10px] text-danger">{error}</p>}
     </div>
   );
 }
@@ -156,6 +239,7 @@ export function UserbaseTable({
               <tr>
                 <th className="px-4 py-3 font-medium">User</th>
                 <th className="px-4 py-3 font-medium">Email</th>
+                <th className="px-4 py-3 font-medium">Instagram</th>
                 {subscribedSet && <th className="px-4 py-3 font-medium">Newsletter</th>}
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Onboarding</th>
@@ -186,6 +270,9 @@ export function UserbaseTable({
                       </span>
                       <CopyEmailButton email={u.email} />
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <InstagramCell user={u} />
                   </td>
                   {subscribedSet && (
                     <td className="px-4 py-3">
