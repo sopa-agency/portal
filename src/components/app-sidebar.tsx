@@ -91,7 +91,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
   };
 
   return (
-    <aside className="w-full border-b border-border bg-surface lg:flex lg:min-h-screen lg:w-64 lg:flex-col lg:border-b-0 lg:border-r">
+    <aside className="w-full border-b border-border bg-surface lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-64 lg:flex-col lg:border-b-0 lg:border-r">
       <div className="relative px-3 py-4" ref={switcherRef}>
         {switchProjects.length > 1 ? (
           <>
@@ -156,7 +156,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           </Link>
         )}
       </div>
-      <nav className="px-3 pb-6">
+      <nav className="px-3 pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         <ul className="space-y-1">
           {nav.map(({ href, label, icon: Icon }) => {
             const active = isActive(pathname, href);
