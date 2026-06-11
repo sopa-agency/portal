@@ -31,6 +31,7 @@ export default async function UserbasePage() {
           subscribedEmails={
             paragraphStatus.ok && paragraphStatus.configured ? paragraphStatus.subscribedEmails : undefined
           }
+          subscriptionPartial={paragraphStatus.ok && paragraphStatus.configured && paragraphStatus.partial}
         />
       ) : (
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 px-5 py-4 text-sm text-amber-200">

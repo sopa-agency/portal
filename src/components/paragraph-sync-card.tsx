@@ -37,16 +37,27 @@ export function ParagraphSyncCard({ initial }: { initial: ParagraphSyncStatus })
             Paragraph newsletter
           </p>
           {status.ok && status.configured ? (
-            <p className="mt-1 text-sm text-foreground-muted">
-              <span className="font-medium text-foreground">{status.publication}</span> ·{" "}
-              {status.paragraphCount} subscribers on Paragraph · {status.userbaseEmails} eligible
-              userbase emails ·{" "}
-              {status.missing === 0 ? (
-                <span className="text-success">fully synced</span>
-              ) : (
-                <span className="text-warning">{status.missing} not yet synced</span>
+            <>
+              <p className="mt-1 text-sm text-foreground-muted">
+                <span className="font-medium text-foreground">{status.publication}</span> ·{" "}
+                {status.paragraphCount} subscribers on Paragraph · {status.userbaseEmails} eligible
+                userbase emails ·{" "}
+                {status.missing === 0 ? (
+                  <span className="text-success">fully synced</span>
+                ) : (
+                  <span className="text-warning">
+                    {status.missing} {status.partial ? "unverifiable" : "not yet synced"}
+                  </span>
+                )}
+              </p>
+              {status.partial && (
+                <p className="mt-1 text-[11px] text-warning">
+                  Paragraph&apos;s list API can&apos;t enumerate all subscribers right now (their
+                  pagination bug, reported) — most &quot;unverifiable&quot; emails are actually
+                  subscribed. Syncing is safe (their side dedupes) but won&apos;t change the count.
+                </p>
               )}
-            </p>
+            </>
           ) : (
             <p className="mt-1 flex items-center gap-1.5 text-sm text-danger">
               <AlertCircle className="h-4 w-4 shrink-0" />

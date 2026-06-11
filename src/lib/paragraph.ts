@@ -28,19 +28,27 @@ async function call<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      ...(init?.body && typeof init.body === "string" ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
-  const data = (await res.json().catch(() => null)) as T & { success?: boolean; msg?: string };
-  if (!res.ok || data === null || data?.success === false) {
-    throw new Error(`Paragraph ${path} HTTP ${res.status}: ${data?.msg ?? "unknown error"}`);
+  // Their alpha API rate-limits aggressively (429 with no Retry-After) —
+  // back off and retry a few times before surfacing the error.
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        ...(init?.body && typeof init.body === "string" ? { "Content-Type": "application/json" } : {}),
+        ...init?.headers,
+      },
+    });
+    if (res.status === 429 && attempt < 4) {
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      continue;
+    }
+    const data = (await res.json().catch(() => null)) as T & { success?: boolean; msg?: string };
+    if (!res.ok || data === null || data?.success === false) {
+      throw new Error(`Paragraph ${path} HTTP ${res.status}: ${data?.msg ?? "unknown error"}`);
+    }
+    return data;
   }
-  return data;
 }
 
 export type ParagraphSubscriber = {
@@ -62,19 +70,36 @@ export async function getSubscriberCount(publicationId: string): Promise<number>
   return data.count;
 }
 
-/** All ACTIVE subscribers (their API never returns unsubscribed ones). */
+/**
+ * All ACTIVE subscribers (their API never returns unsubscribed ones), deduped.
+ *
+ * DEFENSIVE: the alpha cursor (createdAt:id) breaks on rows with null
+ * createdAt and starts re-serving the same items forever (observed live:
+ * 173 looping pages from a 236-subscriber publication). We therefore stop as
+ * soon as a page contributes nothing new, and cap pages hard.
+ */
 export async function listAllSubscribers(apiKey: string): Promise<ParagraphSubscriber[]> {
   const out: ParagraphSubscriber[] = [];
+  const seen = new Set<string>();
   let cursor: string | undefined;
-  for (let page = 0; page < 200; page++) {
+  for (let page = 0; page < 50; page++) {
     const qs = new URLSearchParams({ limit: "100", ...(cursor ? { cursor } : {}) });
     const data = await call<{ items: ParagraphSubscriber[]; pagination?: { cursor?: string; hasMore?: boolean } }>(
       apiKey,
       `/subscribers?${qs}`,
     );
-    out.push(...(data.items ?? []));
+    let fresh = 0;
+    for (const it of data.items ?? []) {
+      const key = (it.email ?? it.walletAddress ?? "").toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(it);
+      fresh++;
+    }
+    if (fresh === 0) break; // wrapped around — see note above
     if (!data.pagination?.hasMore || !data.pagination.cursor) break;
     cursor = data.pagination.cursor;
+    await new Promise((r) => setTimeout(r, 350)); // stay under their page-rate limit
   }
   return out;
 }

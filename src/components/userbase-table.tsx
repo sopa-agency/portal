@@ -77,10 +77,13 @@ function CopyEmailButton({ email }: { email: string }) {
 export function UserbaseTable({
   users,
   subscribedEmails,
+  subscriptionPartial,
 }: {
   users: UserbaseEmailUser[];
   /** Lowercased emails subscribed on Paragraph; undefined = newsletter not configured (column hidden). */
   subscribedEmails?: string[];
+  /** Paragraph's list API couldn't enumerate everyone — misses show "unknown", not "not subscribed". */
+  subscriptionPartial?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const subscribedSet = useMemo(
@@ -192,7 +195,7 @@ export function UserbaseTable({
                         </span>
                       ) : (
                         <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wider text-foreground-subtle">
-                          not subscribed
+                          {subscriptionPartial ? "unknown" : "not subscribed"}
                         </span>
                       )}
                     </td>

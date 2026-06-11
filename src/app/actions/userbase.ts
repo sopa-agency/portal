@@ -119,6 +119,12 @@ export type ParagraphSyncStatus =
       missing: number;
       /** Lowercased emails currently subscribed on Paragraph — drives the per-user badge. */
       subscribedEmails: string[];
+      /**
+       * True when Paragraph's list API returned fewer subscribers than its own
+       * count endpoint — their alpha cursor can't paginate past null-createdAt
+       * rows (bug reported), so "missing"/badges UNDERCOUNT in that state.
+       */
+      partial: boolean;
     }
   | { ok: true; configured: false }
   | { ok: false; error: string };
@@ -141,22 +147,24 @@ export async function getParagraphSyncStatus(): Promise<ParagraphSyncStatus> {
 
     const onParagraph = new Set(list.map((s) => s.email?.toLowerCase()).filter(Boolean));
     const { prisma } = await import("@/lib/prisma");
-    const optedOut = new Set(
-      (await prisma.newsletterPref.findMany({ where: { subscribed: false }, select: { email: true } })).map((r) =>
-        r.email.toLowerCase(),
-      ),
-    );
+    const prefs = await prisma.newsletterPref.findMany({ select: { email: true, subscribed: true } });
+    const optedOut = new Set(prefs.filter((p) => !p.subscribed).map((p) => p.email.toLowerCase()));
+    // Known opt-ins (checkbox/sync) supplement the list when Paragraph's
+    // pagination can't enumerate everyone (see `partial`).
+    const optedIn = prefs.filter((p) => p.subscribed).map((p) => p.email.toLowerCase());
     const eligible = [...new Set(local.users.map((u) => u.email.toLowerCase()))].filter((e) => !optedOut.has(e));
     const missing = eligible.filter((e) => !onParagraph.has(e)).length;
+    const paragraphCount = await getSubscriberCount(pub.id);
 
     return {
       ok: true,
       configured: true,
       publication: pub.name,
-      paragraphCount: await getSubscriberCount(pub.id),
+      paragraphCount,
       userbaseEmails: eligible.length,
       missing,
-      subscribedEmails: [...onParagraph] as string[],
+      subscribedEmails: [...new Set([...onParagraph, ...optedIn])] as string[],
+      partial: list.length < paragraphCount,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
