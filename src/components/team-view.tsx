@@ -109,7 +109,26 @@ function statusBadge(status: ConnectionStatus): BadgeConfig {
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
+/** Strip "@", profile URLs, and trailing path from a stored GitHub contact value. */
+function githubLoginOf(member: TeamMember): string | null {
+  const value = member.contacts.find((c) => c.label === "GitHub")?.value;
+  if (!value) return null;
+  const login = value
+    .trim()
+    .replace(/^https?:\/\/(www\.)?github\.com\//i, "")
+    .replace(/^@/, "")
+    .replace(/\/.*$/, "")
+    .trim();
+  return login || null;
+}
+
+/** GitHub avatar — predictable from the login, no API call needed. */
+function githubAvatarUrl(login: string, size = 64): string {
+  return `https://github.com/${encodeURIComponent(login)}.png?size=${size}`;
+}
+
 function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: TeamMember) => void }) {
+  const ghLogin = githubLoginOf(member);
   return (
     <button
       type="button"
@@ -117,18 +136,34 @@ function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: T
       aria-label={`Open @${member.username} contact card`}
       className="group flex flex-col items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-border-strong hover:bg-surface-elevated"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={member.avatarUrl}
-        alt={`@${member.username}`}
-        width={56}
-        height={56}
-        className="h-14 w-14 rounded-full border border-border object-cover"
-        onError={(e) => {
-          // Fallback: hide the img and let the initials div show via CSS
-          (e.target as HTMLImageElement).style.display = "none";
-        }}
-      />
+      <span className="relative">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={member.avatarUrl}
+          alt={`@${member.username}`}
+          width={56}
+          height={56}
+          className="h-14 w-14 rounded-full border border-border object-cover"
+          onError={(e) => {
+            // Fallback: hide the img and let the initials div show via CSS
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+        {ghLogin && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={githubAvatarUrl(ghLogin)}
+            alt={`GitHub: ${ghLogin}`}
+            title={`GitHub: @${ghLogin}`}
+            width={22}
+            height={22}
+            className="absolute -bottom-0.5 -right-0.5 h-[22px] w-[22px] rounded-full border-2 border-surface object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        )}
+      </span>
       <span className="text-center text-xs font-medium text-foreground-muted group-hover:text-foreground tabular-nums">
         @{member.username}
       </span>
@@ -490,13 +525,32 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
         <div className="mt-5 space-y-2">
           {contacts.map((contact) => {
             const editable = (CONTACT_PLATFORMS as readonly string[]).includes(contact.label);
+            // GitHub rows get the live avatar next to the handle — instant
+            // visual confirmation the login is right (404 logins render blank).
+            const ghRowLogin =
+              contact.label === "GitHub"
+                ? contact.value.trim().replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/^@/, "").replace(/\/.*$/, "")
+                : null;
             const content = (
               <>
                 <span className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <span className="text-foreground-subtle">{networkIcon(contact.label)}</span>
                   {contact.label}
                 </span>
-                <span className="flex min-w-0 items-center gap-1 truncate text-sm text-foreground-muted tabular-nums">
+                <span className="flex min-w-0 items-center gap-1.5 truncate text-sm text-foreground-muted tabular-nums">
+                  {ghRowLogin && (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={githubAvatarUrl(ghRowLogin, 40)}
+                      alt=""
+                      width={18}
+                      height={18}
+                      className="h-[18px] w-[18px] shrink-0 rounded-full border border-border object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  )}
                   {contact.value}
                   {contact.url && <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />}
                 </span>
