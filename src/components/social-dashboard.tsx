@@ -31,7 +31,7 @@ export function SocialDashboard({
   return <BriefingTabs tabs={tabs} />;
 }
 
-function ChannelStrategy({
+export function ChannelStrategy({
   channel,
   agentName,
 }: {
