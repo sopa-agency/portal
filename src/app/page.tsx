@@ -30,6 +30,7 @@ export default async function Home() {
           today={today}
           teamEmails={project.teamEmails ?? []}
           projectName={project.name}
+          githubRepo={project.repos[0]}
         />
       ) : (
         <BriefingMissing agent={result.agent} error={result.error} />

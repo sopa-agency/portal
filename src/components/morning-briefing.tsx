@@ -40,11 +40,13 @@ export function MorningBriefing({
   today,
   teamEmails = [],
   projectName = "",
+  githubRepo,
 }: {
   briefing: Briefing;
   today: string;
   teamEmails?: string[];
   projectName?: string;
+  githubRepo?: string;
 }) {
   const { status, actions, sources, middle } = partitionSections(briefing.sections);
   const freshness = freshnessLabel(briefing.date, today);
@@ -71,7 +73,7 @@ export function MorningBriefing({
           </span>
           <ImprovePromptButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
           <FeedbackButton kind="briefing" channelKey={briefing.agent.slug} label={`${briefing.agent.label} briefing`} />
-          <TakeActionButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
+          <TakeActionButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} githubRepo={githubRepo} />
           {teamEmails.length > 0 && (
             <EmailBriefingButton
               agentSlug={briefing.agent.slug}
@@ -86,28 +88,28 @@ export function MorningBriefing({
 
       {!hasAnySections && briefing.preamble && (
         <section className="rounded-2xl border border-border bg-surface p-5">
-          <MarkdownContent markdown={briefing.preamble} />
+          <MarkdownContent markdown={briefing.preamble} githubRepo={githubRepo} />
         </section>
       )}
 
       {status.map((s, i) => (
-        <BriefingSection key={`status-${i}`} {...s} />
+        <BriefingSection key={`status-${i}`} {...s} githubRepo={githubRepo} />
       ))}
 
       {middle.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">
           {middle.map((s, i) => (
-            <BriefingSection key={`middle-${i}`} {...s} />
+            <BriefingSection key={`middle-${i}`} {...s} githubRepo={githubRepo} />
           ))}
         </div>
       )}
 
       {actions.map((s, i) => (
-        <BriefingSection key={`actions-${i}`} {...s} />
+        <BriefingSection key={`actions-${i}`} {...s} githubRepo={githubRepo} />
       ))}
 
       {sources.map((s, i) => (
-        <BriefingSources key={`sources-${i}`} heading={s.heading} body={s.body} />
+        <BriefingSources key={`sources-${i}`} heading={s.heading} body={s.body} githubRepo={githubRepo} />
       ))}
     </article>
   );

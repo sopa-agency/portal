@@ -23,9 +23,11 @@ const QUICK_CHIPS = [
 export function TakeActionButton({
   agentSlug,
   agentLabel,
+  githubRepo,
 }: {
   agentSlug: string;
   agentLabel: string;
+  githubRepo?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -107,6 +109,18 @@ export function TakeActionButton({
     router.refresh();
   };
 
+  const importProposalToChat = () => {
+    if (!proposal) return;
+    window.dispatchEvent(
+      new CustomEvent("portal-chat:import", {
+        detail: {
+          text: `Importei esta proposed action do briefing de ${agentLabel}. Quero continuar daqui:\n\n${proposal}`,
+        },
+      }),
+    );
+    close();
+  };
+
   const rerunBriefing = async () => {
     setRegenerating(true);
     setError(null);
@@ -183,14 +197,14 @@ export function TakeActionButton({
 
               {step === "proposal" && proposal && !pending && (
                 <div className="rounded-xl border border-border bg-surface-elevated p-4">
-                  <MarkdownContent markdown={proposal} />
+                  <MarkdownContent markdown={proposal} githubRepo={githubRepo} />
                 </div>
               )}
 
               {step === "result" && turns.length > 0 && (
                 <div className="space-y-3">
                   {turns.map((t, i) => (
-                    <TurnBubble key={i} turn={t} />
+                    <TurnBubble key={i} turn={t} githubRepo={githubRepo} />
                   ))}
                   {following && (
                     <div className="rounded-xl border border-border bg-surface-elevated px-4 py-3">
@@ -220,6 +234,15 @@ export function TakeActionButton({
                     className="rounded-lg border border-border bg-foreground/5 px-3 py-1.5 text-sm text-foreground-muted hover:bg-foreground/10"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={importProposalToChat}
+                    disabled={!proposal || pending}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Import to chat
                   </button>
                   <button
                     type="button"
@@ -271,7 +294,7 @@ function LoadingBlock({ label, hint }: { label: string; hint?: string }) {
   );
 }
 
-function TurnBubble({ turn }: { turn: Turn }) {
+function TurnBubble({ turn, githubRepo }: { turn: Turn; githubRepo?: string }) {
   if (turn.role === "user") {
     return (
       <div className="flex justify-end">
@@ -289,7 +312,7 @@ function TurnBubble({ turn }: { turn: Turn }) {
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-foreground-subtle">
         Agent
       </p>
-      <MarkdownContent markdown={turn.text} />
+      <MarkdownContent markdown={turn.text} githubRepo={githubRepo} />
     </div>
   );
 }

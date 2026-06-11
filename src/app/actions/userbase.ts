@@ -104,3 +104,89 @@ export async function listUsersWithEmail(): Promise<UserbaseEmailListResult> {
 
   return { ok: true, users, total: users.length };
 }
+
+// ---------------------------------------------------------------------------
+// Paragraph (paragraph.com) — subscriber sync for the newsletter publication.
+// ---------------------------------------------------------------------------
+
+export type ParagraphSyncStatus =
+  | { ok: true; configured: true; publication: string; paragraphCount: number; userbaseEmails: number; missing: number }
+  | { ok: true; configured: false }
+  | { ok: false; error: string };
+
+/** Compare the userbase email list against Paragraph's subscriber list. */
+export async function getParagraphSyncStatus(): Promise<ParagraphSyncStatus> {
+  try {
+    const { getActiveProject } = await import("@/projects/index");
+    const project = await getActiveProject();
+    const { paragraphApiKey, getPublication, getSubscriberCount, listAllSubscribers } = await import("@/lib/paragraph");
+    const apiKey = paragraphApiKey(project);
+    if (!apiKey) return { ok: true, configured: false };
+
+    const [pub, list, local] = await Promise.all([
+      getPublication(apiKey),
+      listAllSubscribers(apiKey),
+      listUsersWithEmail(),
+    ]);
+    if (!local.ok) return { ok: false, error: local.error };
+
+    const onParagraph = new Set(list.map((s) => s.email?.toLowerCase()).filter(Boolean));
+    const { prisma } = await import("@/lib/prisma");
+    const optedOut = new Set(
+      (await prisma.newsletterPref.findMany({ where: { subscribed: false }, select: { email: true } })).map((r) =>
+        r.email.toLowerCase(),
+      ),
+    );
+    const eligible = [...new Set(local.users.map((u) => u.email.toLowerCase()))].filter((e) => !optedOut.has(e));
+    const missing = eligible.filter((e) => !onParagraph.has(e)).length;
+
+    return {
+      ok: true,
+      configured: true,
+      publication: pub.name,
+      paragraphCount: await getSubscriberCount(pub.id),
+      userbaseEmails: eligible.length,
+      missing,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Push userbase emails that aren't on Paragraph yet (opt-outs excluded). */
+export async function syncUserbaseToParagraph(): Promise<
+  { ok: true; added: number } | { ok: false; error: string }
+> {
+  try {
+    const { getActiveProject } = await import("@/projects/index");
+    const project = await getActiveProject();
+    const { paragraphApiKey, listAllSubscribers, addSubscriber } = await import("@/lib/paragraph");
+    const apiKey = paragraphApiKey(project);
+    if (!apiKey) return { ok: false, error: "Paragraph API key not configured for this project." };
+
+    const [list, local] = await Promise.all([listAllSubscribers(apiKey), listUsersWithEmail()]);
+    if (!local.ok) return { ok: false, error: local.error };
+
+    const onParagraph = new Set(list.map((s) => s.email?.toLowerCase()).filter(Boolean));
+    const { prisma } = await import("@/lib/prisma");
+    const optedOut = new Set(
+      (await prisma.newsletterPref.findMany({ where: { subscribed: false }, select: { email: true } })).map((r) =>
+        r.email.toLowerCase(),
+      ),
+    );
+
+    const seen = new Set<string>();
+    let added = 0;
+    for (const u of local.users) {
+      const email = u.email.trim().toLowerCase();
+      if (!email || seen.has(email) || optedOut.has(email) || onParagraph.has(email)) continue;
+      seen.add(email);
+      await addSubscriber(apiKey, { email, createdAt: new Date(u.emailLinkedAt).getTime() });
+      added++;
+      await new Promise((r) => setTimeout(r, 120)); // stay under their rate limit
+    }
+    return { ok: true, added };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

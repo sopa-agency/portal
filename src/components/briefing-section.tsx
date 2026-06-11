@@ -85,10 +85,12 @@ export function BriefingSection({
   heading,
   kind,
   body,
+  githubRepo,
 }: {
   heading: string;
   kind: BriefingKind;
   body: string;
+  githubRepo?: string;
 }) {
   const style = STYLES[kind];
   const Icon = style.icon;
@@ -103,12 +105,12 @@ export function BriefingSection({
         </span>
       </div>
       <h3 className="mb-3 text-base font-semibold text-foreground">{heading}</h3>
-      <MarkdownContent markdown={body} />
+      <MarkdownContent markdown={body} githubRepo={githubRepo} />
     </section>
   );
 }
 
-export function BriefingSources({ heading, body }: { heading: string; body: string }) {
+export function BriefingSources({ heading, body, githubRepo }: { heading: string; body: string; githubRepo?: string }) {
   return (
     <details className="group rounded-2xl border border-border bg-surface/40 px-5 py-4 open:bg-surface">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-foreground-subtle [&::-webkit-details-marker]:hidden">
@@ -122,7 +124,7 @@ export function BriefingSources({ heading, body }: { heading: string; body: stri
         </span>
       </summary>
       <div className="mt-3 border-t border-border pt-3">
-        <MarkdownContent markdown={body} />
+        <MarkdownContent markdown={body} githubRepo={githubRepo} />
       </div>
     </details>
   );

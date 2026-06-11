@@ -380,6 +380,24 @@ export function FloatingAgentChat({
   }, []);
 
   // -------------------------------------------------------------------------
+  // Import text from other portal surfaces (e.g. Proposed action modal)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const onImport = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string }>).detail;
+      const text = detail?.text?.trim();
+      if (!text) return;
+      setDraft(text);
+      setOpen(true);
+      setError("");
+      window.setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+
+    window.addEventListener("portal-chat:import", onImport);
+    return () => window.removeEventListener("portal-chat:import", onImport);
+  }, []);
+
+  // -------------------------------------------------------------------------
   // Persist state
   // -------------------------------------------------------------------------
   useEffect(() => {

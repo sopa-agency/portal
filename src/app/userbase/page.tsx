@@ -3,14 +3,15 @@ export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { UserbaseTable } from "@/components/userbase-table";
-import { listUsersWithEmail } from "@/app/actions/userbase";
+import { listUsersWithEmail, getParagraphSyncStatus } from "@/app/actions/userbase";
+import { ParagraphSyncCard } from "@/components/paragraph-sync-card";
 import { getActiveProject } from "@/projects";
 
 export default async function UserbasePage() {
   const project = await getActiveProject();
   if (project.hiddenRoutes?.includes("/userbase")) notFound();
 
-  const result = await listUsersWithEmail();
+  const [result, paragraphStatus] = await Promise.all([listUsersWithEmail(), getParagraphSyncStatus()]);
   const projectName = project.name;
 
   return (
@@ -21,6 +22,8 @@ export default async function UserbasePage() {
         description={`${projectName} accounts that have linked an email (via the magic-link sign-in). Use this list for email-blast outreach.`}
         status={result.ok ? `${result.total} total` : undefined}
       />
+
+      <ParagraphSyncCard initial={paragraphStatus} />
 
       {result.ok ? (
         <UserbaseTable users={result.users} />

@@ -18,7 +18,17 @@ import "highlight.js/styles/github-dark.css";
 const REMARK_PLUGINS = [remarkGfm];
 const REHYPE_PLUGINS = [rehypeRaw, rehypeSanitize, rehypeHighlight];
 
-export function MarkdownContent({ markdown }: { markdown: string }) {
+function linkPullRequests(markdown: string, githubRepo?: string): string {
+  if (!githubRepo) return markdown;
+  const pullUrl = (n: string) => `https://github.com/${githubRepo}/pull/${n}`;
+  return markdown
+    .replace(/`#(\d+)`/g, (_, n: string) => `[#${n}](${pullUrl(n)})`)
+    .replace(/(^|[\s(])PR #(\d+)\b/g, (_, prefix: string, n: string) => `${prefix}PR [#${n}](${pullUrl(n)})`)
+    .replace(/(^|[\s(])#(\d+)\b/g, (_, prefix: string, n: string) => `${prefix}[#${n}](${pullUrl(n)})`);
+}
+
+export function MarkdownContent({ markdown, githubRepo }: { markdown: string; githubRepo?: string }) {
+  const linkedMarkdown = linkPullRequests(markdown, githubRepo);
   return (
     <div className="prose-skatehive space-y-3 text-sm text-foreground leading-7">
       <ReactMarkdown
@@ -85,7 +95,7 @@ export function MarkdownContent({ markdown }: { markdown: string }) {
           hr: () => <hr className="my-4 border-border" />,
         }}
       >
-        {markdown}
+        {linkedMarkdown}
       </ReactMarkdown>
     </div>
   );
