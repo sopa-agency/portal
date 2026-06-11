@@ -53,7 +53,7 @@ export function MorningBriefing({
   const hasAnySections = briefing.sections.length > 0;
 
   return (
-    <article className="space-y-4">
+    <article className="space-y-5">
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b border-border pb-3">
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-foreground">
@@ -96,13 +96,10 @@ export function MorningBriefing({
         <BriefingSection key={`status-${i}`} {...s} githubRepo={githubRepo} />
       ))}
 
-      {middle.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {middle.map((s, i) => (
-            <BriefingSection key={`middle-${i}`} {...s} githubRepo={githubRepo} />
-          ))}
-        </div>
-      )}
+      {/* Ledger flow (Split Desk design): compact vertical action points. */}
+      {middle.map((s, i) => (
+        <BriefingSection key={`middle-${i}`} {...s} githubRepo={githubRepo} />
+      ))}
 
       {actions.map((s, i) => (
         <BriefingSection key={`actions-${i}`} {...s} githubRepo={githubRepo} />

@@ -17,70 +17,26 @@ type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 type SectionStyle = {
   icon: Icon;
   label: string;
-  card: string;
+  /** Ledger accent bar + eyebrow color (Split Desk design). */
+  bar: string;
   badge: string;
-  iconClass: string;
 };
 
 const STYLES: Record<BriefingKind, SectionStyle> = {
-  status: {
-    icon: Activity,
-    label: "Status",
-    card: "border-border bg-surface",
-    badge: "text-foreground-subtle",
-    iconClass: "text-accent",
-  },
-  priorities: {
-    icon: Target,
-    label: "Priorities",
-    card: "border-accent-border bg-accent-bg",
-    badge: "text-accent",
-    iconClass: "text-accent",
-  },
-  risks: {
-    icon: AlertTriangle,
-    label: "Risks",
-    card: "border-warning/30 bg-warning/5",
-    badge: "text-warning",
-    iconClass: "text-warning",
-  },
-  changes: {
-    icon: GitCommit,
-    label: "Changes",
-    card: "border-border bg-surface",
-    badge: "text-foreground-subtle",
-    iconClass: "text-foreground-muted",
-  },
-  actions: {
-    icon: Zap,
-    label: "Next actions",
-    card: "border-accent-border bg-accent-bg",
-    badge: "text-accent",
-    iconClass: "text-accent",
-  },
-  coordination: {
-    icon: Users,
-    label: "Coordination",
-    card: "border-border bg-surface",
-    badge: "text-foreground-subtle",
-    iconClass: "text-foreground-muted",
-  },
-  sources: {
-    icon: Library,
-    label: "Sources",
-    card: "border-border bg-surface/40",
-    badge: "text-foreground-subtle",
-    iconClass: "text-foreground-subtle",
-  },
-  generic: {
-    icon: FileText,
-    label: "Notes",
-    card: "border-border bg-surface",
-    badge: "text-foreground-subtle",
-    iconClass: "text-foreground-muted",
-  },
+  status: { icon: Activity, label: "Status", bar: "bg-accent", badge: "text-accent" },
+  priorities: { icon: Target, label: "Priorities", bar: "bg-accent", badge: "text-accent" },
+  risks: { icon: AlertTriangle, label: "Risks", bar: "bg-warning", badge: "text-warning" },
+  changes: { icon: GitCommit, label: "Changes", bar: "bg-border-strong", badge: "text-foreground-subtle" },
+  actions: { icon: Zap, label: "Next actions", bar: "bg-accent", badge: "text-accent" },
+  coordination: { icon: Users, label: "Coordination", bar: "bg-border-strong", badge: "text-foreground-subtle" },
+  sources: { icon: Library, label: "Sources", bar: "bg-border-strong", badge: "text-foreground-subtle" },
+  generic: { icon: FileText, label: "Notes", bar: "bg-border-strong", badge: "text-foreground-subtle" },
 };
 
+/**
+ * Ledger-style section (Split Desk design): a thin accent bar, a compact
+ * uppercase eyebrow, and tight action-point bullets — no card chrome.
+ */
 export function BriefingSection({
   heading,
   kind,
@@ -94,18 +50,22 @@ export function BriefingSection({
 }) {
   const style = STYLES[kind];
   const Icon = style.icon;
+  const eyebrow =
+    heading && heading.toLowerCase() !== style.label.toLowerCase()
+      ? `${style.label} · ${heading}`
+      : style.label;
   return (
-    <section className={`rounded-2xl border p-5 ${style.card}`}>
-      <div className="mb-3 flex items-center gap-2">
-        <Icon className={`h-4 w-4 ${style.iconClass}`} />
-        <span
-          className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${style.badge}`}
-        >
-          {style.label}
-        </span>
+    <section className="flex gap-3.5">
+      <div className={`w-[3px] shrink-0 rounded-full opacity-50 ${style.bar}`} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className={`mb-1.5 flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.12em] ${style.badge}`}>
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{eyebrow}</span>
+        </div>
+        <div className="text-[13.5px] leading-relaxed [&_li]:my-0.5 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm">
+          <MarkdownContent markdown={body} githubRepo={githubRepo} />
+        </div>
       </div>
-      <h3 className="mb-3 text-base font-semibold text-foreground">{heading}</h3>
-      <MarkdownContent markdown={body} githubRepo={githubRepo} />
     </section>
   );
 }
