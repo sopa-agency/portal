@@ -3573,10 +3573,25 @@ export function PostCreator({
       {/* Studio view — vendored reelflip-studio design tool                    */}
       {/* -------------------------------------------------------------------- */}
       {viewTab === "studio" && (
-        <section className="h-[calc(100dvh-11rem)] min-h-[480px] overflow-hidden rounded-2xl border border-border">
-          <StudioEditor onUseInPost={handleUseInPost} />
+        <div className="fixed inset-0 z-40 flex flex-col bg-background">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
+            <button
+              type="button"
+              onClick={() => setViewTab("create")}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Post Creator
+            </button>
+            <span className="font-mono text-[11px] uppercase tracking-[0.25em] text-foreground-subtle">
+              Studio
+            </span>
+          </div>
+          <div className="min-h-0 flex-1">
+            <StudioEditor onUseInPost={handleUseInPost} />
+          </div>
           <StudioToaster />
-        </section>
+        </div>
       )}
 
       {/* -------------------------------------------------------------------- */}
