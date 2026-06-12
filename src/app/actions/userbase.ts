@@ -125,13 +125,110 @@ export type UserbasePage =
   | { ok: true; users: UserbaseRow[]; nextCursor: string | null; total: number }
   | { ok: false; error: string };
 
+/** Sortable columns. `user/status/onboarding/created` sort directly on
+ *  userbase_users; `email/emailLinked/instagram/identities` live in other
+ *  tables, so those sorts are computed over the (small, ~2K) id space. */
+export type UserbaseSortField =
+  | "user"
+  | "email"
+  | "instagram"
+  | "status"
+  | "onboarding"
+  | "identities"
+  | "created"
+  | "emailLinked";
+
+export type UserbaseSort = { field: UserbaseSortField; dir: "asc" | "desc" };
+
 const PAGE_SIZE = 60;
 
+// Direct userbase_users columns (offset + order at the DB).
+const DIRECT_SORT_COLUMNS: Partial<Record<UserbaseSortField, string>> = {
+  user: "handle",
+  status: "status",
+  onboarding: "onboarding_step",
+  created: "created_at",
+};
+
+type UbClient = NonNullable<ReturnType<typeof getUserbaseClient>>;
+type RawUserRow = Record<string, unknown>;
+
+const USER_COLS = "id, handle, display_name, avatar_url, status, onboarding_step, created_at";
+
+/** Ids of users matching the search (handle/display name + email). */
+async function searchUserIdSet(client: UbClient, search: string): Promise<Set<string>> {
+  const like = `%${search.replace(/[%_]/g, "")}%`;
+  const [userRes, emailRes] = await Promise.all([
+    client
+      .from("userbase_users")
+      .select("id")
+      .or(`handle.ilike.${like},display_name.ilike.${like}`)
+      .limit(3000),
+    client
+      .from("userbase_auth_methods")
+      .select("user_id")
+      .eq("type", "email_magic")
+      .ilike("identifier", like)
+      .limit(500),
+  ]);
+  const ids = new Set<string>();
+  for (const r of userRes.data ?? []) ids.add(r.id as string);
+  for (const r of emailRes.data ?? []) ids.add(r.user_id as string);
+  return ids;
+}
+
+/** Join emails + identities onto a page of user rows, preserving row order. */
+async function hydrateRows(client: UbClient, userRows: RawUserRow[]): Promise<UserbaseRow[]> {
+  const ids = userRows.map((u) => u.id as string);
+  const [emailRes, identRes] = ids.length
+    ? await Promise.all([
+        client
+          .from("userbase_auth_methods")
+          .select("user_id, identifier, created_at")
+          .eq("type", "email_magic")
+          .in("user_id", ids)
+          .order("created_at", { ascending: false }),
+        client.from("userbase_identities").select("user_id, type, handle").in("user_id", ids),
+      ])
+    : [{ data: [] }, { data: [] }];
+
+  const emailByUser = new Map<string, { email: string; linkedAt: string }>();
+  for (const r of emailRes.data ?? []) {
+    const uid = r.user_id as string;
+    if (!emailByUser.has(uid)) {
+      emailByUser.set(uid, { email: r.identifier as string, linkedAt: r.created_at as string });
+    }
+  }
+  const identCount = new Map<string, number>();
+  const instagramByUser = new Map<string, string>();
+  for (const r of identRes.data ?? []) {
+    const uid = r.user_id as string;
+    identCount.set(uid, (identCount.get(uid) ?? 0) + 1);
+    if (r.type === "instagram" && r.handle) instagramByUser.set(uid, r.handle as string);
+  }
+
+  return userRows.map((u) => ({
+    id: u.id as string,
+    handle: (u.handle as string | null) ?? null,
+    displayName: (u.display_name as string | null) ?? null,
+    avatarUrl: (u.avatar_url as string | null) ?? null,
+    status: (u.status as string | null) ?? null,
+    onboardingStep: (u.onboarding_step as number | null) ?? null,
+    email: emailByUser.get(u.id as string)?.email ?? null,
+    emailLinkedAt: emailByUser.get(u.id as string)?.linkedAt ?? null,
+    createdAt: (u.created_at as string | null) ?? null,
+    identitiesCount: identCount.get(u.id as string) ?? 0,
+    instagram: instagramByUser.get(u.id as string) ?? null,
+  }));
+}
+
 export async function listUserbaseUsersPage(params?: {
-  /** Keyset cursor: `${created_at}|${id}` of the last row of the previous page. */
+  /** Offset cursor: stringified row offset of the next page. */
   cursor?: string | null;
   /** Server-side search over handle / display name / email. */
   search?: string;
+  /** Column sort; defaults to newest-first (created desc). */
+  sort?: UserbaseSort;
 }): Promise<UserbasePage> {
   try {
     const client = getUserbaseClient();
@@ -140,94 +237,136 @@ export async function listUserbaseUsersPage(params?: {
     }
 
     const search = params?.search?.trim().toLowerCase() ?? "";
+    const sort: UserbaseSort = params?.sort ?? { field: "created", dir: "desc" };
+    const offset = params?.cursor ? Math.max(0, parseInt(params.cursor, 10) || 0) : 0;
+    const ascending = sort.dir === "asc";
 
-    // Email search resolves user ids first (emails live in auth_methods).
-    let emailMatchIds: string[] | null = null;
-    if (search) {
-      const { data } = await client
-        .from("userbase_auth_methods")
-        .select("user_id")
-        .eq("type", "email_magic")
-        .ilike("identifier", `%${search}%`)
-        .limit(200);
-      emailMatchIds = [...new Set((data ?? []).map((r) => r.user_id as string))];
-    }
+    const directCol = DIRECT_SORT_COLUMNS[sort.field];
+    if (directCol) {
+      // --- direct column: order + offset-range at the DB ---------------------
+      let query = client
+        .from("userbase_users")
+        .select(USER_COLS, { count: "exact" })
+        .order(directCol, { ascending, nullsFirst: false })
+        .order("id", { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
 
-    let query = client
-      .from("userbase_users")
-      .select("id, handle, display_name, avatar_url, status, onboarding_step, created_at", { count: "exact" })
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(PAGE_SIZE);
-
-    if (search) {
-      const like = `%${search.replace(/[%_]/g, "")}%`;
-      const ors = [`handle.ilike.${like}`, `display_name.ilike.${like}`];
-      if (emailMatchIds && emailMatchIds.length > 0) {
-        ors.push(`id.in.(${emailMatchIds.join(",")})`);
+      if (search) {
+        const like = `%${search.replace(/[%_]/g, "")}%`;
+        const ors = [`handle.ilike.${like}`, `display_name.ilike.${like}`];
+        const emailIds = [...(await searchUserIdSet(client, search))];
+        if (emailIds.length > 0) ors.push(`id.in.(${emailIds.slice(0, 300).join(",")})`);
+        query = query.or(ors.join(","));
       }
-      query = query.or(ors.join(","));
+
+      const { data: userRows, error, count } = await query;
+      if (error) return { ok: false, error: error.message };
+
+      const users = await hydrateRows(client, (userRows ?? []) as RawUserRow[]);
+      const total = count ?? users.length;
+      const nextCursor = offset + PAGE_SIZE < total ? String(offset + PAGE_SIZE) : null;
+      return { ok: true, users, nextCursor, total };
     }
 
-    if (params?.cursor) {
-      const [createdAt, id] = params.cursor.split("|");
-      // Keyset: rows strictly after the cursor in (created_at desc, id desc)
-      // order. Values quoted — timestamps carry "+" and ":".
-      query = query.or(`created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt."${id}")`);
+    // --- cross-table sort (email / emailLinked / instagram / identities) -----
+    // The whole id space is small (~2K); order ids in memory, then fetch the
+    // page. Users without a value sort last (stable on created desc).
+    // NOTE: Supabase caps responses at 1000 rows, so full scans go in chunks.
+    const CHUNK = 1000;
+    const fetchAllRows = async <T,>(
+      build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+    ): Promise<T[]> => {
+      const out: T[] = [];
+      for (let from = 0; ; from += CHUNK) {
+        const { data, error } = await build(from, from + CHUNK - 1);
+        if (error) throw new Error(error.message);
+        out.push(...(data ?? []));
+        if (!data || data.length < CHUNK) break;
+      }
+      return out;
+    };
+
+    const allUsers = await fetchAllRows((from, to) =>
+      client
+        .from("userbase_users")
+        .select("id")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, to),
+    );
+
+    let ids = allUsers.map((r) => (r as { id: string }).id);
+    if (search) {
+      const match = await searchUserIdSet(client, search);
+      ids = ids.filter((id) => match.has(id));
     }
 
-    const { data: userRows, error, count } = await query;
-    if (error) return { ok: false, error: error.message };
-
-    const ids = (userRows ?? []).map((u) => u.id as string);
-    const [emailRes, identRes] = ids.length
-      ? await Promise.all([
-          client
-            .from("userbase_auth_methods")
-            .select("user_id, identifier, created_at")
-            .eq("type", "email_magic")
-            .in("user_id", ids)
-            .order("created_at", { ascending: false }),
-          client.from("userbase_identities").select("user_id, type, handle").in("user_id", ids),
-        ])
-      : [{ data: [] }, { data: [] }];
-
-    const emailByUser = new Map<string, { email: string; linkedAt: string }>();
-    for (const r of emailRes.data ?? []) {
-      const uid = r.user_id as string;
-      if (!emailByUser.has(uid)) {
-        emailByUser.set(uid, { email: r.identifier as string, linkedAt: r.created_at as string });
+    const value = new Map<string, string | number>();
+    if (sort.field === "email" || sort.field === "emailLinked") {
+      const rows = await fetchAllRows((from, to) =>
+        client
+          .from("userbase_auth_methods")
+          .select("user_id, identifier, created_at")
+          .eq("type", "email_magic")
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, to),
+      );
+      for (const r of rows as { user_id: string; identifier: string; created_at: string }[]) {
+        if (value.has(r.user_id)) continue;
+        value.set(
+          r.user_id,
+          sort.field === "email" ? r.identifier.toLowerCase() : r.created_at,
+        );
+      }
+    } else if (sort.field === "instagram") {
+      const rows = await fetchAllRows((from, to) =>
+        client
+          .from("userbase_identities")
+          .select("user_id, handle")
+          .eq("type", "instagram")
+          .order("id", { ascending: false })
+          .range(from, to),
+      );
+      for (const r of rows as { user_id: string; handle: string | null }[]) {
+        if (r.handle) value.set(r.user_id, r.handle.toLowerCase());
+      }
+    } else {
+      // identities count
+      const rows = await fetchAllRows((from, to) =>
+        client
+          .from("userbase_identities")
+          .select("user_id")
+          .order("id", { ascending: false })
+          .range(from, to),
+      );
+      for (const r of rows as { user_id: string }[]) {
+        value.set(r.user_id, ((value.get(r.user_id) as number | undefined) ?? 0) + 1);
       }
     }
-    const identCount = new Map<string, number>();
-    const instagramByUser = new Map<string, string>();
-    for (const r of identRes.data ?? []) {
-      const uid = r.user_id as string;
-      identCount.set(uid, (identCount.get(uid) ?? 0) + 1);
-      if (r.type === "instagram" && r.handle) instagramByUser.set(uid, r.handle as string);
-    }
 
-    const users: UserbaseRow[] = (userRows ?? []).map((u) => ({
-      id: u.id as string,
-      handle: (u.handle as string | null) ?? null,
-      displayName: (u.display_name as string | null) ?? null,
-      avatarUrl: (u.avatar_url as string | null) ?? null,
-      status: (u.status as string | null) ?? null,
-      onboardingStep: (u.onboarding_step as number | null) ?? null,
-      email: emailByUser.get(u.id as string)?.email ?? null,
-      emailLinkedAt: emailByUser.get(u.id as string)?.linkedAt ?? null,
-      createdAt: (u.created_at as string | null) ?? null,
-      identitiesCount: identCount.get(u.id as string) ?? 0,
-      instagram: instagramByUser.get(u.id as string) ?? null,
-    }));
+    const dirMul = ascending ? 1 : -1;
+    const isCount = sort.field === "identities";
+    ids.sort((a, b) => {
+      const va = value.get(a) ?? (isCount ? 0 : null);
+      const vb = value.get(b) ?? (isCount ? 0 : null);
+      if (va === null && vb === null) return 0; // stable: keep created-desc
+      if (va === null) return 1; // empty values always last
+      if (vb === null) return -1;
+      return va < vb ? -dirMul : va > vb ? dirMul : 0;
+    });
 
-    const last = userRows?.[userRows.length - 1];
-    const nextCursor =
-      userRows && userRows.length === PAGE_SIZE && last
-        ? `${last.created_at}|${last.id}`
-        : null;
+    const pageIds = ids.slice(offset, offset + PAGE_SIZE);
+    const { data: pageRows, error: pageError } = pageIds.length
+      ? await client.from("userbase_users").select(USER_COLS).in("id", pageIds)
+      : { data: [], error: null };
+    if (pageError) return { ok: false, error: pageError.message };
 
-    return { ok: true, users, nextCursor, total: count ?? users.length };
+    const byId = new Map((pageRows ?? []).map((r) => [r.id as string, r as RawUserRow]));
+    const ordered = pageIds.map((id) => byId.get(id)).filter((r): r is RawUserRow => !!r);
+    const users = await hydrateRows(client, ordered);
+    const nextCursor = offset + PAGE_SIZE < ids.length ? String(offset + PAGE_SIZE) : null;
+    return { ok: true, users, nextCursor, total: ids.length };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

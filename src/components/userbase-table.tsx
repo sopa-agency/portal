@@ -2,9 +2,52 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Search, Mail, Copy, Check, Pencil, Loader2, AtSign } from "lucide-react";
-import { listUserbaseUsersPage, setUserbaseInstagram, type UserbaseRow } from "@/app/actions/userbase";
+import { Search, Mail, Copy, Check, Pencil, Loader2, AtSign, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  listUserbaseUsersPage,
+  setUserbaseInstagram,
+  type UserbaseRow,
+  type UserbaseSort,
+  type UserbaseSortField,
+} from "@/app/actions/userbase";
 import { UserbaseUserCard } from "@/components/userbase-user-card";
+
+function SortableTh({
+  field,
+  sort,
+  onSort,
+  children,
+}: {
+  field: UserbaseSortField;
+  sort: UserbaseSort;
+  onSort: (field: UserbaseSortField) => void;
+  children: React.ReactNode;
+}) {
+  const active = sort.field === field;
+  return (
+    <th className="px-4 py-3 font-medium">
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
+        className={`group inline-flex items-center gap-1 uppercase tracking-wider transition-colors ${
+          active ? "text-accent" : "hover:text-foreground"
+        }`}
+      >
+        {children}
+        {active ? (
+          sort.dir === "asc" ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUp className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -177,23 +220,37 @@ export function UserbaseTable({
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [total, setTotal] = useState(initialTotal);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<UserbaseSort>({ field: "created", dir: "desc" });
   const [busy, setBusy] = useState(false);
   const [cardUser, setCardUser] = useState<UserbaseRow | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   // Monotonic id discards stale responses when search/scroll race.
   const reqRef = useRef(0);
 
+  // Text columns start ascending; date/count columns start with the big stuff.
+  const DESC_FIRST: ReadonlySet<UserbaseSortField> = useMemo(
+    () => new Set<UserbaseSortField>(["created", "emailLinked", "identities", "onboarding"]),
+    [],
+  );
+  const toggleSort = (field: UserbaseSortField) => {
+    setSort((prev) =>
+      prev.field === field
+        ? { field, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { field, dir: DESC_FIRST.has(field) ? "desc" : "asc" },
+    );
+  };
+
   const subscribedSet = useMemo(
     () => (subscribedEmails ? new Set(subscribedEmails) : null),
     [subscribedEmails],
   );
 
-  // Debounced server-side search — resets the list from page one.
+  // Debounced server-side search/sort — resets the list from page one.
   useEffect(() => {
     const req = ++reqRef.current;
     const t = setTimeout(async () => {
       setBusy(true);
-      const res = await listUserbaseUsersPage({ search: query.trim() || undefined });
+      const res = await listUserbaseUsersPage({ search: query.trim() || undefined, sort });
       if (reqRef.current !== req) return; // superseded
       if (res.ok) {
         setUsers(res.users);
@@ -204,13 +261,13 @@ export function UserbaseTable({
     }, query ? 300 : 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, sort]);
 
   const loadMore = useCallback(async () => {
     if (!cursor || busy) return;
     const req = ++reqRef.current;
     setBusy(true);
-    const res = await listUserbaseUsersPage({ cursor, search: query.trim() || undefined });
+    const res = await listUserbaseUsersPage({ cursor, search: query.trim() || undefined, sort });
     if (reqRef.current !== req) return;
     if (res.ok) {
       setUsers((prev) => {
@@ -223,7 +280,7 @@ export function UserbaseTable({
       setCursor(null); // stop hammering on errors
     }
     setBusy(false);
-  }, [cursor, busy, query]);
+  }, [cursor, busy, query, sort]);
 
   // Infinite scroll — one IntersectionObserver on a bottom sentinel.
   useEffect(() => {
@@ -285,14 +342,14 @@ export function UserbaseTable({
           <table className="w-full min-w-[840px] text-left text-sm">
             <thead className="border-b border-border bg-surface-elevated text-[11px] uppercase tracking-wider text-foreground-subtle">
               <tr>
-                <th className="px-4 py-3 font-medium">User</th>
-                <th className="px-4 py-3 font-medium">Email</th>
-                <th className="px-4 py-3 font-medium">Instagram</th>
+                <SortableTh field="user" sort={sort} onSort={toggleSort}>User</SortableTh>
+                <SortableTh field="email" sort={sort} onSort={toggleSort}>Email</SortableTh>
+                <SortableTh field="instagram" sort={sort} onSort={toggleSort}>Instagram</SortableTh>
                 {subscribedSet && <th className="px-4 py-3 font-medium">Newsletter</th>}
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Onboarding</th>
-                <th className="px-4 py-3 font-medium">Identities</th>
-                <th className="px-4 py-3 font-medium">Email linked</th>
+                <SortableTh field="status" sort={sort} onSort={toggleSort}>Status</SortableTh>
+                <SortableTh field="onboarding" sort={sort} onSort={toggleSort}>Onboarding</SortableTh>
+                <SortableTh field="identities" sort={sort} onSort={toggleSort}>Identities</SortableTh>
+                <SortableTh field="emailLinked" sort={sort} onSort={toggleSort}>Email linked</SortableTh>
               </tr>
             </thead>
             <tbody>
