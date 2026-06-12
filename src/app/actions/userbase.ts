@@ -742,3 +742,81 @@ export async function syncUserbaseToParagraph(): Promise<
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Thirdweb in-app-wallet userbase (gnars.com) — read-only listing for the
+// separate table on the Userbase page. Gated by ${PREFIX}_THIRDWEB_SECRET_KEY;
+// the whole base is tiny, so we fetch it all (paginated, deduped by userId).
+// ---------------------------------------------------------------------------
+
+export type ThirdwebUser = {
+  userId: string;
+  email: string | null;
+  wallet: string;
+  provider: string;
+  name: string | null;
+  createdAt: string;
+};
+
+export type ThirdwebUsersResult =
+  | { configured: false }
+  | { configured: true; ok: true; users: ThirdwebUser[] }
+  | { configured: true; ok: false; error: string };
+
+export async function listThirdwebUsers(): Promise<ThirdwebUsersResult> {
+  const { getActiveProject } = await import("@/projects/index");
+  const project = await getActiveProject();
+  const prefix = project.agent.gatewayEnvPrefix;
+  const secret = process.env[`${prefix}_THIRDWEB_SECRET_KEY`]?.trim();
+  const clientId = process.env[`${prefix}_THIRDWEB_CLIENT_ID`]?.trim();
+  if (!secret || !clientId) return { configured: false };
+
+  try {
+    const seen = new Map<string, ThirdwebUser>();
+    for (let page = 0; page < 200; page++) {
+      const res = await fetch(
+        `https://in-app-wallet.thirdweb.com/api/v1/users?clientId=${clientId}&page=${page}`,
+        { headers: { "x-secret-key": secret }, cache: "no-store" },
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        return {
+          configured: true,
+          ok: false,
+          error: `Thirdweb HTTP ${res.status}: ${body.slice(0, 200)}`,
+        };
+      }
+      const data = (await res.json()) as Array<{
+        userId?: string;
+        walletAddress?: string;
+        createdAt?: string;
+        authProvider?: string;
+        authDetails?: { email?: string; name?: string };
+      }>;
+      if (!Array.isArray(data) || data.length === 0) break;
+      let fresh = 0;
+      for (const u of data) {
+        if (!u.userId || seen.has(u.userId)) continue;
+        seen.set(u.userId, {
+          userId: u.userId,
+          email: u.authDetails?.email ?? null,
+          wallet: u.walletAddress ?? "",
+          provider: u.authProvider ?? "unknown",
+          name: u.authDetails?.name ?? null,
+          createdAt: u.createdAt ?? "",
+        });
+        fresh++;
+      }
+      // The API repeats the tail past the last page — stop when nothing new.
+      if (fresh === 0 || data.length < 10) break;
+    }
+    const users = [...seen.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    return { configured: true, ok: true, users };
+  } catch (err) {
+    return {
+      configured: true,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}

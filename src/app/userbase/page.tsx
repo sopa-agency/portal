@@ -2,17 +2,19 @@ export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/page-header";
 import { UserbaseTable } from "@/components/userbase-table";
-import { listUserbaseUsersPage, getParagraphSyncStatus } from "@/app/actions/userbase";
+import { listUserbaseUsersPage, getParagraphSyncStatus, listThirdwebUsers } from "@/app/actions/userbase";
 import { ParagraphSyncCard } from "@/components/paragraph-sync-card";
+import { ThirdwebUserbaseTable } from "@/components/thirdweb-userbase-table";
 import { getActiveProject } from "@/projects";
 
 export default async function UserbasePage() {
   const project = await getActiveProject();
   const projectName = project.name;
 
-  const [page, paragraphStatus] = await Promise.all([
+  const [page, paragraphStatus, thirdweb] = await Promise.all([
     listUserbaseUsersPage(),
     getParagraphSyncStatus(),
+    listThirdwebUsers(),
   ]);
 
   return (
@@ -25,6 +27,14 @@ export default async function UserbasePage() {
       />
 
       <ParagraphSyncCard initial={paragraphStatus} />
+
+      {/* Thirdweb (gnars.com) userbase — only on portals with the secret key. */}
+      {thirdweb.configured && thirdweb.ok && <ThirdwebUserbaseTable users={thirdweb.users} />}
+      {thirdweb.configured && !thirdweb.ok && (
+        <div className="rounded-2xl border border-warning/30 bg-warning/5 px-5 py-3 text-sm text-foreground-muted">
+          Thirdweb userbase unavailable: {thirdweb.error}
+        </div>
+      )}
 
       {page.ok ? (
         <UserbaseTable

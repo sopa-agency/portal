@@ -2,13 +2,8 @@
 
 import { useEffect, useId, useState } from "react";
 import {
-  Camera,
-  Hash,
-  Radio,
-  AtSign,
-  MessageSquare,
+  Bot,
   Mail,
-  BarChart2,
   AlertTriangle,
   CheckCircle2,
   XCircle,
@@ -25,6 +20,7 @@ import {
   Plus,
   Phone,
 } from "lucide-react";
+import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { useRouter } from "next/navigation";
 import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
@@ -50,20 +46,30 @@ type TeamViewProps = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+// Real brand marks where the service has one (SocialBrandIcon); neutral
+// lucide glyphs for the generic rows (email, website, agent…).
 function networkIcon(network: string) {
   const name = network.toLowerCase();
-  if (name.includes("instagram")) return <Camera className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("hive")) return <Hash className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("farcaster")) return <Radio className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("x") || name.includes("twitter")) return <AtSign className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("discord")) return <MessageSquare className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("email") || name.includes("smtp")) return <Mail className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("analytics")) return <BarChart2 className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("github")) return <Hash className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("telegram")) return <MessageSquare className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("whatsapp")) return <Phone className="h-4 w-4 shrink-0" aria-hidden />;
-  if (name.includes("website")) return <Globe className="h-4 w-4 shrink-0" aria-hidden />;
-  return <Info className="h-4 w-4 shrink-0" aria-hidden />;
+  const SZ = "h-4 w-4 shrink-0";
+  if (name.includes("instagram")) return <SocialBrandIcon platform="instagram" className={SZ} />;
+  if (name.includes("facebook")) return <SocialBrandIcon platform="facebook" className={SZ} />;
+  if (name.includes("hive")) return <SocialBrandIcon platform="hive" className={SZ} />;
+  if (name.includes("farcaster")) return <SocialBrandIcon platform="farcaster" className={SZ} />;
+  if (name.includes("discord")) return <SocialBrandIcon platform="discord" className={SZ} />;
+  if (name.includes("binance")) return <SocialBrandIcon platform="binance" className={SZ} />;
+  if (name.includes("paragraph")) return <SocialBrandIcon platform="paragraph" className={SZ} />;
+  if (name.includes("github")) return <SocialBrandIcon platform="github" className={SZ} />;
+  if (name.includes("drive")) return <SocialBrandIcon platform="drive" className={SZ} />;
+  if (name.includes("supabase") || name.includes("userbase")) return <SocialBrandIcon platform="supabase" className={SZ} />;
+  if (name.includes("pinata")) return <SocialBrandIcon platform="pinata" className={SZ} />;
+  if (name.includes("analytics")) return <SocialBrandIcon platform="analytics" className={SZ} />;
+  if (name.includes("telegram")) return <SocialBrandIcon platform="telegram" className={SZ} />;
+  if (name.includes("x") || name.includes("twitter")) return <SocialBrandIcon platform="x" className={SZ} />;
+  if (name.includes("email") || name.includes("smtp")) return <Mail className={SZ} aria-hidden />;
+  if (name.includes("whatsapp")) return <Phone className={`${SZ} text-[#25D366]`} aria-hidden />;
+  if (name.includes("website")) return <Globe className={SZ} aria-hidden />;
+  if (name.includes("agent")) return <Bot className={`${SZ} text-accent`} aria-hidden />;
+  return <Info className={SZ} aria-hidden />;
 }
 
 type BadgeConfig = {
