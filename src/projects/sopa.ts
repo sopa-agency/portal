@@ -43,7 +43,6 @@ const sopa: ProjectConfig = {
   // to /treasury (see src/app/page.tsx).
   hiddenRoutes: [
     "/",
-    "/repo-to-social",
     "/marketing-suggestions",
     "/campaign-creator",
     "/userbase",

@@ -4,13 +4,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { GitBranch, Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
   { href: "/post-creator", label: "Post Creator", icon: SquarePen, requiresPostCreator: true },
-  { href: "/repo-to-social", label: "Repo to Social", icon: GitBranch },
   { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles },
   { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone },
   { href: "/userbase", label: "Userbase", icon: Users },
