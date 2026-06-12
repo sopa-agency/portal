@@ -17,6 +17,7 @@ import {
 import { detectTemplate, getCampaignTemplate } from "@/lib/campaign-templates";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { prisma } from "@/lib/prisma";
+import { brandEnv, brandEnvByPrefix, hasBrandEnv } from "@/lib/brand-env";
 import { getActiveProject } from "@/projects/index";
 import type { ProjectConfig } from "@/projects/types";
 import {
@@ -614,9 +615,10 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
   const artifactsProjectName = artifactsProject.name;
   // Binance Square artifact only for projects with the credential (namespaced
   // key first, then the global fallback — same resolution as the publisher).
-  const includeBinance = !!(
-    process.env[`${artifactsProject.agent.gatewayEnvPrefix}_BINANCE_SQUARE_KEY`] ??
-    process.env.BINANCE_SQUARE_OPENAPI_KEY
+  const includeBinance = hasBrandEnv(
+    artifactsProject,
+    "BINANCE_SQUARE_KEY",
+    "BINANCE_SQUARE_OPENAPI_KEY",
   );
 
   // Best-effort brand context from Drive (only for projects with Drive configured).
@@ -935,8 +937,9 @@ export async function publishHiveSnap(
   documentId: string,
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
   try {
-    const account = process.env.HIVE_POSTING_ACCOUNT;
-    const key = process.env.HIVE_POSTING_KEY;
+    const snapProject = await getActiveProject();
+    const account = brandEnv(snapProject, "HIVE_POSTING_ACCOUNT") ?? snapProject.hive.account;
+    const key = brandEnv(snapProject, "HIVE_POSTING_KEY");
     if (!account || !key) {
       return { ok: false, error: "HIVE_POSTING_ACCOUNT or HIVE_POSTING_KEY not set on the server." };
     }
@@ -949,8 +952,6 @@ export async function publishHiveSnap(
     const text = doc.content.trim();
     if (!text) return { ok: false, error: "Snap is empty — nothing to publish." };
 
-    // Read active project so community tag and app label are project-aware.
-    const snapProject = await getActiveProject();
     const communityTag = snapProject.hive.community;
 
     const { Client, PrivateKey } = await import("@hiveio/dhive");
@@ -1028,7 +1029,7 @@ async function buildMagPostFields(
 ): Promise<{ ok: false; error: string } | ({ ok: true } & MagPostFields)> {
   const prefix = magProject.agent.gatewayEnvPrefix;
   const account =
-    process.env[`${prefix}_HIVE_POSTING_ACCOUNT`] ?? process.env.HIVE_POSTING_ACCOUNT ?? null;
+    brandEnvByPrefix(prefix, "HIVE_POSTING_ACCOUNT") ?? magProject.hive.account ?? null;
 
   const doc = await prisma.campaignDocument.findUnique({
     where: { id: documentId },
@@ -1158,7 +1159,7 @@ export async function publishHiveMagPost(
   try {
     const magProject = await getActiveProject();
     const prefix = magProject.agent.gatewayEnvPrefix;
-    const key = process.env[`${prefix}_HIVE_POSTING_KEY`] ?? process.env.HIVE_POSTING_KEY;
+    const key = brandEnvByPrefix(prefix, "HIVE_POSTING_KEY");
 
     const built = await buildMagPostFields(documentId, magProject);
     if (!built.ok) return built;

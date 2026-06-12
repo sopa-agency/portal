@@ -2,6 +2,7 @@
 // DB-backed follower snapshots for 7-day delta computation.
 import "server-only";
 import type { ProjectConfig } from "@/projects/types";
+import { brandEnv } from "@/lib/brand-env";
 import { prisma } from "@/lib/prisma";
 import { HIVE_NODES } from "@/lib/social-publish";
 
@@ -335,12 +336,9 @@ async function fetchInstagramMetrics(
   project: ProjectConfig,
 ): Promise<ChannelMetrics> {
   const prefix = project.agent.gatewayEnvPrefix;
-  const token =
-    process.env[`${prefix}_INSTAGRAM_ACCESS_TOKEN`] ??
-    process.env.INSTAGRAM_ACCESS_TOKEN;
-  const igid =
-    process.env[`${prefix}_INSTAGRAM_BUSINESS_ACCOUNT_ID`] ??
-    process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID;
+  // Identity credentials: never fall back across brands (see brand-env.ts).
+  const token = brandEnv(project, "INSTAGRAM_ACCESS_TOKEN");
+  const igid = brandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID");
 
   if (!token || !igid) {
     return {
@@ -586,9 +584,8 @@ async function fetchInstagramMetrics(
 
 async function fetchFacebookMetrics(project: ProjectConfig): Promise<ChannelMetrics> {
   const prefix = project.agent.gatewayEnvPrefix;
-  const token =
-    process.env[`${prefix}_INSTAGRAM_ACCESS_TOKEN`] ??
-    process.env.INSTAGRAM_ACCESS_TOKEN;
+  // Identity credential: never falls back across brands (see brand-env.ts).
+  const token = brandEnv(project, "INSTAGRAM_ACCESS_TOKEN");
 
   if (!token) {
     return {

@@ -11,6 +11,7 @@ import { isEmailConfigured } from "@/lib/email";
 
 export { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
+import { brandEnvByPrefix } from "@/lib/brand-env";
 
 export type TeamMessageChannel = "hive" | "farcaster" | "discord" | "email";
 
@@ -91,9 +92,7 @@ export function getTeamMessageOptions(
 
   // Hive snap — every member IS a Hive account; needs a posting key
   // (per-project or the global fallback, same resolution as publishSnapToHive).
-  const hiveKey =
-    (prefix && process.env[`${prefix}_HIVE_POSTING_KEY`]) ||
-    process.env.HIVE_POSTING_KEY;
+  const hiveKey = brandEnvByPrefix(prefix, "HIVE_POSTING_KEY");
   if (hiveKey) {
     options.push({ channel: "hive", target: `@${username}`, visibility: "public" });
   }
@@ -103,9 +102,7 @@ export function getTeamMessageOptions(
   const neynarKey =
     (prefix && process.env[`${prefix}_NEYNAR_API_KEY`]) ||
     process.env.NEYNAR_API_KEY;
-  const signerUuid =
-    (prefix && process.env[`${prefix}_NEYNAR_SIGNER_UUID`]) ||
-    process.env.NEYNAR_SIGNER_UUID;
+  const signerUuid = brandEnvByPrefix(prefix, "NEYNAR_SIGNER_UUID");
   if (farcasterHandle && neynarKey && signerUuid) {
     const handle = farcasterHandle.startsWith("@") ? farcasterHandle : `@${farcasterHandle}`;
     options.push({ channel: "farcaster", target: handle, visibility: "public" });
@@ -113,12 +110,8 @@ export function getTeamMessageOptions(
 
   // Discord — posts to the project's announcement/chat channel (no DM: we
   // don't store members' Discord user ids).
-  const discordToken =
-    (prefix ? process.env[`${prefix}_DISCORD_BOT_TOKEN`] : undefined) ??
-    process.env.DISCORD_BOT_TOKEN;
-  const discordChannel =
-    (prefix ? process.env[`${prefix}_DISCORD_CHANNEL_ID`] : undefined) ??
-    process.env.DISCORD_CHANNEL_ID;
+  const discordToken = brandEnvByPrefix(prefix, "DISCORD_BOT_TOKEN");
+  const discordChannel = brandEnvByPrefix(prefix, "DISCORD_CHANNEL_ID");
   if (discordToken && discordChannel) {
     options.push({ channel: "discord", target: "project channel", visibility: "public" });
   }

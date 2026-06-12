@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { ProjectConfig } from "@/projects/types";
+import { brandEnv } from "@/lib/brand-env";
 
 // ---------------------------------------------------------------------------
 // Graph API base
@@ -16,15 +17,9 @@ function resolveIgCredentials(project: ProjectConfig): {
   token: string | null;
   igid: string | null;
 } {
-  const prefix = project.agent.gatewayEnvPrefix;
-  const token =
-    process.env[`${prefix}_INSTAGRAM_ACCESS_TOKEN`] ??
-    process.env.INSTAGRAM_ACCESS_TOKEN ??
-    null;
-  const igid =
-    process.env[`${prefix}_INSTAGRAM_BUSINESS_ACCOUNT_ID`] ??
-    process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID ??
-    null;
+  // Identity credentials: never fall back across brands (see brand-env.ts).
+  const token = brandEnv(project, "INSTAGRAM_ACCESS_TOKEN") ?? null;
+  const igid = brandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID") ?? null;
   return { token, igid };
 }
 

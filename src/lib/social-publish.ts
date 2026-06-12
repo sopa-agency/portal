@@ -5,6 +5,7 @@
 
 import crypto from "node:crypto";
 import type { ProjectConfig } from "@/projects/types";
+import { brandEnv } from "@/lib/brand-env";
 
 export const HIVE_NODES = [
   "https://api.hive.blog",
@@ -54,13 +55,9 @@ export async function publishSnapToHive(
   project?: ProjectConfig,
 ): Promise<PublishResult> {
   try {
-    const prefix = project?.agent?.gatewayEnvPrefix;
-    const account =
-      (prefix && process.env[`${prefix}_HIVE_POSTING_ACCOUNT`]) ||
-      process.env.HIVE_POSTING_ACCOUNT;
-    const key =
-      (prefix && process.env[`${prefix}_HIVE_POSTING_KEY`]) ||
-      process.env.HIVE_POSTING_KEY;
+    // Identity credential: never falls back across brands (see brand-env.ts).
+    const account = brandEnv(project, "HIVE_POSTING_ACCOUNT");
+    const key = brandEnv(project, "HIVE_POSTING_KEY");
     if (!account || !key) {
       return { ok: false, error: "HIVE_POSTING_ACCOUNT or HIVE_POSTING_KEY not set" };
     }
@@ -129,9 +126,8 @@ export async function publishCastToFarcaster(
     const apiKey =
       (prefix && process.env[`${prefix}_NEYNAR_API_KEY`]) ||
       process.env.NEYNAR_API_KEY;
-    const signerUuid =
-      (prefix && process.env[`${prefix}_NEYNAR_SIGNER_UUID`]) ||
-      process.env.NEYNAR_SIGNER_UUID;
+    // Signer = identity: never falls back across brands (see brand-env.ts).
+    const signerUuid = brandEnv(project, "NEYNAR_SIGNER_UUID");
     if (!apiKey || !signerUuid) {
       return { ok: false, error: "NEYNAR_API_KEY or NEYNAR_SIGNER_UUID not set" };
     }
@@ -217,10 +213,8 @@ export async function publishToBinanceSquare(
 ): Promise<PublishResult> {
   try {
     // Resolve API key: project-namespaced first, then global fallback.
-    const prefix = project?.agent?.gatewayEnvPrefix;
-    const key =
-      (prefix ? process.env[`${prefix}_BINANCE_SQUARE_KEY`] : undefined) ??
-      process.env.BINANCE_SQUARE_OPENAPI_KEY;
+    // Identity credential: never falls back across brands (see brand-env.ts).
+    const key = brandEnv(project, "BINANCE_SQUARE_KEY", "BINANCE_SQUARE_OPENAPI_KEY");
 
     if (!key) {
       return { ok: false, error: "BINANCE_SQUARE_OPENAPI_KEY not set" };
@@ -397,12 +391,9 @@ export async function publishToDiscord(
 ): Promise<PublishResult> {
   try {
     const prefix = project?.agent?.gatewayEnvPrefix;
-    const token =
-      (prefix ? process.env[`${prefix}_DISCORD_BOT_TOKEN`] : undefined) ??
-      process.env.DISCORD_BOT_TOKEN;
-    const channelId =
-      (prefix ? process.env[`${prefix}_DISCORD_CHANNEL_ID`] : undefined) ??
-      process.env.DISCORD_CHANNEL_ID;
+    // Identity credential: never falls back across brands (see brand-env.ts).
+    const token = brandEnv(project, "DISCORD_BOT_TOKEN");
+    const channelId = brandEnv(project, "DISCORD_CHANNEL_ID");
 
     if (!token || !channelId) {
       const p = prefix ?? "YOUR_PROJECT";

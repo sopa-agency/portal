@@ -1,5 +1,6 @@
 import "server-only";
 import type { ProjectConfig } from "@/projects/types";
+import { hasBrandEnv } from "@/lib/brand-env";
 
 export type ConnectionStatus = "connected" | "warning" | "manual" | "missing" | "na";
 
@@ -39,30 +40,19 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
         status: "connected",
         detail: `Posting as ${handle} using the project-specific key.`,
       });
-    } else if (process.env["HIVE_POSTING_KEY"]?.trim()) {
-      // Global key exists
-      if (prefix === "SKATEHIVE") {
-        connections.push({
-          network: "Hive",
-          handle,
-          status: "connected",
-          detail: `Posting as ${handle} (global key is the SkateHive key — this is correct).`,
-        });
-      } else {
-        connections.push({
-          network: "Hive",
-          handle,
-          status: "warning",
-          detail: `Falling back to the shared global key — would post as the global account, not @${project.hive.account}.`,
-          fixHint: `Set ${prefix}_HIVE_POSTING_ACCOUNT + ${prefix}_HIVE_POSTING_KEY`,
-        });
-      }
+    } else if (process.env["HIVE_POSTING_KEY"]?.trim() && prefix === "SKATEHIVE") {
+      connections.push({
+        network: "Hive",
+        handle,
+        status: "connected",
+        detail: `Posting as ${handle} (global key is the SkateHive key — this is correct).`,
+      });
     } else {
       connections.push({
         network: "Hive",
         handle,
         status: "missing",
-        detail: "No Hive posting key found.",
+        detail: "No posting key for THIS brand — cross-brand fallback is disabled, so publishing is off until its own key is set.",
         fixHint: `Set ${prefix}_HIVE_POSTING_KEY (and ${prefix}_HIVE_POSTING_ACCOUNT if different from the project default)`,
       });
     }
@@ -108,29 +98,19 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
             status: "connected",
             detail: `Casting as ${farcasterHandle} using a project-specific Neynar signer.`,
           });
-        } else if (process.env["NEYNAR_SIGNER_UUID"]?.trim()) {
-          if (prefix === "SKATEHIVE") {
-            connections.push({
-              network: "Farcaster",
-              handle: farcasterHandle,
-              status: "connected",
-              detail: `Casting as ${farcasterHandle} (global signer is the SkateHive signer — this is correct).`,
-            });
-          } else {
-            connections.push({
-              network: "Farcaster",
-              handle: farcasterHandle,
-              status: "warning",
-              detail: `Uses the shared global signer — not the @${project.hive.account} identity.`,
-              fixHint: `Set ${prefix}_NEYNAR_SIGNER_UUID`,
-            });
-          }
+        } else if (process.env["NEYNAR_SIGNER_UUID"]?.trim() && prefix === "SKATEHIVE") {
+          connections.push({
+            network: "Farcaster",
+            handle: farcasterHandle,
+            status: "connected",
+            detail: `Casting as ${farcasterHandle} (global signer is the SkateHive signer — this is correct).`,
+          });
         } else {
           connections.push({
             network: "Farcaster",
             handle: farcasterHandle,
             status: "missing",
-            detail: "Neynar API key is present but no signer UUID found.",
+            detail: "Neynar API key is present but this brand has no signer — cross-brand fallback is disabled.",
             fixHint: `Set ${prefix}_NEYNAR_SIGNER_UUID`,
           });
         }
@@ -144,15 +124,15 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
       (s) => s.platform.toLowerCase() === "instagram",
     );
 
-    if (!igSocial && !has("INSTAGRAM_ACCESS_TOKEN") && !has("INSTAGRAM_BUSINESS_ACCOUNT_ID")) {
+    if (!igSocial && !hasBrandEnv(project, "INSTAGRAM_ACCESS_TOKEN") && !hasBrandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID")) {
       connections.push({
         network: "Instagram",
         status: "na",
         detail: "Instagram is not configured for this project.",
       });
     } else {
-      const tokenPresent = has("INSTAGRAM_ACCESS_TOKEN");
-      const accountPresent = has("INSTAGRAM_BUSINESS_ACCOUNT_ID");
+      const tokenPresent = hasBrandEnv(project, "INSTAGRAM_ACCESS_TOKEN");
+      const accountPresent = hasBrandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID");
       const igHandle = igSocial?.handle;
 
       if (tokenPresent && accountPresent) {
@@ -177,7 +157,7 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
   // ── Facebook (Page) — reads ride the same Meta token as Instagram ────────
   {
     const fbSocial = project.socials.find((s) => s.platform.toLowerCase() === "facebook");
-    if (has("INSTAGRAM_ACCESS_TOKEN")) {
+    if (hasBrandEnv(project, "INSTAGRAM_ACCESS_TOKEN")) {
       connections.push({
         network: "Facebook",
         handle: fbSocial?.handle,
@@ -216,10 +196,8 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
 
   // ── Discord ───────────────────────────────────────────────────────────────
   {
-    const discordToken =
-      (process.env[`${prefix}_DISCORD_BOT_TOKEN`] ?? process.env.DISCORD_BOT_TOKEN)?.trim();
-    const discordChannel =
-      (process.env[`${prefix}_DISCORD_CHANNEL_ID`] ?? process.env.DISCORD_CHANNEL_ID)?.trim();
+    const discordToken = hasBrandEnv(project, "DISCORD_BOT_TOKEN");
+    const discordChannel = hasBrandEnv(project, "DISCORD_CHANNEL_ID");
 
     if (discordToken && discordChannel) {
       connections.push({
@@ -245,21 +223,17 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
         status: "connected",
         detail: "Project-specific OpenAPI key — posts from Post Suggestions, Repo to Social, and campaigns.",
       });
-    } else if (process.env.BINANCE_SQUARE_OPENAPI_KEY?.trim()) {
+    } else if (process.env.BINANCE_SQUARE_OPENAPI_KEY?.trim() && prefix === "SKATEHIVE") {
       connections.push({
         network: "Binance Square",
-        status: prefix === "SKATEHIVE" ? "connected" : "warning",
-        detail:
-          prefix === "SKATEHIVE"
-            ? "Global OpenAPI key (the SkateHive account) — posts from suggestions, repo runs, and campaigns."
-            : "Falls back to the shared global key — posts would land on that Binance account, not this project's.",
-        ...(prefix === "SKATEHIVE" ? {} : { fixHint: `Set ${prefix}_BINANCE_SQUARE_KEY` }),
+        status: "connected",
+        detail: "Global OpenAPI key (the SkateHive account) — posts from suggestions, repo runs, and campaigns.",
       });
     } else {
       connections.push({
         network: "Binance Square",
         status: "missing",
-        detail: "No Binance Square OpenAPI key found.",
+        detail: "No key for THIS brand — cross-brand fallback is disabled, so the channel stays off until its own key is set.",
         fixHint: `Set ${prefix}_BINANCE_SQUARE_KEY`,
       });
     }
@@ -448,11 +422,9 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
 export async function verifyDiscordConnection(
   project: ProjectConfig,
 ): Promise<{ status: ConnectionStatus; detail: string; botName?: string }> {
-  const prefix = project.agent.gatewayEnvPrefix;
-  const token =
-    (process.env[`${prefix}_DISCORD_BOT_TOKEN`] ?? process.env.DISCORD_BOT_TOKEN)?.trim();
-  const channelId =
-    (process.env[`${prefix}_DISCORD_CHANNEL_ID`] ?? process.env.DISCORD_CHANNEL_ID)?.trim();
+  const { brandEnv } = await import("@/lib/brand-env");
+  const token = brandEnv(project, "DISCORD_BOT_TOKEN");
+  const channelId = brandEnv(project, "DISCORD_CHANNEL_ID");
 
   if (!token || !channelId) {
     return { status: "missing", detail: "No bot token configured." };

@@ -57,6 +57,7 @@ export default async function TeamPage() {
         projectName={project.name}
         members={members}
         connections={connections}
+        envPrefix={project.agent.gatewayEnvPrefix}
       />
     </div>
   );

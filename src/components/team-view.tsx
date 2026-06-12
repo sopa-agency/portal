@@ -21,6 +21,7 @@ import {
   Phone,
 } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { ConnectionSetupDialog } from "@/components/connection-setup-dialog";
 import { useRouter } from "next/navigation";
 import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
@@ -42,6 +43,8 @@ type TeamViewProps = {
   projectName: string;
   members: TeamMember[];
   connections: PortalConnection[];
+  /** Project env prefix (e.g. "KEEPKEY") — interpolated into setup tutorials. */
+  envPrefix: string;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -654,11 +657,21 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
   );
 }
 
-function ConnectionRow({ connection }: { connection: PortalConnection }) {
+function ConnectionRow({
+  connection,
+  onOpen,
+}: {
+  connection: PortalConnection;
+  onOpen: () => void;
+}) {
   const badge = statusBadge(connection.status);
 
   return (
-    <div className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface px-4 py-3 sm:flex-row sm:items-start sm:gap-4">
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`${connection.network} setup guide`}
+      className="flex w-full flex-col gap-1.5 rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-border-strong sm:flex-row sm:items-start sm:gap-4">
       {/* Icon + name */}
       <div className="flex min-w-[160px] items-center gap-2 text-sm font-medium text-foreground">
         <span className="text-foreground-subtle">{networkIcon(connection.network)}</span>
@@ -690,14 +703,15 @@ function ConnectionRow({ connection }: { connection: PortalConnection }) {
           </p>
         )}
       </div>
-    </div>
+    </button>
   );
 }
 
 // ── Main export ────────────────────────────────────────────────────────────
 
-export function TeamView({ projectName, members, connections }: TeamViewProps) {
+export function TeamView({ projectName, members, connections, envPrefix }: TeamViewProps) {
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+  const [setupConnection, setSetupConnection] = useState<PortalConnection | null>(null);
 
   // Reorder: put non-na, non-manual first for scannability
   const sorted = [...connections].sort((a, b) => {
@@ -746,13 +760,20 @@ export function TeamView({ projectName, members, connections }: TeamViewProps) {
         </div>
         <div className="space-y-2">
           {sorted.map((c) => (
-            <ConnectionRow key={c.network} connection={c} />
+            <ConnectionRow key={c.network} connection={c} onOpen={() => setSetupConnection(c)} />
           ))}
         </div>
       </section>
 
       {selectedMember && (
         <MemberModal member={selectedMember} onClose={() => setSelectedMember(null)} />
+      )}
+      {setupConnection && (
+        <ConnectionSetupDialog
+          connection={setupConnection}
+          envPrefix={envPrefix}
+          onClose={() => setSetupConnection(null)}
+        />
       )}
     </div>
   );
