@@ -612,6 +612,12 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
   const artifactsFarcasterChannel = artifactsProject.farcaster.channel;
   const artifactsHiveAccount = artifactsProject.hive.account;
   const artifactsProjectName = artifactsProject.name;
+  // Binance Square artifact only for projects with the credential (namespaced
+  // key first, then the global fallback — same resolution as the publisher).
+  const includeBinance = !!(
+    process.env[`${artifactsProject.agent.gatewayEnvPrefix}_BINANCE_SQUARE_KEY`] ??
+    process.env.BINANCE_SQUARE_OPENAPI_KEY
+  );
 
   // Best-effort brand context from Drive (only for projects with Drive configured).
   const { getDriveBrandContext } = await import("@/lib/google-drive");
@@ -694,7 +700,7 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
   "hive_mag_post_pt": "...",
   "farcaster": "...",
   "tweets": ["...", "..."],
-  "discord": "...",
+  "discord": "...",${includeBinance ? `\n  "binance_square": "...",` : ""}
   "email": {
     "subject": "...",
     "preheader": "...",
@@ -730,7 +736,7 @@ ${
 - "farcaster": a single Farcaster cast for the /${artifactsFarcasterChannel} channel as @${artifactsHiveAccount}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.
 - "tweets": an array of 3-5 tweet strings posted from @${artifactsHiveAccount}. The first opens the thread with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them ("1/", "2/") — the UI handles that.
 - "discord": a single message for the ${artifactsProjectName} Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
-- "email": a structured email document. Open with a dark hero section + eyebrow heading "${artifactsProjectName.toUpperCase()} UPDATE" in the project accent color (${artifactsProject.theme.accentDark}) + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
+${includeBinance ? `- "binance_square": a single Binance Square post (1-3 short paragraphs) for ${artifactsProjectName}'s Binance Square feed. PLAIN TEXT ONLY — Binance REJECTS posts containing any URL or link, so include NONE (not even the mag post URL); no markdown either. Angle it for a crypto/onchain audience discovering ${artifactsProjectName}.\n` : ""}- "email": a structured email document. Open with a dark hero section + eyebrow heading "${artifactsProjectName.toUpperCase()} UPDATE" in the project accent color (${artifactsProject.theme.accentDark}) + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
 
 Text + heading blocks support inline links via [label](url) markdown — the renderer turns those into <a> tags. Use that for any clickable link inside body text instead of a separate button. The "button" block is for the primary CTA only.
 
@@ -809,6 +815,13 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
     await upsertNamedDocument(campaignId, "Discord announcement", parsed.discord);
     saved.push("Discord announcement");
   } else missing.push("Discord announcement");
+
+  if (includeBinance) {
+    if (parsed.binance_square) {
+      await upsertNamedDocument(campaignId, "Binance Square post", parsed.binance_square);
+      saved.push("Binance Square post");
+    } else missing.push("Binance Square post");
+  }
 
   if (parsed.email) {
     const emailDocument = normalizeAiEmail(parsed.email, artifactsProject.hive.frontend ?? "https://peakd.com");
@@ -1309,6 +1322,7 @@ function extractArtifactsJson(raw: string): {
   farcaster: string;
   tweets: string[];
   discord: string;
+  binance_square: string;
   email: unknown | null;
 } | null {
   const candidates = extractJsonCandidates(raw);
@@ -1319,6 +1333,7 @@ function extractArtifactsJson(raw: string): {
     farcaster: string;
     tweets: string[];
     discord: string;
+    binance_square: string;
     email: unknown | null;
   } | null = null;
 
@@ -1348,12 +1363,13 @@ function extractArtifactsJson(raw: string): {
         : [];
     const tweets = tweetsRaw.filter((t): t is string => typeof t === "string");
     const discord = pickString(obj.discord) ?? "";
+    const binance_square = pickString(obj.binance_square) ?? pickString(obj.binance) ?? "";
     const email = obj.email && typeof obj.email === "object" ? obj.email : null;
-    const result = { hive_snap, hive_mag_post, hive_mag_post_pt, farcaster, tweets, discord, email };
+    const result = { hive_snap, hive_mag_post, hive_mag_post_pt, farcaster, tweets, discord, binance_square, email };
 
     // Prefer the candidate that actually carries the expected fields — a nested
     // blob (e.g. an email section) can parse cleanly but have none of them.
-    if (hive_snap || hive_mag_post || farcaster || tweets.length > 0 || discord || email) {
+    if (hive_snap || hive_mag_post || farcaster || tweets.length > 0 || discord || binance_square || email) {
       return result;
     }
     if (!fallback) fallback = result;
@@ -1670,6 +1686,9 @@ export async function remixCampaignArtifact(
       case "discord":
         kindRule = `Write a single Discord announcement for the ${project.name} #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than tweets.`;
         break;
+      case "binance":
+        kindRule = `Write a single Binance Square post (1-3 short paragraphs) for ${project.name}'s Binance Square feed. PLAIN TEXT ONLY — Binance REJECTS posts containing any URL or link, so include NONE; no markdown either. Angle it for a crypto/onchain audience discovering ${project.name}.`;
+        break;
       case "email": {
         const accentColor = project.theme.accentDark;
         kindRule = `Write a structured email document as valid JSON with shape: { "subject": "...", "preheader": "...", "sections": [...] }. Open with a dark hero section + eyebrow heading "${project.name.toUpperCase()} UPDATE" in the project accent color (${accentColor}). Body section follows with the campaign-specific blocks. Return ONLY the JSON object.`;
@@ -1806,6 +1825,18 @@ export async function sendCampaignArtifact(
       });
       revalidatePath(`/campaign-creator/${doc.campaignId}`);
       return { ok: true, platform: "discord" };
+    }
+
+    if (kind === "binance") {
+      const { publishToBinanceSquare } = await import("@/lib/social-publish");
+      const result = await publishToBinanceSquare(content, project);
+      if (!result.ok) return { ok: false, error: result.error };
+      await prisma.campaignDocument.update({
+        where: { id: documentId },
+        data: { postedAt: new Date(), postedTo: "binance" },
+      });
+      revalidatePath(`/campaign-creator/${doc.campaignId}`);
+      return { ok: true, platform: "binance" };
     }
 
     // Twitter / Email — handled client-side (X intent) or via sendCampaignEmail.
@@ -1989,6 +2020,7 @@ function classifyDocumentKindByName(name: string): CampaignDocumentKind {
   if (lower.includes("farcaster") || lower.includes("cast") || lower.includes("warpcast")) return "farcaster";
   if (lower.includes("tweet") || lower.includes("twitter") || lower.includes("x thread")) return "tweets";
   if (lower.includes("discord")) return "discord";
+  if (lower.includes("binance")) return "binance";
   if (lower.includes("email")) return "email";
   if (lower.includes("markdown") || lower.includes("blog") || lower.includes("post")) return "markdown";
   return "doc";
@@ -2002,6 +2034,7 @@ type CampaignDocumentKind =
   | "farcaster"
   | "tweets"
   | "discord"
+  | "binance"
   | "email"
   | "markdown"
   | "doc";

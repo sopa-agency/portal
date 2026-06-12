@@ -2,6 +2,7 @@
 
 import {
   BookOpenText,
+  Coins,
   FileText,
   Flame,
   Mail,
@@ -43,6 +44,7 @@ const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail
   farcaster: { label: "Farcaster cast",          icon: Send,              tone: "text-purple-400" },
   tweets:    { label: "Twitter / X thread",      icon: MessageCircleMore, tone: "text-foreground" },
   discord:   { label: "Discord announcement",    icon: MessageSquare,     tone: "text-indigo-400" },
+  binance:   { label: "Binance Square post",     icon: Coins,             tone: "text-yellow-500" },
   email:     { label: "Email",                   icon: Mail,              tone: "text-accent" },
   markdown:  { label: "Markdown post",           icon: BookOpenText,      tone: "text-amber-400" },
   doc:       { label: "Document",                icon: FileText,          tone: "text-foreground-muted" },

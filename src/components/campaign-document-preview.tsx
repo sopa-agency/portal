@@ -9,6 +9,7 @@ export type CampaignDocumentKind =
   | "farcaster"
   | "tweets"
   | "discord"
+  | "binance"
   | "email"
   | "markdown"
   | "doc";
@@ -24,6 +25,7 @@ export function classifyCampaignDocument(name: string, isMain: boolean): Campaig
   if (lower.includes("farcaster") || lower.includes("cast") || lower.includes("warpcast")) return "farcaster";
   if (lower.includes("tweet") || lower.includes("twitter") || lower.includes("x thread")) return "tweets";
   if (lower.includes("discord")) return "discord";
+  if (lower.includes("binance")) return "binance";
   if (lower.includes("email")) return "email";
   if (lower.includes("markdown") || lower.includes("blog") || lower.includes("post")) return "markdown";
   return "doc";
@@ -74,6 +76,10 @@ export function CampaignDocumentPreview({
       {kind === "farcaster" ? <FarcasterCastPreview content={content} brand={brand} /> : null}
       {kind === "tweets" ? <TweetsPreview content={content} brand={brand} /> : null}
       {kind === "discord" ? <DiscordPreview content={content} brand={brand} /> : null}
+      {/* Binance Square is plain text by API rule — preview it as-is. */}
+      {kind === "binance" ? (
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{content}</p>
+      ) : null}
       {kind === "hive_mag" ? <MarkdownContent markdown={content} /> : null}
       {kind === "doc" ? <MarkdownContent markdown={content} /> : null}
     </>
@@ -113,6 +119,7 @@ const META: Record<PreviewKind, { label: string; tone: string; icon: typeof Mess
   farcaster: { label: "Farcaster cast",       tone: "bg-purple-500/15 text-purple-300", icon: Send },
   tweets:    { label: "Twitter / X thread",   tone: "bg-foreground/10 text-foreground", icon: MessageCircleMore },
   discord:   { label: "Discord announcement", tone: "bg-indigo-500/15 text-indigo-300", icon: MessageSquare },
+  binance:   { label: "Binance Square post",  tone: "bg-yellow-500/15 text-yellow-500", icon: Flame },
   doc:       { label: "Document",             tone: "bg-foreground/10 text-foreground-muted", icon: MessageCircleMore },
 };
 
