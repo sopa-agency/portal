@@ -190,7 +190,7 @@ export async function getMarketingSuggestionWorkerHealth(): Promise<MarketingSug
 
 export async function getMarketingSuggestionConfig(): Promise<MarketingSuggestionConfig> {
   const project = await getActiveProject();
-  const row = await prisma.marketingSuggestionConfig.upsert({
+  let row = await prisma.marketingSuggestionConfig.upsert({
     where: { id: project.slug },
     create: {
       id: project.slug,
@@ -205,6 +205,16 @@ export async function getMarketingSuggestionConfig(): Promise<MarketingSuggestio
       hiveFrontend: project.hive.frontend ?? null,
     },
   });
+  // Rows created before the default existed (or wiped by a save) have an
+  // empty prompt — and the WORKER reads this field too, so an empty prompt
+  // means generation runs without persona/guidelines. Heal with the default
+  // so the page shows the real prompt and the user can adapt it.
+  if (!row.prompt.trim()) {
+    row = await prisma.marketingSuggestionConfig.update({
+      where: { id: project.slug },
+      data: { prompt: defaultPrompt(project) },
+    });
+  }
   return {
     prompt: row.prompt,
     useTopPosts: row.useTopPosts,

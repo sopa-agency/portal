@@ -173,7 +173,7 @@ export async function getRepoToSocialWorkerHealth(): Promise<RepoToSocialWorkerH
 export async function getRepoToSocialConfig() {
   const project = await getActiveProject();
   const defaultRepoUrls = project.repos.map((r) => `https://github.com/${r}`);
-  return prisma.repoToSocialConfig.upsert({
+  const row = await prisma.repoToSocialConfig.upsert({
     where: { id: project.slug },
     create: {
       id: project.slug,
@@ -183,6 +183,15 @@ export async function getRepoToSocialConfig() {
     },
     update: { agentId: project.agent.id },
   });
+  // Same healing as the suggestions config: an empty prompt would otherwise
+  // show an empty editor AND make the worker generate without guidelines.
+  if (!row.prompt.trim()) {
+    return prisma.repoToSocialConfig.update({
+      where: { id: project.slug },
+      data: { prompt: defaultPrompt(project) },
+    });
+  }
+  return row;
 }
 
 export async function saveRepoToSocialConfig(data: {
