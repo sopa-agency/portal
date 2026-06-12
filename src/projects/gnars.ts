@@ -4,6 +4,7 @@ import type { ProjectConfig } from "./types";
 // Accent: Gnars red noggles — #d11d2a (light) / #ff3344 (dark).
 const gnars: ProjectConfig = {
   slug: "gnars",
+  switcher: { rank: 20, parent: "reelflip" },
   name: "Gnars",
   description: "Internal ops portal for Gnars DAO.",
   allowlist: [

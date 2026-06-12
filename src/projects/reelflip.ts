@@ -7,6 +7,7 @@ const reelflip: ProjectConfig = {
   slug: "reelflip",
   // Portal lives at admin.reelflip.com (the apex/www is for the public site).
   subdomain: "admin",
+  switcher: { rank: 10 },
   name: "Reelflip",
   description: "Internal ops portal for Reelflip — editorial brand applying the skater's lens to culture.",
   allowlist: [

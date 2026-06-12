@@ -234,7 +234,10 @@ export async function fetchTreasuryGroups(project: ProjectConfig): Promise<Treas
   const reports = await Promise.all(wanted.map((p) => fetchTreasury(p)));
   return wanted
     .map((p, i) => ({ slug: p.slug, name: p.name, report: reports[i] }))
-    .filter((g): g is TreasuryGroup => g.report !== null);
+    .filter((g): g is TreasuryGroup => g.report !== null)
+    // Umbrella portals (SOPA) have no wallets of their own — drop the empty
+    // group so only real treasuries get tabs.
+    .filter((g) => g.report.evm.length > 0 || g.report.hive.length > 0);
 }
 
 export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryReport | null> {

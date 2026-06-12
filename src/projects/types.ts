@@ -118,6 +118,14 @@ export type ProjectConfig = {
    */
   hiddenRoutes?: string[];
   /**
+   * Workspace-switcher presentation. `rank` orders entries (lower = higher);
+   * `parent` indents this project under another slug (e.g. Gnars under
+   * Reelflip, which operates it); `dividerBefore` draws a horizontal rule
+   * above the entry (a separate org); `hidden` keeps a paused project out of
+   * the switcher while its URL keeps working.
+   */
+  switcher?: { rank?: number; parent?: string; dividerBefore?: boolean; hidden?: boolean };
+  /**
    * When true, the Post Creator nav item and /post-creator route are enabled
    * for this project. Publishing uses the project's own Instagram credentials
    * (`${gatewayEnvPrefix}_INSTAGRAM_*` env vars).

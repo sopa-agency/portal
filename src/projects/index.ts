@@ -4,6 +4,8 @@ import skatehive from "./skatehive";
 import gnars from "./gnars";
 import reelflip from "./reelflip";
 import coletivoxv from "./coletivoxv";
+import sopa from "./sopa";
+import keepkey from "./keepkey";
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -14,6 +16,8 @@ export const PROJECT_REGISTRY: Record<string, ProjectConfig> = {
   gnars,
   reelflip,
   coletivoxv,
+  sopa,
+  keepkey,
 };
 
 // ---------------------------------------------------------------------------
@@ -87,6 +91,18 @@ export function getAllProjects(): ProjectConfig[] {
 }
 
 /**
+ * Projects for the workspace switcher, in display order: SOPA (umbrella) on
+ * top, then Reelflip with its projects (Gnars, SkateHive) indented, then a
+ * divider before separate orgs (KeepKey). Paused projects (`switcher.hidden`)
+ * are excluded while their URLs keep working.
+ */
+export function getSwitcherProjects(): ProjectConfig[] {
+  return Object.values(PROJECT_REGISTRY)
+    .filter((p) => !p.switcher?.hidden)
+    .sort((a, b) => (a.switcher?.rank ?? 99) - (b.switcher?.rank ?? 99));
+}
+
+/**
  * Read the active project for the current request.
  *
  * The middleware stamps every request with an `x-portal-project` header
@@ -102,4 +118,4 @@ export async function getActiveProject(): Promise<ProjectConfig> {
 
 // Re-export types and individual project configs for convenience.
 export type { ProjectConfig } from "./types";
-export { skatehive, gnars, reelflip, coletivoxv };
+export { skatehive, gnars, reelflip, coletivoxv, sopa, keepkey };

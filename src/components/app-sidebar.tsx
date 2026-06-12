@@ -26,7 +26,16 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-type SwitchProject = { slug: string; subdomain?: string; name: string; logo: string };
+type SwitchProject = {
+  slug: string;
+  subdomain?: string;
+  name: string;
+  logo: string;
+  /** Indent under the previous top-level entry (e.g. Gnars under Reelflip). */
+  indent?: boolean;
+  /** Horizontal rule above this entry — a separate org (e.g. KeepKey). */
+  dividerBefore?: boolean;
+};
 
 type AppSidebarProps = {
   username: string;
@@ -124,19 +133,23 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                 {switchProjects.map((p) => {
                   const isCurrent = p.slug === currentSlug;
                   return (
-                    <button
-                      key={p.slug}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => switchTo(p)}
-                      className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-foreground/5 ${isCurrent ? "bg-accent-bg" : ""}`}
-                    >
-                      <Image src={p.logo} alt={p.name} width={24} height={24} className="shrink-0 rounded" />
-                      <span className={`min-w-0 flex-1 truncate text-sm font-medium ${isCurrent ? "text-accent" : "text-foreground"}`}>
-                        {p.name}
-                      </span>
-                      {isCurrent && <Check className="h-4 w-4 shrink-0 text-accent" />}
-                    </button>
+                    <div key={p.slug}>
+                      {p.dividerBefore && <div className="mx-3 my-1 border-t border-border" role="separator" />}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => switchTo(p)}
+                        className={`flex w-full items-center gap-3 py-2.5 pr-3 text-left transition-colors hover:bg-foreground/5 ${
+                          p.indent ? "pl-8" : "pl-3"
+                        } ${isCurrent ? "bg-accent-bg" : ""}`}
+                      >
+                        <Image src={p.logo} alt={p.name} width={24} height={24} className="shrink-0 rounded" />
+                        <span className={`min-w-0 flex-1 truncate text-sm font-medium ${isCurrent ? "text-accent" : "text-foreground"}`}>
+                          {p.name}
+                        </span>
+                        {isCurrent && <Check className="h-4 w-4 shrink-0 text-accent" />}
+                      </button>
+                    </div>
                   );
                 })}
               </div>

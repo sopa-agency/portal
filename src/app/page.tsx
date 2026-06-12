@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import { redirect } from "next/navigation";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
@@ -75,8 +76,10 @@ function SummaryBand({ tiles }: { tiles: BandTile[] }) {
 }
 
 export default async function Home() {
-  const today = todayIsoDate();
   const project = await getActiveProject();
+  // Treasury-only portals (SOPA) hide "/" — land straight on the treasury.
+  if (project.hiddenRoutes?.includes("/")) redirect("/treasury");
+  const today = todayIsoDate();
   const briefingAgents = project.briefingAgents;
   // Instagram leads the socials pane (and the band) — it's the primary channel.
   const socials = [...project.socials].sort((a, b) => {

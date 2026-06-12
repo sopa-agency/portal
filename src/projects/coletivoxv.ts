@@ -2,6 +2,8 @@ import type { ProjectConfig } from "./types";
 
 const coletivoxv: ProjectConfig = {
   slug: "coletivoxv",
+  // Paused project — out of the switcher, URL keeps working for the revival.
+  switcher: { rank: 40, parent: "reelflip", hidden: true },
   name: "ColetivoXV",
   description: "Internal ops portal for ColetivoXV.",
   allowlist: [

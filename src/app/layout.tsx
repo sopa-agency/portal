@@ -8,7 +8,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { PageInfo } from "@/components/page-info";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
-import { getActiveProject, getAllProjects } from "@/projects/index";
+import { getActiveProject, getSwitcherProjects } from "@/projects/index";
 import { FloatingAgentChat } from "@/components/floating-agent-chat";
 import { PresenceProvider } from "@/components/presence";
 
@@ -78,9 +78,16 @@ export default async function RootLayout({
                 projectName={project.name}
                 projectLogo={project.theme.logo}
                 currentSlug={project.slug}
-                switchProjects={getAllProjects()
+                switchProjects={getSwitcherProjects()
                   .filter((p) => p.allowlist.includes(session.username.toLowerCase()))
-                  .map((p) => ({ slug: p.slug, subdomain: p.subdomain, name: p.name, logo: p.theme.logo }))}
+                  .map((p) => ({
+                    slug: p.slug,
+                    subdomain: p.subdomain,
+                    name: p.name,
+                    logo: p.theme.logo,
+                    indent: !!p.switcher?.parent,
+                    dividerBefore: !!p.switcher?.dividerBefore,
+                  }))}
                 hiddenRoutes={project.hiddenRoutes}
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject}

@@ -2,6 +2,7 @@ import type { ProjectConfig } from "./types";
 
 const skatehive: ProjectConfig = {
   slug: "skatehive",
+  switcher: { rank: 30, parent: "reelflip" },
   name: "SkateHive",
   description: "Internal marketing ops portal for SkateHive.",
   allowlist: [
