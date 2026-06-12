@@ -328,3 +328,19 @@ model TeamMemberContact {
 
   @@unique([projectSlug, username, label])
 }
+
+// Async chat jobs — the floating chat's big-task safety net. The route keeps
+// working after the SSE connection drops and stores the reply here; the
+// client polls until done. Rows are short-lived working state.
+model ChatJob {
+  id          String   @id @default(cuid())
+  projectSlug String
+  sessionId   String   @default("")
+  status      String   @default("running") // running | done | error
+  reply       String?  @db.Text
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug, createdAt(sort: Desc)])
+}

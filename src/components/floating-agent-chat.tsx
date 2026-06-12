@@ -307,8 +307,38 @@ export function FloatingAgentChat({
 
   const effectiveGreeting = greeting || DEFAULT_GREETING;
 
+  // Inspiring productivity line of the day — deterministic (day-of-year), so
+  // the whole team sees the same one and fresh chats always open with it.
+  const MOTD_LINES = [
+    "Ship one real thing before lunch — momentum compounds.",
+    "The best post is the one that goes out today, not the perfect one next week.",
+    "Small consistent reps beat heroic sprints. What's today's rep?",
+    "Done is a feature. Polish is a patch.",
+    "Make it work, make it right, make it loud — in that order.",
+    "One honest update to the community is worth ten drafts in a drawer.",
+    "Start with the task you've been avoiding — it's smaller than it looks.",
+    "Today's goal: leave the project better than you found it.",
+    "Energy follows action. Start ugly, finish proud.",
+    "Cut the scope, keep the soul, ship it.",
+    "Your future self is begging you to schedule that post now.",
+    "Creativity loves a deadline — give it one today.",
+    "The feed rewards the consistent, not the perfect.",
+    "Do the 5-minute version first. It usually finishes the job.",
+    "A queued post is a gift to tomorrow's you.",
+  ];
+  function motdOfTheDay(): string {
+    const now = new Date();
+    const dayOfYear = Math.floor(
+      (now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000,
+    );
+    return MOTD_LINES[dayOfYear % MOTD_LINES.length];
+  }
+
   function initialMessages(): ChatMessage[] {
-    return [{ id: "welcome", role: "assistant", text: effectiveGreeting }];
+    return [
+      { id: "welcome", role: "assistant", text: effectiveGreeting },
+      { id: "motd", role: "assistant", text: `💡 ${motdOfTheDay()}` },
+    ];
   }
 
   const [open, setOpen] = useState(false);
@@ -566,6 +596,9 @@ export function FloatingAgentChat({
       .filter(Boolean)
       .join("\n\n");
 
+    // Job id from the server — reachable in the catch for the polling fallback.
+    const jobIdRef = { current: null as string | null };
+
     try {
       const res = await fetch(`/api/agent/chat?stream=1`, {
         method: "POST",
@@ -595,8 +628,13 @@ export function FloatingAgentChat({
           message?: string;
           reply?: string;
           error?: string;
+          jobId?: string;
         };
 
+        if (eventName === "job") {
+          jobIdRef.current = typeof data.jobId === "string" ? data.jobId : null;
+          return;
+        }
         if (eventName === "status") {
           setStatus(data.message || "trabalhando...");
           return;
@@ -638,10 +676,51 @@ export function FloatingAgentChat({
         for (const event of events) handleEvent(event);
       }
       if (buffer.trim()) handleEvent(buffer);
-      if (!gotFinal) throw new Error("A conexão fechou antes da resposta final.");
+      if (!gotFinal) throw new Error("__stream_dropped__");
     } catch (err) {
-      const message =
+      const rawMessage =
         err instanceof Error && err.message ? err.message : "Turno falhou.";
+
+      // Big-task fallback: the server keeps working and stores the reply in
+      // the job row — poll it for up to 12 minutes before giving up.
+      const jobToPoll = jobIdRef.current;
+      if (jobToPoll) {
+        setStatus("conexão caiu — o agente segue trabalhando, aguardando o resultado…");
+        const deadline = Date.now() + 12 * 60_000;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 5000));
+          try {
+            const jr = await fetch(`/api/agent/chat?job=${encodeURIComponent(jobToPoll)}`);
+            if (!jr.ok) continue;
+            const jd = (await jr.json()) as {
+              ok: boolean;
+              status?: string;
+              reply?: string | null;
+              error?: string | null;
+            };
+            if (jd.status === "done" && jd.reply) {
+              setMessages((prev) => {
+                const next = [
+                  ...prev,
+                  { id: `assistant-${Date.now()}`, role: "assistant" as const, text: jd.reply! },
+                ];
+                localStorage.setItem(`${keyHistory}:${sessionId}`, JSON.stringify(next));
+                return next;
+              });
+              setStatus("");
+              setSending(false);
+              return;
+            }
+            if (jd.status === "error") {
+              break;
+            }
+          } catch {
+            // transient poll failure — keep trying until the deadline
+          }
+        }
+      }
+
+      const message = rawMessage === "__stream_dropped__" ? "A conexão fechou antes da resposta final." : rawMessage;
       setError(message);
       setMessages((prev) => {
         const next = [
