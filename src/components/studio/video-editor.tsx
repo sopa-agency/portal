@@ -391,6 +391,8 @@ export function VideoEditor({
     kind: BinItem["kind"];
     url: string;
     name: string;
+    /** Set when previewing a bin item — enables discard. */
+    binId?: string;
   } | null>(null);
   const [exporting, setExporting] = useState<null | { progress: number }>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -418,6 +420,8 @@ export function VideoEditor({
   const mixDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const clockRef = useRef({ playing: false, t0: 0, base: 0 });
+  /** While true, the export driver owns video elements — sync leaves them alone. */
+  const exportDriveRef = useRef(false);
   const ppsRef = useRef(pps);
   ppsRef.current = pps;
   const stateRef = useRef({ clips, overlays, audios, bin, aspect, selection, overlayTracks });
@@ -717,7 +721,7 @@ export function VideoEditor({
     (t: number, isPlaying: boolean) => {
       const { clips: cs, audios: as, bin: bs } = stateRef.current;
       const active = clipAt(t);
-      for (const clip of cs) {
+      for (const clip of exportDriveRef.current ? [] : cs) {
         const item = bs.find((b) => b.id === clip.binId);
         if (!item) continue;
         const el = getVideoEl(item);
@@ -751,8 +755,11 @@ export function VideoEditor({
     let raf = 0;
     const loop = () => {
       const c = clockRef.current;
-      const t = c.playing ? c.base + (performance.now() - c.t0) / 1000 : c.base;
-      if (c.playing) {
+      const t =
+        c.playing && !exportDriveRef.current
+          ? c.base + (performance.now() - c.t0) / 1000
+          : c.base;
+      if (c.playing && !exportDriveRef.current) {
         setTime(t);
         syncMedia(t, true);
         const total = stateRef.current.clips.reduce((s, x) => s + (x.out - x.in), 0);
@@ -986,6 +993,30 @@ export function VideoEditor({
       return next;
     });
   }, [clipAt]);
+
+  /** Remove a bin item and every timeline usage of it. */
+  const discardBinItem = useCallback((binId: string) => {
+    setClips((prev) => prev.filter((c) => c.binId !== binId));
+    setOverlays((prev) => prev.filter((o) => o.binId !== binId));
+    setAudios((prev) => prev.filter((a) => a.binId !== binId));
+    setBin((prev) => prev.filter((b) => b.id !== binId));
+    const v = videoEls.current.get(binId);
+    if (v) {
+      v.pause();
+      v.src = "";
+      videoEls.current.delete(binId);
+    }
+    const a = audioEls.current.get(binId);
+    if (a) {
+      a.pause();
+      a.src = "";
+      audioEls.current.delete(binId);
+    }
+    imageEls.current.delete(binId);
+    fileRef.current.delete(binId);
+    setPanelPreview(null);
+    setSelection(null);
+  }, []);
 
   const removeSelection = useCallback(() => {
     const sel = stateRef.current.selection;
@@ -1392,31 +1423,103 @@ export function VideoEditor({
     recorder.onstop = () => {
       const blob = new Blob(chunks, { type: mime.split(";")[0] });
       setExporting(null);
+      if (blob.size < 20_000) {
+        setError("Export came out empty/corrupted — try again (keep this tab focused while recording).");
+        return;
+      }
       exportedRef.current = true;
       setExportResult(new File([blob], `studio-video-${Date.now()}.${ext}`, { type: blob.type }));
     };
 
-    seek(0);
-    clockRef.current.base = 0;
-    clockRef.current.t0 = performance.now();
+    // Element-driven export: each clip's <video> is the ground truth for the
+    // master clock (no drift-correction seeks = no glitches). Every clip is
+    // pre-decoded and pre-seeked before its frames are recorded.
+    const cs = [...stateRef.current.clips];
+    const waitEvent = (el: HTMLMediaElement, ev: string, timeoutMs = 4000) =>
+      new Promise<void>((res) => {
+        const t = setTimeout(done, timeoutMs);
+        function done() {
+          clearTimeout(t);
+          el.removeEventListener(ev, done);
+          res();
+        }
+        el.addEventListener(ev, done, { once: true });
+      });
+
+    exportDriveRef.current = true;
     clockRef.current.playing = true;
+    clockRef.current.base = 0;
     setPlaying(true);
-    syncMedia(0, true);
+    setTime(0);
+
+    // Preload every clip + land the first frame before recording starts.
+    for (const clip of cs) {
+      const item = stateRef.current.bin.find((b) => b.id === clip.binId);
+      if (!item) continue;
+      const el = getVideoEl(item);
+      if (el.readyState < 2) await waitEvent(el, "loadeddata", 8000);
+    }
+    const firstItem = stateRef.current.bin.find((b) => b.id === cs[0]?.binId);
+    if (firstItem) {
+      const el = getVideoEl(firstItem);
+      el.currentTime = cs[0].in;
+      await waitEvent(el, "seeked");
+    }
+
     recorder.start(500);
 
-    const tick = window.setInterval(() => {
-      const c = clockRef.current;
-      const t = c.playing ? c.base + (performance.now() - c.t0) / 1000 : c.base;
-      setExporting((prev) => (prev ? { progress: Math.min(t / total, 1) } : prev));
-      if (t >= total || !c.playing) {
-        window.clearInterval(tick);
-        c.playing = false;
-        setPlaying(false);
-        syncMedia(0, false);
-        recorder.stop();
+    let stopped = false;
+    const finish = () => {
+      if (stopped) return;
+      stopped = true;
+      exportDriveRef.current = false;
+      clockRef.current.playing = false;
+      clockRef.current.base = 0;
+      setPlaying(false);
+      setTime(0);
+      syncMedia(0, false);
+      // small tail so the final frames flush into the recording
+      setTimeout(() => recorder.stop(), 150);
+    };
+
+    void (async () => {
+      try {
+        let startAt = 0;
+        for (const clip of cs) {
+          const item = stateRef.current.bin.find((b) => b.id === clip.binId);
+          if (!item) continue;
+          const el = getVideoEl(item);
+          if (Math.abs(el.currentTime - clip.in) > 0.05) {
+            el.currentTime = clip.in;
+            await waitEvent(el, "seeked");
+          }
+          const gain = gainNodes.current.get(`clip:${item.id}`);
+          if (gain) gain.gain.value = clip.volume;
+          await el.play().catch(() => {});
+          // drive the master clock from the element until the clip's out point
+          await new Promise<void>((res) => {
+            const step = () => {
+              if (el.ended || el.currentTime >= clip.out - 0.03) {
+                el.pause();
+                res();
+                return;
+              }
+              const t = startAt + (el.currentTime - clip.in);
+              clockRef.current.base = t;
+              setTime(t);
+              setExporting((prev) => (prev ? { progress: Math.min(t / total, 1) } : prev));
+              syncMedia(t, true); // audio items follow the derived clock
+              requestAnimationFrame(step);
+            };
+            requestAnimationFrame(step);
+          });
+          startAt += clip.out - clip.in;
+        }
+      } finally {
+        finish();
       }
-    }, 250);
-  }, [ensureAudioCtx, exporting, seek, syncMedia]);
+    })();
+  }, [ensureAudioCtx, exporting, syncMedia, getVideoEl]);
 
   const sendToPost = async () => {
     if (!exportResult || !onUseInPost || sending) return;
@@ -1576,7 +1679,7 @@ export function VideoEditor({
                     e.dataTransfer.setData("application/x-bin-id", item.id);
                     e.dataTransfer.effectAllowed = "copy";
                   }}
-                  onClick={() => setPanelPreview({ kind: item.kind, url: item.url, name: item.name })}
+                  onClick={() => setPanelPreview({ kind: item.kind, url: item.url, name: item.name, binId: item.id })}
                   className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-2 transition-colors hover:border-border-strong active:cursor-grabbing"
                 >
                   {item.kind === "video" ? (
@@ -1835,14 +1938,26 @@ export function VideoEditor({
           <div className="border-t border-border p-2.5">
             <div className="mb-1.5 flex items-center justify-between gap-2">
               <p className="min-w-0 truncate text-[11px] font-medium text-foreground">{panelPreview.name}</p>
-              <button
-                type="button"
-                onClick={() => setPanelPreview(null)}
-                aria-label="Close preview"
-                className="shrink-0 rounded p-0.5 text-foreground-faint hover:text-foreground"
-              >
-                ✕
-              </button>
+              <span className="flex shrink-0 items-center gap-1">
+                {panelPreview.binId && (
+                  <button
+                    type="button"
+                    onClick={() => discardBinItem(panelPreview.binId!)}
+                    title="Discard media (removes it from the bin and the timeline)"
+                    className="rounded-md border border-danger/30 bg-danger/10 p-1 text-danger hover:bg-danger/20"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPanelPreview(null)}
+                  aria-label="Close preview"
+                  className="rounded p-0.5 text-foreground-faint hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </span>
             </div>
             {panelPreview.kind === "video" && (
               <video
