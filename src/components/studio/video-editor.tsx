@@ -25,6 +25,7 @@ import {
   Plus,
   Scissors,
   Send,
+  Square,
   Trash2,
   Type,
   Upload,
@@ -56,8 +57,12 @@ type BinItem = {
 type Clip = { id: string; binId: string; in: number; out: number; volume: number };
 type Overlay = {
   id: string;
-  kind: "image" | "text";
+  kind: "image" | "text" | "shape";
   binId?: string;
+  /** Shape style (kind shape). */
+  shape?: "rect" | "pill";
+  /** Shape height as a fraction of its width. */
+  hRatio?: number;
   /** Text content (kind text) — supports \n for multi-line. */
   text?: string;
   color: string;
@@ -432,6 +437,11 @@ export function VideoEditor({
         const m = textRects.current.get(ov.id) ?? { ow: w * 0.4, oh: w * 0.12 };
         return { cx: w * ov.x, cy: h * ov.y, ow: m.ow, oh: m.oh };
       }
+      if (ov.kind === "shape") {
+        const ow = w * ov.w;
+        const oh = ow * (ov.hRatio ?? 0.4);
+        return { cx: w * ov.x, cy: h * ov.y, ow, oh };
+      }
       const item = stateRef.current.bin.find((b) => b.id === ov.binId);
       const img = item ? imageEls.current.get(item.id) : null;
       const ratio = img && img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1;
@@ -536,6 +546,39 @@ export function VideoEditor({
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("↘", ow / 2, oh / 2 + 1);
+        ctx.restore();
+        continue;
+      }
+
+      if (ov.kind === "shape") {
+        const { cx, cy, ow, oh } = overlayRect(ov);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(ov.rotation);
+        ctx.globalAlpha = ov.opacity;
+        ctx.fillStyle = ov.color;
+        const radius = ov.shape === "pill" ? oh / 2 : Math.min(14, oh / 5);
+        ctx.beginPath();
+        ctx.roundRect(-ow / 2, -oh / 2, ow, oh, radius);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        if (sel?.type === "overlay" && sel.id === ov.id) {
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = Math.max(2, w / 360);
+          ctx.setLineDash([10, 6]);
+          ctx.strokeRect(-ow / 2, -oh / 2, ow, oh);
+          ctx.setLineDash([]);
+          const r3 = Math.max(10, w / 72);
+          ctx.fillStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(ow / 2, oh / 2, r3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#000";
+          ctx.font = `${r3 * 1.2}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("↘", ow / 2, oh / 2 + 1);
+        }
         ctx.restore();
         continue;
       }
@@ -726,42 +769,6 @@ export function VideoEditor({
     setBinTab("uploads");
   };
 
-  const [artBusy, setArtBusy] = useState<number | null>(null);
-  const studioCards = useMemo(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem("reelflip-studio:doc:v1");
-      if (!raw) return [];
-      const doc = JSON.parse(raw) as { cards?: { tipo?: string }[] };
-      return (doc.cards ?? []).map((c, i) => ({ index: i, tipo: c.tipo ?? "card", card: c }));
-    } catch {
-      return [];
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [binTab]);
-
-  const addArtCard = async (entry: { index: number; tipo: string; card: unknown }) => {
-    setArtBusy(entry.index);
-    try {
-      const res = await fetch("/api/studio/render", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ card: entry.card }),
-      });
-      if (!res.ok) throw new Error(`render ${res.status}`);
-      const url = URL.createObjectURL(await res.blob());
-      setBin((prev) => [
-        ...prev,
-        { id: nextId(), kind: "image", name: `Studio art ${entry.index + 1} (${entry.tipo})`, url, duration: 0 },
-      ]);
-      setBinTab("uploads");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setArtBusy(null);
-    }
-  };
-
   // --- timeline ops -----------------------------------------------------------------
 
   const addClip = useCallback(
@@ -809,6 +816,29 @@ export function VideoEditor({
     },
     [],
   );
+
+  /** Studio-style shape layer (box / pill) at the playhead. */
+  const addShape = useCallback((shape: "rect" | "pill", color: string) => {
+    const start = clockRef.current.base;
+    const total = stateRef.current.clips.reduce((s, c) => s + (c.out - c.in), 0);
+    const ov: Overlay = {
+      id: nextId(),
+      kind: "shape",
+      shape,
+      color,
+      bg: false,
+      hRatio: shape === "pill" ? 0.28 : 0.45,
+      start: Math.max(0, start),
+      end: Math.max(start + 3, Math.min(total || start + 3, start + 5)),
+      x: 0.5,
+      y: 0.5,
+      w: 0.55,
+      opacity: 1,
+      rotation: 0,
+    };
+    setOverlays((prev) => [...prev, ov]);
+    setSelection({ type: "overlay", id: ov.id });
+  }, []);
 
   /** CapCut-style text layer at the playhead, centered. */
   const addText = useCallback(() => {
@@ -1188,7 +1218,7 @@ export function VideoEditor({
             [
               ["uploads", "Media", Upload],
               ["skatehive", "SkateHive", Film],
-              ["art", "Art", ImageIcon],
+              ["art", "Elements", Type],
               ["drive", "Drive", HardDrive],
             ] as const
           ).map(([key, label, Icon]) => (
@@ -1307,33 +1337,52 @@ export function VideoEditor({
           {binTab === "art" && (
             <>
               <p className="px-1 text-[11px] text-foreground-subtle">
-                Cards from your Studio design doc, rendered as PNG overlays — drag onto the preview
-                to place them.
+                Studio-style assembly over the video — editable text, boxes and pills. Stickers/PNGs
+                come from the Media tab (drag them onto the preview).
               </p>
-              {studioCards.length === 0 && (
-                <p className="px-1 text-[11px] italic text-foreground-faint">
-                  No Studio cards yet — create some in the Design tab first.
-                </p>
-              )}
-              {studioCards.map((c) => (
-                <div key={c.index} className="flex items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-2">
-                  <ImageIcon className="h-3.5 w-3.5 shrink-0 text-success" />
-                  <p className="min-w-0 flex-1 truncate text-xs text-foreground">
-                    Card {c.index + 1} <span className="text-foreground-faint">({c.tipo})</span>
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void addArtCard(c)}
-                    disabled={artBusy !== null}
-                    title="Render + add to bin"
-                    className="rounded-md border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20 disabled:opacity-50"
-                  >
-                    {artBusy === c.index ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  </button>
+              <button
+                type="button"
+                onClick={addText}
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-2 text-xs text-foreground transition-colors hover:border-border-strong"
+              >
+                <Type className="h-3.5 w-3.5 text-accent" />
+                Text — editable, multi-line
+              </button>
+              <div className="space-y-1.5">
+                <p className="px-1 text-[10px] uppercase tracking-wider text-foreground-faint">Box</p>
+                <div className="grid grid-cols-6 gap-1.5 px-1">
+                  {TEXT_COLORS.map((c) => (
+                    <button
+                      key={`rect-${c}`}
+                      type="button"
+                      onClick={() => addShape("rect", c)}
+                      title={`Box ${c}`}
+                      style={{ backgroundColor: c }}
+                      className="h-8 rounded-md border border-border hover:border-border-strong"
+                    />
+                  ))}
                 </div>
-              ))}
+                <p className="px-1 text-[10px] uppercase tracking-wider text-foreground-faint">Pill</p>
+                <div className="grid grid-cols-6 gap-1.5 px-1">
+                  {TEXT_COLORS.map((c) => (
+                    <button
+                      key={`pill-${c}`}
+                      type="button"
+                      onClick={() => addShape("pill", c)}
+                      title={`Pill ${c}`}
+                      style={{ backgroundColor: c }}
+                      className="h-8 rounded-full border border-border hover:border-border-strong"
+                    />
+                  ))}
+                </div>
+              </div>
+              <p className="px-1 text-[10px] leading-relaxed text-foreground-faint">
+                Tip: a red box + white text on top = the PERSPECTIVA flip, straight over the clip.
+                Stack order follows creation order.
+              </p>
             </>
           )}
+
           {binTab === "drive" && (
             <>
               {driveStack.length > 0 && (
@@ -1698,11 +1747,17 @@ export function VideoEditor({
                   >
                     {ov.kind === "text" ? (
                       <Type className="mr-1 h-3 w-3 shrink-0" />
+                    ) : ov.kind === "shape" ? (
+                      <Square className="mr-1 h-3 w-3 shrink-0" style={{ color: ov.color }} />
                     ) : (
                       <ImageIcon className="mr-1 h-3 w-3 shrink-0" />
                     )}
                     <span className="truncate">
-                      {ov.kind === "text" ? (ov.text ?? "text").split("\n")[0] : item?.name ?? "art"}
+                      {ov.kind === "text"
+                        ? (ov.text ?? "text").split("\n")[0]
+                        : ov.kind === "shape"
+                          ? ov.shape ?? "shape"
+                          : item?.name ?? "art"}
                     </span>
                     <span
                       onPointerDown={hDrag((d) =>
@@ -1797,8 +1852,47 @@ export function VideoEditor({
             {selOverlay && (
               <>
                 <span className="font-medium text-foreground">
-                  {selOverlay.kind === "text" ? "Text" : "Art"}
+                  {selOverlay.kind === "text" ? "Text" : selOverlay.kind === "shape" ? "Shape" : "Sticker"}
                 </span>
+                {selOverlay.kind === "shape" && (
+                  <>
+                    <span className="flex items-center gap-1">
+                      {TEXT_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() =>
+                            setOverlays((prev) =>
+                              prev.map((o) => (o.id === selOverlay.id ? { ...o, color: c } : o)),
+                            )
+                          }
+                          aria-label={`Shape color ${c}`}
+                          style={{ backgroundColor: c }}
+                          className={`h-4 w-4 rounded-full border ${
+                            selOverlay.color === c ? "border-accent ring-1 ring-accent" : "border-border"
+                          }`}
+                        />
+                      ))}
+                    </span>
+                    <label className="flex items-center gap-2 text-foreground-muted">
+                      height
+                      <input
+                        type="range"
+                        min={0.05}
+                        max={1.5}
+                        step={0.02}
+                        value={selOverlay.hRatio ?? 0.4}
+                        onChange={(e) =>
+                          setOverlays((prev) =>
+                            prev.map((o) =>
+                              o.id === selOverlay.id ? { ...o, hRatio: Number(e.target.value) } : o,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                  </>
+                )}
                 {selOverlay.kind === "text" && (
                   <>
                     <input
