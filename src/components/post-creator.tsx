@@ -51,6 +51,8 @@ import {
   type PostType,
   type DraftRow,
   type UserTag,
+  listCalendarExtras,
+  type CalendarExtra,
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
 import {
@@ -59,6 +61,7 @@ import {
 } from "@/lib/post-creator-prompts";
 import dynamic from "next/dynamic";
 import { Toaster as StudioToaster } from "@/components/studio/ui/sonner";
+import { SocialBrandIcon } from "@/components/social-brand-icon";
 
 // Studio (vendored Figma-like design tool) — heavy + browser-only, so it loads
 // on demand when the tab opens.
@@ -1058,9 +1061,11 @@ function PostDialog({
 
 function ScheduledCalendar({
   items,
+  extras,
   onOpenPost,
 }: {
   items: DraftRow[];
+  extras: CalendarExtra[];
   onOpenPost: (id: string) => void;
 }) {
   const today = new Date();
@@ -1114,6 +1119,21 @@ function ScheduledCalendar({
     return map;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
+
+  // Cross-source scheduled events (suggestions / repo / nested projects).
+  const extrasByDay = useMemo(() => {
+    const map: Record<string, CalendarExtra[]> = {};
+    for (const e of extras) {
+      const dt = new Date(e.when);
+      if (Number.isNaN(dt.getTime())) continue;
+      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+      (map[key] ??= []).push(e);
+    }
+    for (const key of Object.keys(map)) {
+      map[key].sort((a, b) => (a.when < b.when ? -1 : 1));
+    }
+    return map;
+  }, [extras]);
 
   const year = calendarMonth.getFullYear();
   const month = calendarMonth.getMonth();
@@ -1199,6 +1219,10 @@ function ScheduledCalendar({
           {gridDays.map(({ date, inMonth }, idx) => {
             const cellKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
             const dayPosts = postsByDay[cellKey] ?? [];
+            const dayExtras = extrasByDay[cellKey] ?? [];
+            const extraSlots = Math.max(0, CHIP_LIMIT - dayPosts.length);
+            const shownExtras = dayExtras.slice(0, extraSlots);
+            const overflow = dayPosts.length + dayExtras.length - Math.min(dayPosts.length, CHIP_LIMIT) - shownExtras.length;
             const isToday = cellKey === todayKey;
             const isLastRow = idx >= 35;
 
@@ -1289,14 +1313,53 @@ function ScheduledCalendar({
                       </button>
                     );
                   })}
-                  {dayPosts.length > CHIP_LIMIT && (
+                  {shownExtras.map((e) => {
+                    const eTime = new Date(e.when).toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    });
+                    const href =
+                      e.kind === "suggestion"
+                        ? "/marketing-suggestions"
+                        : e.kind === "repo"
+                          ? "/marketing-suggestions?tab=repo"
+                          : null;
+                    const body = (
+                      <>
+                        <SocialBrandIcon platform={e.platform} className="h-3 w-3 shrink-0" />
+                        <span className="truncate text-[10px] tabular-nums text-foreground-muted leading-tight">
+                          {eTime}
+                        </span>
+                        <span className="ml-auto shrink-0 rounded bg-surface-elevated px-1 text-[8px] uppercase tracking-wide text-foreground-faint">
+                          {e.kind === "instagram" ? e.projectSlug.slice(0, 4) : e.platform.slice(0, 4)}
+                        </span>
+                      </>
+                    );
+                    const label = `${e.platform} via ${e.kind} (${e.projectSlug}): ${e.title}`;
+                    return href ? (
+                      <a
+                        key={e.id}
+                        href={href}
+                        title={label}
+                        className="flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-elevated"
+                      >
+                        {body}
+                      </a>
+                    ) : (
+                      <div key={e.id} title={label} className="flex w-full items-center gap-1 rounded-md px-1 py-0.5">
+                        {body}
+                      </div>
+                    );
+                  })}
+                  {overflow > 0 && (
                     <button
                       type="button"
-                      aria-label={`${dayPosts.length - CHIP_LIMIT} more posts on this day`}
-                      onClick={() => onOpenPost(dayPosts[CHIP_LIMIT].id)}
+                      aria-label={`${overflow} more posts on this day`}
+                      onClick={() => dayPosts[CHIP_LIMIT] && onOpenPost(dayPosts[CHIP_LIMIT].id)}
                       className="w-full rounded-md px-1 py-0.5 text-left text-[10px] font-medium text-foreground-subtle transition-colors hover:bg-surface-elevated"
                     >
-                      +{dayPosts.length - CHIP_LIMIT} more
+                      +{overflow} more
                     </button>
                   )}
                 </div>
@@ -1795,12 +1858,17 @@ export function PostCreator({
   // ---------------------------------------------------------------------------
   // Load drafts on mount
   // ---------------------------------------------------------------------------
+  const [calendarExtras, setCalendarExtras] = useState<CalendarExtra[]>([]);
   useEffect(() => {
     listDrafts()
       .then((res) => {
         if (res.ok) setDrafts(res.drafts);
       })
       .finally(() => setDraftsLoading(false));
+    // Non-Instagram + nested-project scheduled posts for the calendar.
+    void listCalendarExtras().then((res) => {
+      if (res.ok) setCalendarExtras(res.events);
+    });
   }, []);
 
   // Studio seeding sets postType + uploads together — the type-reset effect
@@ -3688,6 +3756,7 @@ export function PostCreator({
           ) : scheduledView === "calendar" ? (
             <ScheduledCalendar
               items={calendarPosts}
+              extras={calendarExtras}
               onOpenPost={(id) => setDialogPostId(id)}
             />
           ) : (

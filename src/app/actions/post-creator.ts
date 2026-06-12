@@ -648,3 +648,100 @@ export async function markPosted(
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+// ---------------------------------------------------------------------------
+// listCalendarExtras — everything scheduled that ISN'T an own-project
+// Instagram post, so the calendar shows the whole picture: posts scheduled
+// from Post Suggestions and Repo to Social (any platform), plus the scheduled
+// Instagram posts of nested projects (Reelflip sees Gnars + SkateHive).
+// ---------------------------------------------------------------------------
+
+export type CalendarExtra = {
+  id: string;
+  kind: "suggestion" | "repo" | "instagram";
+  /** Origin project (badged in the calendar when not the active one). */
+  projectSlug: string;
+  platform: string;
+  title: string;
+  when: string; // ISO
+};
+
+export async function listCalendarExtras(): Promise<
+  { ok: true; events: CalendarExtra[] } | { ok: false; error: string }
+> {
+  try {
+    const { project } = await authGate();
+    const { getAllProjects } = await import("@/projects/index");
+    const childSlugs = getAllProjects()
+      .filter((p) => p.switcher?.parent === project.slug)
+      .map((p) => p.slug);
+    const family = [project.slug, ...childSlugs];
+    const events: CalendarExtra[] = [];
+
+    const [sugRuns, repoRuns] = await Promise.all([
+      prisma.marketingSuggestionRun.findMany({
+        where: { configId: { in: family } },
+        orderBy: { startedAt: "desc" },
+        take: 40,
+        select: { id: true, configId: true, tweets: true, tweetStates: true },
+      }),
+      prisma.repoToSocialRun.findMany({
+        where: { configId: { in: family } },
+        orderBy: { startedAt: "desc" },
+        take: 40,
+        select: { id: true, configId: true, tweets: true, tweetStates: true },
+      }),
+    ]);
+
+    const harvest = (
+      runs: { id: string; configId: string; tweets: unknown; tweetStates: unknown }[],
+      kind: "suggestion" | "repo",
+    ) => {
+      for (const run of runs) {
+        const tweets = Array.isArray(run.tweets) ? (run.tweets as unknown[]) : [];
+        const states =
+          run.tweetStates && typeof run.tweetStates === "object" && !Array.isArray(run.tweetStates)
+            ? (run.tweetStates as Record<string, { scheduledFor?: Record<string, unknown> }>)
+            : {};
+        for (const [idx, st] of Object.entries(states)) {
+          for (const [platform, iso] of Object.entries(st?.scheduledFor ?? {})) {
+            if (typeof iso !== "string") continue;
+            events.push({
+              id: `${kind}:${run.id}:${idx}:${platform}`,
+              kind,
+              projectSlug: run.configId,
+              platform,
+              title: String(tweets[Number(idx)] ?? "").slice(0, 90),
+              when: iso,
+            });
+          }
+        }
+      }
+    };
+    harvest(sugRuns, "suggestion");
+    harvest(repoRuns, "repo");
+
+    if (childSlugs.length > 0) {
+      const rows = await prisma.instagramPost.findMany({
+        where: { projectSlug: { in: childSlugs }, status: "scheduled" },
+        select: { id: true, projectSlug: true, caption: true, scheduledFor: true },
+      });
+      for (const r of rows) {
+        if (!r.scheduledFor) continue;
+        events.push({
+          id: `ig:${r.id}`,
+          kind: "instagram",
+          projectSlug: r.projectSlug,
+          platform: "instagram",
+          title: r.caption.slice(0, 90),
+          when: r.scheduledFor.toISOString(),
+        });
+      }
+    }
+
+    events.sort((a, b) => (a.when < b.when ? -1 : 1));
+    return { ok: true, events };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
