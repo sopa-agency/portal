@@ -356,6 +356,7 @@ export function VideoEditor({
   const [shError, setShError] = useState<string | null>(null);
   const [shBusy, setShBusy] = useState<string | null>(null);
   const [exporting, setExporting] = useState<null | { progress: number }>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [exportResult, setExportResult] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1817,7 +1818,7 @@ export function VideoEditor({
           {!exporting && !exportResult && (
             <button
               type="button"
-              onClick={() => void startExport()}
+              onClick={() => setExportOpen(true)}
               disabled={clips.length === 0}
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-40"
             >
@@ -2319,6 +2320,97 @@ export function VideoEditor({
           </div>
         )}
       </div>
+
+      {/* ── Export format dialog ────────────────────────────────────────────── */}
+      {exportOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Export format"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={() => setExportOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-surface-elevated p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-foreground">Export format</h3>
+            <p className="mt-1 text-xs text-foreground-muted">
+              Picking a format re-frames the canvas (clips cover-fit, layers keep their relative
+              positions) — check the framing behind this dialog before exporting.
+            </p>
+            <div className="mt-3 space-y-2">
+              {(
+                [
+                  ["9:16", "Reels — Instagram's native video format (1080×1920). Best for single videos.", true],
+                  ["4:5", "Vertical feed post (1080×1350). Reels will show it with bars.", false],
+                  ["1:1", "Square (1080×1080) — universal for feed and carousels.", false],
+                  ["16:9", "Landscape (1920×1080). Instagram crops feed to 1.91:1 — better for X/YouTube.", false],
+                ] as const
+              ).map(([key, note, recommended]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setAspect(key)}
+                  aria-pressed={aspect === key}
+                  className={`flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                    aspect === key
+                      ? "border-accent bg-accent-bg"
+                      : "border-border bg-surface hover:border-border-strong"
+                  }`}
+                >
+                  <span
+                    style={{
+                      width: Math.round((ASPECTS[key].w / Math.max(ASPECTS[key].w, ASPECTS[key].h)) * 22),
+                      height: Math.round((ASPECTS[key].h / Math.max(ASPECTS[key].w, ASPECTS[key].h)) * 22),
+                    }}
+                    className={`mt-0.5 shrink-0 rounded-[3px] border ${aspect === key ? "border-accent" : "border-foreground-faint"}`}
+                  />
+                  <span className="min-w-0">
+                    <span className={`text-xs font-semibold ${aspect === key ? "text-accent" : "text-foreground"}`}>
+                      {key}
+                      {recommended && (
+                        <span className="ml-1.5 rounded-full bg-accent-bg px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-accent">
+                          recommended
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-foreground-muted">{note}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] text-foreground-subtle">
+              {typeof MediaRecorder !== "undefined" &&
+              ["video/mp4;codecs=\"avc1.42E01E,mp4a.40.2\"", "video/mp4"].some((m) =>
+                MediaRecorder.isTypeSupported(m),
+              )
+                ? "Container: MP4 (H.264) — accepted by Instagram, Hive and Farcaster."
+                : "⚠ This browser exports WebM — Instagram requires MP4 (use Chrome). Hive/Farcaster accept WebM."}
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setExportOpen(false)}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground-muted hover:border-border-strong hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExportOpen(false);
+                  void startExport();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export {aspect}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Projects dialog ─────────────────────────────────────────────────── */}
       {projectsOpen && (
