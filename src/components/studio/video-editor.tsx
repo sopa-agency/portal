@@ -23,6 +23,8 @@ import {
   Pause,
   Play,
   Plus,
+  FolderOpen,
+  Save,
   Scissors,
   Send,
   Square,
@@ -35,6 +37,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { listSkatehiveVideos, type SkatehiveVideo } from "@/app/actions/skatehive-media";
+import { uploadMediaDirectClient } from "@/lib/upload-media-client";
 
 // ---------------------------------------------------------------------------
 // Model
@@ -181,6 +184,46 @@ async function makeWaveform(url: string): Promise<string | undefined> {
   }
 }
 
+// --- project persistence (localStorage, per portal origin) -------------------
+
+type SavedProject = {
+  id: string;
+  name: string;
+  updatedAt: string;
+  aspect: AspectKey;
+  bin: BinItem[]; // every url remote (IPFS/proxy/drive) — blobs upload on save
+  clips: Clip[];
+  overlays: Overlay[];
+  audios: AudioItem[];
+};
+
+const PROJECTS_KEY = "studio-video:projects:v1";
+const AUTOSAVE_KEY = "studio-video:autosave:v1";
+const MAX_PROJECTS = 10;
+
+function readProjects(): SavedProject[] {
+  try {
+    const raw = window.localStorage.getItem(PROJECTS_KEY);
+    const list = raw ? (JSON.parse(raw) as SavedProject[]) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeProjects(list: SavedProject[]) {
+  try {
+    window.localStorage.setItem(PROJECTS_KEY, JSON.stringify(list));
+  } catch {
+    // quota — caller surfaces the error
+  }
+}
+
+/** Strip heavy generated assets before persisting (regenerated on load). */
+function slimBin(bin: BinItem[]): BinItem[] {
+  return bin.map(({ thumbs: _t, waveUrl: _w, ...rest }) => rest);
+}
+
 // --- lazy SkateHive thumbnails (module-level cache + 2-worker queue) ---------
 
 const thumbCache = new Map<string, string>();
@@ -317,8 +360,19 @@ export function VideoEditor({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dropHot, setDropHot] = useState(false);
+  // --- project persistence ---
+  const [projects, setProjects] = useState<SavedProject[]>([]);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [projectName, setProjectName] = useState("Untitled");
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [savingProject, setSavingProject] = useState(false);
+  const [restoredNote, setRestoredNote] = useState(false);
+  // --- resizable media panel (persisted) ---
+  const [panelW, setPanelW] = useState(340);
 
   const videoEls = useRef(new Map<string, HTMLVideoElement>());
+  /** Original Files for uploaded bin items — needed to push blobs to IPFS on save. */
+  const fileRef = useRef(new Map<string, File>());
   const audioEls = useRef(new Map<string, HTMLAudioElement>());
   const imageEls = useRef(new Map<string, HTMLImageElement>());
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -741,6 +795,7 @@ export function VideoEditor({
             : "video";
         const duration = kind === "image" ? 0 : await probeDuration(url, kind);
         const id = nextId();
+        fileRef.current.set(id, file);
         setBin((prev) => [...prev, { id, kind, name: file.name, url, duration }]);
         enrichItem(id, url, kind, duration);
       }
@@ -1075,6 +1130,158 @@ export function VideoEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [togglePlay, removeSelection, seek, splitAtPlayhead]);
 
+  // --- project save / load / autosave ------------------------------------------------
+
+  useEffect(() => {
+    setProjects(readProjects());
+    try {
+      const w = Number(window.localStorage.getItem("studio-video:panelW"));
+      if (w >= 260 && w <= 600) setPanelW(w);
+    } catch {}
+    // Restore the unsaved session (structure only; blob-backed media can't
+    // survive a reload, so those items and their clips are dropped).
+    try {
+      const raw = window.localStorage.getItem(AUTOSAVE_KEY);
+      if (raw) {
+        const a = JSON.parse(raw) as SavedProject;
+        if (a?.clips?.length || a?.overlays?.length) {
+          const keep = new Set(
+            (a.bin ?? []).filter((b) => !b.url.startsWith("blob:")).map((b) => b.id),
+          );
+          const bin2 = (a.bin ?? []).filter((b) => keep.has(b.id));
+          setBin(bin2);
+          setClips((a.clips ?? []).filter((c) => keep.has(c.binId)));
+          setOverlays((a.overlays ?? []).filter((o) => !o.binId || keep.has(o.binId)));
+          setAudios((a.audios ?? []).filter((x) => keep.has(x.binId)));
+          setAspect(a.aspect ?? "4:5");
+          setProjectName(a.name ?? "Untitled");
+          setCurrentProjectId(a.id ?? null);
+          setRestoredNote(true);
+          for (const b of bin2) enrichItem(b.id, b.url, b.kind, b.duration);
+        }
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced autosave of the working session.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      try {
+        const snapshot: SavedProject = {
+          id: currentProjectId ?? "autosave",
+          name: projectName,
+          updatedAt: "",
+          aspect,
+          bin: slimBin(bin),
+          clips,
+          overlays,
+          audios,
+        };
+        window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snapshot));
+      } catch {}
+    }, 1200);
+    return () => window.clearTimeout(t);
+  }, [bin, clips, overlays, audios, aspect, projectName, currentProjectId]);
+
+  /** Save the project: blob-backed media first uploads to IPFS so the draft
+   *  fully survives reloads and can be reopened on any of the 10 slots. */
+  const saveProject = useCallback(async () => {
+    if (savingProject) return;
+    setSavingProject(true);
+    setError(null);
+    try {
+      let nextBin = stateRef.current.bin;
+      for (const item of nextBin) {
+        if (!item.url.startsWith("blob:")) continue;
+        const file = fileRef.current.get(item.id);
+        if (!file) throw new Error(`"${item.name}" has no recoverable file — re-add it.`);
+        const up = await uploadMediaDirectClient(file);
+        if (!up.ok) throw new Error(up.error);
+        nextBin = nextBin.map((b) => (b.id === item.id ? { ...b, url: up.url } : b));
+      }
+      setBin(nextBin);
+      const existing = readProjects();
+      const id = currentProjectId ?? nextId();
+      const entry: SavedProject = {
+        id,
+        name: projectName.trim() || "Untitled",
+        updatedAt: new Date().toISOString(),
+        aspect,
+        bin: slimBin(nextBin),
+        clips: stateRef.current.clips,
+        overlays: stateRef.current.overlays,
+        audios: stateRef.current.audios,
+      };
+      const idx = existing.findIndex((p) => p.id === id);
+      if (idx >= 0) existing[idx] = entry;
+      else {
+        if (existing.length >= MAX_PROJECTS)
+          throw new Error(`Project limit reached (${MAX_PROJECTS}) — delete one first.`);
+        existing.unshift(entry);
+      }
+      writeProjects(existing);
+      setProjects(existing);
+      setCurrentProjectId(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingProject(false);
+    }
+  }, [savingProject, currentProjectId, projectName, aspect]);
+
+  const loadProject = useCallback(
+    (p: SavedProject) => {
+      clockRef.current.playing = false;
+      clockRef.current.base = 0;
+      setPlaying(false);
+      setTime(0);
+      setBin(p.bin);
+      setClips(p.clips);
+      setOverlays(p.overlays);
+      setAudios(p.audios);
+      setAspect(p.aspect);
+      setProjectName(p.name);
+      setCurrentProjectId(p.id);
+      setSelection(null);
+      setProjectsOpen(false);
+      // wire audio + regenerate thumbs/waves for the restored media
+      ensureAudioCtx();
+      for (const c of p.clips) {
+        const item = p.bin.find((b) => b.id === c.binId);
+        if (item) wireAudioGraph(getVideoEl(item), `clip:${item.id}`);
+      }
+      for (const a of p.audios) {
+        const item = p.bin.find((b) => b.id === a.binId);
+        if (item) wireAudioGraph(getAudioEl(item), `audio:${item.id}`);
+      }
+      for (const b of p.bin) enrichItem(b.id, b.url, b.kind, b.duration);
+    },
+    [ensureAudioCtx, wireAudioGraph, getVideoEl, getAudioEl, enrichItem],
+  );
+
+  const deleteProject = useCallback((id: string) => {
+    const next = readProjects().filter((p) => p.id !== id);
+    writeProjects(next);
+    setProjects(next);
+    setCurrentProjectId((cur) => (cur === id ? null : cur));
+  }, []);
+
+  const newProject = useCallback(() => {
+    clockRef.current.playing = false;
+    clockRef.current.base = 0;
+    setPlaying(false);
+    setTime(0);
+    setBin([]);
+    setClips([]);
+    setOverlays([]);
+    setAudios([]);
+    setSelection(null);
+    setProjectName("Untitled");
+    setCurrentProjectId(null);
+    setProjectsOpen(false);
+  }, []);
+
   // --- export ------------------------------------------------------------------------------
 
   const startExport = useCallback(async () => {
@@ -1211,8 +1418,15 @@ export function VideoEditor({
       onDragLeave={() => setDropHot(false)}
       onDrop={rootDrop}
     >
-      {/* ── Media bin ──────────────────────────────────────────────────────── */}
-      <div className="flex w-full shrink-0 flex-col rounded-xl border border-border bg-surface lg:w-72">
+      {/* ── Media bin (resizable on desktop) ───────────────────────────────── */}
+      <div
+        className="relative flex w-full shrink-0 flex-col rounded-xl border border-border bg-surface"
+        style={{ width: undefined }}
+        ref={(el) => {
+          if (el && window.innerWidth >= 1024) el.style.width = `${panelW}px`;
+          else if (el) el.style.width = "";
+        }}
+      >
         <div className="flex border-b border-border text-xs">
           {(
             [
@@ -1450,6 +1664,31 @@ export function VideoEditor({
             </>
           )}
         </div>
+        {/* resize handle (desktop) */}
+        <div
+          onPointerDown={(e) => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startW = panelW;
+            const move = (ev: PointerEvent) => {
+              const w = Math.min(600, Math.max(260, startW + (ev.clientX - startX)));
+              setPanelW(w);
+            };
+            const up = () => {
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", up);
+              try {
+                window.localStorage.setItem("studio-video:panelW", String(panelW));
+              } catch {}
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+          }}
+          className="absolute -right-1.5 top-0 hidden h-full w-3 cursor-col-resize lg:block"
+          title="Drag to resize"
+        >
+          <div className="mx-auto h-full w-px bg-border transition-colors hover:bg-accent" />
+        </div>
       </div>
 
       {/* ── Preview + timeline ──────────────────────────────────────────────── */}
@@ -1549,6 +1788,32 @@ export function VideoEditor({
               );
             })}
           </div>
+          <input
+            type="text"
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            placeholder="Project name"
+            className="w-28 rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => void saveProject()}
+            disabled={savingProject || (clips.length === 0 && overlays.length === 0)}
+            title="Save project (uploads local media to IPFS so the draft survives)"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-40"
+          >
+            {savingProject ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => setProjectsOpen(true)}
+            title="Projects"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-foreground-muted hover:border-border-strong hover:text-foreground"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            {projects.length}/{MAX_PROJECTS}
+          </button>
           {!exporting && !exportResult && (
             <button
               type="button"
@@ -1595,6 +1860,21 @@ export function VideoEditor({
                 discard
               </button>
             </span>
+          )}
+          {exportResult?.name.endsWith(".webm") && (
+            <span className="text-[11px] text-warning">
+              WebM export — Instagram needs MP4 (use Chrome); Hive/Farcaster accept WebM.
+            </span>
+          )}
+          {restoredNote && (
+            <button
+              type="button"
+              onClick={() => setRestoredNote(false)}
+              className="text-[11px] text-foreground-faint hover:text-foreground"
+              title="Dismiss"
+            >
+              ↺ unsaved session restored
+            </button>
           )}
           {error && <span className="text-xs text-danger">{error}</span>}
         </div>
@@ -2039,6 +2319,78 @@ export function VideoEditor({
           </div>
         )}
       </div>
+
+      {/* ── Projects dialog ─────────────────────────────────────────────────── */}
+      {projectsOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Video projects"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={() => setProjectsOpen(false)}
+        >
+          <div
+            className="flex max-h-[70vh] w-full max-w-md flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border p-4">
+              <h3 className="text-sm font-semibold text-foreground">
+                Video projects <span className="text-foreground-faint">({projects.length}/{MAX_PROJECTS})</span>
+              </h3>
+              <button
+                type="button"
+                onClick={newProject}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/20"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New project
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+              {projects.length === 0 && (
+                <p className="px-1 py-3 text-center text-xs italic text-foreground-faint">
+                  No saved projects yet — Save uploads your local media to IPFS so drafts survive
+                  reloads.
+                </p>
+              )}
+              {projects.map((p) => {
+                const dur = p.clips.reduce((acc, c) => acc + (c.out - c.in), 0);
+                return (
+                  <div
+                    key={p.id}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                      p.id === currentProjectId ? "border-accent bg-accent-bg" : "border-border bg-surface"
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium text-foreground">{p.name}</p>
+                      <p className="text-[10px] text-foreground-faint">
+                        {fmt(dur)} · {p.clips.length} clip{p.clips.length === 1 ? "" : "s"} ·{" "}
+                        {p.aspect} · {new Date(p.updatedAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => loadProject(p)}
+                      className="rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/20"
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteProject(p.id)}
+                      aria-label={`Delete ${p.name}`}
+                      className="rounded-md border border-danger/30 bg-danger/10 p-1 text-danger hover:bg-danger/20"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
