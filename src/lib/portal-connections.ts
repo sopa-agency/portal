@@ -174,6 +174,33 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
     }
   }
 
+  // ── Facebook (Page) — reads ride the same Meta token as Instagram ────────
+  {
+    const fbSocial = project.socials.find((s) => s.platform.toLowerCase() === "facebook");
+    if (has("INSTAGRAM_ACCESS_TOKEN")) {
+      connections.push({
+        network: "Facebook",
+        handle: fbSocial?.handle,
+        status: "connected",
+        detail: "Page auto-discovered via the Meta token — metrics on the home dashboard.",
+      });
+    } else if (fbSocial) {
+      connections.push({
+        network: "Facebook",
+        handle: fbSocial.handle,
+        status: "missing",
+        detail: "Facebook channel configured but no Meta token found.",
+        fixHint: `Set ${prefix}_INSTAGRAM_ACCESS_TOKEN (one token covers IG + FB)`,
+      });
+    } else {
+      connections.push({
+        network: "Facebook",
+        status: "na",
+        detail: "No Facebook page configured for this project.",
+      });
+    }
+  }
+
   // ── X / Twitter ───────────────────────────────────────────────────────────
   {
     const xSocial = project.socials.find(
@@ -210,6 +237,34 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
     }
   }
 
+  // ── Binance Square ────────────────────────────────────────────────────────
+  {
+    if (hasOwn("BINANCE_SQUARE_KEY")) {
+      connections.push({
+        network: "Binance Square",
+        status: "connected",
+        detail: "Project-specific OpenAPI key — posts from Post Suggestions, Repo to Social, and campaigns.",
+      });
+    } else if (process.env.BINANCE_SQUARE_OPENAPI_KEY?.trim()) {
+      connections.push({
+        network: "Binance Square",
+        status: prefix === "SKATEHIVE" ? "connected" : "warning",
+        detail:
+          prefix === "SKATEHIVE"
+            ? "Global OpenAPI key (the SkateHive account) — posts from suggestions, repo runs, and campaigns."
+            : "Falls back to the shared global key — posts would land on that Binance account, not this project's.",
+        ...(prefix === "SKATEHIVE" ? {} : { fixHint: `Set ${prefix}_BINANCE_SQUARE_KEY` }),
+      });
+    } else {
+      connections.push({
+        network: "Binance Square",
+        status: "missing",
+        detail: "No Binance Square OpenAPI key found.",
+        fixHint: `Set ${prefix}_BINANCE_SQUARE_KEY`,
+      });
+    }
+  }
+
   // ── Email (SMTP) ──────────────────────────────────────────────────────────
   {
     const smtpPresent = has("SMTP_HOST");
@@ -228,6 +283,138 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
         status: "missing",
         detail: `Missing: ${[!smtpPresent && "SMTP_HOST", !emailUserPresent && "EMAIL_USER", !emailPassPresent && "EMAIL_PASS"].filter(Boolean).join(", ")}.`,
         fixHint: `Set SMTP_HOST / EMAIL_USER / EMAIL_PASS (or ${prefix}_ prefixed)`,
+      });
+    }
+  }
+
+  // ── Paragraph (newsletter) ────────────────────────────────────────────────
+  {
+    if (has("PARAGRAPH_API_KEY")) {
+      connections.push({
+        network: "Paragraph",
+        status: "connected",
+        detail: "Publication API key set — subscriber sync on the Userbase page (email sending pending Paragraph approval).",
+      });
+    } else {
+      connections.push({
+        network: "Paragraph",
+        status: "missing",
+        detail: "No Paragraph publication API key found.",
+        fixHint: `Set ${prefix}_PARAGRAPH_API_KEY`,
+      });
+    }
+  }
+
+  // ── GitHub ────────────────────────────────────────────────────────────────
+  {
+    const tokenPresent = has("GITHUB_TOKEN");
+    const kanban = project.githubProject;
+    const repoCount = project.repos.length;
+    if (tokenPresent && (kanban || repoCount > 0)) {
+      const parts = [
+        kanban && `Kanban board ${kanban.org} #${kanban.number}`,
+        repoCount > 0 && `${repoCount} repo${repoCount > 1 ? "s" : ""} for Repo to Social`,
+      ].filter(Boolean);
+      connections.push({
+        network: "GitHub",
+        status: "connected",
+        detail: `Token set — ${parts.join(", ")}.`,
+      });
+    } else if (tokenPresent) {
+      connections.push({
+        network: "GitHub",
+        status: "warning",
+        detail: "Token set, but no kanban project or repos configured for this project.",
+        fixHint: "Add githubProject and/or repos to the project config",
+      });
+    } else {
+      connections.push({
+        network: "GitHub",
+        status: "missing",
+        detail: "No GitHub token found.",
+        fixHint: `Set ${prefix}_GITHUB_TOKEN or GITHUB_TOKEN`,
+      });
+    }
+  }
+
+  // ── Google Drive (brain assets) ───────────────────────────────────────────
+  {
+    const folderPresent = has("GOOGLE_DRIVE_FOLDER_ID");
+    const saPresent = has("GOOGLE_SERVICE_ACCOUNT_JSON");
+    if (folderPresent && saPresent) {
+      connections.push({
+        network: "Google Drive",
+        status: "connected",
+        detail: "Service account + folder configured — Drive tab on the Brain page.",
+      });
+    } else {
+      connections.push({
+        network: "Google Drive",
+        status: "na",
+        detail: "No Drive folder wired for this project.",
+      });
+    }
+  }
+
+  // ── Userbase (Supabase) ───────────────────────────────────────────────────
+  {
+    const urlPresent = !!process.env.SUPABASE_USERBASE_URL?.trim();
+    const keyPresent = !!process.env.SUPABASE_USERBASE_SERVICE_ROLE_KEY?.trim();
+    if (urlPresent && keyPresent) {
+      connections.push({
+        network: "Userbase (Supabase)",
+        status: "connected",
+        detail: "Shared userbase database — powers the Userbase page and newsletter prefs.",
+      });
+    } else {
+      connections.push({
+        network: "Userbase (Supabase)",
+        status: "missing",
+        detail: "Supabase userbase not configured.",
+        fixHint: "Set SUPABASE_USERBASE_URL + SUPABASE_USERBASE_SERVICE_ROLE_KEY",
+      });
+    }
+  }
+
+  // ── Pinata (IPFS uploads) ─────────────────────────────────────────────────
+  {
+    if (process.env.PINATA_JWT?.trim()) {
+      connections.push({
+        network: "Pinata (IPFS)",
+        status: "connected",
+        detail: "Media uploads in the Post Creator go straight from the browser to IPFS.",
+      });
+    } else {
+      connections.push({
+        network: "Pinata (IPFS)",
+        status: "missing",
+        detail: "No Pinata JWT — Post Creator media uploads won't work.",
+        fixHint: "Set PINATA_JWT",
+      });
+    }
+  }
+
+  // ── Agent (OpenClaw gateway) ──────────────────────────────────────────────
+  {
+    const gatewayPresent = !!(
+      process.env[`${prefix}_GATEWAY_TOKEN`] ??
+      process.env.OPENCLAW_GATEWAY_TOKEN ??
+      process.env.GATEWAY_TOKEN
+    )?.trim();
+    if (gatewayPresent) {
+      connections.push({
+        network: "Agent",
+        handle: project.agent.displayName,
+        status: "connected",
+        detail: `OpenClaw agent "${project.agent.id}" — chat, briefings, campaign drafts, kanban AI.`,
+      });
+    } else {
+      connections.push({
+        network: "Agent",
+        handle: project.agent.displayName,
+        status: "missing",
+        detail: "No OpenClaw gateway token found — AI features are offline.",
+        fixHint: `Set GATEWAY_TOKEN (or ${prefix}_GATEWAY_TOKEN)`,
       });
     }
   }
