@@ -68,6 +68,8 @@ type Clip = { id: string; binId: string; in: number; out: number; volume: number
 type Overlay = {
   id: string;
   kind: "image" | "text" | "shape";
+  /** Which overlay track this layer lives on. */
+  trackId: string;
   binId?: string;
   /** Shape style (kind shape). */
   shape?: "rect" | "pill";
@@ -87,6 +89,13 @@ type Overlay = {
 };
 
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
+
+/** Overlay layer track — draw order follows track order (last = topmost). */
+type OverlayTrack = { id: string; label: string };
+const DEFAULT_TRACKS: OverlayTrack[] = [
+  { id: "art", label: "Art" },
+  { id: "text", label: "Text" },
+];
 type AudioItem = { id: string; binId: string; offset: number; volume: number };
 
 type Selection =
@@ -202,7 +211,15 @@ type SavedProject = {
   clips: Clip[];
   overlays: Overlay[];
   audios: AudioItem[];
+  overlayTracks?: OverlayTrack[];
 };
+
+/** Older saves predate per-overlay tracks — default art/text by kind. */
+function migrateOverlays(list: Overlay[]): Overlay[] {
+  return (list ?? []).map((o) =>
+    o.trackId ? o : { ...o, trackId: o.kind === "text" ? "text" : "art" },
+  );
+}
 
 const PROJECTS_KEY = "studio-video:projects:v1";
 const AUTOSAVE_KEY = "studio-video:autosave:v1";
@@ -347,6 +364,7 @@ export function VideoEditor({
   const [bin, setBin] = useState<BinItem[]>([]);
   const [clips, setClips] = useState<Clip[]>([]);
   const [overlays, setOverlays] = useState<Overlay[]>([]);
+  const [overlayTracks, setOverlayTracks] = useState<OverlayTrack[]>(DEFAULT_TRACKS);
   const [audios, setAudios] = useState<AudioItem[]>([]);
   const [aspect, setAspect] = useState<AspectKey>("4:5");
   const [selection, setSelection] = useState<Selection>(null);
@@ -402,8 +420,8 @@ export function VideoEditor({
   const clockRef = useRef({ playing: false, t0: 0, base: 0 });
   const ppsRef = useRef(pps);
   ppsRef.current = pps;
-  const stateRef = useRef({ clips, overlays, audios, bin, aspect, selection });
-  stateRef.current = { clips, overlays, audios, bin, aspect, selection };
+  const stateRef = useRef({ clips, overlays, audios, bin, aspect, selection, overlayTracks });
+  stateRef.current = { clips, overlays, audios, bin, aspect, selection, overlayTracks };
 
   const totalDuration = useMemo(() => clips.reduce((s, c) => s + (c.out - c.in), 0), [clips]);
 
@@ -560,7 +578,12 @@ export function VideoEditor({
     }
 
     const sel = stateRef.current.selection;
-    for (const ov of stateRef.current.overlays) {
+    // z-order: track order (first track bottom, last top), then creation order
+    const trackOrder = new Map(stateRef.current.overlayTracks.map((t, i) => [t.id, i]));
+    const ordered = [...stateRef.current.overlays].sort(
+      (a, b) => (trackOrder.get(a.trackId) ?? 0) - (trackOrder.get(b.trackId) ?? 0),
+    );
+    for (const ov of ordered) {
       if (t < ov.start || t > ov.end) continue;
       let drewBox: { ow: number; oh: number } | null = null;
 
@@ -875,6 +898,7 @@ export function VideoEditor({
       const ov: Overlay = {
         id: nextId(),
         kind: "image",
+        trackId: stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "art",
         binId: item.id,
         color: "#ffffff",
         bg: false,
@@ -899,6 +923,7 @@ export function VideoEditor({
     const ov: Overlay = {
       id: nextId(),
       kind: "shape",
+      trackId: stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "art",
       shape,
       color,
       bg: false,
@@ -922,6 +947,7 @@ export function VideoEditor({
     const ov: Overlay = {
       id: nextId(),
       kind: "text",
+      trackId: stateRef.current.overlayTracks.find((t) => t.id === "text")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "text",
       text: "Your text",
       color: "#ffffff",
       bg: true,
@@ -1011,8 +1037,11 @@ export function VideoEditor({
     const py = ((e.clientY - rect.top) / rect.height) * h;
     const t = clockRef.current.base;
 
-    // hit-test overlays topmost-first
-    const visible = stateRef.current.overlays.filter((o) => t >= o.start && t <= o.end);
+    // hit-test overlays topmost-first (track z-order)
+    const hitOrder = new Map(stateRef.current.overlayTracks.map((tr, i) => [tr.id, i]));
+    const visible = stateRef.current.overlays
+      .filter((o) => t >= o.start && t <= o.end)
+      .sort((a, b) => (hitOrder.get(a.trackId) ?? 0) - (hitOrder.get(b.trackId) ?? 0));
     let hit: Overlay | null = null;
     let mode: "move" | "scale" = "move";
     for (let i = visible.length - 1; i >= 0; i--) {
@@ -1171,7 +1200,8 @@ export function VideoEditor({
           const bin2 = (a.bin ?? []).filter((b) => keep.has(b.id));
           setBin(bin2);
           setClips((a.clips ?? []).filter((c) => keep.has(c.binId)));
-          setOverlays((a.overlays ?? []).filter((o) => !o.binId || keep.has(o.binId)));
+          setOverlayTracks(a.overlayTracks?.length ? a.overlayTracks : DEFAULT_TRACKS);
+          setOverlays(migrateOverlays(a.overlays ?? []).filter((o) => !o.binId || keep.has(o.binId)));
           setAudios((a.audios ?? []).filter((x) => keep.has(x.binId)));
           setAspect(a.aspect ?? "4:5");
           setProjectName(a.name ?? "Untitled");
@@ -1197,12 +1227,13 @@ export function VideoEditor({
           clips,
           overlays,
           audios,
+          overlayTracks,
         };
         window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snapshot));
       } catch {}
     }, 1200);
     return () => window.clearTimeout(t);
-  }, [bin, clips, overlays, audios, aspect, projectName, currentProjectId]);
+  }, [bin, clips, overlays, audios, aspect, projectName, currentProjectId, overlayTracks]);
 
   /** Save the project: blob-backed media first uploads to IPFS so the draft
    *  fully survives reloads and can be reopened on any of the 10 slots. */
@@ -1232,6 +1263,7 @@ export function VideoEditor({
         clips: stateRef.current.clips,
         overlays: stateRef.current.overlays,
         audios: stateRef.current.audios,
+        overlayTracks: stateRef.current.overlayTracks,
       };
       const idx = existing.findIndex((p) => p.id === id);
       if (idx >= 0) existing[idx] = entry;
@@ -1258,7 +1290,8 @@ export function VideoEditor({
       setTime(0);
       setBin(p.bin);
       setClips(p.clips);
-      setOverlays(p.overlays);
+      setOverlayTracks(p.overlayTracks?.length ? p.overlayTracks : DEFAULT_TRACKS);
+      setOverlays(migrateOverlays(p.overlays));
       setAudios(p.audios);
       setAspect(p.aspect);
       setProjectName(p.name);
@@ -2032,13 +2065,7 @@ export function VideoEditor({
 
         {/* timeline */}
         <div className="shrink-0 overflow-x-auto rounded-xl border border-border bg-surface">
-          <div style={{ width: timelineWidth }} className="relative select-none p-2 pl-14">
-            {/* track labels */}
-            <div className="absolute inset-y-2 left-2 flex w-10 flex-col justify-end gap-1.5 pt-6 text-[9px] uppercase tracking-wider text-foreground-faint">
-              <span className="flex h-14 items-center">video</span>
-              <span className="flex h-9 items-center">art</span>
-              <span className="flex h-10 items-center">audio</span>
-            </div>
+          <div style={{ width: timelineWidth }} className="relative select-none p-2">
 
             {/* ruler */}
             <div
@@ -2067,12 +2094,15 @@ export function VideoEditor({
 
             {/* video track */}
             <div
-              className="mb-1.5 flex h-14 items-stretch gap-px rounded-md bg-surface-elevated/60 p-0.5"
+              className="relative mb-1.5 flex h-14 items-stretch gap-px rounded-md bg-surface-elevated/60 p-0.5"
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes("application/x-bin-id")) e.preventDefault();
               }}
               onDrop={handleTrackDrop("video")}
             >
+              <span className="pointer-events-none absolute left-1 top-1 z-30 rounded bg-surface/80 px-1 text-[8px] uppercase tracking-wider text-foreground-faint">
+                Video
+              </span>
               {clips.length === 0 && (
                 <p className="self-center px-2 text-[10px] italic text-foreground-faint">
                   drop video clips here
@@ -2153,71 +2183,108 @@ export function VideoEditor({
               })}
             </div>
 
-            {/* art (overlay) track */}
-            <div
-              className="relative mb-1.5 h-9 rounded-md bg-surface-elevated/60"
-              onDragOver={(e) => {
-                if (e.dataTransfer.types.includes("application/x-bin-id")) e.preventDefault();
-              }}
-              onDrop={handleTrackDrop("art")}
-            >
-              {overlays.length === 0 && (
-                <p className="px-2 py-2 text-[10px] italic text-foreground-faint">
-                  drop art here — or straight onto the preview
-                </p>
-              )}
-              {overlays.map((ov) => {
-                const item = bin.find((b) => b.id === ov.binId);
-                const isSel = selection?.type === "overlay" && selection.id === ov.id;
-                return (
-                  <div
-                    key={ov.id}
-                    onClick={() => setSelection({ type: "overlay", id: ov.id })}
-                    onPointerDown={hDrag((d) =>
-                      setOverlays((prev) =>
-                        prev.map((o) => {
-                          if (o.id !== ov.id) return o;
-                          const len = o.end - o.start;
-                          const start = snap(Math.max(0, o.start + d));
-                          return { ...o, start, end: start + len };
-                        }),
-                      ),
-                    )}
-                    style={{ left: ov.start * pps, width: Math.max((ov.end - ov.start) * pps, 24) }}
-                    className={`absolute top-1 flex h-7 cursor-grab items-center overflow-hidden rounded border px-1.5 text-[10px] ${
-                      isSel
-                        ? "border-success bg-success/20 text-success ring-1 ring-success"
-                        : "border-border bg-surface text-foreground-muted hover:border-border-strong"
-                    }`}
-                  >
-                    {ov.kind === "text" ? (
-                      <Type className="mr-1 h-3 w-3 shrink-0" />
-                    ) : ov.kind === "shape" ? (
-                      <Square className="mr-1 h-3 w-3 shrink-0" style={{ color: ov.color }} />
-                    ) : (
-                      <ImageIcon className="mr-1 h-3 w-3 shrink-0" />
-                    )}
-                    <span className="truncate">
-                      {ov.kind === "text"
-                        ? (ov.text ?? "text").split("\n")[0]
-                        : ov.kind === "shape"
-                          ? ov.shape ?? "shape"
-                          : item?.name ?? "art"}
-                    </span>
-                    <span
-                      onPointerDown={hDrag((d) =>
-                        setOverlays((prev) =>
-                          prev.map((o) =>
-                            o.id === ov.id ? { ...o, end: snap(Math.max(o.start + MIN_CLIP, o.end + d)) } : o,
+            {/* overlay layer tracks — Art and Text separate; user can add more */}
+            {overlayTracks.map((track) => {
+              const trackOverlays = overlays.filter((o) => o.trackId === track.id);
+              return (
+                <div
+                  key={track.id}
+                  className="relative mb-1.5 h-9 rounded-md bg-surface-elevated/60"
+                  onDragOver={(e) => {
+                    if (e.dataTransfer.types.includes("application/x-bin-id")) e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const binId = e.dataTransfer.getData("application/x-bin-id");
+                    const item = stateRef.current.bin.find((b) => b.id === binId);
+                    if (!item || item.kind !== "image") return;
+                    const at = timelineDropSeconds(e, e.currentTarget);
+                    addOverlay(item, at);
+                    setOverlays((prev) => {
+                      const last = prev[prev.length - 1];
+                      return last ? [...prev.slice(0, -1), { ...last, trackId: track.id }] : prev;
+                    });
+                  }}
+                >
+                  <span className="pointer-events-none absolute left-1 top-1 z-10 rounded bg-surface/80 px-1 text-[8px] uppercase tracking-wider text-foreground-faint">
+                    {track.label}
+                  </span>
+                  {trackOverlays.length === 0 && overlayTracks.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => setOverlayTracks((prev) => prev.filter((t) => t.id !== track.id))}
+                      className="absolute right-1 top-1 z-10 rounded px-1 text-[9px] text-foreground-faint hover:text-danger"
+                      title="Remove empty track"
+                    >
+                      ✕
+                    </button>
+                  )}
+                  {trackOverlays.map((ov) => {
+                    const item = bin.find((b) => b.id === ov.binId);
+                    const isSel = selection?.type === "overlay" && selection.id === ov.id;
+                    return (
+                      <div
+                        key={ov.id}
+                        onClick={() => setSelection({ type: "overlay", id: ov.id })}
+                        onPointerDown={hDrag((d) =>
+                          setOverlays((prev) =>
+                            prev.map((o) => {
+                              if (o.id !== ov.id) return o;
+                              const len = o.end - o.start;
+                              const start = snap(Math.max(0, o.start + d));
+                              return { ...o, start, end: start + len };
+                            }),
                           ),
-                        ),
-                      )}
-                      className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-success/50"
-                    />
-                  </div>
-                );
-              })}
-            </div>
+                        )}
+                        style={{ left: ov.start * pps, width: Math.max((ov.end - ov.start) * pps, 24) }}
+                        className={`absolute top-1 flex h-7 cursor-grab items-center overflow-hidden rounded border px-1.5 text-[10px] ${
+                          isSel
+                            ? "border-success bg-success/20 text-success ring-1 ring-success"
+                            : "border-border bg-surface text-foreground-muted hover:border-border-strong"
+                        }`}
+                      >
+                        {ov.kind === "text" ? (
+                          <Type className="mr-1 h-3 w-3 shrink-0" />
+                        ) : ov.kind === "shape" ? (
+                          <Square className="mr-1 h-3 w-3 shrink-0" style={{ color: ov.color }} />
+                        ) : (
+                          <ImageIcon className="mr-1 h-3 w-3 shrink-0" />
+                        )}
+                        <span className="truncate">
+                          {ov.kind === "text"
+                            ? (ov.text ?? "text").split("\n")[0]
+                            : ov.kind === "shape"
+                              ? ov.shape ?? "shape"
+                              : item?.name ?? "art"}
+                        </span>
+                        <span
+                          onPointerDown={hDrag((d) =>
+                            setOverlays((prev) =>
+                              prev.map((o) =>
+                                o.id === ov.id ? { ...o, end: snap(Math.max(o.start + MIN_CLIP, o.end + d)) } : o,
+                              ),
+                            ),
+                          )}
+                          className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-success/50"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() =>
+                setOverlayTracks((prev) => [
+                  ...prev,
+                  { id: nextId(), label: `Layer ${prev.length + 1}` },
+                ])
+              }
+              className="mb-1.5 w-full rounded-md border border-dashed border-border px-2 py-1 text-[10px] text-foreground-faint transition-colors hover:border-border-strong hover:text-foreground"
+            >
+              + add layer track
+            </button>
 
             {/* audio track */}
             <div
@@ -2227,6 +2294,9 @@ export function VideoEditor({
               }}
               onDrop={handleTrackDrop("audio")}
             >
+              <span className="pointer-events-none absolute left-1 top-1 z-10 rounded bg-surface/80 px-1 text-[8px] uppercase tracking-wider text-foreground-faint">
+                Audio
+              </span>
               {audios.length === 0 && (
                 <p className="px-2 py-2.5 text-[10px] italic text-foreground-faint">drop audio here</p>
               )}
@@ -2385,6 +2455,24 @@ export function VideoEditor({
                     </label>
                   </>
                 )}
+                <label className="flex items-center gap-1.5 text-foreground-muted">
+                  track
+                  <select
+                    value={selOverlay.trackId}
+                    onChange={(e) =>
+                      setOverlays((prev) =>
+                        prev.map((o) => (o.id === selOverlay.id ? { ...o, trackId: e.target.value } : o)),
+                      )
+                    }
+                    className="rounded-md border border-border bg-surface-elevated px-1.5 py-0.5 text-[11px] text-foreground"
+                  >
+                    {overlayTracks.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <span className="text-foreground-faint">
                   drag on preview to move · corner handle to scale
                 </span>
