@@ -2212,6 +2212,23 @@ export function PostCreator({
   async function handleUseInPost(files: File[], legenda: string) {
     const capped = files.slice(0, 10); // Instagram carousel hard limit
     const seeded: UploadState[] = [];
+    // Real media probing — the Studio video editor sends videos through here
+    // too, so kind and aspect can't be assumed (a video previewed as <img>
+    // renders nothing).
+    const probeAspect = (url: string, isVideo: boolean): Promise<number> =>
+      new Promise((resolve) => {
+        if (isVideo) {
+          const v = document.createElement("video");
+          v.onloadedmetadata = () => resolve(v.videoWidth / v.videoHeight || 1080 / 1350);
+          v.onerror = () => resolve(1080 / 1350);
+          v.src = url;
+        } else {
+          const i = new Image();
+          i.onload = () => resolve(i.naturalWidth / i.naturalHeight || 1080 / 1350);
+          i.onerror = () => resolve(1080 / 1350);
+          i.src = url;
+        }
+      });
     for (const file of capped) {
       let result = await uploadMediaDirect(file);
       if (!result.ok) {
@@ -2220,15 +2237,31 @@ export function PostCreator({
         result = await uploadPostMedia(fd);
       }
       if (!result.ok) throw new Error(result.error);
-      seeded.push({ url: result.url, previewUrl: URL.createObjectURL(file), isVideo: false, aspect: 1080 / 1350 });
+      const isVideo = file.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(file.name);
+      const previewUrl = URL.createObjectURL(file);
+      const aspect = await probeAspect(previewUrl, isVideo);
+      seeded.push({ url: result.url, previewUrl, isVideo, aspect });
     }
 
-    const nextType: PostType = seeded.length > 1 ? "CAROUSEL" : "IMAGE";
+    const hasVideo = seeded.some((u) => u.isVideo);
+    const nextType: PostType =
+      seeded.length > 1 ? "CAROUSEL" : hasVideo ? "REELS" : "IMAGE";
     if (nextType !== postType) studioSeedRef.current = true;
     setPostType(nextType);
     setUploads(seeded);
     if (legenda.trim()) setCaption(legenda.trim());
-    setAspectRatio("4:5");
+    // Pick the allowed ratio closest to the actual media.
+    const mediaRatio = seeded[0]?.aspect ?? 1080 / 1350;
+    const RATIOS: [string, number][] = [
+      ["1:1", 1],
+      ["4:5", 0.8],
+      ["1.91:1", 1.91],
+      ["9:16", 9 / 16],
+    ];
+    const nearest = RATIOS.reduce((best, r) =>
+      Math.abs(r[1] - mediaRatio) < Math.abs(best[1] - mediaRatio) ? r : best,
+    );
+    setAspectRatio(nearest[0] as typeof aspectRatio);
     setAspectTouched(true);
     setUserTags([]);
     resetCover();
