@@ -33,6 +33,7 @@ import {
   Plus,
   Archive,
   Send,
+  Sparkles,
   Tag,
   Trash2,
   X,
@@ -407,6 +408,30 @@ function CardDetailDialog({
   const [draftBody, setDraftBody] = useState(item.body ?? "");
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+
+  // Generate (empty body) or improve (existing body) via the project agent.
+  // Lands in the edit textarea for review — never saves on its own.
+  async function aiAssist() {
+    if (aiBusy) return;
+    const title = (editing ? draftTitle : item.title).trim();
+    if (!title) return;
+    const current = editing ? draftBody : (item.body ?? "");
+    if (!editing) {
+      setDraftTitle(item.title);
+      setDraftBody(current);
+      setEditing(true);
+    }
+    setAiBusy(true);
+    setEditError(null);
+    const r = await onMutate({ action: "aiBody", title, body: current });
+    setAiBusy(false);
+    if (r.ok && typeof r.body === "string" && r.body.trim()) {
+      setDraftBody(r.body.trim());
+    } else {
+      setEditError(r.error ?? "AI couldn't generate a body right now.");
+    }
+  }
 
   // --- comments (issues + PRs) ---
   const canComment = item.type !== "draft" && !!item.contentId;
@@ -621,6 +646,18 @@ function CardDetailDialog({
             {item.contentId && !editing && (
               <button
                 type="button"
+                onClick={aiAssist}
+                disabled={aiBusy}
+                aria-label={item.body?.trim() ? "Improve description with AI" : "Generate description with AI"}
+                title={item.body?.trim() ? "Improve description with AI" : "Generate description with AI"}
+                className="rounded-lg border border-accent-border bg-accent-bg p-2 text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+              >
+                {aiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              </button>
+            )}
+            {item.contentId && !editing && (
+              <button
+                type="button"
                 onClick={() => {
                   setDraftTitle(item.title);
                   setDraftBody(item.body ?? "");
@@ -655,7 +692,17 @@ function CardDetailDialog({
                 className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
               />
               {editError && <p className="text-xs text-danger">{editError}</p>}
-              <div className="flex items-center justify-end gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={aiAssist}
+                  disabled={aiBusy || !draftTitle.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                >
+                  {aiBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {draftBody.trim() ? "Improve with AI" : "Generate with AI"}
+                </button>
+                <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
@@ -673,6 +720,7 @@ function CardDetailDialog({
                   {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Save changes
                 </button>
+                </div>
               </div>
             </div>
           ) : item.body?.trim() ? (
@@ -846,6 +894,8 @@ type MutateFn = (payload: Record<string, unknown>) => Promise<{
   comments?: ItemComment[];
   repoId?: string;
   labels?: RepoLabel[];
+  /** aiBody — generated/improved card body markdown. */
+  body?: string;
 }>;
 
 type Board = Extract<KanbanResult, { ok: true }> & {

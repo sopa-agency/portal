@@ -123,7 +123,8 @@ export async function GET() {
 type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "archive" | "delete" | "setAssignees"
-    | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "createIssue";
+    | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "createIssue"
+    | "aiBody";
   projectId?: string;
   fieldId?: string;
   itemId?: string;
@@ -291,6 +292,41 @@ export async function POST(req: Request) {
         title: body.newTitle.trim(),
         body: body.newBody,
       });
+      break;
+    }
+    case "aiBody": {
+      // Draft or improve a card body with the project's agent. `title` is the
+      // card title; `body.body` carries the current body (may be empty).
+      if (!title?.trim())
+        return NextResponse.json({ ok: false, error: "title required" }, { status: 400 });
+      const { callOpenClaw } = await import("@/lib/openclaw-gateway");
+      const current = (body.body ?? "").trim();
+      const prompt = [
+        `You help maintain the ${project.name} GitHub project board.`,
+        `Write the body for this card in GitHub-flavored markdown.`,
+        ``,
+        `Title: ${title.trim()}`,
+        current
+          ? `Current body (improve it — keep its intent and every concrete detail, tighten the rest):\n${current.slice(0, 4000)}`
+          : `The card has no body yet — draft one from the title.`,
+        ``,
+        `Structure: one short context paragraph, then "## Acceptance criteria" as bullets; add a "## Tasks" checklist only when the work clearly splits into steps. Be specific and concise — do not invent requirements beyond what the title and current body imply.`,
+        `Reply with ONLY the markdown body — no preamble, no surrounding code fence.`,
+      ].join("\n");
+      try {
+        const generated = await callOpenClaw(prompt, project.agent.id, {
+          project,
+          timeoutMs: 180_000,
+        });
+        result = generated.trim()
+          ? { ok: true as const, body: generated.trim() }
+          : { ok: false as const, error: "Agent returned an empty body" };
+      } catch (err) {
+        result = {
+          ok: false as const,
+          error: err instanceof Error ? err.message : "Agent unavailable",
+        };
+      }
       break;
     }
     default:
