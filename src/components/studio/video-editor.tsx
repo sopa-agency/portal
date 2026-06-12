@@ -903,7 +903,8 @@ export function VideoEditor({
         color: "#ffffff",
         bg: false,
         start: Math.max(0, start),
-        end: Math.max(start + 3, Math.min(total || start + 3, start + 6)),
+        // default: stay on screen until the end of the composition
+        end: total > start ? total : start + 4,
         x,
         y,
         w: 0.55,
@@ -929,7 +930,7 @@ export function VideoEditor({
       bg: false,
       hRatio: shape === "pill" ? 0.28 : 0.45,
       start: Math.max(0, start),
-      end: Math.max(start + 3, Math.min(total || start + 3, start + 5)),
+      end: total > start ? total : start + 4,
       x: 0.5,
       y: 0.5,
       w: 0.55,
@@ -952,7 +953,7 @@ export function VideoEditor({
       color: "#ffffff",
       bg: true,
       start: Math.max(0, start),
-      end: Math.max(start + 3, Math.min(total || start + 3, start + 4)),
+      end: total > start ? total : start + 4,
       x: 0.5,
       y: 0.78,
       w: 0.7,
@@ -1214,6 +1215,19 @@ export function VideoEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A finished export is a recording of the composition AT THAT MOMENT —
+  // any later edit (new layer, trim, aspect…) makes it stale. Drop it so
+  // "Usar no post" can never ship a pre-edit version.
+  const exportedRef = useRef(false);
+  useEffect(() => {
+    if (exportResult && exportedRef.current) {
+      setExportResult(null);
+      setError("Composition changed — export again to include the latest edits.");
+    }
+    exportedRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clips, overlays, audios, aspect]);
+
   // Debounced autosave of the working session.
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -1378,6 +1392,7 @@ export function VideoEditor({
     recorder.onstop = () => {
       const blob = new Blob(chunks, { type: mime.split(";")[0] });
       setExporting(null);
+      exportedRef.current = true;
       setExportResult(new File([blob], `studio-video-${Date.now()}.${ext}`, { type: blob.type }));
     };
 
@@ -1998,7 +2013,7 @@ export function VideoEditor({
             <FolderOpen className="h-3.5 w-3.5" />
             {projects.length}/{MAX_PROJECTS}
           </button>
-          {!exporting && !exportResult && (
+          {!exporting && (
             <button
               type="button"
               onClick={() => setExportOpen(true)}
@@ -2006,7 +2021,7 @@ export function VideoEditor({
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-40"
             >
               <Download className="h-3.5 w-3.5" />
-              Export
+              {exportResult ? "Re-export" : "Export"}
             </button>
           )}
           {exporting && (
