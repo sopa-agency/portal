@@ -36,7 +36,14 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { listSkatehiveVideos, type SkatehiveVideo } from "@/app/actions/skatehive-media";
+import {
+  listSkatehiveVideos,
+  listSkatehiveLeaderboard,
+  listCreatorVideos,
+  type SkatehiveVideo,
+  type SkatehiveCreator,
+  type SnapCursor,
+} from "@/app/actions/skatehive-media";
 import { uploadMediaDirectClient } from "@/lib/upload-media-client";
 
 // ---------------------------------------------------------------------------
@@ -355,6 +362,18 @@ export function VideoEditor({
   const [shVideos, setShVideos] = useState<SkatehiveVideo[] | null>(null);
   const [shError, setShError] = useState<string | null>(null);
   const [shBusy, setShBusy] = useState<string | null>(null);
+  const [shCursor, setShCursor] = useState<SnapCursor | null>(null);
+  const [shMoreBusy, setShMoreBusy] = useState(false);
+  const [creators, setCreators] = useState<SkatehiveCreator[] | null>(null);
+  const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
+  const [creatorVideos, setCreatorVideos] = useState<SkatehiveVideo[] | null>(null);
+  const [creatorBusy, setCreatorBusy] = useState(false);
+  /** Click-to-preview for side-panel items (bin + skatehive). */
+  const [panelPreview, setPanelPreview] = useState<{
+    kind: BinItem["kind"];
+    url: string;
+    name: string;
+  } | null>(null);
   const [exporting, setExporting] = useState<null | { progress: number }>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportResult, setExportResult] = useState<File | null>(null);
@@ -1366,10 +1385,40 @@ export function VideoEditor({
   useEffect(() => {
     if (binTab !== "skatehive" || shVideos) return;
     listSkatehiveVideos().then((r) => {
-      if (r.ok) setShVideos(r.videos);
-      else setShError(r.error);
+      if (r.ok) {
+        setShVideos(r.videos);
+        setShCursor(r.cursor);
+      } else setShError(r.error);
+    });
+    listSkatehiveLeaderboard().then((r) => {
+      if (r.ok) setCreators(r.creators);
     });
   }, [binTab, shVideos]);
+
+  const loadMoreSh = async () => {
+    if (!shCursor || shMoreBusy) return;
+    setShMoreBusy(true);
+    const r = await listSkatehiveVideos(shCursor);
+    if (r.ok) {
+      setShVideos((prev) => {
+        const seen = new Set((prev ?? []).map((v) => v.id));
+        return [...(prev ?? []), ...r.videos.filter((v) => !seen.has(v.id))];
+      });
+      setShCursor(r.cursor);
+    } else setShError(r.error);
+    setShMoreBusy(false);
+  };
+
+  const pickCreator = async (author: string | null) => {
+    setSelectedCreator(author);
+    setCreatorVideos(null);
+    if (!author) return;
+    setCreatorBusy(true);
+    const r = await listCreatorVideos(author);
+    if (r.ok) setCreatorVideos(r.videos);
+    else setShError(r.error);
+    setCreatorBusy(false);
+  };
 
   // Google Drive listing (project folder; drill-in via driveStack)
   useEffect(() => {
@@ -1479,7 +1528,8 @@ export function VideoEditor({
                     e.dataTransfer.setData("application/x-bin-id", item.id);
                     e.dataTransfer.effectAllowed = "copy";
                   }}
-                  className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-2 active:cursor-grabbing"
+                  onClick={() => setPanelPreview({ kind: item.kind, url: item.url, name: item.name })}
+                  className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-2 transition-colors hover:border-border-strong active:cursor-grabbing"
                 >
                   {item.kind === "video" ? (
                     item.thumbs?.[0] ? (
@@ -1503,7 +1553,10 @@ export function VideoEditor({
                   </div>
                   <button
                     type="button"
-                    onClick={() => addToTimeline(item)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addToTimeline(item);
+                    }}
                     title="Add to timeline"
                     className="rounded-md border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20"
                   >
@@ -1516,17 +1569,66 @@ export function VideoEditor({
 
           {binTab === "skatehive" && (
             <>
+              {/* top-20 leaderboard creators */}
+              {creators && (
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  <button
+                    type="button"
+                    onClick={() => void pickCreator(null)}
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium ${
+                      !selectedCreator
+                        ? "border-accent bg-accent-bg text-accent"
+                        : "border-border text-foreground-muted hover:border-border-strong"
+                    }`}
+                  >
+                    All
+                  </button>
+                  {creators.map((c) => (
+                    <button
+                      key={c.author}
+                      type="button"
+                      onClick={() => void pickCreator(c.author)}
+                      title={`@${c.author} · ${c.points} pts`}
+                      className={`flex shrink-0 items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[10px] ${
+                        selectedCreator === c.author
+                          ? "border-accent bg-accent-bg text-accent"
+                          : "border-border text-foreground-muted hover:border-border-strong"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`https://images.hive.blog/u/${c.author}/avatar/small`}
+                        alt=""
+                        className="h-5 w-5 rounded-full object-cover"
+                      />
+                      {c.author}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {!shVideos && !shError && (
                 <p className="flex items-center gap-2 px-1 py-2 text-xs text-foreground-muted">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading SkateHive IPFS videos…
                 </p>
               )}
               {shError && <p className="px-1 text-xs text-danger">{shError}</p>}
-              {shVideos?.length === 0 && (
-                <p className="px-1 text-[11px] italic text-foreground-faint">No IPFS videos found right now.</p>
+              {creatorBusy && (
+                <p className="flex items-center gap-2 px-1 py-2 text-xs text-foreground-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading @{selectedCreator}…
+                </p>
               )}
-              {shVideos?.map((v) => (
-                <div key={v.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2 py-1.5">
+              {(selectedCreator ? creatorVideos : shVideos)?.length === 0 && (
+                <p className="px-1 text-[11px] italic text-foreground-faint">
+                  No IPFS videos found{selectedCreator ? ` for @${selectedCreator}` : ""}.
+                </p>
+              )}
+              {(selectedCreator ? creatorVideos : shVideos)?.map((v) => (
+                <div
+                  key={v.id}
+                  onClick={() => setPanelPreview({ kind: "video", url: safeUrl(v.url), name: v.title })}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2 py-1.5 transition-colors hover:border-border-strong"
+                >
                   <ShThumb url={v.url} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs text-foreground">{v.title}</p>
@@ -1537,7 +1639,10 @@ export function VideoEditor({
                   </div>
                   <button
                     type="button"
-                    onClick={() => void addSkatehive(v)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void addSkatehive(v);
+                    }}
                     disabled={shBusy !== null}
                     title="Add to bin"
                     className="rounded-md border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20 disabled:opacity-50"
@@ -1546,6 +1651,17 @@ export function VideoEditor({
                   </button>
                 </div>
               ))}
+              {!selectedCreator && shVideos && shCursor && (
+                <button
+                  type="button"
+                  onClick={() => void loadMoreSh()}
+                  disabled={shMoreBusy}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                >
+                  {shMoreBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  Load more
+                </button>
+              )}
             </>
           )}
 
@@ -1665,6 +1781,40 @@ export function VideoEditor({
             </>
           )}
         </div>
+
+        {/* item preview dock — click any row to inspect before adding */}
+        {panelPreview && (
+          <div className="border-t border-border p-2.5">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <p className="min-w-0 truncate text-[11px] font-medium text-foreground">{panelPreview.name}</p>
+              <button
+                type="button"
+                onClick={() => setPanelPreview(null)}
+                aria-label="Close preview"
+                className="shrink-0 rounded p-0.5 text-foreground-faint hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+            {panelPreview.kind === "video" && (
+              <video
+                key={panelPreview.url}
+                src={panelPreview.url}
+                controls
+                playsInline
+                preload="metadata"
+                className="max-h-48 w-full rounded-lg bg-black object-contain"
+              />
+            )}
+            {panelPreview.kind === "audio" && (
+              <audio key={panelPreview.url} src={panelPreview.url} controls className="w-full" />
+            )}
+            {panelPreview.kind === "image" && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={panelPreview.url} alt="" className="max-h-48 w-full rounded-lg object-contain" />
+            )}
+          </div>
+        )}
         {/* resize handle (desktop) */}
         <div
           onPointerDown={(e) => {

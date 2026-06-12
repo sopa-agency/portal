@@ -25,7 +25,7 @@ export type SkatehiveVideo = {
   permlink: string;
 };
 
-type CacheEntry = { videos: SkatehiveVideo[]; expires: number };
+type CacheEntry = { videos: SkatehiveVideo[]; cursor: SnapCursor | null; expires: number };
 let cache: CacheEntry | null = null;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -115,13 +115,18 @@ function toVideos(post: HivePost, source: "snap" | "magazine"): SkatehiveVideo[]
   }));
 }
 
-export async function listSkatehiveVideos(): Promise<
-  { ok: true; videos: SkatehiveVideo[] } | { ok: false; error: string }
+export type SnapCursor = { permlink: string; date: string };
+
+export async function listSkatehiveVideos(cursor?: SnapCursor | null): Promise<
+  | { ok: true; videos: SkatehiveVideo[]; cursor: SnapCursor | null }
+  | { ok: false; error: string }
 > {
-  if (cache && Date.now() < cache.expires) return { ok: true, videos: cache.videos };
+  const firstPage = !cursor;
+  if (firstPage && cache && Date.now() < cache.expires)
+    return { ok: true, videos: cache.videos, cursor: cache.cursor };
   try {
-    // --- magazine: trending + fresh community posts ------------------------
-    const [trending, created] = await Promise.all([
+    // --- magazine: trending + fresh community posts (first page only) ------
+    const [trending, created] = await Promise.all(firstPage ? [
       hiveCall<HivePost[]>("bridge.get_ranked_posts", {
         sort: "trending",
         tag: COMMUNITY,
@@ -134,7 +139,7 @@ export async function listSkatehiveVideos(): Promise<
         limit: 20,
         observer: "",
       }),
-    ]);
+    ] : [Promise.resolve([] as HivePost[]), Promise.resolve([] as HivePost[])]);
     const magSeen = new Set<string>();
     const magPosts = [...(trending ?? []), ...(created ?? [])].filter((p) => {
       const k = `${p.author}/${p.permlink}`;
@@ -144,12 +149,20 @@ export async function listSkatehiveVideos(): Promise<
     });
 
     // --- snapfeed: skatehive-tagged comments under recent containers -------
+    // Cursor pages older containers (same call skatehive3.0's useSnaps makes).
     const containers = await hiveCall<HivePost[]>(
       "condenser_api.get_discussions_by_author_before_date",
-      [SNAP_CONTAINER_ACCOUNT, "", new Date().toISOString().slice(0, 19), SNAP_CONTAINERS_TO_SCAN],
+      [
+        SNAP_CONTAINER_ACCOUNT,
+        cursor?.permlink ?? "",
+        (cursor?.date ?? new Date().toISOString()).slice(0, 19),
+        SNAP_CONTAINERS_TO_SCAN,
+      ],
     );
+    // The API includes the cursor container itself on subsequent pages.
+    const freshContainers = (containers ?? []).filter((c) => c.permlink !== cursor?.permlink);
     const replyBatches = await Promise.all(
-      (containers ?? []).map((c) =>
+      freshContainers.map((c) =>
         hiveCall<HivePost[]>("condenser_api.get_content_replies", [
           SNAP_CONTAINER_ACCOUNT,
           c.permlink,
@@ -165,7 +178,73 @@ export async function listSkatehiveVideos(): Promise<
       .sort((a, b) => b.votes - a.votes || b.payout - a.payout)
       .slice(0, 80);
 
-    cache = { videos, expires: Date.now() + CACHE_TTL_MS };
+    const last = freshContainers[freshContainers.length - 1];
+    const nextCursor: SnapCursor | null = last
+      ? { permlink: last.permlink, date: last.created ?? new Date().toISOString() }
+      : null;
+
+    if (firstPage) cache = { videos, cursor: nextCursor, expires: Date.now() + CACHE_TTL_MS };
+    return { ok: true, videos, cursor: nextCursor };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard + per-creator videos
+// ---------------------------------------------------------------------------
+
+export type SkatehiveCreator = { author: string; points: number };
+
+let creatorsCache: { creators: SkatehiveCreator[]; expires: number } | null = null;
+
+export async function listSkatehiveLeaderboard(): Promise<
+  { ok: true; creators: SkatehiveCreator[] } | { ok: false; error: string }
+> {
+  if (creatorsCache && Date.now() < creatorsCache.expires)
+    return { ok: true, creators: creatorsCache.creators };
+  try {
+    const res = await fetch("https://api.skatehive.app/api/v2/leaderboard", {
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`leaderboard HTTP ${res.status}`);
+    const rows = (await res.json()) as { hive_author?: string; points?: number }[];
+    const creators = (Array.isArray(rows) ? rows : [])
+      .filter((r) => r.hive_author)
+      .sort((a, b) => (b.points ?? 0) - (a.points ?? 0))
+      .slice(0, 20)
+      .map((r) => ({ author: r.hive_author!, points: Math.round(r.points ?? 0) }));
+    creatorsCache = { creators, expires: Date.now() + 60 * 60 * 1000 };
+    return { ok: true, creators };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** A creator's recent IPFS videos: top-level posts + snaps (comments). */
+export async function listCreatorVideos(author: string): Promise<
+  { ok: true; videos: SkatehiveVideo[] } | { ok: false; error: string }
+> {
+  try {
+    const clean = author.toLowerCase().replace(/[^a-z0-9.-]/g, "");
+    const [posts, comments] = await Promise.all([
+      hiveCall<HivePost[]>("bridge.get_account_posts", {
+        sort: "posts",
+        account: clean,
+        limit: 20,
+        observer: "",
+      }).catch(() => [] as HivePost[]),
+      hiveCall<HivePost[]>("bridge.get_account_posts", {
+        sort: "comments",
+        account: clean,
+        limit: 20,
+        observer: "",
+      }).catch(() => [] as HivePost[]),
+    ]);
+    const videos = [
+      ...(posts ?? []).flatMap((p) => toVideos(p, "magazine")),
+      ...(comments ?? []).flatMap((p) => toVideos(p, "snap")),
+    ].sort((a, b) => b.votes - a.votes || (a.created < b.created ? 1 : -1));
     return { ok: true, videos };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
