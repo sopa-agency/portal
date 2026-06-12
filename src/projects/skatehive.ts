@@ -22,6 +22,7 @@ const skatehive: ProjectConfig = {
     "reelflip",
     "joaoparmagnani",
     "keepkey",
+    "illithics",
   ],
   teamContacts: {
     xvlad: [
