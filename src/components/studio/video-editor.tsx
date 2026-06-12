@@ -1524,17 +1524,31 @@ export function VideoEditor({
               <ZoomIn className="h-3.5 w-3.5" />
             </button>
           </div>
-          <select
-            value={aspect}
-            onChange={(e) => setAspect(e.target.value as AspectKey)}
-            className="rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground"
-          >
-            {Object.keys(ASPECTS).map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
+          {/* aspect picker — mini frames so the ratio is visible at a glance */}
+          <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated p-0.5">
+            {(Object.keys(ASPECTS) as AspectKey[]).map((k) => {
+              const { w, h } = ASPECTS[k];
+              const scale = 14 / Math.max(w, h);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setAspect(k)}
+                  title={`Aspect ${k}`}
+                  aria-pressed={aspect === k}
+                  className={`flex flex-col items-center gap-0.5 rounded-md px-2 py-1 transition-colors ${
+                    aspect === k ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
+                  }`}
+                >
+                  <span
+                    style={{ width: Math.round(w * scale), height: Math.round(h * scale) }}
+                    className={`rounded-[2px] border ${aspect === k ? "border-accent" : "border-current"}`}
+                  />
+                  <span className="text-[9px] leading-none">{k}</span>
+                </button>
+              );
+            })}
+          </div>
           {!exporting && !exportResult && (
             <button
               type="button"
