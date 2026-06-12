@@ -62,6 +62,7 @@ import {
 import dynamic from "next/dynamic";
 import { Toaster as StudioToaster } from "@/components/studio/ui/sonner";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
 
 // Studio (vendored Figma-like design tool) — heavy + browser-only, so it loads
 // on demand when the tab opens.
@@ -1069,6 +1070,9 @@ function ScheduledCalendar({
   extras: CalendarExtra[];
   onOpenPost: (id: string) => void;
 }) {
+  const [extraList, setExtraList] = useState<CalendarExtra[]>(extras);
+  const [openExtra, setOpenExtra] = useState<CalendarExtra | null>(null);
+  useEffect(() => setExtraList(extras), [extras]);
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
@@ -1124,7 +1128,7 @@ function ScheduledCalendar({
   // Cross-source scheduled events (suggestions / repo / nested projects).
   const extrasByDay = useMemo(() => {
     const map: Record<string, CalendarExtra[]> = {};
-    for (const e of extras) {
+    for (const e of extraList) {
       const dt = new Date(e.when);
       if (Number.isNaN(dt.getTime())) continue;
       const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
@@ -1134,7 +1138,7 @@ function ScheduledCalendar({
       map[key].sort((a, b) => (a.when < b.when ? -1 : 1));
     }
     return map;
-  }, [extras]);
+  }, [extraList]);
 
   const year = calendarMonth.getFullYear();
   const month = calendarMonth.getMonth();
@@ -1320,12 +1324,7 @@ function ScheduledCalendar({
                       minute: "2-digit",
                       hour12: false,
                     });
-                    const href =
-                      e.kind === "suggestion"
-                        ? "/marketing-suggestions"
-                        : e.kind === "repo"
-                          ? "/marketing-suggestions?tab=repo"
-                          : null;
+                    const editable = e.kind === "suggestion" || e.kind === "repo";
                     const body = (
                       <>
                         <SocialBrandIcon platform={e.platform} className="h-3 w-3 shrink-0" />
@@ -1338,15 +1337,16 @@ function ScheduledCalendar({
                       </>
                     );
                     const label = `${e.platform} via ${e.kind} (${e.projectSlug}): ${e.title}`;
-                    return href ? (
-                      <a
+                    return editable ? (
+                      <button
                         key={e.id}
-                        href={href}
+                        type="button"
                         title={label}
+                        onClick={() => setOpenExtra(e)}
                         className="flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-elevated"
                       >
                         {body}
-                      </a>
+                      </button>
                     ) : (
                       <div key={e.id} title={label} className="flex w-full items-center gap-1 rounded-md px-1 py-0.5">
                         {body}
@@ -1369,6 +1369,21 @@ function ScheduledCalendar({
           })}
         </div>
       </div>
+
+      {openExtra && (
+        <ScheduledPostDialog
+          event={openExtra}
+          activeSlug=""
+          onClose={() => setOpenExtra(null)}
+          onChanged={(newWhen) =>
+            setExtraList((prev) =>
+              newWhen
+                ? prev.map((x) => (x.id === openExtra.id ? { ...x, when: newWhen } : x))
+                : prev.filter((x) => x.id !== openExtra.id),
+            )
+          }
+        />
+      )}
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-4 text-[11px] text-foreground-faint">

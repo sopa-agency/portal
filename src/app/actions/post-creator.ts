@@ -711,7 +711,7 @@ export async function listCalendarExtras(): Promise<
               kind,
               projectSlug: run.configId,
               platform,
-              title: String(tweets[Number(idx)] ?? "").slice(0, 90),
+              title: String(tweets[Number(idx)] ?? "").slice(0, 1000),
               when: iso,
             });
           }
@@ -733,7 +733,7 @@ export async function listCalendarExtras(): Promise<
           kind: "instagram",
           projectSlug: r.projectSlug,
           platform: "instagram",
-          title: r.caption.slice(0, 90),
+          title: r.caption.slice(0, 600),
           when: r.scheduledFor.toISOString(),
         });
       }
@@ -767,7 +767,7 @@ export async function listUnifiedCalendar(): Promise<
         kind: "instagram",
         projectSlug: project.slug,
         platform: "instagram",
-        title: r.caption.slice(0, 90),
+        title: r.caption.slice(0, 600),
         when: when.toISOString(),
       });
     }

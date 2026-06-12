@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { CalendarExtra } from "@/app/actions/post-creator";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
 
 const CHIP_LIMIT = 3;
 
@@ -23,6 +24,8 @@ export function ScheduleCalendar({
   events: CalendarExtra[];
   activeSlug: string;
 }) {
+  const [list, setList] = useState<CalendarExtra[]>(events);
+  const [openEvent, setOpenEvent] = useState<CalendarExtra | null>(null);
   const [month, setMonth] = useState<Date>(() => {
     const d = new Date();
     d.setDate(1);
@@ -33,14 +36,14 @@ export function ScheduleCalendar({
 
   const byDay = useMemo(() => {
     const map: Record<string, CalendarExtra[]> = {};
-    for (const e of events) {
+    for (const e of list) {
       const dt = new Date(e.when);
       if (Number.isNaN(dt.getTime())) continue;
       (map[dayKey(dt)] ??= []).push(e);
     }
     for (const k of Object.keys(map)) map[k].sort((a, b) => (a.when < b.when ? -1 : 1));
     return map;
-  }, [events]);
+  }, [list]);
 
   const year = month.getFullYear();
   const m = month.getMonth();
@@ -57,9 +60,7 @@ export function ScheduleCalendar({
 
   const hrefFor = (e: CalendarExtra): string | null => {
     if (e.kind === "instagram" && e.projectSlug === activeSlug) return "/post-creator";
-    if (e.kind === "repo") return "/marketing-suggestions?tab=repo";
-    if (e.kind === "suggestion") return null; // already on this page
-    return null;
+    return null; // suggestion/repo open the edit dialog instead
   };
 
   return (
@@ -142,9 +143,15 @@ export function ScheduleCalendar({
                         {body}
                       </a>
                     ) : (
-                      <div key={e.id} title={label} className="flex w-full items-center gap-1 rounded-md px-1 py-0.5">
+                      <button
+                        key={e.id}
+                        type="button"
+                        title={label}
+                        onClick={() => setOpenEvent(e)}
+                        className="flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-elevated"
+                      >
                         {body}
-                      </div>
+                      </button>
                     );
                   })}
                   {dayEvents.length > CHIP_LIMIT && (
@@ -158,6 +165,21 @@ export function ScheduleCalendar({
           })}
         </div>
       </div>
+
+      {openEvent && (
+        <ScheduledPostDialog
+          event={openEvent}
+          activeSlug={activeSlug}
+          onClose={() => setOpenEvent(null)}
+          onChanged={(newWhen) =>
+            setList((prev) =>
+              newWhen
+                ? prev.map((x) => (x.id === openEvent.id ? { ...x, when: newWhen } : x))
+                : prev.filter((x) => x.id !== openEvent.id),
+            )
+          }
+        />
+      )}
     </div>
   );
 }
