@@ -151,6 +151,7 @@ function aspectToClass(ratio: AspectRatio): string {
 /** Snap a measured aspect number to the nearest valid IG feed ratio. */
 function snapToFeedRatio(aspect: number): AspectRatio {
   if (aspect >= 1.4) return "1.91:1";
+  if (aspect <= 0.65) return "9:16"; // Reels-native vertical
   if (aspect <= 0.85) return "4:5";
   return "1:1";
 }
@@ -1745,8 +1746,8 @@ function TagUsernameInput({
 
 /** Compute the ordered list of steps to show, given the current post type. */
 function computeSteps(postType: PostType): StepId[] {
-  const steps: StepId[] = ["type", "media"];
-  if (postType !== "REELS") steps.push("format");
+  // "format" applies to every type — for REELS it's the preview-crop control.
+  const steps: StepId[] = ["type", "media", "format"];
   steps.push("caption", "firstComment");
   if (postType === "IMAGE") steps.push("tags");
   steps.push("collaborators", "more", "review");
@@ -2028,7 +2029,7 @@ export function PostCreator({
 
       setUploads((prev) => {
         const next = [...prev, { url: result.url, previewUrl: preview, isVideo, aspect }];
-        if (next.length === 1 && !isVideo && aspect !== undefined && postType !== "REELS") {
+        if (next.length === 1 && aspect !== undefined) {
           setAspectTouched((touched) => {
             if (!touched) {
               setAspectRatio(snapToFeedRatio(aspect as number));
@@ -2271,7 +2272,9 @@ export function PostCreator({
     setPublishResult(null);
     setUploadError(null);
     setViewTab("create");
-    navigate("caption", "forward");
+    // Land on media, not caption: the Reel cover/thumbnail picker lives there,
+    // and format (aspect) comes right after — no skipped decisions.
+    navigate("media", "forward");
   }
 
   // ---------------------------------------------------------------------------
@@ -3392,7 +3395,7 @@ export function PostCreator({
                 label="Media"
                 value={`${uploads.length} file${uploads.length !== 1 ? "s" : ""}`}
               />
-              {postType !== "REELS" && <SummaryRow label="Aspect ratio" value={aspectRatio} />}
+              <SummaryRow label="Aspect ratio" value={aspectRatio} />
               <SummaryRow
                 label="Caption"
                 value={
