@@ -165,7 +165,7 @@ async function callOverHttp(
 async function callOverWs(
   prompt: string,
   agentId: string,
-  opts: { timeoutMs?: number; project?: ProjectConfig } = {},
+  opts: { timeoutMs?: number; project?: ProjectConfig; sessionSuffix?: string } = {},
 ): Promise<string> {
   const gatewayUrl =
     (opts.project ? projectEnv(opts.project, "GATEWAY_URL") : null) ??
@@ -180,7 +180,10 @@ async function callOverWs(
   const wsUrl = resolveGatewayWsUrl(gatewayUrl);
   const ws = new WebSocket(wsUrl);
   const projectSlug = opts.project?.slug ?? "portal";
-  const sessionKey = `agent:${agentId}:${projectSlug}`;
+  // Without a suffix every caller shares ONE agent session per project —
+  // users' chats would interleave. The chat route passes its per-browser
+  // conversation id here so each conversation is its own thread.
+  const sessionKey = `agent:${agentId}:${projectSlug}${opts.sessionSuffix ? `:${opts.sessionSuffix}` : ""}`;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS;
   const idempotencyKey = `portal-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -319,7 +322,7 @@ async function callOverWs(
 export async function callOpenClaw(
   prompt: string,
   agentId: string,
-  opts: { timeoutMs?: number; project?: ProjectConfig } = {},
+  opts: { timeoutMs?: number; project?: ProjectConfig; sessionSuffix?: string } = {},
 ): Promise<string> {
   const deviceId =
     (opts.project ? projectEnv(opts.project, "PORTAL_DEVICE_ID") : null) ??

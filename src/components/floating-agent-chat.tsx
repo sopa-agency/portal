@@ -537,6 +537,11 @@ export function FloatingAgentChat({
     if (!text || !sessionId || sending) return;
 
     const selectionToSend = selectedComponent;
+    // Recent turns BEFORE this message — the agent needs them to keep the
+    // thread (the HTTP gateway path is stateless per call).
+    const historyToSend = messages
+      .slice(-12)
+      .map((m) => ({ role: m.role, text: m.text.slice(0, 700) }));
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -565,7 +570,7 @@ export function FloatingAgentChat({
       const res = await fetch(`/api/agent/chat?stream=1`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: text, context, sessionId }),
+        body: JSON.stringify({ message: text, context, sessionId, history: historyToSend }),
       });
 
       if (!res.ok || !res.body) {

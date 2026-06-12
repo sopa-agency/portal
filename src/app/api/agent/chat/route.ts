@@ -30,11 +30,29 @@ export async function POST(req: Request): Promise<Response> {
   let message = "";
   let context = "";
   let sessionId = "";
+  let history: { role: string; text: string }[] = [];
   try {
-    const body = (await req.json()) as { message?: unknown; context?: unknown; sessionId?: unknown };
+    const body = (await req.json()) as {
+      message?: unknown;
+      context?: unknown;
+      sessionId?: unknown;
+      history?: unknown;
+    };
     message = typeof body.message === "string" ? body.message.trim() : "";
     context = typeof body.context === "string" ? body.context.trim() : "";
     sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    if (Array.isArray(body.history)) {
+      history = body.history
+        .filter(
+          (m): m is { role: string; text: string } =>
+            !!m &&
+            typeof (m as { role?: unknown }).role === "string" &&
+            ["user", "assistant"].includes((m as { role: string }).role) &&
+            typeof (m as { text?: unknown }).text === "string",
+        )
+        .slice(-12)
+        .map((m) => ({ role: m.role, text: m.text.slice(0, 700) }));
+    }
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
@@ -46,12 +64,22 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ ok: false, error: "Message too long." }, { status: 400 });
   }
 
+  // Per-conversation gateway thread: without this every user shared ONE agent
+  // session per project, so conversations interleaved and context was lost.
+  const sessionSuffix = sessionId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48) || undefined;
+
   // -------------------------------------------------------------------------
-  // Build prompt
+  // Build prompt — who is talking, what was said so far, then the message.
   // -------------------------------------------------------------------------
-  const headerLine = `[Portal: ${project.name} — agent ${project.agent.id}]`;
+  const headerLine = `[Portal: ${project.name} — agent ${project.agent.id}]\n[You are talking to @${session.username}, a logged-in ${project.name} portal teammate. Address them directly and keep continuity with the conversation below.]`;
   const contextBlock = context ? `\n\n${context}` : "";
-  const prompt = `${headerLine}${contextBlock}\n\n[User message]\n${message}`;
+  const transcript =
+    history.length > 0
+      ? `\n\n[Conversation so far]\n${history
+          .map((m) => `${m.role === "user" ? `@${session.username}` : "you"}: ${m.text}`)
+          .join("\n")}`
+      : "";
+  const prompt = `${headerLine}${contextBlock}${transcript}\n\n[New message from @${session.username}]\n${message}`;
 
   // -------------------------------------------------------------------------
   // SSE streaming path
@@ -90,6 +118,7 @@ export async function POST(req: Request): Promise<Response> {
           const reply = await callOpenClaw(prompt, project.agent.id, {
             project,
             timeoutMs: 290_000,
+            sessionSuffix,
           });
           send("final", { ok: true, reply, sessionId });
         } catch (err) {
@@ -127,6 +156,7 @@ export async function POST(req: Request): Promise<Response> {
     const reply = await callOpenClaw(prompt, project.agent.id, {
       project,
       timeoutMs: 290_000,
+      sessionSuffix,
     });
     return NextResponse.json({ ok: true, reply, sessionId });
   } catch (err) {
