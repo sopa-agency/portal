@@ -66,6 +66,11 @@ const StudioEditor = dynamic(
   () => import("@/components/studio/editor").then((m) => m.Editor),
   { ssr: false },
 );
+// Studio video editor — canvas/WebAudio/MediaRecorder, strictly browser-only.
+const StudioVideoEditor = dynamic(
+  () => import("@/components/studio/video-editor").then((m) => m.VideoEditor),
+  { ssr: false },
+);
 
 const CAPTION_MAX = 2200;
 const COMMENT_MAX = 2200;
@@ -1698,6 +1703,7 @@ export function PostCreator({
 }) {
   // ── View state ──────────────────────────────────────────────────────────
   const [viewTab, setViewTab] = useState<ViewTab>("create");
+  const [studioMode, setStudioMode] = useState<"design" | "video">("design");
   const [stepId, setStepId] = useState<StepId>("type");
   const [scheduledView, setScheduledView] = useState<"calendar" | "list">("calendar");
   const [dialogPostId, setDialogPostId] = useState<string | null>(null);
@@ -3583,12 +3589,31 @@ export function PostCreator({
               <ChevronLeft className="h-3.5 w-3.5" />
               Post Creator
             </button>
+            {/* Design (artwork) vs Video (timeline editor) */}
+            <div className="inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
+              {(["design", "video"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setStudioMode(m)}
+                  className={`rounded-md px-3 py-1 font-medium capitalize transition-colors ${
+                    studioMode === m ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
             <span className="font-mono text-[11px] uppercase tracking-[0.25em] text-foreground-subtle">
               Studio
             </span>
           </div>
           <div className="min-h-0 flex-1">
-            <StudioEditor onUseInPost={handleUseInPost} />
+            {studioMode === "design" ? (
+              <StudioEditor onUseInPost={handleUseInPost} />
+            ) : (
+              <StudioVideoEditor onUseInPost={handleUseInPost} />
+            )}
           </div>
           <StudioToaster />
         </div>
