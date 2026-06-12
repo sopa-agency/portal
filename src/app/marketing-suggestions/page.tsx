@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/page-header";
+import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { MarketingSuggestionsShell } from "@/components/marketing-suggestions-shell";
 import { RepoToSocialShell } from "@/components/repo-to-social-shell";
 import { PostSuggestionTabs } from "@/components/post-suggestion-tabs";
@@ -12,6 +13,8 @@ import {
   type MarketingSuggestionRunRow,
   type MarketingSuggestionWorkerHealth,
 } from "@/app/actions/marketing-suggestions";
+import { listUnifiedCalendar } from "@/app/actions/post-creator";
+import { ScheduleCalendar } from "@/components/schedule-calendar";
 import {
   getRepoToSocialConfig,
   getRecentRepoToSocialRuns,
@@ -85,6 +88,7 @@ export default async function MarketingSuggestionsPage({
     repoConfigResult,
     repoRunsResult,
     repoHealthResult,
+    calendarResult,
   ] = await Promise.allSettled([
     getActiveProject(),
     getMarketingSuggestionConfig(),
@@ -93,6 +97,7 @@ export default async function MarketingSuggestionsPage({
     getRepoToSocialConfig(),
     getRecentRepoToSocialRuns(),
     getRepoToSocialWorkerHealth(),
+    listUnifiedCalendar(),
   ]);
 
   const project = projectResult.status === "fulfilled" ? projectResult.value : null;
@@ -134,9 +139,42 @@ export default async function MarketingSuggestionsPage({
   const repoHealth =
     repoHealthResult.status === "fulfilled" ? repoHealthResult.value : DEFAULT_REPO_HEALTH;
 
+  // Repos this feature reads — parsed from the config (newline/comma list).
+  const watchedRepos = (repoConfig.repoUrl ?? "")
+    .split(/[\n,]+/)
+    .map((u) => u.trim())
+    .filter(Boolean)
+    .map((u) => ({
+      url: u.startsWith("http") ? u : `https://github.com/${u}`,
+      label: u.replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\/$/, ""),
+    }));
+
   const repo = (
     <div className="space-y-6">
       <HealthBanner down={repoHealth.db === "unreachable"} reason={repoHealth.reason} />
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface px-4 py-2.5 text-xs">
+        <span className="font-semibold uppercase tracking-wider text-foreground-subtle">
+          Reading commits from
+        </span>
+        {watchedRepos.length === 0 ? (
+          <span className="italic text-foreground-faint">
+            no repo configured — set one in the config below
+          </span>
+        ) : (
+          watchedRepos.map((r) => (
+            <a
+              key={r.url}
+              href={r.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-1 font-mono text-[11px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+            >
+              <SocialBrandIcon platform="github" className="h-3 w-3" />
+              {r.label}
+            </a>
+          ))
+        )}
+      </div>
       <RepoToSocialShell
         config={{ repoUrl: repoConfig.repoUrl, prompt: repoConfig.prompt }}
         runs={repoRuns}
@@ -145,6 +183,14 @@ export default async function MarketingSuggestionsPage({
         brand={brand}
       />
     </div>
+  );
+
+  const calendarEvents =
+    calendarResult.status === "fulfilled" && calendarResult.value.ok
+      ? calendarResult.value.events
+      : [];
+  const calendar = (
+    <ScheduleCalendar events={calendarEvents} activeSlug={project?.slug ?? ""} />
   );
 
   return (
@@ -156,9 +202,10 @@ export default async function MarketingSuggestionsPage({
         status={`workers: community ${health.worker} · repo ${repoHealth.worker}`}
       />
       <PostSuggestionTabs
-        initial={tab === "repo" ? "repo" : "community"}
+        initial={tab === "repo" ? "repo" : tab === "calendar" ? "calendar" : "community"}
         community={community}
         repo={repo}
+        calendar={calendar}
       />
     </div>
   );

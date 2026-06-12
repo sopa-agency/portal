@@ -745,3 +745,35 @@ export async function listCalendarExtras(): Promise<
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/** Unified calendar feed: own Instagram posts (scheduled + published) AND all
+ *  cross-source extras — for calendars outside the Post Creator. */
+export async function listUnifiedCalendar(): Promise<
+  { ok: true; events: CalendarExtra[] } | { ok: false; error: string }
+> {
+  try {
+    const { project } = await authGate();
+    const own = await prisma.instagramPost.findMany({
+      where: { projectSlug: project.slug, status: { in: ["scheduled", "published"] } },
+      select: { id: true, caption: true, scheduledFor: true, publishedAt: true, status: true },
+    });
+    const extrasRes = await listCalendarExtras();
+    const events: CalendarExtra[] = extrasRes.ok ? [...extrasRes.events] : [];
+    for (const r of own) {
+      const when = r.status === "published" ? r.publishedAt : r.scheduledFor;
+      if (!when) continue;
+      events.push({
+        id: `own:${r.id}`,
+        kind: "instagram",
+        projectSlug: project.slug,
+        platform: "instagram",
+        title: r.caption.slice(0, 90),
+        when: when.toISOString(),
+      });
+    }
+    events.sort((a, b) => (a.when < b.when ? -1 : 1));
+    return { ok: true, events };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

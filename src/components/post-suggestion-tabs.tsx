@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Sparkles, GitBranch } from "lucide-react";
+import { Sparkles, GitBranch, CalendarDays } from "lucide-react";
 
 // Tab switch for the consolidated Post Suggestions page: community-driven
 // drafts vs commit-driven drafts (the former Repo to Social route).
@@ -9,15 +9,18 @@ export function PostSuggestionTabs({
   initial,
   community,
   repo,
+  calendar,
 }: {
-  initial: "community" | "repo";
+  initial: "community" | "repo" | "calendar";
   community: ReactNode;
   repo: ReactNode;
+  calendar?: ReactNode;
 }) {
-  const [tab, setTab] = useState<"community" | "repo">(initial);
+  const [tab, setTab] = useState<"community" | "repo" | "calendar">(initial);
   const tabs = [
     { key: "community" as const, label: "Community", icon: Sparkles },
     { key: "repo" as const, label: "Repo to Social", icon: GitBranch },
+    ...(calendar ? [{ key: "calendar" as const, label: "Calendar", icon: CalendarDays }] : []),
   ];
   return (
     <div className="space-y-6">
@@ -39,9 +42,10 @@ export function PostSuggestionTabs({
           </button>
         ))}
       </div>
-      {/* Both panes stay mounted so switching tabs doesn't drop in-flight runs/edits. */}
+      {/* Panes stay mounted so switching tabs doesn't drop in-flight runs/edits. */}
       <div className={tab === "community" ? "" : "hidden"}>{community}</div>
       <div className={tab === "repo" ? "" : "hidden"}>{repo}</div>
+      {calendar && <div className={tab === "calendar" ? "" : "hidden"}>{calendar}</div>}
     </div>
   );
 }
