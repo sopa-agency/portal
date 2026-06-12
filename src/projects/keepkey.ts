@@ -40,12 +40,19 @@ const keepkey: ProjectConfig = {
   ],
   switcher: { rank: 100, dividerBefore: true },
   briefingAgents: [
-    { slug: "keepkey", label: "KeepKey", tabLabel: "BRIEF", workspace: "workspace-keepkey" },
+    {
+      slug: "keepkey-awesome",
+      label: "KeepKey Awesome",
+      tabLabel: "BRIEF",
+      workspace: "workspace-keepkey-awesome",
+    },
   ],
+  // Matches the OpenClaw agent id exactly — brain, chat and briefings all
+  // resolve workspace-keepkey-awesome from it.
   agent: {
     gatewayEnvPrefix: "KEEPKEY",
-    id: "keepkey",
-    displayName: "KeepKey",
+    id: "keepkey-awesome",
+    displayName: "KeepKey Awesome",
     emoji: "🔑",
     greeting: "Hey! I'm the KeepKey agent. How can I help you today?",
   },
