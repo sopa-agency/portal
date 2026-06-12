@@ -23,6 +23,7 @@ const skatehive: ProjectConfig = {
     "joaoparmagnani",
     "keepkey",
     "illithics",
+    "r4topunk",
   ],
   teamContacts: {
     xvlad: [

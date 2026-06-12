@@ -17,6 +17,7 @@ const coletivoxv: ProjectConfig = {
     "keepkey",
     "illithics",
     "humbertoperes",
+    "r4topunk",
   ],
   theme: {
     accentLight: "#6d28d9",

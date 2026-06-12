@@ -21,6 +21,7 @@ const reelflip: ProjectConfig = {
     "keepkey",
     "illithics",
     "humbertoperes",
+    "r4topunk",
   ],
   theme: {
     // Electric cyan — distinct from lime (skatehive) and red (gnars).
