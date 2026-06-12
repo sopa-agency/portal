@@ -578,6 +578,168 @@ async function fetchInstagramMetrics(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Facebook (Page) — same Meta system-user token as Instagram. The page is
+// auto-discovered via /me/accounts (every project token sees exactly its own
+// page); set ${PREFIX}_FACEBOOK_PAGE_ID only if a token ever sees several.
+// ---------------------------------------------------------------------------
+
+async function fetchFacebookMetrics(project: ProjectConfig): Promise<ChannelMetrics> {
+  const prefix = project.agent.gatewayEnvPrefix;
+  const token =
+    process.env[`${prefix}_INSTAGRAM_ACCESS_TOKEN`] ??
+    process.env.INSTAGRAM_ACCESS_TOKEN;
+
+  if (!token) {
+    return {
+      ok: false,
+      reason: "not-connected",
+      help: `Facebook reads use the same Meta token as Instagram — set ${prefix}_INSTAGRAM_ACCESS_TOKEN first`,
+    };
+  }
+
+  // Page + per-page access token (page endpoints want the page token, not the
+  // system-user token).
+  const accountsRes = await withTimeout(
+    fetch(
+      `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,followers_count,fan_count,access_token&access_token=${token}`,
+      { cache: "no-store" },
+    ),
+    8000,
+  );
+  if (!accountsRes.ok) {
+    const txt = await accountsRes.text().catch(() => "");
+    throw new Error(`Facebook Graph API HTTP ${accountsRes.status}: ${txt.slice(0, 200)}`);
+  }
+  const accounts = (await accountsRes.json()) as {
+    data: Array<{
+      id: string;
+      name: string;
+      followers_count?: number;
+      fan_count?: number;
+      access_token?: string;
+    }>;
+  };
+  const wantedId = process.env[`${prefix}_FACEBOOK_PAGE_ID`];
+  const page = wantedId
+    ? accounts.data?.find((p) => p.id === wantedId)
+    : accounts.data?.[0];
+  if (!page) {
+    return {
+      ok: false,
+      reason: "not-connected",
+      help: `The ${prefix} Meta token sees no Facebook Page — assign the page to the system user and regenerate the token`,
+    };
+  }
+  const pageToken = page.access_token ?? token;
+  const followers = page.followers_count ?? page.fan_count ?? null;
+
+  const followersDelta7d =
+    followers != null
+      ? await computeDeltaAndMaybeSnapshot(project.slug, "facebook", followers)
+      : null;
+
+  // Page-level 7-day insights with WoW deltas. Page insights metrics get
+  // pruned by Meta regularly — strictly best-effort.
+  let highlights: HighlightItem[] | undefined;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const windows = [
+      { since: now - 7 * 86400, until: now },
+      { since: now - 14 * 86400, until: now - 7 * 86400 },
+    ];
+    const metrics = "page_impressions_unique,page_post_engagements";
+    const [cur, prev] = await Promise.all(
+      windows.map(async (w) => {
+        const r = await withTimeout(
+          fetch(
+            `https://graph.facebook.com/v21.0/${page.id}/insights?metric=${metrics}&period=day&since=${w.since}&until=${w.until}&access_token=${pageToken}`,
+            { cache: "no-store" },
+          ),
+          8000,
+        );
+        if (!r.ok) return null;
+        const j = (await r.json()) as {
+          data: Array<{ name: string; values?: { value?: number }[] }>;
+        };
+        return new Map(
+          (j.data ?? []).map((d) => [
+            d.name,
+            (d.values ?? []).reduce((s, v) => s + (v.value ?? 0), 0),
+          ]),
+        );
+      }),
+    );
+    if (cur) {
+      const defs = [
+        { metric: "page_impressions_unique", label: "Reach 7d" },
+        { metric: "page_post_engagements", label: "Engaged 7d" },
+      ];
+      const items: HighlightItem[] = [];
+      for (const { metric, label } of defs) {
+        if (!cur.has(metric)) continue;
+        const c = cur.get(metric)!;
+        const p = prev?.get(metric) ?? 0;
+        items.push({
+          label,
+          value: compact(c),
+          deltaPct: p > 0 ? Math.round(((c - p) / p) * 100) : null,
+        });
+      }
+      if (items.length > 0) highlights = items;
+    }
+  } catch {
+    // insights optional — skip silently
+  }
+
+  // Recent page posts with basic engagement counts.
+  let posts: PostMetric[] = [];
+  try {
+    const postsRes = await withTimeout(
+      fetch(
+        `https://graph.facebook.com/v21.0/${page.id}/posts?fields=message,permalink_url,created_time,full_picture,shares,reactions.summary(true).limit(0),comments.summary(true).limit(0)&limit=5&access_token=${pageToken}`,
+        { cache: "no-store" },
+      ),
+      8000,
+    );
+    if (postsRes.ok) {
+      const j = (await postsRes.json()) as {
+        data: Array<{
+          message?: string;
+          permalink_url?: string;
+          created_time?: string;
+          full_picture?: string;
+          shares?: { count?: number };
+          reactions?: { summary?: { total_count?: number } };
+          comments?: { summary?: { total_count?: number } };
+        }>;
+      };
+      posts = (j.data ?? []).map((p) => ({
+        title: (p.message ?? "").slice(0, 80) || undefined,
+        url: p.permalink_url,
+        at: p.created_time ?? new Date().toISOString(),
+        thumbnail: p.full_picture,
+        engagements: [
+          { label: "reactions", value: p.reactions?.summary?.total_count ?? 0 },
+          { label: "comments", value: p.comments?.summary?.total_count ?? 0 },
+          { label: "shares", value: p.shares?.count ?? 0 },
+        ],
+      }));
+    }
+  } catch {
+    // posts optional — page-level numbers still render
+  }
+
+  return {
+    ok: true,
+    followers,
+    followersDelta7d,
+    highlights,
+    posts,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
 // Compact number formatting for highlight stats (1234 -> "1.2K").
 function compact(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
@@ -629,6 +791,9 @@ export async function fetchChannelMetrics(
         break;
       case "instagram":
         result = await fetchInstagramMetrics(project);
+        break;
+      case "facebook":
+        result = await fetchFacebookMetrics(project);
         break;
       case "x":
         result = fetchXMetrics();

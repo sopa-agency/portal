@@ -21,6 +21,7 @@ const skatehive: ProjectConfig = {
     "willdias",
     "reelflip",
     "joaoparmagnani",
+    "keepkey",
   ],
   teamContacts: {
     xvlad: [
@@ -97,6 +98,16 @@ const skatehive: ProjectConfig = {
       ],
       dos: ["Lead with the clip/visual", "Credit the skater/filmer", "Use a clear CTA to the app on launches"],
       donts: ["Don't post dev/infra updates here", "Don't over-caption — let the footage talk"],
+    },
+    {
+      platform: "Facebook",
+      handle: "Skatehive2",
+      url: "https://www.facebook.com/Skatehive2",
+      note: "~8.1K followers — read-only for now (metrics via the same Meta token)",
+      summary:
+        "Legacy audience that predates the app — the biggest off-chain following SkateHive has. Currently a read/metrics surface; IG content can be mirrored here when it makes sense.",
+      cadence: "No active cadence yet — monitor reach and engagement.",
+      voice: "Same as Instagram when mirrored.",
     },
     {
       platform: "Hive",

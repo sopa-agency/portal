@@ -15,6 +15,7 @@ const gnars: ProjectConfig = {
     "willdias",
     "reelflip",
     "joaoparmagnani",
+    "keepkey",
   ],
   theme: {
     // Gnars red noggles — matches portal-gnars globals.css exactly.
@@ -95,6 +96,16 @@ const gnars: ProjectConfig = {
       ],
       dos: ["Lead with the visual", "Tie back to onchain/DAO when it fits"],
       donts: ["Don't flatten the irreverent voice into corporate copy", "No hashtag spam"],
+    },
+    {
+      platform: "Facebook",
+      handle: "Gnars",
+      url: "https://www.facebook.com/1162499943612277",
+      note: "New page — read-only for now (metrics via the same Meta token)",
+      summary:
+        "Freshly created page paired with the IG business account. A metrics surface for now; content mirroring can come later.",
+      cadence: "No active cadence yet.",
+      voice: "Same as Instagram when mirrored.",
     },
   ],
   // Gnars doesn't use the userbase (email) module.

@@ -14,6 +14,7 @@ const coletivoxv: ProjectConfig = {
     "willdias",
     "reelflip",
     "joaoparmagnani",
+    "keepkey",
   ],
   theme: {
     accentLight: "#6d28d9",

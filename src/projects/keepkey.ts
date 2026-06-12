@@ -9,7 +9,7 @@ const keepkey: ProjectConfig = {
   slug: "keepkey",
   name: "KeepKey",
   description: "Internal ops portal for KeepKey — the hardware wallet.",
-  allowlist: ["xvlad"],
+  allowlist: ["xvlad", "keepkey"],
   theme: {
     // KeepKey gold on black.
     accentLight: "#9a6a1d",

@@ -18,6 +18,7 @@ const reelflip: ProjectConfig = {
     "willdias",
     "reelflip",
     "joaoparmagnani",
+    "keepkey",
   ],
   theme: {
     // Electric cyan — distinct from lime (skatehive) and red (gnars).
@@ -88,6 +89,16 @@ const reelflip: ProjectConfig = {
         "Don't explain the POV — trust the persona to get it",
         "Don't multiply series/themes — deepen what works",
       ],
+    },
+    {
+      platform: "Facebook",
+      handle: "Reelflip",
+      url: "https://www.facebook.com/1155915860935202",
+      note: "Page paired with the IG business account — read-only for now",
+      summary:
+        "Exists to anchor the Instagram business account in Meta's graph. A metrics surface; Reelflip's voice lives on Instagram.",
+      cadence: "No active cadence.",
+      voice: "n/a — mirror of Instagram if ever used.",
     },
   ],
   postCreator: true,
