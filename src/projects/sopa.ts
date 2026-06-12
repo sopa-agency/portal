@@ -17,6 +17,7 @@ const sopa: ProjectConfig = {
     "joaoparmagnani",
     "keepkey",
     "illithics",
+    "humbertoperes",
   ],
   theme: {
     // Warm amber — the umbrella sits visually apart from every brand below it.
