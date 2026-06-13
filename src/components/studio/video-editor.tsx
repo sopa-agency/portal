@@ -15,6 +15,8 @@ import {
   useState,
 } from "react";
 import {
+  Check,
+  CheckCheck,
   Download,
   Film,
   Image as ImageIcon,
@@ -24,6 +26,7 @@ import {
   Play,
   Plus,
   FolderOpen,
+  RefreshCw,
   Save,
   Scissors,
   Send,
@@ -136,7 +139,7 @@ async function makeFilmstrip(url: string, duration: number): Promise<string[]> {
     const v = document.createElement("video");
     v.crossOrigin = "anonymous";
     v.muted = true;
-    v.preload = "auto";
+    v.preload = "metadata"; // seeks range-fetch only the frames we sample
     v.src = url;
     await new Promise<void>((res) => {
       v.onloadeddata = () => res();
@@ -248,14 +251,55 @@ function slimBin(bin: BinItem[]): BinItem[] {
   return bin.map(({ thumbs: _t, waveUrl: _w, ...rest }) => rest);
 }
 
-// --- lazy SkateHive thumbnails (module-level cache + 2-worker queue) ---------
+// --- SkateHive thumbnails: CID-keyed cache (memory + localStorage) -----------
+// Keyed by the immutable IPFS CID so a thumbnail survives reloads and the
+// proxy path. The browser also disk-caches the proxied bytes (immutable
+// Cache-Control), so generation is cheap on repeat.
 
+const THUMB_STORE_KEY = "studio-video:thumbs:v1";
+const THUMB_STORE_MAX = 200;
 const thumbCache = new Map<string, string>();
+
+function thumbKey(url: string): string {
+  const m = url.match(/\/ipfs\/([\w-]+)/);
+  return m ? m[1] : url.replace(/^.*[?&]url=/, "").slice(0, 200);
+}
+
+function hydrateThumbCache() {
+  if (typeof window === "undefined" || thumbCache.size) return;
+  try {
+    const raw = window.localStorage.getItem(THUMB_STORE_KEY);
+    if (!raw) return;
+    for (const [k, v] of Object.entries(JSON.parse(raw) as Record<string, string>)) {
+      thumbCache.set(k, v);
+    }
+  } catch {
+    /* ignore corrupt cache */
+  }
+}
+hydrateThumbCache();
+
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+function persistThumbCache() {
+  if (typeof window === "undefined") return;
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    try {
+      const entries = [...thumbCache.entries()].slice(-THUMB_STORE_MAX);
+      window.localStorage.setItem(THUMB_STORE_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+      /* quota — fine, memory cache still serves the session */
+    }
+  }, 800);
+}
+
 const thumbQueue: { url: string; resolve: (v: string | null) => void }[] = [];
 let thumbWorkers = 0;
 
+/** `url` is the proxied (same-origin) URL; the cache keys by CID. */
 function requestThumb(url: string): Promise<string | null> {
-  if (thumbCache.has(url)) return Promise.resolve(thumbCache.get(url)!);
+  const cached = thumbCache.get(thumbKey(url));
+  if (cached) return Promise.resolve(cached);
   return new Promise((resolve) => {
     thumbQueue.push({ url, resolve });
     pumpThumbs();
@@ -263,19 +307,21 @@ function requestThumb(url: string): Promise<string | null> {
 }
 
 function pumpThumbs() {
-  while (thumbWorkers < 2 && thumbQueue.length > 0) {
+  while (thumbWorkers < 3 && thumbQueue.length > 0) {
     const job = thumbQueue.shift()!;
+    const key = thumbKey(job.url);
     thumbWorkers++;
     void (async () => {
       try {
-        if (thumbCache.has(job.url)) {
-          job.resolve(thumbCache.get(job.url)!);
+        const hit = thumbCache.get(key);
+        if (hit) {
+          job.resolve(hit);
           return;
         }
         const v = document.createElement("video");
         v.crossOrigin = "anonymous";
         v.muted = true;
-        v.preload = "auto";
+        v.preload = "metadata"; // only the frame we seek to gets range-fetched
         v.src = job.url;
         await new Promise<void>((res) => {
           v.onloadeddata = () => res();
@@ -289,7 +335,7 @@ function pumpThumbs() {
         v.currentTime = Math.min(0.5, (v.duration || 1) / 2);
         await new Promise<void>((res) => {
           v.onseeked = () => res();
-          setTimeout(res, 1200);
+          setTimeout(res, 1500);
         });
         const c = document.createElement("canvas");
         c.width = 112;
@@ -306,7 +352,8 @@ function pumpThumbs() {
         else { dw = c.width; dh = c.width / vr; dy = (c.height - dh) / 2; }
         ctx.drawImage(v, dx, dy, dw, dh);
         const dataUrl = c.toDataURL("image/jpeg", 0.6);
-        thumbCache.set(job.url, dataUrl);
+        thumbCache.set(key, dataUrl);
+        persistThumbCache();
         v.src = "";
         job.resolve(dataUrl);
       } catch {
@@ -319,9 +366,28 @@ function pumpThumbs() {
   }
 }
 
-/** Thumbnail that only generates once scrolled into view. */
+/** Eagerly warm thumbnails for a batch of raw IPFS urls (the Sync button). */
+function warmThumbnails(
+  urls: string[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  const total = urls.length;
+  if (total === 0) return Promise.resolve();
+  let done = 0;
+  return new Promise((resolve) => {
+    for (const u of urls) {
+      void requestThumb(safeUrl(u)).finally(() => {
+        done++;
+        onProgress?.(done, total);
+        if (done === total) resolve();
+      });
+    }
+  });
+}
+
+/** Thumbnail that generates once scrolled into view (cache hit is instant). */
 function ShThumb({ url }: { url: string }) {
-  const [thumb, setThumb] = useState<string | null>(thumbCache.get(url) ?? null);
+  const [thumb, setThumb] = useState<string | null>(() => thumbCache.get(thumbKey(url)) ?? null);
   const [failed, setFailed] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -386,6 +452,8 @@ export function VideoEditor({
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
   const [creatorVideos, setCreatorVideos] = useState<SkatehiveVideo[] | null>(null);
   const [creatorBusy, setCreatorBusy] = useState(false);
+  const [shSelected, setShSelected] = useState<Set<string>>(new Set());
+  const [shSyncing, setShSyncing] = useState<{ done: number; total: number } | null>(null);
   /** Click-to-preview for side-panel items (bin + skatehive). */
   const [panelPreview, setPanelPreview] = useState<{
     kind: BinItem["kind"];
@@ -853,8 +921,8 @@ export function VideoEditor({
     [enrichItem],
   );
 
-  const addSkatehive = async (v: SkatehiveVideo) => {
-    setShBusy(v.id);
+  /** Add one SkateHive video to the bin (no tab switch — used solo + batched). */
+  const seedSkatehiveVideo = async (v: SkatehiveVideo) => {
     const url = safeUrl(v.url);
     const duration = await probeDuration(url, "video");
     const id = nextId();
@@ -870,8 +938,47 @@ export function VideoEditor({
       },
     ]);
     enrichItem(id, url, "video", duration || 10);
+  };
+
+  const addSkatehive = async (v: SkatehiveVideo) => {
+    setShBusy(v.id);
+    await seedSkatehiveVideo(v);
     setShBusy(null);
     setBinTab("uploads");
+  };
+
+  // URLs already in the bin — marks SkateHive rows as "added".
+  const binUrlSet = useMemo(() => new Set(bin.map((b) => b.url)), [bin]);
+
+  const toggleShSelect = (id: string) =>
+    setShSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const addSelectedSkatehive = async () => {
+    const pool = (selectedCreator ? creatorVideos : shVideos) ?? [];
+    const chosen = pool.filter(
+      (v) => shSelected.has(v.id) && !binUrlSet.has(safeUrl(v.url)),
+    );
+    if (chosen.length === 0) return;
+    setShBusy("batch");
+    for (const v of chosen) await seedSkatehiveVideo(v);
+    setShBusy(null);
+    setShSelected(new Set());
+    setBinTab("uploads");
+  };
+
+  const syncThumbnails = async () => {
+    const pool = (selectedCreator ? creatorVideos : shVideos) ?? [];
+    if (pool.length === 0 || shSyncing) return;
+    setShSyncing({ done: 0, total: pool.length });
+    await warmThumbnails(pool.map((v) => v.url), (done, total) =>
+      setShSyncing({ done, total }),
+    );
+    setShSyncing(null);
   };
 
   // --- timeline ops -----------------------------------------------------------------
@@ -1758,6 +1865,50 @@ export function VideoEditor({
                 </div>
               )}
 
+              {/* Sync (preload thumbnails) + multiselect batch add */}
+              {(selectedCreator ? creatorVideos : shVideos)?.length ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void syncThumbnails()}
+                    disabled={!!shSyncing}
+                    title="Preload thumbnails for every video in the list"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-60"
+                  >
+                    {shSyncing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    {shSyncing ? `Syncing ${shSyncing.done}/${shSyncing.total}` : "Sync thumbnails"}
+                  </button>
+                  {shSelected.size > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void addSelectedSkatehive()}
+                        disabled={shBusy !== null}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+                      >
+                        {shBusy === "batch" ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5" />
+                        )}
+                        Add {shSelected.size} to bin
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShSelected(new Set())}
+                        className="text-[11px] text-foreground-faint hover:text-foreground"
+                      >
+                        clear
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : null}
+
               {!shVideos && !shError && (
                 <p className="flex items-center gap-2 px-1 py-2 text-xs text-foreground-muted">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading SkateHive IPFS videos…
@@ -1774,34 +1925,66 @@ export function VideoEditor({
                   No IPFS videos found{selectedCreator ? ` for @${selectedCreator}` : ""}.
                 </p>
               )}
-              {(selectedCreator ? creatorVideos : shVideos)?.map((v) => (
-                <div
-                  key={v.id}
-                  onClick={() => setPanelPreview({ kind: "video", url: safeUrl(v.url), name: v.title })}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2 py-1.5 transition-colors hover:border-border-strong"
-                >
-                  <ShThumb url={v.url} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs text-foreground">{v.title}</p>
-                    <p className="truncate text-[10px] text-foreground-faint">
-                      @{v.author} · ▲{v.votes} · ${v.payout} ·{" "}
-                      <span className={v.source === "snap" ? "text-accent" : "text-warning"}>{v.source}</span>
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void addSkatehive(v);
-                    }}
-                    disabled={shBusy !== null}
-                    title="Add to bin"
-                    className="rounded-md border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20 disabled:opacity-50"
+              {(selectedCreator ? creatorVideos : shVideos)?.map((v) => {
+                const added = binUrlSet.has(safeUrl(v.url));
+                const selected = shSelected.has(v.id);
+                return (
+                  <div
+                    key={v.id}
+                    onClick={() => setPanelPreview({ kind: "video", url: safeUrl(v.url), name: v.title })}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors ${
+                      selected
+                        ? "border-accent bg-accent-bg"
+                        : "border-border bg-surface-elevated hover:border-border-strong"
+                    } ${added ? "opacity-60" : ""}`}
                   >
-                    {shBusy === v.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-              ))}
+                    {/* selection checkbox */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleShSelect(v.id);
+                      }}
+                      aria-pressed={selected}
+                      title={selected ? "Deselect" : "Select"}
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                        selected ? "border-accent bg-accent text-background" : "border-border-strong"
+                      }`}
+                    >
+                      {selected && <Check className="h-3 w-3" />}
+                    </button>
+                    <ShThumb url={v.url} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs text-foreground">{v.title}</p>
+                      <p className="truncate text-[10px] text-foreground-faint">
+                        @{v.author} · ▲{v.votes} · ${v.payout} ·{" "}
+                        <span className={v.source === "snap" ? "text-accent" : "text-warning"}>{v.source}</span>
+                      </p>
+                    </div>
+                    {added ? (
+                      <span
+                        title="Already added to the bin"
+                        className="flex items-center gap-1 rounded-md border border-success/30 bg-success/10 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-success"
+                      >
+                        <CheckCheck className="h-3 w-3" /> added
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void addSkatehive(v);
+                        }}
+                        disabled={shBusy !== null}
+                        title="Add to bin"
+                        className="rounded-md border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20 disabled:opacity-50"
+                      >
+                        {shBusy === v.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
               {!selectedCreator && shVideos && shCursor && (
                 <button
                   type="button"

@@ -55,7 +55,11 @@ export async function GET(req: NextRequest): Promise<Response> {
     if (v) headers.set(h, v);
   }
   if (!headers.has("content-type")) headers.set("content-type", "video/mp4");
-  headers.set("cache-control", "private, max-age=3600");
+  // IPFS is content-addressed — the bytes behind a CID never change, so cache
+  // hard. `private` keeps it browser-only (the route is session-gated), and
+  // `immutable` stops revalidation: thumbnail generation + add-to-bin + the
+  // editor preview all reuse the same cached bytes instead of re-downloading.
+  headers.set("cache-control", "private, max-age=31536000, immutable");
 
   return new Response(upstream.body, { status: upstream.status, headers });
 }
