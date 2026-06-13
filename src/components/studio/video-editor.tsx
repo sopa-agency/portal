@@ -191,7 +191,10 @@ function drawCoverInRect(
   ctx.drawImage(el, dx, dy, dw, dh);
 }
 
-/** Render the SkateHive "Holo Rare" reel card full-bleed (reel.css faithful). */
+/** Render the clip as premium skate-media: full-bleed video is the hero, with
+ *  an editorial type hierarchy (title → creator → minimal metadata) over a
+ *  legibility scrim. No frames, gems, foil or glow — SkateHive green is used
+ *  only as a meaning-bearing accent. */
 function drawCard(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -199,297 +202,154 @@ function drawCard(
   card: CardData,
   clipEl: HTMLVideoElement | null,
   framing: { offsetX: number; offsetY: number; scale: number },
-  nowMs: number,
+  _nowMs: number,
   brandName: string,
 ) {
-  const { art, P, topSafe, botSafe, headTop, headH } = cardLayout(W, H);
   const accent = card.accent || SH.lime;
-  const accent2 = RARITY[card.rarity].accent2;
   const fs = card.fontScale || 1;
   const hidden = new Set(card.hidden ?? []);
-  const S = Math.min(W, H) / 1080; // type scale (1 for all IG presets)
+  const S = Math.min(W, H) / 1080;
   const f = (n: number) => n * S * fs;
-  const hank = (px: number, weight = 800) =>
-    `${weight} ${f(px)}px 'Hanken Grotesk', system-ui, sans-serif`;
-  const mono = (px: number, weight = 700) =>
-    `${weight} ${f(px)}px 'JetBrains Mono', ui-monospace, monospace`;
+  const P = W * 0.06; // generous editorial margin
+  const topSafe = H * 0.05;
+  const botSafe = H * 0.09;
   const ready = clipEl && clipEl.readyState >= 2;
-  const font = ((spec: string) => { ctx.font = spec; });
+  const setFont = (px: number, weight = 800, mono = false) => {
+    ctx.font = `${weight} ${f(px)}px ${
+      mono ? "'JetBrains Mono', ui-monospace, monospace" : "'Hanken Grotesk', system-ui, sans-serif"
+    }`;
+  };
 
-  // 1) card background — radial gradient filling the whole canvas.
-  const bg = ctx.createRadialGradient(W * 0.5, -H * 0.08, 0, W * 0.5, H * 0.42, H * 0.95);
-  bg.addColorStop(0, "#1c2412");
-  bg.addColorStop(0.46, "#0c0f0a");
-  bg.addColorStop(1, "#050604");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-
-  // 2) holographic foil — animated diagonal multi-hue bands, additive.
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.globalAlpha = 0.16;
-  const shift = ((nowMs / 8000) % 1) * W * 2;
-  const foil = ctx.createLinearGradient(-W + shift, 0, W + shift, H);
-  foil.addColorStop(0.0, "rgba(255,0,128,0)");
-  foil.addColorStop(0.18, "rgba(255,0,128,0.5)");
-  foil.addColorStop(0.32, accent2);
-  foil.addColorStop(0.46, "rgba(163,230,53,0.6)");
-  foil.addColorStop(0.6, "rgba(80,120,255,0.45)");
-  foil.addColorStop(0.78, "rgba(255,0,128,0)");
-  ctx.fillStyle = foil;
-  ctx.fillRect(0, 0, W, H);
-  ctx.restore();
-
-  // 3) glare sweep — overlay white diagonal.
-  ctx.save();
-  ctx.globalCompositeOperation = "overlay";
-  ctx.globalAlpha = 0.28;
-  const gshift = ((1 - (nowMs / 8000) % 1)) * W * 1.6 - W * 0.3;
-  const glare = ctx.createLinearGradient(gshift, 0, gshift + W * 0.5, H);
-  glare.addColorStop(0, "rgba(255,255,255,0)");
-  glare.addColorStop(0.5, "rgba(255,255,255,0.9)");
-  glare.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = glare;
-  ctx.fillRect(0, 0, W, H);
-  ctx.restore();
-
-  // 4) pulsing ring/aura inset from the frame edge.
-  const pulse = 0.5 + 0.5 * Math.sin((nowMs / 3400) * Math.PI * 2);
-  ctx.save();
-  ctx.globalAlpha = 0.2 + pulse * 0.3;
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = f(60);
-  ctx.lineWidth = f(3);
-  ctx.strokeStyle = accent;
-  roundRectPath(ctx, f(10), f(10), W - f(20), H - f(20), f(28));
-  ctx.stroke();
-  ctx.restore();
-
-  const lx = P;
-  const rx = W - P;
-
-  // 5) username on top — the card's headline, big and centered.
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  const ny = topSafe + f(20);
-  const handle = card.skater || "@skater";
-  font(hank(46, 800));
-  ctx.fillStyle = SH.lime2;
-  ctx.shadowColor = "rgba(163,230,53,0.55)";
-  ctx.shadowBlur = f(26);
-  let hl = handle;
-  while (ctx.measureText(hl).width > W - 2 * P && hl.length > 3) hl = hl.slice(0, -1);
-  ctx.fillText(hl, W / 2, ny);
-  ctx.shadowBlur = 0;
-  // brand line under the handle: SH dot · SKATEHIVE · RARE DROP pill.
-  if (!hidden.has("eyebrow")) {
-    const ey = ny + f(36);
-    const brand = (brandName || "SKATEHIVE").toUpperCase();
-    const pill = "RARE DROP";
-    font(hank(15, 800));
-    const bw = ctx.measureText(brand).width;
-    font(mono(11, 800));
-    const pw = ctx.measureText(pill).width + f(20);
-    const gap = f(11);
-    const dot = f(26);
-    const totalW = dot + gap + bw + gap + pw;
-    let cxp = W / 2 - totalW / 2;
-    ctx.beginPath();
-    ctx.arc(cxp + dot / 2, ey, dot / 2, 0, Math.PI * 2);
-    ctx.fillStyle = accent;
-    ctx.fill();
-    ctx.fillStyle = SH.ink;
-    font(hank(12, 800));
-    ctx.textAlign = "center";
-    ctx.fillText("SH", cxp + dot / 2, ey + f(1));
-    cxp += dot + gap;
-    ctx.textAlign = "left";
-    font(hank(15, 800));
-    ctx.fillStyle = "#dff3b4";
-    ctx.fillText(brand, cxp, ey);
-    cxp += bw + gap;
-    roundRectPath(ctx, cxp, ey - f(11), pw, f(22), f(11));
-    ctx.fillStyle = accent;
-    ctx.fill();
-    ctx.fillStyle = SH.ink;
-    font(mono(11, 800));
-    ctx.fillText(pill, cxp + f(10), ey + f(1));
-  }
-
-  // 6) head band: rarity gems (left) + rarity label (right).
-  ctx.textBaseline = "alphabetic";
-  ctx.textAlign = "left";
-  const gems = RARITY[card.rarity].gems;
-  const gemSize = f(15);
-  ctx.save();
-  for (let i = 0; i < gems; i++) {
-    ctx.save();
-    ctx.translate(lx + gemSize / 2 + i * (gemSize + f(5)), headTop + f(20));
-    ctx.rotate(Math.PI / 4);
-    ctx.fillStyle = accent;
-    ctx.shadowColor = accent;
-    ctx.shadowBlur = f(12);
-    roundRectPath(ctx, -gemSize / 2, -gemSize / 2, gemSize, gemSize, f(3));
-    ctx.fill();
-    ctx.restore();
-  }
-  ctx.restore();
-  // rarity label box (right aligned)
-  const rlabel = RARITY[card.rarity].label;
-  font(mono(13, 800));
-  const rlw = ctx.measureText(rlabel).width + f(22);
-  roundRectPath(ctx, rx - rlw, headTop + f(6), rlw, f(28), f(8));
-  ctx.fillStyle = "rgba(163,230,53,0.08)";
-  ctx.fill();
-  ctx.lineWidth = f(1.5);
-  ctx.strokeStyle = accent2;
-  ctx.stroke();
-  ctx.fillStyle = "#dff3b4";
-  ctx.textAlign = "left";
-  ctx.fillText(rlabel, rx - rlw + f(11), headTop + f(25));
-
-  // 7) art window — clip cover-fit, rounded, lime border + inner shadow.
-  const winR = f(18);
-  ctx.save();
-  roundRectPath(ctx, art.x, art.y, art.w, art.h, winR);
-  ctx.clip();
+  // 1) media — the hero, edge to edge.
   if (ready) {
-    drawCoverInRect(ctx, clipEl!, art.x, art.y, art.w, art.h, framing);
-    // top vignette
-    const vg = ctx.createRadialGradient(art.x + art.w / 2, art.y + art.h * 0.16, 0, art.x + art.w / 2, art.y + art.h * 0.16, art.h);
-    vg.addColorStop(0.42, "rgba(0,0,0,0)");
-    vg.addColorStop(1, "rgba(0,0,0,0.5)");
-    ctx.fillStyle = vg;
-    ctx.fillRect(art.x, art.y, art.w, art.h);
+    drawCoverInRect(ctx, clipEl!, 0, 0, W, H, framing);
   } else {
-    ctx.fillStyle = "#111";
-    ctx.fillRect(art.x, art.y, art.w, art.h);
+    ctx.fillStyle = "#0b0c0a";
+    ctx.fillRect(0, 0, W, H);
   }
-  ctx.restore();
-  roundRectPath(ctx, art.x, art.y, art.w, art.h, winR);
-  ctx.lineWidth = f(2.5);
-  ctx.strokeStyle = "rgba(163,230,53,0.7)";
-  ctx.shadowColor = "rgba(163,230,53,0.25)";
-  ctx.shadowBlur = f(30);
-  ctx.stroke();
-  ctx.shadowBlur = 0;
 
-  // type badge (top-left of window)
-  if (!hidden.has("type") && card.type) {
-    font(hank(15, 800));
-    const tt = card.type.toUpperCase();
-    const tw = ctx.measureText(tt).width + f(26);
-    roundRectPath(ctx, art.x + f(16), art.y + f(16), tw, f(30), f(9));
+  // 2) legibility scrims — subtle top (wordmark) + stronger bottom (titles).
+  const topScrim = ctx.createLinearGradient(0, 0, 0, H * 0.22);
+  topScrim.addColorStop(0, "rgba(0,0,0,0.42)");
+  topScrim.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = topScrim;
+  ctx.fillRect(0, 0, W, H * 0.22);
+  const botScrim = ctx.createLinearGradient(0, H * 0.5, 0, H);
+  botScrim.addColorStop(0, "rgba(0,0,0,0)");
+  botScrim.addColorStop(0.6, "rgba(0,0,0,0.55)");
+  botScrim.addColorStop(1, "rgba(0,0,0,0.9)");
+  ctx.fillStyle = botScrim;
+  ctx.fillRect(0, H * 0.5, W, H * 0.5);
+
+  // 3) brand wordmark — top-left, minimal. Green tick is the only top accent.
+  if (!hidden.has("eyebrow")) {
+    const wy = topSafe + f(26);
     ctx.fillStyle = accent;
+    const tick = f(13);
+    roundRectPath(ctx, P, wy - tick, tick, tick, f(3));
     ctx.fill();
-    ctx.fillStyle = SH.ink;
     ctx.textAlign = "left";
-    ctx.fillText(tt, art.x + f(16) + f(13), art.y + f(16) + f(21));
-  }
-  // set-symbol badge (bottom-right of window)
-  const setS = f(62);
-  const setX = art.x + art.w - setS - f(14);
-  const setY = art.y + art.h - setS - f(14);
-  roundRectPath(ctx, setX, setY, setS, setS, f(13));
-  ctx.fillStyle = "rgba(8,10,7,0.85)";
-  ctx.fill();
-  ctx.lineWidth = f(2);
-  ctx.strokeStyle = "rgba(163,230,53,0.65)";
-  ctx.stroke();
-  ctx.fillStyle = accent;
-  font(hank(26, 800));
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("SH", setX + setS / 2, setY + setS / 2 + f(1));
-  ctx.textBaseline = "alphabetic";
-  ctx.textAlign = "left";
-
-  // 8) title block below the window.
-  let ty = art.y + art.h + f(46);
-  ctx.fillStyle = SH.cream;
-  font(hank(38, 800));
-  const maxW = W - 2 * P;
-  const title = (card.title || "UNTITLED").toUpperCase();
-  let tline = title;
-  while (ctx.measureText(tline).width > maxW && tline.length > 4) tline = tline.slice(0, -2);
-  if (tline !== title) tline = tline.slice(0, -1) + "…";
-  ctx.fillText(tline, lx, ty);
-  ty += f(30);
-  if (card.description) {
-    ctx.fillStyle = SH.desc;
-    font(hank(19, 500));
-    const words = card.description.split(/\s+/);
-    let dl = "";
-    let ln = 0;
-    for (const word of words) {
-      const test = dl ? `${dl} ${word}` : word;
-      if (ctx.measureText(test).width > maxW) {
-        ctx.fillText(dl, lx, ty);
-        ty += f(26);
-        dl = word;
-        if (++ln >= 3) { dl = dl + "…"; break; }
-      } else dl = test;
+    ctx.textBaseline = "alphabetic";
+    setFont(23, 800);
+    ctx.fillStyle = "#ffffff";
+    const wordmark = (brandName || "SkateHive").toUpperCase();
+    // letter-spacing by hand for an editorial wordmark
+    let wx = P + tick + f(12);
+    for (const ch of wordmark) {
+      ctx.fillText(ch, wx, wy);
+      wx += ctx.measureText(ch).width + f(3.5);
     }
-    if (dl && ln < 3) { ctx.fillText(dl, lx, ty); ty += f(26); }
   }
 
-  // 9) stats row — 3 columns (UPVOTES / RUNTIME / STANCE).
+  // 4) bottom editorial stack — creator (tertiary) · title (secondary) · meta.
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  const maxW = W - P * 2;
+
+  // wrap the title (up to 3 lines, confident size)
+  setFont(78, 800);
+  const titleLineH = f(80);
+  const words = (card.title || "Untitled").trim().split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  for (const word of words) {
+    const test = cur ? `${cur} ${word}` : word;
+    if (ctx.measureText(test).width > maxW && cur) {
+      lines.push(cur);
+      cur = word;
+      if (lines.length === 2) break; // 3rd line gets the remainder
+    } else cur = test;
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > 3) lines.length = 3;
+
+  // metadata line (minimal): runtime · ▲upvotes(accent) · type
+  const metaY = H - botSafe;
   if (!hidden.has("stats")) {
-    const stats: [string, string][] = [
-      ["UPVOTES", card.upvotes || "0"],
-      ["RUNTIME", card.runtime || "0:00"],
-      ["STANCE", (card.type || "—").toUpperCase()],
-    ];
-    const gap = f(11);
-    const colW = (maxW - gap * 2) / 3;
-    const sy = H - botSafe - f(110);
-    const boxH = f(64);
-    stats.forEach(([label, val], i) => {
-      const bx = lx + i * (colW + gap);
-      roundRectPath(ctx, bx, sy, colW, boxH, f(13));
-      ctx.fillStyle = "rgba(163,230,53,0.07)";
-      ctx.fill();
-      ctx.lineWidth = f(1.5);
-      ctx.strokeStyle = "rgba(163,230,53,0.26)";
-      ctx.stroke();
-      ctx.textAlign = "center";
-      ctx.fillStyle = SH.lime2;
-      font(mono(26, 800));
-      let v = val;
-      while (ctx.measureText(v).width > colW - f(12) && v.length > 1) v = v.slice(0, -1);
-      ctx.fillText(v, bx + colW / 2, sy + f(30));
-      ctx.fillStyle = SH.steel;
-      font(hank(11, 800));
-      ctx.fillText(label, bx + colW / 2, sy + f(52));
-    });
-    ctx.textAlign = "left";
+    setFont(24, 600, true);
+    let mx = P;
+    const drawMeta = (text: string, color: string) => {
+      ctx.fillStyle = color;
+      ctx.fillText(text, mx, metaY);
+      mx += ctx.measureText(text).width;
+    };
+    const sep = "   ·   ";
+    if (card.runtime) drawMeta(card.runtime, "rgba(255,255,255,0.72)");
+    if (card.upvotes && card.upvotes !== "0") {
+      drawMeta(sep, "rgba(255,255,255,0.3)");
+      drawMeta(`▲ ${card.upvotes}`, accent); // community love — meaningful accent
+    }
+    if (!hidden.has("type") && card.type) {
+      drawMeta(sep, "rgba(255,255,255,0.3)");
+      drawMeta(card.type.toUpperCase(), "rgba(255,255,255,0.72)");
+    }
   }
 
-  // 10) foot: serial + ∞, with a top divider.
-  if (!hidden.has("serial")) {
-    const fy = H - botSafe - f(34);
-    ctx.strokeStyle = "rgba(163,230,53,0.18)";
-    ctx.lineWidth = f(1.5);
-    ctx.beginPath();
-    ctx.moveTo(lx, fy - f(18));
-    ctx.lineTo(rx, fy - f(18));
-    ctx.stroke();
-    font(mono(14, 800));
-    ctx.fillStyle = accent;
-    ctx.textAlign = "left";
-    ctx.fillText(`№ ${card.serial || "0000"}`, lx, fy);
-    ctx.fillStyle = SH.steel;
+  // optional one-line standfirst (dek) above the meta, under the title.
+  const hasDesc = !!card.description?.trim();
+  const descY = metaY - f(42);
+  if (hasDesc) {
+    setFont(26, 500);
+    ctx.fillStyle = "rgba(255,255,255,0.78)";
+    const full = card.description.trim();
+    let dek = full;
+    while (ctx.measureText(dek).width > maxW && dek.length > 4) dek = dek.slice(0, -2);
+    if (dek !== full) dek = dek.slice(0, -1) + "…";
+    ctx.fillText(dek, P, descY);
+  }
+
+  // title block sits above the dek/meta, drawn bottom-up
+  const titleBottom = (hasDesc ? descY : metaY) - f(36);
+  setFont(78, 800);
+  ctx.fillStyle = "#ffffff";
+  for (let i = 0; i < lines.length; i++) {
+    const y = titleBottom - (lines.length - 1 - i) * titleLineH;
+    ctx.fillText(lines[i], P, y);
+  }
+
+  // creator handle — tertiary kicker above the title.
+  const topTitleY = titleBottom - (lines.length - 1) * titleLineH;
+  if (card.skater) {
+    setFont(30, 700);
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.fillText(card.skater, P, topTitleY - titleLineH * 0.62);
+  }
+
+  // serial — whisper-quiet, top-right (optional).
+  if (!hidden.has("serial") && card.serial) {
+    setFont(15, 500, true);
+    ctx.fillStyle = "rgba(255,255,255,0.45)";
     ctx.textAlign = "right";
-    ctx.fillText("∞", rx, fy);
+    ctx.fillText(`№ ${card.serial}`, W - P, topSafe + f(22));
     ctx.textAlign = "left";
   }
 
-  // 11) watermark (bottom safe zone).
+  // watermark — tucked in the bottom safe zone, very quiet.
   if (!hidden.has("watermark")) {
-    font(mono(15, 500));
-    ctx.fillStyle = SH.steel;
-    ctx.textAlign = "center";
-    ctx.fillText("@skatehive · skatehive.app", W / 2, H - botSafe + f(20));
+    setFont(15, 500, true);
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.textAlign = "right";
+    ctx.fillText("skatehive.app", W - P, metaY);
     ctx.textAlign = "left";
   }
 }
@@ -3839,18 +3699,6 @@ function CardInspector({
       {field("▲", card.upvotes, "upvotes", "w-14")}
       {field("time", card.runtime, "runtime", "w-14")}
       {field("№", card.serial, "serial", "w-16")}
-      <label className="flex items-center gap-1 text-foreground-muted">
-        rarity
-        <select
-          value={card.rarity}
-          onChange={(e) => onChange({ rarity: e.target.value as Rarity })}
-          className="rounded-md border border-border bg-surface-elevated px-1.5 py-1 text-xs text-foreground"
-        >
-          <option>Rare</option>
-          <option>Epic</option>
-          <option>Legendary</option>
-        </select>
-      </label>
       <span className="flex items-center gap-1">
         accent
         {CARD_ACCENTS.map((c) => (
@@ -3876,14 +3724,6 @@ function CardInspector({
           value={card.fontScale}
           onChange={(e) => onChange({ fontScale: Number(e.target.value) })}
         />
-      </label>
-      <label className="flex items-center gap-1.5 text-foreground-muted">
-        <input
-          type="checkbox"
-          checked={card.motion}
-          onChange={(e) => onChange({ motion: e.target.checked })}
-        />
-        motion
       </label>
       <span className="flex items-center gap-1.5 text-foreground-faint">
         hide:
