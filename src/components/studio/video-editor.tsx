@@ -137,29 +137,32 @@ const CARD_STYLE_META: Record<CardStyle, { name: string; note: string; defaultAc
   gold: { name: "Gold Legendary Foil", note: "Gilded frame + medallion seal", defaultAccent: "#ffd86b" },
 };
 
-/** Card + art-window rects (canvas px) for the current aspect, with safe zones. */
+// Reference palette (reel.css).
+const SH = {
+  lime: "#a3e635",
+  lime2: "#bdf25a",
+  ink: "#0b0c0a",
+  cream: "#f1f2ea",
+  steel: "#869072",
+  desc: "#c2cbb2",
+};
+
+/** Full-bleed card layout: the card fills the whole canvas; the reel's
+ *  internal regions (head, art window, title, stats, foot) reflow within it,
+ *  with the eyebrow/watermark in the IG safe zones. */
 function cardLayout(w: number, h: number) {
-  const ratio = w / h;
-  let cx: number, cy: number, cw: number, ch: number;
-  if (ratio <= 0.62) {
-    // 9:16 reel — matches the Holo reference (14.3/15.6/71.5/68.8%)
-    cx = 0.143; cy = 0.156; cw = 0.715; ch = 0.688;
-  } else if (ratio < 0.92) {
-    cx = 0.09; cy = 0.10; cw = 0.82; ch = 0.80; // 4:5 feed
-  } else if (ratio < 1.25) {
-    cx = 0.10; cy = 0.07; cw = 0.80; ch = 0.86; // 1:1 square
-  } else {
-    cx = 0.30; cy = 0.07; cw = 0.40; ch = 0.86; // 16:9 landscape
-  }
-  const card = { x: cx * w, y: cy * h, w: cw * w, h: ch * h };
-  // Art window inset within the card: title + stats live below it.
-  const art = {
-    x: card.x + card.w * 0.045,
-    y: card.y + card.h * 0.085,
-    w: card.w * 0.91,
-    h: card.h * 0.6,
-  };
-  return { card, art, ratio };
+  const P = Math.round(w * 0.055); // padding
+  const topSafe = Math.round(h * 0.06);
+  const botSafe = Math.round(h * 0.075);
+  const headTop = topSafe + Math.round(h * 0.045); // below eyebrow
+  const headH = Math.round(h * 0.07);
+  const artTop = headTop + headH + Math.round(h * 0.012);
+  // Reserve the bottom band for title + desc + stats + foot + watermark.
+  const textBand = Math.round(h * 0.3);
+  const artH = Math.max(h - botSafe - textBand - artTop, Math.round(h * 0.18));
+  const card = { x: 0, y: 0, w, h };
+  const art = { x: P, y: artTop, w: w - 2 * P, h: artH };
+  return { card, art, P, topSafe, botSafe, headTop, headH };
 }
 
 function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -188,7 +191,7 @@ function drawCoverInRect(
   ctx.drawImage(el, dx, dy, dw, dh);
 }
 
-/** Render a trading-card overlay onto the canvas (clip-in-window + chrome). */
+/** Render the SkateHive "Holo Rare" reel card full-bleed (reel.css faithful). */
 function drawCard(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -199,199 +202,304 @@ function drawCard(
   nowMs: number,
   brandName: string,
 ) {
-  const { card: cr, art } = cardLayout(W, H);
-  const accent = card.accent || "#a3e635";
+  const { art, P, topSafe, botSafe, headTop, headH } = cardLayout(W, H);
+  const accent = card.accent || SH.lime;
   const accent2 = RARITY[card.rarity].accent2;
   const fs = card.fontScale || 1;
   const hidden = new Set(card.hidden ?? []);
-  const radius = Math.min(34, cr.w * 0.05);
-  const px = (n: number) => n * (W / 1080); // scale type to canvas width
+  const S = Math.min(W, H) / 1080; // type scale (1 for all IG presets)
+  const f = (n: number) => n * S * fs;
+  const hank = (px: number, weight = 800) =>
+    `${weight} ${f(px)}px 'Hanken Grotesk', system-ui, sans-serif`;
+  const mono = (px: number, weight = 700) =>
+    `${weight} ${f(px)}px 'JetBrains Mono', ui-monospace, monospace`;
   const ready = clipEl && clipEl.readyState >= 2;
+  const font = ((spec: string) => { ctx.font = spec; });
 
-  // 1) ambient background — same clip, blurred + darkened.
-  if (ready) {
-    ctx.save();
-    ctx.filter = "blur(36px)";
-    drawCoverInRect(ctx, clipEl!, -40, -40, W + 80, H + 80, { offsetX: 0, offsetY: 0, scale: 1.1 });
-    ctx.restore();
-  }
-  ctx.fillStyle = "rgba(8,10,7,0.74)";
+  // 1) card background — radial gradient filling the whole canvas.
+  const bg = ctx.createRadialGradient(W * 0.5, -H * 0.08, 0, W * 0.5, H * 0.42, H * 0.95);
+  bg.addColorStop(0, "#1c2412");
+  bg.addColorStop(0.46, "#0c0f0a");
+  bg.addColorStop(1, "#050604");
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // 2) glow aura behind card (pulsing).
+  // 2) holographic foil — animated diagonal multi-hue bands, additive.
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.16;
+  const shift = ((nowMs / 8000) % 1) * W * 2;
+  const foil = ctx.createLinearGradient(-W + shift, 0, W + shift, H);
+  foil.addColorStop(0.0, "rgba(255,0,128,0)");
+  foil.addColorStop(0.18, "rgba(255,0,128,0.5)");
+  foil.addColorStop(0.32, accent2);
+  foil.addColorStop(0.46, "rgba(163,230,53,0.6)");
+  foil.addColorStop(0.6, "rgba(80,120,255,0.45)");
+  foil.addColorStop(0.78, "rgba(255,0,128,0)");
+  ctx.fillStyle = foil;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // 3) glare sweep — overlay white diagonal.
+  ctx.save();
+  ctx.globalCompositeOperation = "overlay";
+  ctx.globalAlpha = 0.28;
+  const gshift = ((1 - (nowMs / 8000) % 1)) * W * 1.6 - W * 0.3;
+  const glare = ctx.createLinearGradient(gshift, 0, gshift + W * 0.5, H);
+  glare.addColorStop(0, "rgba(255,255,255,0)");
+  glare.addColorStop(0.5, "rgba(255,255,255,0.9)");
+  glare.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = glare;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // 4) pulsing ring/aura inset from the frame edge.
   const pulse = 0.5 + 0.5 * Math.sin((nowMs / 3400) * Math.PI * 2);
   ctx.save();
-  ctx.filter = `blur(${px(60)}px)`;
-  ctx.globalAlpha = 0.35 + pulse * 0.4;
-  ctx.fillStyle = accent;
-  roundRectPath(ctx, cr.x - px(24), cr.y - px(24), cr.w + px(48), cr.h + px(48), radius + 20);
-  ctx.fill();
-  ctx.restore();
-
-  // 3) card body.
-  const grad = ctx.createLinearGradient(cr.x, cr.y, cr.x, cr.y + cr.h);
-  grad.addColorStop(0, "rgba(20,24,16,0.96)");
-  grad.addColorStop(1, "rgba(8,10,7,0.98)");
-  roundRectPath(ctx, cr.x, cr.y, cr.w, cr.h, radius);
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  // 4) holographic foil sweep (animated diagonal stripe), clipped to card.
-  ctx.save();
-  roundRectPath(ctx, cr.x, cr.y, cr.w, cr.h, radius);
-  ctx.clip();
-  const sweep = ((nowMs / 8000) % 1) * (cr.w + cr.h) - cr.h;
-  const foil = ctx.createLinearGradient(cr.x + sweep, cr.y, cr.x + sweep + cr.w * 0.5, cr.y + cr.h);
-  foil.addColorStop(0, "rgba(255,255,255,0)");
-  foil.addColorStop(0.5, `${accent2}33`);
-  foil.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = foil;
-  ctx.fillRect(cr.x, cr.y, cr.w, cr.h);
-  ctx.restore();
-
-  // border (breathing).
-  roundRectPath(ctx, cr.x, cr.y, cr.w, cr.h, radius);
-  ctx.lineWidth = px(2.5);
+  ctx.globalAlpha = 0.2 + pulse * 0.3;
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = f(60);
+  ctx.lineWidth = f(3);
   ctx.strokeStyle = accent;
-  ctx.globalAlpha = 0.6 + pulse * 0.4;
+  roundRectPath(ctx, f(10), f(10), W - f(20), H - f(20), f(28));
   ctx.stroke();
-  ctx.globalAlpha = 1;
+  ctx.restore();
 
-  // 5) eyebrow (top, inside safe zone).
+  const lx = P;
+  const rx = W - P;
+
+  // 5) eyebrow (top safe zone): logo dot + SKATEHIVE + RARE DROP pill.
   if (!hidden.has("eyebrow")) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const ey = topSafe + f(10);
+    font(hank(18, 800));
+    const brand = (brandName || "SKATEHIVE").toUpperCase();
+    const pill = "RARE DROP";
+    const bw = ctx.measureText(brand).width;
+    font(mono(12, 800));
+    const pw = ctx.measureText(pill).width + f(22);
+    const gap = f(14);
+    const dot = f(34);
+    const totalW = dot + gap + bw + gap + pw;
+    let cxp = W / 2 - totalW / 2;
+    // logo dot
+    ctx.beginPath();
+    ctx.arc(cxp + dot / 2, ey, dot / 2, 0, Math.PI * 2);
     ctx.fillStyle = accent;
-    ctx.font = `700 ${px(20 * fs)}px 'Hanken Grotesk', system-ui, sans-serif`;
+    ctx.fill();
+    ctx.fillStyle = SH.ink;
+    font(hank(15, 800));
+    ctx.fillText("SH", cxp + dot / 2, ey + f(1));
+    cxp += dot + gap;
+    // brand
     ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
-    ctx.fillText(`${brandName.toUpperCase() || "SKATEHIVE"} · RARE DROP`, cr.x + px(8), cr.y - px(14));
+    font(hank(18, 800));
+    ctx.fillStyle = "#dff3b4";
+    ctx.fillText(brand, cxp, ey);
+    cxp += bw + gap;
+    // pill
+    roundRectPath(ctx, cxp, ey - f(13), pw, f(26), f(13));
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.fillStyle = SH.ink;
+    font(mono(12, 800));
+    ctx.textAlign = "left";
+    ctx.fillText(pill, cxp + f(11), ey + f(1));
   }
 
-  // 6) art window — clip cropped into the window, rounded.
-  const winR = radius * 0.6;
+  // 6) head: handle + cast line (left), gems + rarity label (right).
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "left";
+  font(hank(42, 800));
+  ctx.fillStyle = SH.lime2;
+  ctx.shadowColor = "rgba(163,230,53,0.55)";
+  ctx.shadowBlur = f(24);
+  const handle = card.skater || "@skater";
+  let hl = handle;
+  const headRightW = f(150);
+  while (ctx.measureText(hl).width > W - 2 * P - headRightW && hl.length > 3) hl = hl.slice(0, -1);
+  ctx.fillText(hl, lx, headTop + f(34));
+  ctx.shadowBlur = 0;
+  font(hank(14, 700));
+  ctx.fillStyle = SH.steel;
+  ctx.fillText("SKATEHIVE CAST", lx, headTop + f(56));
+  // gems + rarity (right aligned)
+  const gems = RARITY[card.rarity].gems;
+  const gemSize = f(15);
+  let gx = rx;
+  ctx.save();
+  for (let i = gems - 1; i >= 0; i--) {
+    gx -= gemSize + f(5);
+    ctx.save();
+    ctx.translate(gx + gemSize / 2, headTop + f(14));
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = accent;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = f(12);
+    roundRectPath(ctx, -gemSize / 2, -gemSize / 2, gemSize, gemSize, f(3));
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+  // rarity label box
+  const rlabel = RARITY[card.rarity].label;
+  font(mono(13, 800));
+  const rlw = ctx.measureText(rlabel).width + f(22);
+  roundRectPath(ctx, rx - rlw, headTop + f(30), rlw, f(28), f(8));
+  ctx.fillStyle = "rgba(163,230,53,0.08)";
+  ctx.fill();
+  ctx.lineWidth = f(1.5);
+  ctx.strokeStyle = accent2;
+  ctx.stroke();
+  ctx.fillStyle = "#dff3b4";
+  ctx.textAlign = "left";
+  ctx.fillText(rlabel, rx - rlw + f(11), headTop + f(49));
+
+  // 7) art window — clip cover-fit, rounded, lime border + inner shadow.
+  const winR = f(18);
   ctx.save();
   roundRectPath(ctx, art.x, art.y, art.w, art.h, winR);
   ctx.clip();
   if (ready) {
     drawCoverInRect(ctx, clipEl!, art.x, art.y, art.w, art.h, framing);
+    // top vignette
+    const vg = ctx.createRadialGradient(art.x + art.w / 2, art.y + art.h * 0.16, 0, art.x + art.w / 2, art.y + art.h * 0.16, art.h);
+    vg.addColorStop(0.42, "rgba(0,0,0,0)");
+    vg.addColorStop(1, "rgba(0,0,0,0.5)");
+    ctx.fillStyle = vg;
+    ctx.fillRect(art.x, art.y, art.w, art.h);
   } else {
     ctx.fillStyle = "#111";
     ctx.fillRect(art.x, art.y, art.w, art.h);
   }
   ctx.restore();
   roundRectPath(ctx, art.x, art.y, art.w, art.h, winR);
-  ctx.lineWidth = px(2);
-  ctx.strokeStyle = `${accent}aa`;
+  ctx.lineWidth = f(2.5);
+  ctx.strokeStyle = "rgba(163,230,53,0.7)";
+  ctx.shadowColor = "rgba(163,230,53,0.25)";
+  ctx.shadowBlur = f(30);
   ctx.stroke();
+  ctx.shadowBlur = 0;
 
-  // 7) set-symbol badge (logo) bottom-right of the window.
-  const badgeR = px(26);
-  const bx = art.x + art.w - badgeR - px(14);
-  const by = art.y + art.h - badgeR - px(14);
-  ctx.beginPath();
-  ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+  // type badge (top-left of window)
+  if (!hidden.has("type") && card.type) {
+    font(hank(15, 800));
+    const tt = card.type.toUpperCase();
+    const tw = ctx.measureText(tt).width + f(26);
+    roundRectPath(ctx, art.x + f(16), art.y + f(16), tw, f(30), f(9));
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.fillStyle = SH.ink;
+    ctx.textAlign = "left";
+    ctx.fillText(tt, art.x + f(16) + f(13), art.y + f(16) + f(21));
+  }
+  // set-symbol badge (bottom-right of window)
+  const setS = f(62);
+  const setX = art.x + art.w - setS - f(14);
+  const setY = art.y + art.h - setS - f(14);
+  roundRectPath(ctx, setX, setY, setS, setS, f(13));
   ctx.fillStyle = "rgba(8,10,7,0.85)";
   ctx.fill();
-  ctx.lineWidth = px(2);
-  ctx.strokeStyle = accent;
+  ctx.lineWidth = f(2);
+  ctx.strokeStyle = "rgba(163,230,53,0.65)";
   ctx.stroke();
   ctx.fillStyle = accent;
-  ctx.font = `800 ${px(18)}px 'Hanken Grotesk', system-ui, sans-serif`;
+  font(hank(26, 800));
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("SH", bx, by + px(1));
-
-  // 8) text region below the window.
-  let ty = art.y + art.h + px(40 * fs);
-  ctx.textAlign = "left";
+  ctx.fillText("SH", setX + setS / 2, setY + setS / 2 + f(1));
   ctx.textBaseline = "alphabetic";
-  const lx = cr.x + px(28);
-  // skater handle
-  ctx.fillStyle = accent;
-  ctx.font = `700 ${px(22 * fs)}px 'JetBrains Mono', monospace`;
-  ctx.fillText(card.skater || "@skater", lx, ty);
-  ty += px(38 * fs);
-  // title
-  ctx.fillStyle = "#f4f7ee";
-  ctx.font = `800 ${px(34 * fs)}px 'Hanken Grotesk', system-ui, sans-serif`;
+  ctx.textAlign = "left";
+
+  // 8) title block below the window.
+  let ty = art.y + art.h + f(46);
+  ctx.fillStyle = SH.cream;
+  font(hank(38, 800));
+  const maxW = W - 2 * P;
   const title = (card.title || "UNTITLED").toUpperCase();
-  const maxW = cr.w - px(56);
-  let line = title;
-  while (ctx.measureText(line).width > maxW && line.length > 4) line = line.slice(0, -2);
-  if (line !== title) line = line.slice(0, -1) + "…";
-  ctx.fillText(line, lx, ty);
-  ty += px(30 * fs);
-  // description (2 lines, clamped)
+  let tline = title;
+  while (ctx.measureText(tline).width > maxW && tline.length > 4) tline = tline.slice(0, -2);
+  if (tline !== title) tline = tline.slice(0, -1) + "…";
+  ctx.fillText(tline, lx, ty);
+  ty += f(30);
   if (card.description) {
-    ctx.fillStyle = "rgba(244,247,238,0.7)";
-    ctx.font = `400 ${px(19 * fs)}px 'Hanken Grotesk', system-ui, sans-serif`;
+    ctx.fillStyle = SH.desc;
+    font(hank(19, 500));
     const words = card.description.split(/\s+/);
     let dl = "";
-    let lines = 0;
+    let ln = 0;
     for (const word of words) {
       const test = dl ? `${dl} ${word}` : word;
       if (ctx.measureText(test).width > maxW) {
         ctx.fillText(dl, lx, ty);
-        ty += px(24 * fs);
+        ty += f(26);
         dl = word;
-        if (++lines >= 2) { dl = dl + "…"; break; }
+        if (++ln >= 3) { dl = dl + "…"; break; }
       } else dl = test;
     }
-    if (dl && lines < 2) { ctx.fillText(dl, lx, ty); ty += px(24 * fs); }
+    if (dl && ln < 3) { ctx.fillText(dl, lx, ty); ty += f(26); }
   }
 
-  // 9) stats row near the card bottom.
-  const statY = cr.y + cr.h - px(56);
+  // 9) stats row — 3 columns (UPVOTES / RUNTIME / STANCE).
   if (!hidden.has("stats")) {
-    ctx.font = `700 ${px(20 * fs)}px 'JetBrains Mono', monospace`;
+    const stats: [string, string][] = [
+      ["UPVOTES", card.upvotes || "0"],
+      ["RUNTIME", card.runtime || "0:00"],
+      ["STANCE", (card.type || "—").toUpperCase()],
+    ];
+    const gap = f(11);
+    const colW = (maxW - gap * 2) / 3;
+    const sy = H - botSafe - f(110);
+    const boxH = f(64);
+    stats.forEach(([label, val], i) => {
+      const bx = lx + i * (colW + gap);
+      roundRectPath(ctx, bx, sy, colW, boxH, f(13));
+      ctx.fillStyle = "rgba(163,230,53,0.07)";
+      ctx.fill();
+      ctx.lineWidth = f(1.5);
+      ctx.strokeStyle = "rgba(163,230,53,0.26)";
+      ctx.stroke();
+      ctx.textAlign = "center";
+      ctx.fillStyle = SH.lime2;
+      font(mono(26, 800));
+      let v = val;
+      while (ctx.measureText(v).width > colW - f(12) && v.length > 1) v = v.slice(0, -1);
+      ctx.fillText(v, bx + colW / 2, sy + f(30));
+      ctx.fillStyle = SH.steel;
+      font(hank(11, 800));
+      ctx.fillText(label, bx + colW / 2, sy + f(52));
+    });
+    ctx.textAlign = "left";
+  }
+
+  // 10) foot: serial + ∞, with a top divider.
+  if (!hidden.has("serial")) {
+    const fy = H - botSafe - f(34);
+    ctx.strokeStyle = "rgba(163,230,53,0.18)";
+    ctx.lineWidth = f(1.5);
+    ctx.beginPath();
+    ctx.moveTo(lx, fy - f(18));
+    ctx.lineTo(rx, fy - f(18));
+    ctx.stroke();
+    font(mono(14, 800));
     ctx.fillStyle = accent;
     ctx.textAlign = "left";
-    ctx.fillText(`▲ ${card.upvotes || "0"}`, lx, statY);
-    ctx.fillStyle = "rgba(244,247,238,0.85)";
-    ctx.fillText(card.runtime || "0:00", lx + px(120), statY);
-    if (!hidden.has("type") && card.type) {
-      const tagW = ctx.measureText(card.type.toUpperCase()).width + px(20);
-      const tagX = cr.x + cr.w - tagW - px(28);
-      roundRectPath(ctx, tagX, statY - px(20), tagW, px(28), px(8));
-      ctx.fillStyle = `${accent}33`;
-      ctx.fill();
-      ctx.fillStyle = accent;
-      ctx.fillText(card.type.toUpperCase(), tagX + px(10), statY);
-    }
-  }
-
-  // 10) rarity gems + label (just under the title region / above stats).
-  const gemY = statY - px(36);
-  ctx.textAlign = "left";
-  for (let i = 0; i < RARITY[card.rarity].gems; i++) {
-    ctx.beginPath();
-    ctx.arc(lx + px(10) + i * px(22), gemY, px(6), 0, Math.PI * 2);
-    ctx.fillStyle = i % 2 ? accent2 : accent;
-    ctx.fill();
-  }
-  ctx.font = `700 ${px(15 * fs)}px 'JetBrains Mono', monospace`;
-  ctx.fillStyle = "rgba(244,247,238,0.6)";
-  ctx.fillText(
-    RARITY[card.rarity].label,
-    lx + px(10) + RARITY[card.rarity].gems * px(22) + px(8),
-    gemY + px(5),
-  );
-
-  // 11) serial (card corner).
-  if (!hidden.has("serial")) {
-    ctx.font = `500 ${px(14)}px 'JetBrains Mono', monospace`;
-    ctx.fillStyle = "rgba(244,247,238,0.45)";
+    ctx.fillText(`№ ${card.serial || "0000"}`, lx, fy);
+    ctx.fillStyle = SH.steel;
     ctx.textAlign = "right";
-    ctx.fillText(`#${card.serial || "0000"}`, cr.x + cr.w - px(20), cr.y + px(28));
+    ctx.fillText("∞", rx, fy);
+    ctx.textAlign = "left";
   }
 
-  // 12) watermark below the card, inside the bottom safe zone.
+  // 11) watermark (bottom safe zone).
   if (!hidden.has("watermark")) {
-    ctx.font = `500 ${px(16)}px 'JetBrains Mono', monospace`;
-    ctx.fillStyle = "rgba(244,247,238,0.5)";
+    font(mono(15, 500));
+    ctx.fillStyle = SH.steel;
     ctx.textAlign = "center";
-    ctx.fillText("@skatehive · skatehive.app", W / 2, cr.y + cr.h + px(44));
+    ctx.fillText("@skatehive · skatehive.app", W / 2, H - botSafe + f(20));
+    ctx.textAlign = "left";
   }
-  ctx.textAlign = "left";
 }
 
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
@@ -809,6 +917,32 @@ export function VideoEditor({
   stateRef.current = { clips, overlays, audios, bin, aspect, selection, overlayTracks };
 
   const totalDuration = useMemo(() => clips.reduce((s, c) => s + (c.out - c.in), 0), [clips]);
+
+  // Load the card's reference fonts so the canvas renders them (Hanken
+  // Grotesk + JetBrains Mono) instead of falling back to system sans/mono.
+  useEffect(() => {
+    if (cardStyles.length === 0 || typeof document === "undefined") return;
+    const id = "studio-card-fonts";
+    if (!document.getElementById(id)) {
+      const link = document.createElement("link");
+      link.id = id;
+      link.rel = "stylesheet";
+      link.href =
+        "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap";
+      document.head.appendChild(link);
+    }
+    // Warm the specific weights the canvas draws with.
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    if (fonts?.load) {
+      [
+        "800 42px 'Hanken Grotesk'",
+        "700 18px 'Hanken Grotesk'",
+        "500 19px 'Hanken Grotesk'",
+        "800 26px 'JetBrains Mono'",
+        "700 14px 'JetBrains Mono'",
+      ].forEach((s) => fonts.load(s).catch(() => {}));
+    }
+  }, [cardStyles.length]);
 
   // --- audio graph -----------------------------------------------------------
 
