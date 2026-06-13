@@ -1776,9 +1776,15 @@ function computeSteps(postType: PostType): StepId[] {
 export function PostCreator({
   agentName,
   igHandle,
+  cardStyles = [],
+  brandName = "",
+  brandAccent = "#a3e635",
 }: {
   agentName: string;
   igHandle: string;
+  cardStyles?: ("holo" | "pixel" | "gold")[];
+  brandName?: string;
+  brandAccent?: string;
 }) {
   // ── View state ──────────────────────────────────────────────────────────
   const [viewTab, setViewTab] = useState<ViewTab>("create");
@@ -3731,7 +3737,12 @@ export function PostCreator({
             {studioMode === "design" ? (
               <StudioEditor onUseInPost={handleUseInPost} />
             ) : (
-              <StudioVideoEditor onUseInPost={handleUseInPost} />
+              <StudioVideoEditor
+                onUseInPost={handleUseInPost}
+                cardStyles={cardStyles}
+                brandName={brandName}
+                brandAccent={brandAccent}
+              />
             )}
           </div>
           <StudioToaster />

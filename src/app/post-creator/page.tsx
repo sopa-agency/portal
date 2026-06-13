@@ -17,6 +17,15 @@ export default async function PostCreatorPage() {
   );
   const igHandle = igChannel?.handle ?? `@${project.slug}`;
 
+  // Studio card-overlay templates: full set for SkateHive, a single simpler
+  // style for Gnars, none elsewhere.
+  const cardStyles =
+    project.slug === "skatehive"
+      ? (["holo", "pixel", "gold"] as const)
+      : project.slug === "gnars"
+        ? (["holo"] as const)
+        : ([] as const);
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -24,7 +33,13 @@ export default async function PostCreatorPage() {
         title="Post Creator"
         description="Compose, preview, and publish Instagram posts — single image, carousel, or reel."
       />
-      <PostCreator agentName={project.agent.displayName} igHandle={igHandle} />
+      <PostCreator
+        agentName={project.agent.displayName}
+        igHandle={igHandle}
+        cardStyles={[...cardStyles]}
+        brandName={project.name}
+        brandAccent={project.theme.accentDark}
+      />
     </div>
   );
 }

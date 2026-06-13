@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Save,
   Scissors,
+  Sparkles,
   Send,
   Square,
   Trash2,
@@ -79,9 +80,29 @@ type Clip = {
   offsetY?: number;
   scale?: number;
 };
+type CardStyle = "holo" | "pixel" | "gold";
+type Rarity = "Rare" | "Epic" | "Legendary";
+
+/** Trading-card overlay that frames the clip as a rare TCG card. */
+type CardData = {
+  style: CardStyle;
+  skater: string;
+  title: string;
+  description: string;
+  type: string; // discipline tag e.g. STREET
+  upvotes: string;
+  runtime: string;
+  serial: string;
+  rarity: Rarity;
+  motion: boolean;
+  accent: string; // holo/brand hue
+  fontScale: number;
+  hidden: string[]; // element ids to hide: eyebrow watermark stats serial type
+};
+
 type Overlay = {
   id: string;
-  kind: "image" | "text" | "shape";
+  kind: "image" | "text" | "shape" | "card";
   /** Which overlay track this layer lives on. */
   trackId: string;
   binId?: string;
@@ -91,6 +112,8 @@ type Overlay = {
   hRatio?: number;
   /** Text content (kind text) — supports \n for multi-line. */
   text?: string;
+  /** Card payload (kind card). */
+  card?: CardData;
   color: string;
   bg: boolean;
   start: number;
@@ -101,6 +124,275 @@ type Overlay = {
   opacity: number;
   rotation: number; // radians
 };
+
+const RARITY: Record<Rarity, { label: string; gems: number; accent2: string }> = {
+  Rare: { label: "HOLO RARE", gems: 4, accent2: "#7cf2d8" },
+  Epic: { label: "EPIC FOIL", gems: 5, accent2: "#b98cff" },
+  Legendary: { label: "LEGENDARY", gems: 6, accent2: "#ffd86b" },
+};
+
+const CARD_STYLE_META: Record<CardStyle, { name: string; note: string; defaultAccent: string }> = {
+  holo: { name: "Neon Holo Rare", note: "Lime holographic foil + glow", defaultAccent: "#a3e635" },
+  pixel: { name: "Pixel Arcade Legend", note: "8-bit border + CRT scanlines", defaultAccent: "#bdf25a" },
+  gold: { name: "Gold Legendary Foil", note: "Gilded frame + medallion seal", defaultAccent: "#ffd86b" },
+};
+
+/** Card + art-window rects (canvas px) for the current aspect, with safe zones. */
+function cardLayout(w: number, h: number) {
+  const ratio = w / h;
+  let cx: number, cy: number, cw: number, ch: number;
+  if (ratio <= 0.62) {
+    // 9:16 reel — matches the Holo reference (14.3/15.6/71.5/68.8%)
+    cx = 0.143; cy = 0.156; cw = 0.715; ch = 0.688;
+  } else if (ratio < 0.92) {
+    cx = 0.09; cy = 0.10; cw = 0.82; ch = 0.80; // 4:5 feed
+  } else if (ratio < 1.25) {
+    cx = 0.10; cy = 0.07; cw = 0.80; ch = 0.86; // 1:1 square
+  } else {
+    cx = 0.30; cy = 0.07; cw = 0.40; ch = 0.86; // 16:9 landscape
+  }
+  const card = { x: cx * w, y: cy * h, w: cw * w, h: ch * h };
+  // Art window inset within the card: title + stats live below it.
+  const art = {
+    x: card.x + card.w * 0.045,
+    y: card.y + card.h * 0.085,
+    w: card.w * 0.91,
+    h: card.h * 0.6,
+  };
+  return { card, art, ratio };
+}
+
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+}
+
+/** Cover-fit a video element into a rect with pan/zoom, clipped. */
+function drawCoverInRect(
+  ctx: CanvasRenderingContext2D,
+  el: HTMLVideoElement,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+  framing: { offsetX: number; offsetY: number; scale: number },
+) {
+  const vr = el.videoWidth / el.videoHeight || 1;
+  const rr = rw / rh;
+  const scale = framing.scale || 1;
+  let dw = rw, dh = rh;
+  if (vr > rr) { dh = rh; dw = rh * vr; } else { dw = rw; dh = rw / vr; }
+  dw *= scale; dh *= scale;
+  const dx = rx + (rw - dw) / 2 + (framing.offsetX * (dw - rw)) / 2;
+  const dy = ry + (rh - dh) / 2 + (framing.offsetY * (dh - rh)) / 2;
+  ctx.drawImage(el, dx, dy, dw, dh);
+}
+
+/** Render a trading-card overlay onto the canvas (clip-in-window + chrome). */
+function drawCard(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  card: CardData,
+  clipEl: HTMLVideoElement | null,
+  framing: { offsetX: number; offsetY: number; scale: number },
+  nowMs: number,
+  brandName: string,
+) {
+  const { card: cr, art } = cardLayout(W, H);
+  const accent = card.accent || "#a3e635";
+  const accent2 = RARITY[card.rarity].accent2;
+  const fs = card.fontScale || 1;
+  const hidden = new Set(card.hidden ?? []);
+  const radius = Math.min(34, cr.w * 0.05);
+  const px = (n: number) => n * (W / 1080); // scale type to canvas width
+  const ready = clipEl && clipEl.readyState >= 2;
+
+  // 1) ambient background — same clip, blurred + darkened.
+  if (ready) {
+    ctx.save();
+    ctx.filter = "blur(36px)";
+    drawCoverInRect(ctx, clipEl!, -40, -40, W + 80, H + 80, { offsetX: 0, offsetY: 0, scale: 1.1 });
+    ctx.restore();
+  }
+  ctx.fillStyle = "rgba(8,10,7,0.74)";
+  ctx.fillRect(0, 0, W, H);
+
+  // 2) glow aura behind card (pulsing).
+  const pulse = 0.5 + 0.5 * Math.sin((nowMs / 3400) * Math.PI * 2);
+  ctx.save();
+  ctx.filter = `blur(${px(60)}px)`;
+  ctx.globalAlpha = 0.35 + pulse * 0.4;
+  ctx.fillStyle = accent;
+  roundRectPath(ctx, cr.x - px(24), cr.y - px(24), cr.w + px(48), cr.h + px(48), radius + 20);
+  ctx.fill();
+  ctx.restore();
+
+  // 3) card body.
+  const grad = ctx.createLinearGradient(cr.x, cr.y, cr.x, cr.y + cr.h);
+  grad.addColorStop(0, "rgba(20,24,16,0.96)");
+  grad.addColorStop(1, "rgba(8,10,7,0.98)");
+  roundRectPath(ctx, cr.x, cr.y, cr.w, cr.h, radius);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // 4) holographic foil sweep (animated diagonal stripe), clipped to card.
+  ctx.save();
+  roundRectPath(ctx, cr.x, cr.y, cr.w, cr.h, radius);
+  ctx.clip();
+  const sweep = ((nowMs / 8000) % 1) * (cr.w + cr.h) - cr.h;
+  const foil = ctx.createLinearGradient(cr.x + sweep, cr.y, cr.x + sweep + cr.w * 0.5, cr.y + cr.h);
+  foil.addColorStop(0, "rgba(255,255,255,0)");
+  foil.addColorStop(0.5, `${accent2}33`);
+  foil.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = foil;
+  ctx.fillRect(cr.x, cr.y, cr.w, cr.h);
+  ctx.restore();
+
+  // border (breathing).
+  roundRectPath(ctx, cr.x, cr.y, cr.w, cr.h, radius);
+  ctx.lineWidth = px(2.5);
+  ctx.strokeStyle = accent;
+  ctx.globalAlpha = 0.6 + pulse * 0.4;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // 5) eyebrow (top, inside safe zone).
+  if (!hidden.has("eyebrow")) {
+    ctx.fillStyle = accent;
+    ctx.font = `700 ${px(20 * fs)}px 'Hanken Grotesk', system-ui, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(`${brandName.toUpperCase() || "SKATEHIVE"} · RARE DROP`, cr.x + px(8), cr.y - px(14));
+  }
+
+  // 6) art window — clip cropped into the window, rounded.
+  const winR = radius * 0.6;
+  ctx.save();
+  roundRectPath(ctx, art.x, art.y, art.w, art.h, winR);
+  ctx.clip();
+  if (ready) {
+    drawCoverInRect(ctx, clipEl!, art.x, art.y, art.w, art.h, framing);
+  } else {
+    ctx.fillStyle = "#111";
+    ctx.fillRect(art.x, art.y, art.w, art.h);
+  }
+  ctx.restore();
+  roundRectPath(ctx, art.x, art.y, art.w, art.h, winR);
+  ctx.lineWidth = px(2);
+  ctx.strokeStyle = `${accent}aa`;
+  ctx.stroke();
+
+  // 7) set-symbol badge (logo) bottom-right of the window.
+  const badgeR = px(26);
+  const bx = art.x + art.w - badgeR - px(14);
+  const by = art.y + art.h - badgeR - px(14);
+  ctx.beginPath();
+  ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(8,10,7,0.85)";
+  ctx.fill();
+  ctx.lineWidth = px(2);
+  ctx.strokeStyle = accent;
+  ctx.stroke();
+  ctx.fillStyle = accent;
+  ctx.font = `800 ${px(18)}px 'Hanken Grotesk', system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("SH", bx, by + px(1));
+
+  // 8) text region below the window.
+  let ty = art.y + art.h + px(40 * fs);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  const lx = cr.x + px(28);
+  // skater handle
+  ctx.fillStyle = accent;
+  ctx.font = `700 ${px(22 * fs)}px 'JetBrains Mono', monospace`;
+  ctx.fillText(card.skater || "@skater", lx, ty);
+  ty += px(38 * fs);
+  // title
+  ctx.fillStyle = "#f4f7ee";
+  ctx.font = `800 ${px(34 * fs)}px 'Hanken Grotesk', system-ui, sans-serif`;
+  const title = (card.title || "UNTITLED").toUpperCase();
+  const maxW = cr.w - px(56);
+  let line = title;
+  while (ctx.measureText(line).width > maxW && line.length > 4) line = line.slice(0, -2);
+  if (line !== title) line = line.slice(0, -1) + "…";
+  ctx.fillText(line, lx, ty);
+  ty += px(30 * fs);
+  // description (2 lines, clamped)
+  if (card.description) {
+    ctx.fillStyle = "rgba(244,247,238,0.7)";
+    ctx.font = `400 ${px(19 * fs)}px 'Hanken Grotesk', system-ui, sans-serif`;
+    const words = card.description.split(/\s+/);
+    let dl = "";
+    let lines = 0;
+    for (const word of words) {
+      const test = dl ? `${dl} ${word}` : word;
+      if (ctx.measureText(test).width > maxW) {
+        ctx.fillText(dl, lx, ty);
+        ty += px(24 * fs);
+        dl = word;
+        if (++lines >= 2) { dl = dl + "…"; break; }
+      } else dl = test;
+    }
+    if (dl && lines < 2) { ctx.fillText(dl, lx, ty); ty += px(24 * fs); }
+  }
+
+  // 9) stats row near the card bottom.
+  const statY = cr.y + cr.h - px(56);
+  if (!hidden.has("stats")) {
+    ctx.font = `700 ${px(20 * fs)}px 'JetBrains Mono', monospace`;
+    ctx.fillStyle = accent;
+    ctx.textAlign = "left";
+    ctx.fillText(`▲ ${card.upvotes || "0"}`, lx, statY);
+    ctx.fillStyle = "rgba(244,247,238,0.85)";
+    ctx.fillText(card.runtime || "0:00", lx + px(120), statY);
+    if (!hidden.has("type") && card.type) {
+      const tagW = ctx.measureText(card.type.toUpperCase()).width + px(20);
+      const tagX = cr.x + cr.w - tagW - px(28);
+      roundRectPath(ctx, tagX, statY - px(20), tagW, px(28), px(8));
+      ctx.fillStyle = `${accent}33`;
+      ctx.fill();
+      ctx.fillStyle = accent;
+      ctx.fillText(card.type.toUpperCase(), tagX + px(10), statY);
+    }
+  }
+
+  // 10) rarity gems + label (just under the title region / above stats).
+  const gemY = statY - px(36);
+  ctx.textAlign = "left";
+  for (let i = 0; i < RARITY[card.rarity].gems; i++) {
+    ctx.beginPath();
+    ctx.arc(lx + px(10) + i * px(22), gemY, px(6), 0, Math.PI * 2);
+    ctx.fillStyle = i % 2 ? accent2 : accent;
+    ctx.fill();
+  }
+  ctx.font = `700 ${px(15 * fs)}px 'JetBrains Mono', monospace`;
+  ctx.fillStyle = "rgba(244,247,238,0.6)";
+  ctx.fillText(
+    RARITY[card.rarity].label,
+    lx + px(10) + RARITY[card.rarity].gems * px(22) + px(8),
+    gemY + px(5),
+  );
+
+  // 11) serial (card corner).
+  if (!hidden.has("serial")) {
+    ctx.font = `500 ${px(14)}px 'JetBrains Mono', monospace`;
+    ctx.fillStyle = "rgba(244,247,238,0.45)";
+    ctx.textAlign = "right";
+    ctx.fillText(`#${card.serial || "0000"}`, cr.x + cr.w - px(20), cr.y + px(28));
+  }
+
+  // 12) watermark below the card, inside the bottom safe zone.
+  if (!hidden.has("watermark")) {
+    ctx.font = `500 ${px(16)}px 'JetBrains Mono', monospace`;
+    ctx.fillStyle = "rgba(244,247,238,0.5)";
+    ctx.textAlign = "center";
+    ctx.fillText("@skatehive · skatehive.app", W / 2, cr.y + cr.h + px(44));
+  }
+  ctx.textAlign = "left";
+}
 
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
 
@@ -435,8 +727,14 @@ function ShThumb({ url }: { url: string }) {
 
 export function VideoEditor({
   onUseInPost,
+  cardStyles = [],
+  brandName = "SkateHive",
+  brandAccent = "#a3e635",
 }: {
   onUseInPost?: (files: File[], caption: string) => Promise<void>;
+  cardStyles?: CardStyle[];
+  brandName?: string;
+  brandAccent?: string;
 }) {
   const [bin, setBin] = useState<BinItem[]>([]);
   const [clips, setClips] = useState<Clip[]>([]);
@@ -448,7 +746,9 @@ export function VideoEditor({
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [pps, setPps] = useState(48); // timeline zoom (px per second)
-  const [binTab, setBinTab] = useState<"uploads" | "skatehive" | "art" | "drive">("uploads");
+  const [binTab, setBinTab] = useState<
+    "uploads" | "skatehive" | "art" | "drive" | "templates"
+  >("uploads");
   const [driveFiles, setDriveFiles] = useState<
     { id: string; name: string; mimeType: string; size?: string }[] | null
   >(null);
@@ -650,7 +950,13 @@ export function VideoEditor({
         : clockRef.current.base;
 
     const active = clipAt(t);
-    if (active) {
+    // A card overlay takes over the whole frame (it draws the clip into its
+    // own art window) — suppress the normal full-frame clip draw when one is
+    // active at this time.
+    const activeCard = stateRef.current.overlays.find(
+      (o) => o.kind === "card" && t >= o.start && t <= o.end,
+    );
+    if (active && !activeCard) {
       const item = stateRef.current.bin.find((b) => b.id === active.clip.binId);
       if (item) {
         const el = getVideoEl(item);
@@ -682,6 +988,36 @@ export function VideoEditor({
     for (const ov of ordered) {
       if (t < ov.start || t > ov.end) continue;
       let drewBox: { ow: number; oh: number } | null = null;
+
+      if (ov.kind === "card" && ov.card) {
+        const clip = active ? active.clip : null;
+        const item = clip ? stateRef.current.bin.find((b) => b.id === clip.binId) : null;
+        const el = item ? getVideoEl(item) : null;
+        drawCard(
+          ctx,
+          w,
+          h,
+          ov.card,
+          el,
+          {
+            offsetX: clip?.offsetX ?? 0,
+            offsetY: clip?.offsetY ?? 0,
+            scale: clip?.scale ?? 1,
+          },
+          performance.now(),
+          brandName,
+        );
+        if (sel?.type === "overlay" && sel.id === ov.id) {
+          const { card: cr2 } = cardLayout(w, h);
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = Math.max(2, w / 360);
+          ctx.setLineDash([10, 6]);
+          roundRectPath(ctx, cr2.x, cr2.y, cr2.w, cr2.h, Math.min(34, cr2.w * 0.05));
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        continue;
+      }
 
       if (ov.kind === "text") {
         const fontSize = Math.max(12, ov.w * w * 0.1);
@@ -1101,6 +1437,61 @@ export function VideoEditor({
     setOverlays((prev) => [...prev, ov]);
     setSelection({ type: "overlay", id: ov.id });
   }, []);
+
+  /** Add a trading-card template overlay, prefilled from the active clip. */
+  const addCardTemplate = useCallback(
+    (style: CardStyle) => {
+      const total = stateRef.current.clips.reduce((s, c) => s + (c.out - c.in), 0);
+      const firstClip = stateRef.current.clips[0];
+      const item = firstClip
+        ? stateRef.current.bin.find((b) => b.id === firstClip.binId)
+        : null;
+      const author = item?.credit?.match(/@([\w.-]+)/)?.[1];
+      const votes = item?.credit?.match(/▲\s*(\d+)/)?.[1];
+      const dur = firstClip ? firstClip.out - firstClip.in : item?.duration ?? 0;
+      const runtime = `${Math.floor(dur / 60)}:${String(Math.round(dur % 60)).padStart(2, "0")}`;
+      const card: CardData = {
+        style,
+        skater: author ? `@${author}` : "@skater",
+        title: item?.name ?? "UNTITLED",
+        description: "",
+        type: "STREET",
+        upvotes: votes ?? "0",
+        runtime,
+        serial: (votes ?? "0000").padStart(4, "0").slice(0, 4),
+        rarity: "Rare",
+        motion: false,
+        accent:
+          CARD_STYLE_META[style].defaultAccent === "#a3e635"
+            ? brandAccent
+            : CARD_STYLE_META[style].defaultAccent,
+        fontScale: 1,
+        hidden: [],
+      };
+      const ov: Overlay = {
+        id: nextId(),
+        kind: "card",
+        trackId:
+          stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ??
+          stateRef.current.overlayTracks[0]?.id ??
+          "art",
+        card,
+        color: "#ffffff",
+        bg: false,
+        start: 0,
+        end: total > 0 ? total : 8,
+        x: 0.5,
+        y: 0.5,
+        w: 1,
+        opacity: 1,
+        rotation: 0,
+      };
+      setOverlays((prev) => [...prev, ov]);
+      setSelection({ type: "overlay", id: ov.id });
+      setBinTab("templates");
+    },
+    [brandAccent],
+  );
 
   const addToTimeline = (item: BinItem) => {
     if (item.kind === "video") addClip(item);
@@ -1817,6 +2208,9 @@ export function VideoEditor({
               ["skatehive", "SkateHive", Film],
               ["art", "Elements", Type],
               ["drive", "Drive", HardDrive],
+              ...(cardStyles.length > 0
+                ? [["templates", "Templates", Sparkles] as const]
+                : []),
             ] as const
           ).map(([key, label, Icon]) => (
             <button
@@ -2196,6 +2590,71 @@ export function VideoEditor({
                       </button>
                     )}
                   </div>
+                );
+              })}
+            </>
+          )}
+
+          {binTab === "templates" && (
+            <>
+              <p className="px-1 text-[11px] text-foreground-subtle">
+                Trading-card overlays that frame the clip — the video plays inside the card&apos;s art
+                window, chrome + your text compose around it. Add one, then edit its fields below.
+              </p>
+              {clips.length === 0 && (
+                <p className="px-1 text-[11px] italic text-foreground-faint">
+                  Add a video clip first — the card wraps the clip under the playhead.
+                </p>
+              )}
+              {cardStyles.map((style) => {
+                const meta = CARD_STYLE_META[style];
+                const isPrimary = style === "holo";
+                return (
+                  <button
+                    key={style}
+                    type="button"
+                    onClick={() => addCardTemplate(style)}
+                    className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2.5 text-left transition-colors hover:border-accent-border"
+                  >
+                    {/* mini card swatch */}
+                    <span
+                      className="flex h-12 w-9 shrink-0 flex-col items-center justify-center rounded-md border"
+                      style={{
+                        borderColor: meta.defaultAccent,
+                        background:
+                          "linear-gradient(160deg, rgba(20,24,16,.96), rgba(8,10,7,.98))",
+                        boxShadow: `0 0 12px ${meta.defaultAccent}66`,
+                      }}
+                    >
+                      <span
+                        className="h-5 w-6 rounded-sm border"
+                        style={{ borderColor: `${meta.defaultAccent}aa`, background: "#111" }}
+                      />
+                      <span className="mt-1 flex gap-0.5">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <span
+                            key={i}
+                            className="h-1 w-1 rounded-full"
+                            style={{ background: meta.defaultAccent }}
+                          />
+                        ))}
+                      </span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                        {meta.name}
+                        {isPrimary && (
+                          <span className="rounded-full bg-accent-bg px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-accent">
+                            featured
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-[10px] text-foreground-faint">
+                        {meta.note} · skater name + logo baked in
+                      </span>
+                    </span>
+                    <Plus className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  </button>
                 );
               })}
             </>
@@ -2646,6 +3105,8 @@ export function VideoEditor({
                           <Type className="mr-1 h-3 w-3 shrink-0" />
                         ) : ov.kind === "shape" ? (
                           <Square className="mr-1 h-3 w-3 shrink-0" style={{ color: ov.color }} />
+                        ) : ov.kind === "card" ? (
+                          <Sparkles className="mr-1 h-3 w-3 shrink-0 text-accent" />
                         ) : (
                           <ImageIcon className="mr-1 h-3 w-3 shrink-0" />
                         )}
@@ -2654,7 +3115,9 @@ export function VideoEditor({
                             ? (ov.text ?? "text").split("\n")[0]
                             : ov.kind === "shape"
                               ? ov.shape ?? "shape"
-                              : item?.name ?? "art"}
+                              : ov.kind === "card"
+                                ? `${CARD_STYLE_META[ov.card!.style].name}`
+                                : item?.name ?? "art"}
                         </span>
                         <span
                           onPointerDown={hDrag((d) =>
@@ -2795,7 +3258,39 @@ export function VideoEditor({
                 </span>
               </>
             )}
-            {selOverlay && (
+            {selOverlay?.kind === "card" && selOverlay.card && (
+              <CardInspector
+                card={selOverlay.card}
+                onChange={(patch) =>
+                  setOverlays((prev) =>
+                    prev.map((o) =>
+                      o.id === selOverlay.id && o.card
+                        ? { ...o, card: { ...o.card, ...patch } }
+                        : o,
+                    ),
+                  )
+                }
+                onReset={() =>
+                  setOverlays((prev) =>
+                    prev.map((o) =>
+                      o.id === selOverlay.id && o.card
+                        ? {
+                            ...o,
+                            card: {
+                              ...o.card,
+                              fontScale: 1,
+                              hidden: [],
+                              accent: CARD_STYLE_META[o.card.style].defaultAccent,
+                            },
+                          }
+                        : o,
+                    ),
+                  )
+                }
+                onRemove={removeSelection}
+              />
+            )}
+            {selOverlay && selOverlay.kind !== "card" && (
               <>
                 <span className="font-medium text-foreground">
                   {selOverlay.kind === "text" ? "Text" : selOverlay.kind === "shape" ? "Shape" : "Sticker"}
@@ -3152,6 +3647,132 @@ export function VideoEditor({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Card inspector — edit every field of a trading-card overlay + overrides.
+// ---------------------------------------------------------------------------
+
+const CARD_ACCENTS = ["#a3e635", "#ff3344", "#22d3ee", "#facc15", "#b98cff", "#ffd86b"];
+const CARD_HIDEABLE = ["eyebrow", "watermark", "stats", "serial", "type"] as const;
+
+function CardInspector({
+  card,
+  onChange,
+  onReset,
+  onRemove,
+}: {
+  card: CardData;
+  onChange: (patch: Partial<CardData>) => void;
+  onReset: () => void;
+  onRemove: () => void;
+}) {
+  const field = (label: string, value: string, key: keyof CardData, w = "w-28") => (
+    <label className="flex items-center gap-1 text-foreground-muted">
+      {label}
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange({ [key]: e.target.value } as Partial<CardData>)}
+        className={`${w} rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none`}
+      />
+    </label>
+  );
+  return (
+    <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+      <span className="font-medium text-foreground">Card</span>
+      {field("@", card.skater, "skater", "w-24")}
+      {field("title", card.title, "title", "w-40")}
+      {field("desc", card.description, "description", "w-48")}
+      {field("type", card.type, "type", "w-20")}
+      {field("▲", card.upvotes, "upvotes", "w-14")}
+      {field("time", card.runtime, "runtime", "w-14")}
+      {field("№", card.serial, "serial", "w-16")}
+      <label className="flex items-center gap-1 text-foreground-muted">
+        rarity
+        <select
+          value={card.rarity}
+          onChange={(e) => onChange({ rarity: e.target.value as Rarity })}
+          className="rounded-md border border-border bg-surface-elevated px-1.5 py-1 text-xs text-foreground"
+        >
+          <option>Rare</option>
+          <option>Epic</option>
+          <option>Legendary</option>
+        </select>
+      </label>
+      <span className="flex items-center gap-1">
+        accent
+        {CARD_ACCENTS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onChange({ accent: c })}
+            aria-label={`accent ${c}`}
+            style={{ backgroundColor: c }}
+            className={`h-4 w-4 rounded-full border ${
+              card.accent === c ? "border-accent ring-1 ring-accent" : "border-border"
+            }`}
+          />
+        ))}
+      </span>
+      <label className="flex items-center gap-1 text-foreground-muted">
+        type size
+        <input
+          type="range"
+          min={0.7}
+          max={1.4}
+          step={0.05}
+          value={card.fontScale}
+          onChange={(e) => onChange({ fontScale: Number(e.target.value) })}
+        />
+      </label>
+      <label className="flex items-center gap-1.5 text-foreground-muted">
+        <input
+          type="checkbox"
+          checked={card.motion}
+          onChange={(e) => onChange({ motion: e.target.checked })}
+        />
+        motion
+      </label>
+      <span className="flex items-center gap-1.5 text-foreground-faint">
+        hide:
+        {CARD_HIDEABLE.map((k) => {
+          const on = card.hidden.includes(k);
+          return (
+            <button
+              key={k}
+              type="button"
+              onClick={() =>
+                onChange({
+                  hidden: on ? card.hidden.filter((x) => x !== k) : [...card.hidden, k],
+                })
+              }
+              className={`rounded px-1.5 py-0.5 text-[10px] ${
+                on ? "bg-danger/15 text-danger line-through" : "bg-surface-elevated text-foreground-muted"
+              }`}
+            >
+              {k}
+            </button>
+          );
+        })}
+      </span>
+      <button
+        type="button"
+        onClick={onReset}
+        className="rounded-md border border-border px-2 py-1 text-foreground-muted hover:border-border-strong hover:text-foreground"
+      >
+        reset
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="ml-auto inline-flex items-center gap-1 rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-danger hover:bg-danger/20"
+      >
+        <Trash2 className="h-3 w-3" />
+        remove
+      </button>
     </div>
   );
 }
