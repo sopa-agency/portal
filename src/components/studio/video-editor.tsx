@@ -632,9 +632,12 @@ export function VideoEditor({
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
 
-    const t = clockRef.current.playing
-      ? clockRef.current.base + (performance.now() - clockRef.current.t0) / 1000
-      : clockRef.current.base;
+    // During export the driver writes `base` directly each frame (t0 is stale),
+    // so the wall-clock term would corrupt the time — use base verbatim.
+    const t =
+      clockRef.current.playing && !exportDriveRef.current
+        ? clockRef.current.base + (performance.now() - clockRef.current.t0) / 1000
+        : clockRef.current.base;
 
     const active = clipAt(t);
     if (active) {
