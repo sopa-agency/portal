@@ -305,21 +305,8 @@ function drawCard(
     }
   }
 
-  // optional one-line standfirst (dek) above the meta, under the title.
-  const hasDesc = !!card.description?.trim();
-  const descY = metaY - f(42);
-  if (hasDesc) {
-    setFont(26, 500);
-    ctx.fillStyle = "rgba(255,255,255,0.78)";
-    const full = card.description.trim();
-    let dek = full;
-    while (ctx.measureText(dek).width > maxW && dek.length > 4) dek = dek.slice(0, -2);
-    if (dek !== full) dek = dek.slice(0, -1) + "…";
-    ctx.fillText(dek, P, descY);
-  }
-
-  // title block sits above the dek/meta, drawn bottom-up
-  const titleBottom = (hasDesc ? descY : metaY) - f(36);
+  // title block sits above the meta, drawn bottom-up.
+  const titleBottom = metaY - f(36);
   setFont(78, 800);
   ctx.fillStyle = "#ffffff";
   for (let i = 0; i < lines.length; i++) {
@@ -333,24 +320,6 @@ function drawCard(
     setFont(30, 700);
     ctx.fillStyle = "rgba(255,255,255,0.92)";
     ctx.fillText(card.skater, P, topTitleY - titleLineH * 0.62);
-  }
-
-  // serial — whisper-quiet, top-right (optional).
-  if (!hidden.has("serial") && card.serial) {
-    setFont(15, 500, true);
-    ctx.fillStyle = "rgba(255,255,255,0.45)";
-    ctx.textAlign = "right";
-    ctx.fillText(`№ ${card.serial}`, W - P, topSafe + f(22));
-    ctx.textAlign = "left";
-  }
-
-  // watermark — tucked in the bottom safe zone, very quiet.
-  if (!hidden.has("watermark")) {
-    setFont(15, 500, true);
-    ctx.fillStyle = "rgba(255,255,255,0.4)";
-    ctx.textAlign = "right";
-    ctx.fillText("skatehive.app", W - P, metaY);
-    ctx.textAlign = "left";
   }
 }
 
@@ -3665,7 +3634,7 @@ export function VideoEditor({
 // ---------------------------------------------------------------------------
 
 const CARD_ACCENTS = ["#a3e635", "#ff3344", "#22d3ee", "#facc15", "#b98cff", "#ffd86b"];
-const CARD_HIDEABLE = ["eyebrow", "watermark", "stats", "serial", "type"] as const;
+const CARD_HIDEABLE = ["eyebrow", "stats", "type"] as const;
 
 function CardInspector({
   card,
@@ -3693,12 +3662,10 @@ function CardInspector({
     <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
       <span className="font-medium text-foreground">Card</span>
       {field("@", card.skater, "skater", "w-24")}
-      {field("title", card.title, "title", "w-40")}
-      {field("desc", card.description, "description", "w-48")}
+      {field("title", card.title, "title", "w-48")}
       {field("type", card.type, "type", "w-20")}
       {field("▲", card.upvotes, "upvotes", "w-14")}
       {field("time", card.runtime, "runtime", "w-14")}
-      {field("№", card.serial, "serial", "w-16")}
       <span className="flex items-center gap-1">
         accent
         {CARD_ACCENTS.map((c) => (
