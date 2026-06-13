@@ -2086,8 +2086,16 @@ export function VideoEditor({
     }
 
     setSelection(null); // don't bake the selection chrome into the export
+    // Manual-frame capture (captureStream(0)): we push each frame ourselves
+    // after drawing it, so recording never depends on the rAF compositor —
+    // it stays deterministic and survives the tab losing focus (which froze
+    // auto-capture and produced short/glitched exports).
+    const capture = canvas.captureStream(0);
+    const vTrack = capture.getVideoTracks()[0] as MediaStreamTrack & {
+      requestFrame?: () => void;
+    };
     const stream = new MediaStream([
-      ...canvas.captureStream(30).getVideoTracks(),
+      ...capture.getVideoTracks(),
       ...mixDestRef.current.stream.getAudioTracks(),
     ]);
     const recorder = new MediaRecorder(stream, {
@@ -2149,6 +2157,8 @@ export function VideoEditor({
     }
 
     recorder.start(500);
+    draw(); // seed the first frame so the recording opens on frame 0
+    vTrack.requestFrame?.();
 
     let stopped = false;
     const finish = () => {
@@ -2178,10 +2188,13 @@ export function VideoEditor({
           const gain = gainNodes.current.get(`clip:${item.id}`);
           if (gain) gain.gain.value = clip.volume;
           await el.play().catch(() => {});
-          // drive the master clock from the element until the clip's out point
+          // Drive the master clock from the element until the clip's out point.
+          // A 33ms timer (not rAF) keeps advancing even when the tab is hidden;
+          // we draw + push a frame explicitly each tick.
           await new Promise<void>((res) => {
-            const step = () => {
+            const tick = window.setInterval(() => {
               if (el.ended || el.currentTime >= clip.out - 0.03) {
+                window.clearInterval(tick);
                 el.pause();
                 res();
                 return;
@@ -2191,9 +2204,9 @@ export function VideoEditor({
               setTime(t);
               setExporting((prev) => (prev ? { progress: Math.min(t / total, 1) } : prev));
               syncMedia(t, true); // audio items follow the derived clock
-              requestAnimationFrame(step);
-            };
-            requestAnimationFrame(step);
+              draw(); // render this frame…
+              vTrack.requestFrame?.(); // …and capture it deterministically
+            }, 33);
           });
           startAt += clip.out - clip.in;
         }
@@ -2201,7 +2214,7 @@ export function VideoEditor({
         finish();
       }
     })();
-  }, [ensureAudioCtx, exporting, syncMedia, getVideoEl]);
+  }, [ensureAudioCtx, exporting, syncMedia, getVideoEl, draw]);
 
   const sendToPost = async () => {
     if (!exportResult || !onUseInPost || sending) return;
