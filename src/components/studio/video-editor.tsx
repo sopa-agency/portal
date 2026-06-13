@@ -2212,19 +2212,29 @@ export function VideoEditor({
                 ? [["templates", "Templates", Sparkles] as const]
                 : []),
             ] as const
-          ).map(([key, label, Icon]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setBinTab(key)}
-              className={`flex flex-1 items-center justify-center gap-1.5 px-2 py-2 font-medium transition-colors ${
-                binTab === key ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </button>
-          ))}
+          ).map(([key, label, Icon]) => {
+            const isActive = binTab === key;
+            // Icon-always; the label only expands on the active tab so the
+            // strip fits any number of sources at any panel width.
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setBinTab(key)}
+                title={label}
+                aria-label={label}
+                aria-pressed={isActive}
+                className={`flex shrink-0 items-center justify-center gap-1.5 px-2.5 py-2 font-medium transition-colors ${
+                  isActive
+                    ? "flex-1 bg-accent-bg text-accent"
+                    : "text-foreground-muted hover:bg-foreground/5 hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                {isActive && <span className="truncate">{label}</span>}
+              </button>
+            );
+          })}
         </div>
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2.5">
