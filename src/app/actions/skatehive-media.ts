@@ -221,31 +221,60 @@ export async function listSkatehiveLeaderboard(): Promise<
   }
 }
 
-/** A creator's recent IPFS videos: top-level posts + snaps (comments). */
-export async function listCreatorVideos(author: string): Promise<
-  { ok: true; videos: SkatehiveVideo[] } | { ok: false; error: string }
+/** Page cursor for a creator's feed — last permlink seen per sort. */
+export type CreatorCursor = { posts: string | null; comments: string | null };
+
+/** A creator's IPFS videos: top-level posts + snaps (comments), paginated.
+ *  `bridge.get_account_posts` pages via start_author/start_permlink. */
+export async function listCreatorVideos(
+  author: string,
+  cursor?: CreatorCursor | null,
+): Promise<
+  | { ok: true; videos: SkatehiveVideo[]; cursor: CreatorCursor | null }
+  | { ok: false; error: string }
 > {
   try {
     const clean = author.toLowerCase().replace(/[^a-z0-9.-]/g, "");
-    const [posts, comments] = await Promise.all([
+    const PAGE = 20;
+    const fetchSort = (sort: "posts" | "comments", startPermlink: string | null) =>
       hiveCall<HivePost[]>("bridge.get_account_posts", {
-        sort: "posts",
+        sort,
         account: clean,
-        limit: 20,
+        limit: PAGE,
         observer: "",
-      }).catch(() => [] as HivePost[]),
-      hiveCall<HivePost[]>("bridge.get_account_posts", {
-        sort: "comments",
-        account: clean,
-        limit: 20,
-        observer: "",
-      }).catch(() => [] as HivePost[]),
+        ...(startPermlink ? { start_author: clean, start_permlink: startPermlink } : {}),
+      }).catch(() => [] as HivePost[]);
+
+    // On a "load more" the cursor permlink is the last item of the previous
+    // page — the API returns it again as the first row, so drop it.
+    const [postsRaw, commentsRaw] = await Promise.all([
+      fetchSort("posts", cursor?.posts ?? null),
+      fetchSort("comments", cursor?.comments ?? null),
     ]);
+    const posts = cursor?.posts
+      ? postsRaw.filter((p) => p.permlink !== cursor.posts)
+      : postsRaw;
+    const comments = cursor?.comments
+      ? commentsRaw.filter((p) => p.permlink !== cursor.comments)
+      : commentsRaw;
+
     const videos = [
-      ...(posts ?? []).flatMap((p) => toVideos(p, "magazine")),
-      ...(comments ?? []).flatMap((p) => toVideos(p, "snap")),
+      ...posts.flatMap((p) => toVideos(p, "magazine")),
+      ...comments.flatMap((p) => toVideos(p, "snap")),
     ].sort((a, b) => b.votes - a.votes || (a.created < b.created ? 1 : -1));
-    return { ok: true, videos };
+
+    // More pages remain while either sort returned a full page.
+    const morePosts = postsRaw.length >= PAGE;
+    const moreComments = commentsRaw.length >= PAGE;
+    const nextCursor: CreatorCursor | null =
+      morePosts || moreComments
+        ? {
+            posts: morePosts ? postsRaw[postsRaw.length - 1].permlink : null,
+            comments: moreComments ? commentsRaw[commentsRaw.length - 1].permlink : null,
+          }
+        : null;
+
+    return { ok: true, videos, cursor: nextCursor };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

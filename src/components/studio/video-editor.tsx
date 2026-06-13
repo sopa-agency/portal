@@ -46,6 +46,7 @@ import {
   type SkatehiveVideo,
   type SkatehiveCreator,
   type SnapCursor,
+  type CreatorCursor,
 } from "@/app/actions/skatehive-media";
 import { uploadMediaDirectClient } from "@/lib/upload-media-client";
 
@@ -452,6 +453,8 @@ export function VideoEditor({
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
   const [creatorVideos, setCreatorVideos] = useState<SkatehiveVideo[] | null>(null);
   const [creatorBusy, setCreatorBusy] = useState(false);
+  const [creatorCursor, setCreatorCursor] = useState<CreatorCursor | null>(null);
+  const [creatorMoreBusy, setCreatorMoreBusy] = useState(false);
   const [shSelected, setShSelected] = useState<Set<string>>(new Set());
   const [shSyncing, setShSyncing] = useState<{ done: number; total: number } | null>(null);
   /** Click-to-preview for side-panel items (bin + skatehive). */
@@ -1670,12 +1673,29 @@ export function VideoEditor({
   const pickCreator = async (author: string | null) => {
     setSelectedCreator(author);
     setCreatorVideos(null);
+    setCreatorCursor(null);
     if (!author) return;
     setCreatorBusy(true);
     const r = await listCreatorVideos(author);
-    if (r.ok) setCreatorVideos(r.videos);
-    else setShError(r.error);
+    if (r.ok) {
+      setCreatorVideos(r.videos);
+      setCreatorCursor(r.cursor);
+    } else setShError(r.error);
     setCreatorBusy(false);
+  };
+
+  const loadMoreCreator = async () => {
+    if (!selectedCreator || !creatorCursor || creatorMoreBusy) return;
+    setCreatorMoreBusy(true);
+    const r = await listCreatorVideos(selectedCreator, creatorCursor);
+    if (r.ok) {
+      setCreatorVideos((prev) => {
+        const seen = new Set((prev ?? []).map((v) => v.id));
+        return [...(prev ?? []), ...r.videos.filter((v) => !seen.has(v.id))];
+      });
+      setCreatorCursor(r.cursor);
+    } else setShError(r.error);
+    setCreatorMoreBusy(false);
   };
 
   // Google Drive listing (project folder; drill-in via driveStack)
@@ -1994,6 +2014,17 @@ export function VideoEditor({
                 >
                   {shMoreBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                   Load more
+                </button>
+              )}
+              {selectedCreator && creatorVideos && creatorCursor && (
+                <button
+                  type="button"
+                  onClick={() => void loadMoreCreator()}
+                  disabled={creatorMoreBusy}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                >
+                  {creatorMoreBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  Load more from @{selectedCreator}
                 </button>
               )}
             </>
