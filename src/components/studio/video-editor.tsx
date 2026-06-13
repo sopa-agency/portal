@@ -268,71 +268,63 @@ function drawCard(
   const lx = P;
   const rx = W - P;
 
-  // 5) eyebrow (top safe zone): logo dot + SKATEHIVE + RARE DROP pill.
+  // 5) username on top — the card's headline, big and centered.
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const ny = topSafe + f(20);
+  const handle = card.skater || "@skater";
+  font(hank(46, 800));
+  ctx.fillStyle = SH.lime2;
+  ctx.shadowColor = "rgba(163,230,53,0.55)";
+  ctx.shadowBlur = f(26);
+  let hl = handle;
+  while (ctx.measureText(hl).width > W - 2 * P && hl.length > 3) hl = hl.slice(0, -1);
+  ctx.fillText(hl, W / 2, ny);
+  ctx.shadowBlur = 0;
+  // brand line under the handle: SH dot · SKATEHIVE · RARE DROP pill.
   if (!hidden.has("eyebrow")) {
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const ey = topSafe + f(10);
-    font(hank(18, 800));
+    const ey = ny + f(36);
     const brand = (brandName || "SKATEHIVE").toUpperCase();
     const pill = "RARE DROP";
+    font(hank(15, 800));
     const bw = ctx.measureText(brand).width;
-    font(mono(12, 800));
-    const pw = ctx.measureText(pill).width + f(22);
-    const gap = f(14);
-    const dot = f(34);
+    font(mono(11, 800));
+    const pw = ctx.measureText(pill).width + f(20);
+    const gap = f(11);
+    const dot = f(26);
     const totalW = dot + gap + bw + gap + pw;
     let cxp = W / 2 - totalW / 2;
-    // logo dot
     ctx.beginPath();
     ctx.arc(cxp + dot / 2, ey, dot / 2, 0, Math.PI * 2);
     ctx.fillStyle = accent;
     ctx.fill();
     ctx.fillStyle = SH.ink;
-    font(hank(15, 800));
+    font(hank(12, 800));
+    ctx.textAlign = "center";
     ctx.fillText("SH", cxp + dot / 2, ey + f(1));
     cxp += dot + gap;
-    // brand
     ctx.textAlign = "left";
-    font(hank(18, 800));
+    font(hank(15, 800));
     ctx.fillStyle = "#dff3b4";
     ctx.fillText(brand, cxp, ey);
     cxp += bw + gap;
-    // pill
-    roundRectPath(ctx, cxp, ey - f(13), pw, f(26), f(13));
+    roundRectPath(ctx, cxp, ey - f(11), pw, f(22), f(11));
     ctx.fillStyle = accent;
     ctx.fill();
     ctx.fillStyle = SH.ink;
-    font(mono(12, 800));
-    ctx.textAlign = "left";
-    ctx.fillText(pill, cxp + f(11), ey + f(1));
+    font(mono(11, 800));
+    ctx.fillText(pill, cxp + f(10), ey + f(1));
   }
 
-  // 6) head: handle + cast line (left), gems + rarity label (right).
+  // 6) head band: rarity gems (left) + rarity label (right).
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "left";
-  font(hank(42, 800));
-  ctx.fillStyle = SH.lime2;
-  ctx.shadowColor = "rgba(163,230,53,0.55)";
-  ctx.shadowBlur = f(24);
-  const handle = card.skater || "@skater";
-  let hl = handle;
-  const headRightW = f(150);
-  while (ctx.measureText(hl).width > W - 2 * P - headRightW && hl.length > 3) hl = hl.slice(0, -1);
-  ctx.fillText(hl, lx, headTop + f(34));
-  ctx.shadowBlur = 0;
-  font(hank(14, 700));
-  ctx.fillStyle = SH.steel;
-  ctx.fillText("SKATEHIVE CAST", lx, headTop + f(56));
-  // gems + rarity (right aligned)
   const gems = RARITY[card.rarity].gems;
   const gemSize = f(15);
-  let gx = rx;
   ctx.save();
-  for (let i = gems - 1; i >= 0; i--) {
-    gx -= gemSize + f(5);
+  for (let i = 0; i < gems; i++) {
     ctx.save();
-    ctx.translate(gx + gemSize / 2, headTop + f(14));
+    ctx.translate(lx + gemSize / 2 + i * (gemSize + f(5)), headTop + f(20));
     ctx.rotate(Math.PI / 4);
     ctx.fillStyle = accent;
     ctx.shadowColor = accent;
@@ -342,11 +334,11 @@ function drawCard(
     ctx.restore();
   }
   ctx.restore();
-  // rarity label box
+  // rarity label box (right aligned)
   const rlabel = RARITY[card.rarity].label;
   font(mono(13, 800));
   const rlw = ctx.measureText(rlabel).width + f(22);
-  roundRectPath(ctx, rx - rlw, headTop + f(30), rlw, f(28), f(8));
+  roundRectPath(ctx, rx - rlw, headTop + f(6), rlw, f(28), f(8));
   ctx.fillStyle = "rgba(163,230,53,0.08)";
   ctx.fill();
   ctx.lineWidth = f(1.5);
@@ -354,7 +346,7 @@ function drawCard(
   ctx.stroke();
   ctx.fillStyle = "#dff3b4";
   ctx.textAlign = "left";
-  ctx.fillText(rlabel, rx - rlw + f(11), headTop + f(49));
+  ctx.fillText(rlabel, rx - rlw + f(11), headTop + f(25));
 
   // 7) art window — clip cover-fit, rounded, lime border + inner shadow.
   const winR = f(18);
