@@ -68,7 +68,17 @@ type BinItem = {
   waveUrl?: string;
 };
 
-type Clip = { id: string; binId: string; in: number; out: number; volume: number };
+type Clip = {
+  id: string;
+  binId: string;
+  in: number;
+  out: number;
+  volume: number;
+  /** Framing within the cover-fit crop: pan (-1..1 of the overflow) + zoom. */
+  offsetX?: number;
+  offsetY?: number;
+  scale?: number;
+};
 type Overlay = {
   id: string;
   kind: "image" | "text" | "shape";
@@ -647,9 +657,17 @@ export function VideoEditor({
         if (el.readyState >= 2) {
           const vr = el.videoWidth / el.videoHeight || 1;
           const cr = w / h;
-          let dw = w, dh = h, dx = 0, dy = 0;
-          if (vr > cr) { dh = h; dw = h * vr; dx = (w - dw) / 2; }
-          else { dw = w; dh = w / vr; dy = (h - dh) / 2; }
+          const scale = active.clip.scale ?? 1;
+          let dw = w, dh = h;
+          if (vr > cr) { dh = h; dw = h * vr; }
+          else { dw = w; dh = w / vr; }
+          dw *= scale;
+          dh *= scale;
+          // Center, then pan by the user's offset across the cropped overflow.
+          const ox = active.clip.offsetX ?? 0;
+          const oy = active.clip.offsetY ?? 0;
+          const dx = (w - dw) / 2 + (ox * (dw - w)) / 2;
+          const dy = (h - dh) / 2 + (oy * (dh - h)) / 2;
           ctx.drawImage(el, dx, dy, dw, dh);
         }
       }
@@ -1208,7 +1226,41 @@ export function VideoEditor({
     }
 
     if (!hit) {
-      if (stateRef.current.selection?.type === "overlay") setSelection(null);
+      // No overlay hit → pan the clip under the playhead within its crop.
+      const active = clipAt(t);
+      if (active) {
+        setSelection({ type: "clip", id: active.clip.id });
+        const clipId = active.clip.id;
+        const startOX = active.clip.offsetX ?? 0;
+        const startOY = active.clip.offsetY ?? 0;
+        const sx = px;
+        const sy = py;
+        const move = (ev: PointerEvent) => {
+          const nx = ((ev.clientX - rect.left) / rect.width) * w;
+          const ny = ((ev.clientY - rect.top) / rect.height) * h;
+          // Drag right → reveal the left side: offset moves with the cursor,
+          // clamped so you can't pan past the frame edges.
+          setClips((prev) =>
+            prev.map((c) =>
+              c.id === clipId
+                ? {
+                    ...c,
+                    offsetX: Math.max(-1, Math.min(1, startOX + ((nx - sx) / w) * 2)),
+                    offsetY: Math.max(-1, Math.min(1, startOY + ((ny - sy) / h) * 2)),
+                  }
+                : c,
+            ),
+          );
+        };
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      } else if (stateRef.current.selection?.type === "overlay") {
+        setSelection(null);
+      }
       return;
     }
     setSelection({ type: "overlay", id: hit.id });
@@ -2705,10 +2757,42 @@ export function VideoEditor({
                     }
                   />
                 </label>
+                <label className="flex items-center gap-2 text-foreground-muted">
+                  zoom
+                  <input
+                    type="range"
+                    min={1}
+                    max={3}
+                    step={0.05}
+                    value={selClip.scale ?? 1}
+                    onChange={(e) =>
+                      setClips((prev) =>
+                        prev.map((c) =>
+                          c.id === selClip.id ? { ...c, scale: Number(e.target.value) } : c,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setClips((prev) =>
+                      prev.map((c) =>
+                        c.id === selClip.id ? { ...c, offsetX: 0, offsetY: 0, scale: 1 } : c,
+                      ),
+                    )
+                  }
+                  className="rounded-md border border-border px-2 py-1 text-foreground-muted hover:border-border-strong hover:text-foreground"
+                >
+                  recenter
+                </button>
+                <span className="text-foreground-faint">
+                  drag on the preview to reposition · S = split
+                </span>
                 <span className="tabular-nums text-foreground-faint">
                   trim {fmt(selClip.in)} → {fmt(selClip.out)}
                 </span>
-                <span className="text-foreground-faint">S = split at playhead</span>
               </>
             )}
             {selOverlay && (
