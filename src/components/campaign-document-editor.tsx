@@ -38,14 +38,16 @@ async function uploadImageToPinata(
   }
 }
 
-/** Format an uploaded image URL for the channel that will publish it:
- *  - Hive / Hive mag / Discord render markdown, so embed `![image](url)`.
- *  - Farcaster infers embeds from bare URLs in the body → drop the raw URL.
- *  - Twitter/X is a manual intent (no media API) → raw URL so it can be opened
- *    /attached; it also previews as a link card. */
+/** Format an uploaded image URL for the channel that will publish it — each
+ *  platform embeds images by a DIFFERENT rule:
+ *  - Hive / Hive mag render Markdown, so the image goes inline as `![](url)`.
+ *  - Farcaster turns bare URLs in the body into embeds (max 2) — bare URL.
+ *  - Discord auto-embeds a bare image URL; it does NOT render Markdown images,
+ *    so `![](url)` would show as literal text — bare URL.
+ *  - Twitter/X is a manual intent (no media API) — bare URL; attach on open. */
 function formatImageForKind(kind: ImageKind, url: string): string {
-  if (kind === "farcaster" || kind === "tweets") return `\n${url}\n`;
-  return `\n![image](${url})\n`;
+  if (kind === "hive" || kind === "hive_mag") return `\n![image](${url})\n`;
+  return `\n${url}\n`; // farcaster, tweets, discord → bare URL
 }
 
 export function CampaignDocumentEditor({

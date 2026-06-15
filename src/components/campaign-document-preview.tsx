@@ -171,14 +171,80 @@ function HighlightedText({ tokens, linkClassName }: { tokens: SocialToken[]; lin
 }
 
 // ---------------------------------------------------------------------------
+// Image embeds — each platform attaches images by a different rule, so the
+// preview must reflect that, not just show the raw URL as text.
+// ---------------------------------------------------------------------------
+
+// Mirrors the publisher's image test — also catches Pinata's ?filename=foo.png
+// form where the extension lives in the query string.
+function isImageUrl(u: string): boolean {
+  return /\.(png|jpe?g|gif|webp)($|\?|&)/i.test(u);
+}
+
+const MD_IMG_RE = /!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g;
+const BARE_URL_RE = /https?:\/\/[^\s)]+[^\s.,;:!?)]/g;
+
+/** Hive: pull Markdown images (`![](url)`) out of the body. */
+function splitMarkdownImages(text: string): { body: string; images: string[] } {
+  const images: string[] = [];
+  const body = text.replace(MD_IMG_RE, (_match, url: string) => {
+    images.push(url);
+    return "";
+  });
+  return { body: body.replace(/\n{3,}/g, "\n\n").trim(), images };
+}
+
+/** Farcaster / Discord / Twitter: pull bare image URLs out of the body — they
+ *  render as attachments/embeds, not inline text. */
+function splitBareImages(text: string): { body: string; images: string[] } {
+  const images: string[] = [];
+  const body = text.replace(BARE_URL_RE, (u) => {
+    if (isImageUrl(u)) {
+      images.push(u);
+      return "";
+    }
+    return u;
+  });
+  return { body: body.replace(/\n{3,}/g, "\n\n").trim(), images };
+}
+
+function MediaCards({ images, max, note }: { images: string[]; max?: number; note?: string }) {
+  if (images.length === 0) return null;
+  const shown = max ? images.slice(0, max) : images;
+  return (
+    <div className="mt-2">
+      <div className={`grid gap-2 ${shown.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+        {shown.map((src, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={i}
+            src={src}
+            alt=""
+            className="max-h-44 w-full rounded-xl border border-white/10 object-cover"
+          />
+        ))}
+      </div>
+      {max && images.length > max ? (
+        <p className="mt-1 text-[10px] text-amber-400">
+          Only {max} of {images.length} images will attach on this channel.
+        </p>
+      ) : note ? (
+        <p className="mt-1 text-[10px] text-zinc-500">{note}</p>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Hive snap preview — mirrors SkateHive web app's snap card
 // ---------------------------------------------------------------------------
 
 function HiveSnapPreview({ content, brand }: { content: string; brand?: CampaignPreviewBrand }) {
-  const body = content.trim();
-  if (!body) {
+  const raw = content.trim();
+  if (!raw) {
     return <p className="text-sm text-foreground-subtle">No snap yet.</p>;
   }
+  const { body, images } = splitMarkdownImages(raw);
   const tokens = tokenizeSocial(body);
   const overLimit = body.length > 280;
 
@@ -212,6 +278,7 @@ function HiveSnapPreview({ content, brand }: { content: string; brand?: Campaign
           <div className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5 text-zinc-100">
             <HighlightedText tokens={tokens} linkClassName="text-red-400" />
           </div>
+          <MediaCards images={images} />
         </div>
       </div>
     </div>
@@ -223,10 +290,13 @@ function HiveSnapPreview({ content, brand }: { content: string; brand?: Campaign
 // ---------------------------------------------------------------------------
 
 function FarcasterCastPreview({ content, brand }: { content: string; brand?: CampaignPreviewBrand }) {
-  const body = content.trim();
-  if (!body) {
+  const raw = content.trim();
+  if (!raw) {
     return <p className="text-sm text-foreground-subtle">No cast yet.</p>;
   }
+  // Farcaster turns bare URLs into embeds (it doesn't show images inline), so
+  // pull image URLs out of the visible text and render them as embed cards.
+  const { body, images } = splitBareImages(raw);
   const tokens = tokenizeSocial(body);
   const overLimit = body.length > 320;
 
@@ -259,6 +329,7 @@ function FarcasterCastPreview({ content, brand }: { content: string; brand?: Cam
           <div className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5 text-zinc-100">
             <HighlightedText tokens={tokens} linkClassName="text-purple-300" />
           </div>
+          <MediaCards images={images} max={2} note="Farcaster shows up to 2 embeds (brand links + images)." />
         </div>
       </div>
     </div>
@@ -289,8 +360,9 @@ function TweetsPreview({ content, brand }: { content: string; brand?: CampaignPr
 }
 
 function TweetCard({ tweet, index, total, brand }: { tweet: string; index: number; total: number; brand?: CampaignPreviewBrand }) {
-  const tokens = tokenizeSocial(tweet);
-  const overLimit = tweet.length > 280;
+  const { body, images } = splitBareImages(tweet);
+  const tokens = tokenizeSocial(body);
+  const overLimit = body.length > 280;
 
   const displayName = brand?.displayName ?? "skatehive";
   const handle = brand?.handle ?? "skatehive";
@@ -326,6 +398,10 @@ function TweetCard({ tweet, index, total, brand }: { tweet: string; index: numbe
           <div className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5 text-zinc-100">
             <HighlightedText tokens={tokens} linkClassName="text-[#1d9bf0]" />
           </div>
+          <MediaCards
+            images={images}
+            note="X publishes via intent (no media API) — attach this image manually when the composer opens."
+          />
         </div>
       </div>
     </div>
@@ -339,6 +415,9 @@ function TweetCard({ tweet, index, total, brand }: { tweet: string; index: numbe
 function DiscordPreview({ content, brand }: { content: string; brand?: CampaignPreviewBrand }) {
   const displayName = brand?.displayName ?? "skatehive";
   const avatarUrl = brand?.avatarUrl ?? "/skatehive-logo-circle.svg";
+  // Discord auto-embeds bare image URLs below the message (and renders custom
+  // emojis / bold inline). Pull image URLs out so they show as the embed.
+  const { body, images } = splitBareImages(content);
 
   return (
     <div className="rounded-xl border border-white/[0.06] bg-[#313338] p-4">
@@ -356,8 +435,9 @@ function DiscordPreview({ content, brand }: { content: string; brand?: CampaignP
             <span className="text-[10px] text-zinc-400">Today at 12:00 PM</span>
           </div>
           <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#dcddde]">
-            <DiscordRichText text={content} />
+            <DiscordRichText text={body} />
           </div>
+          <MediaCards images={images} />
         </div>
       </div>
     </div>
