@@ -15,6 +15,7 @@ import {
   getProjectSocialInsightsContext,
   getProjectSocialMetricsContext,
 } from "@/lib/social-insights-core";
+import { getProjectKanbanContext } from "@/lib/kanban-context";
 
 // Abort the agent call a hair before the 300s function budget so the action
 // returns a clean error instead of a raw 504 if a run goes long.
@@ -105,13 +106,22 @@ export async function regenerateBriefing(
         "\n\n=== Social analytics context — the agent's prior AI analysis per channel (use when relevant) ===\n" + ctx;
     }
 
-    // Append freshly-fetched LIVE social numbers so the briefing can ground its
-    // recommendations in current metrics (and cite them as [live]).
-    const liveNumbers = await getProjectSocialMetricsContext(project);
+    // Append freshly-fetched LIVE social numbers + the GitHub Project board
+    // state in parallel — both grounding context the agent should use as-is
+    // instead of re-fetching (keeps generation lean and fast).
+    const [liveNumbers, kanban] = await Promise.all([
+      getProjectSocialMetricsContext(project),
+      getProjectKanbanContext(project),
+    ]);
     if (liveNumbers) {
       prompt +=
         "\n\n=== Social LIVE numbers, fetched THIS run — treat as current evidence, cite them, label [live] ===\n" +
         liveNumbers;
+    }
+    if (kanban) {
+      prompt +=
+        "\n\n=== GitHub Project board, fetched THIS run — current kanban state; ground priorities/blockers in it, label [board] ===\n" +
+        kanban;
     }
 
     // Re-state the corrections at the END too — long contexts get "lost in the

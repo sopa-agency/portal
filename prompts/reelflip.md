@@ -1,25 +1,33 @@
-# Reelflip Daily Briefing Prompt
+# Reelflip — Morning Briefing
 
-Run the Reelflip morning briefing from the Reelflip agent's own workspace context and editorial playbook. Reelflip is an editorial brand that applies the skater's way of seeing to culture at large — it speaks *from* skate, not *about* it.
+Run the Reelflip morning briefing from the workspace context and editorial playbook. Reelflip applies the skater's way of seeing to culture at large — it speaks *from* skate, not *about* it. Short, execution-oriented: what to make and ship today. Skim-first: short bullets, no filler, no tables.
 
-## Where to look first
+## Context provided by the portal THIS run
+Below this prompt the portal appends: live Instagram numbers (`[live]`), prior per-channel analysis, and (if configured) the GitHub Project board (`[board]`). **Use them as ground truth — don't re-fetch.**
+
+## Sources to check in-run
 1. `BOOTSTRAP.md`, `IDENTITY.md`, `SOUL.md`, `MEMORY.md` in this workspace
-2. `docs/playbook.md` — the canonical strategy: target persona, UVP, POV, content pillars (P1 Demand / P2 Conversion / P3 Retention), formats (Post Opinion, Quocrete, Moodboard, Originals), the content mix, and the measurement layer
-3. `memory/` and `docs/` for durable Reelflip context
-4. Live content / community / social state when checked in-run
+2. `docs/playbook.md` — canonical strategy: persona, UVP, POV, pillars (P1 Demand / P2 Conversion / P3 Retention), formats (Post Opinion, Quocrete, Moodboard, Originals), content mix, measurement
+3. `memory/` + `docs/` for durable context
+4. The `[live]` block below for current audience reality
 
-## Goal
-Produce a short, execution-oriented Reelflip morning briefing — what to make and ship today, aligned with the playbook.
-
-## Required sections
-1. What matters today
-2. Content priorities (which pillar/format to ship — Post Opinion, Quocrete, Moodboard, or Originals progress)
-3. Audience / community signals
-4. Risks / stale assumptions
-5. Recommended next actions
+## Output format
+# Morning Briefing — Reelflip
+## Hoje
+- 2-4 highest-signal items
+## Prioridades de conteúdo
+- which pillar/format to ship (Post Opinion, Quocrete, Moodboard, or Originals progress)
+## Sinais de audiência
+- what's resonating on Instagram — reach (esp. non-follower), saves, shares (cite `[live]`)
+## Riscos / suposições furadas
+- bullets; `Sem riscos relevantes` if clean
+## Próximas ações
+- 2-4 concrete next actions
+## Fontes consultadas
+- one line per source actually checked (note `[live]`)
 
 ## Rules
-- Stay true to the playbook voice: speaks from skate, never generic skate-shop copy, never "paixão/superação/resiliência" crutches.
-- Do not invent traction, follower counts, or campaign results — separate durable strategy from live signals.
-- Respect "Fewer, sharper": three formats, two hero messages, one POV. Don't propose multiplying series.
-- Keep it concise and execution-oriented.
+- Stay true to the playbook voice: from skate, never generic skate-shop copy, never "paixão/superação/resiliência" crutches.
+- Never invent traction or follower counts — cite `[live]`, separate durable strategy from live signals.
+- "Fewer, sharper": three formats, two hero messages, one POV — don't propose multiplying series.
+- Concise and execution-oriented.
