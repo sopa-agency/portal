@@ -71,6 +71,52 @@ const REMOTE_SECRET = process.env.BRAIN_FILE_SERVICE_SECRET ?? "";
 
 const REMOTE_TIMEOUT_MS = 10_000;
 
+// ---------------------------------------------------------------------------
+// Queue mode — used when BRAIN_TRANSPORT=queue (default on Vercel). Vercel
+// can't reach the brain-file-server over the Tailscale funnel (TLS handshake
+// drops), so workspace ops are enqueued as BrainOpJob rows; the Mac
+// brain-queue-worker relays them to the local server and writes the result
+// back. Ops are local fs (fast), so this drains in well under a second.
+// ---------------------------------------------------------------------------
+
+function useBrainQueue(): boolean {
+  const t = (process.env.BRAIN_TRANSPORT ?? "").trim();
+  if (t === "queue") return true;
+  if (t === "funnel" || t === "direct") return false;
+  return !!process.env.VERCEL;
+}
+
+const BRAIN_QUEUE_TIMEOUT_MS = 30_000;
+
+/** Enqueue a brain file-op and poll until the Mac worker fills in the result. */
+async function brainOpViaQueue<T>(
+  op: "tree" | "read" | "write" | "delete",
+  agentId: string,
+  relPath?: string,
+  content?: string,
+): Promise<T> {
+  const { prisma } = await import("@/lib/prisma");
+  const job = await prisma.brainOpJob.create({
+    data: { op, agentId, relPath: relPath ?? null, content: content ?? null },
+  });
+  const deadline = Date.now() + BRAIN_QUEUE_TIMEOUT_MS;
+  let delay = 400;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 1.3, 1_500);
+    let row;
+    try {
+      row = await prisma.brainOpJob.findUnique({ where: { id: job.id } });
+    } catch {
+      continue;
+    }
+    if (!row) continue;
+    if (row.status === "done") return JSON.parse(row.result ?? "null") as T;
+    if (row.status === "error") throw new Error(row.error || "Brain op failed");
+  }
+  throw new Error("Brain file service request timed out");
+}
+
 /** Extract the agentId from a workspace path (`workspace-<agentId>`). */
 function agentIdFromWorkspace(workspace: string): string {
   const base = path.basename(workspace);
@@ -149,6 +195,9 @@ async function listRecursive(dir: string, prefix = ""): Promise<string[]> {
 }
 
 export async function buildBrainTree(workspace: string): Promise<BrainTree> {
+  if (useBrainQueue()) {
+    return brainOpViaQueue<BrainTree>("tree", agentIdFromWorkspace(workspace));
+  }
   if (REMOTE_BASE_URL) {
     const agentId = agentIdFromWorkspace(workspace);
     const url = `${REMOTE_BASE_URL}/tree?agentId=${encodeURIComponent(agentId)}`;
@@ -252,6 +301,11 @@ function workspaceFromAbsPath(absPath: string): string | null {
 }
 
 export async function readBrainFile(absPath: string): Promise<BrainFile> {
+  if (useBrainQueue()) {
+    const ws = workspaceFromAbsPath(absPath);
+    if (!ws) throw new Error("Cannot derive workspace from path in queue mode");
+    return brainOpViaQueue<BrainFile>("read", agentIdFromWorkspace(ws), path.relative(ws, absPath));
+  }
   if (REMOTE_BASE_URL) {
     // Derive workspace and relative path from the absolute path so callers
     // don't need to change — absPath is always inside workspace-<agentId>.
@@ -288,6 +342,12 @@ export async function readBrainFile(absPath: string): Promise<BrainFile> {
 }
 
 export async function writeBrainFile(absPath: string, content: string): Promise<void> {
+  if (useBrainQueue()) {
+    const ws = workspaceFromAbsPath(absPath);
+    if (!ws) throw new Error("Cannot derive workspace from path in queue mode");
+    await brainOpViaQueue("write", agentIdFromWorkspace(ws), path.relative(ws, absPath), content);
+    return;
+  }
   if (REMOTE_BASE_URL) {
     const ws = workspaceFromAbsPath(absPath);
     if (!ws) throw new Error("Cannot derive workspace from path in remote mode");
@@ -316,6 +376,12 @@ export async function writeBrainFile(absPath: string, content: string): Promise<
 }
 
 export async function deleteBrainFile(absPath: string): Promise<void> {
+  if (useBrainQueue()) {
+    const ws = workspaceFromAbsPath(absPath);
+    if (!ws) throw new Error("Cannot derive workspace from path in queue mode");
+    await brainOpViaQueue("delete", agentIdFromWorkspace(ws), path.relative(ws, absPath));
+    return;
+  }
   if (REMOTE_BASE_URL) {
     const ws = workspaceFromAbsPath(absPath);
     if (!ws) throw new Error("Cannot derive workspace from path in remote mode");

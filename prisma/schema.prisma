@@ -384,3 +384,25 @@ model AgentJob {
 
   @@index([status, createdAt])
 }
+
+// Brain workspace file-op queue. Same problem as AgentJob: the Brain page on
+// Vercel can't reach the brain-file-server over the Tailscale funnel. So
+// workspace operations (tree/read/write/delete) enqueue a BrainOpJob; the Mac
+// brain-queue-worker relays it to the local brain-file-server (127.0.0.1) and
+// writes the JSON response into `result`. Fast local fs ops, so this drains in
+// well under a second. Used only when BRAIN_TRANSPORT=queue (default on Vercel).
+model BrainOpJob {
+  id        String    @id @default(cuid())
+  op        String    // tree | read | write | delete
+  agentId   String
+  relPath   String?
+  content   String?   @db.Text
+  status    String    @default("queued") // queued | running | done | error
+  result    String?   @db.Text // JSON-encoded response payload
+  error     String?
+  lockedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}

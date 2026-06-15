@@ -13,6 +13,7 @@
     "worker:marketing-suggestions": "node scripts/marketing-suggestions-worker.js",
     "worker:briefing": "node scripts/briefing-worker.js",
     "worker:agent": "node scripts/agent-worker.js",
+    "worker:brain-queue": "node scripts/brain-queue-worker.js",
     "worker:brain-file-server": "node scripts/brain-file-server.js"
   },
   "dependencies": {
