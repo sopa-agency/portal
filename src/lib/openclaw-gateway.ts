@@ -15,6 +15,27 @@ import WebSocket from "ws";
 import type { ProjectConfig } from "@/projects/types";
 import { projectEnv } from "@/projects/secrets";
 
+// The `ws` library dispatches an `ErrorEvent` when a socket errors. That global
+// isn't defined in Vercel's serverless runtime, so an errored WS connection
+// threw an uncaught `ReferenceError: ErrorEvent is not defined` and KILLED the
+// function (exit 129) — surfacing as the briefing/chat failures. Shim it so a
+// WS error becomes a catchable rejection instead of a fatal crash.
+{
+  const g = globalThis as Record<string, unknown>;
+  if (typeof g.ErrorEvent === "undefined") {
+    g.ErrorEvent = class ErrorEvent {
+      type: string;
+      error: unknown;
+      message: string;
+      constructor(type: string, init?: { error?: unknown; message?: string }) {
+        this.type = type;
+        this.error = init?.error;
+        this.message = init?.message ?? "";
+      }
+    };
+  }
+}
+
 const WS_CONNECT_TIMEOUT_MS = 20_000; // cross-region funnel connects can be slow
 const DEFAULT_PROMPT_TIMEOUT_MS = 120_000;
 
