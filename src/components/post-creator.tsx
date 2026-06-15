@@ -1782,7 +1782,7 @@ export function PostCreator({
 }: {
   agentName: string;
   igHandle: string;
-  cardStyles?: ("holo" | "pixel" | "gold")[];
+  cardStyles?: ("holo" | "pixel" | "gold" | "bounty")[];
   brandName?: string;
   brandAccent?: string;
 }) {

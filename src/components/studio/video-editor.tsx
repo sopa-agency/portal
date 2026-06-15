@@ -80,7 +80,7 @@ type Clip = {
   offsetY?: number;
   scale?: number;
 };
-type CardStyle = "holo" | "pixel" | "gold";
+type CardStyle = "holo" | "pixel" | "gold" | "bounty";
 type Rarity = "Rare" | "Epic" | "Legendary";
 
 /** Trading-card overlay that frames the clip as a rare TCG card. */
@@ -98,6 +98,8 @@ type CardData = {
   accent: string; // holo/brand hue
   fontScale: number;
   hidden: string[]; // element ids to hide: eyebrow watermark stats serial type
+  /** Bounty style only — onchain reward shown in the accent (e.g. "0.42 ETH"). */
+  reward?: string;
 };
 
 type Overlay = {
@@ -135,7 +137,46 @@ const CARD_STYLE_META: Record<CardStyle, { name: string; note: string; defaultAc
   holo: { name: "Neon Holo Rare", note: "Lime holographic foil + glow", defaultAccent: "#a3e635" },
   pixel: { name: "Pixel Arcade Legend", note: "8-bit border + CRT scanlines", defaultAccent: "#bdf25a" },
   gold: { name: "Gold Legendary Foil", note: "Gilded frame + medallion seal", defaultAccent: "#ffd86b" },
+  bounty: { name: "Gnars Bounty", note: "POIDH challenge — Ken Pixel on black, onchain reward in gold", defaultAccent: "#fbbf24" },
 };
+
+// Gnars bounty palette — mirrors gnars-website OG_COLORS (og-utils.ts).
+const GN = {
+  bg: "#000000",
+  fg: "#ffffff",
+  muted: "#888888",
+  mutedLight: "#aaaaaa",
+  gold: "#fbbf24", // accentYellow — the hero reward color
+};
+
+// The "Ken Pixel" font + the grants seal both live in /public/og-assets,
+// copied from gnars-website. Loaded once on the client and cached at module
+// scope so the pure drawCard() function can use them without prop-drilling.
+let gnarsSealImg: HTMLImageElement | null = null;
+let gnarsSealReady = false;
+let gnarsAssetsRequested = false;
+function ensureGnarsBountyAssets() {
+  if (gnarsAssetsRequested || typeof document === "undefined") return;
+  gnarsAssetsRequested = true;
+  try {
+    const ff = new FontFace("Ken Pixel", "url(/og-assets/kenpixel.ttf)");
+    ff.load()
+      .then((loaded) => {
+        (document as Document & { fonts: FontFaceSet }).fonts.add(loaded);
+      })
+      .catch(() => {});
+  } catch {
+    /* FontFace unsupported — falls back to monospace */
+  }
+  if (typeof Image !== "undefined") {
+    const img = new Image();
+    img.onload = () => {
+      gnarsSealReady = true;
+    };
+    img.src = "/og-assets/grants-seal.png";
+    gnarsSealImg = img;
+  }
+}
 
 // Reference palette (reel.css).
 const SH = {
@@ -205,6 +246,13 @@ function drawCard(
   _nowMs: number,
   brandName: string,
 ) {
+  // Gnars bounty cards use a different visual language entirely (POIDH
+  // challenge: Ken Pixel on black, onchain reward in gold). Branch out early.
+  if (card.style === "bounty") {
+    drawBountyCard(ctx, W, H, card, clipEl, framing);
+    return;
+  }
+
   const accent = card.accent || SH.lime;
   const fs = card.fontScale || 1;
   const hidden = new Set(card.hidden ?? []);
@@ -321,6 +369,123 @@ function drawCard(
     ctx.fillStyle = "rgba(255,255,255,0.92)";
     ctx.fillText(card.skater, P, topTitleY - titleLineH * 0.62);
   }
+}
+
+/** Gnars POIDH bounty card — faithful to the gnars.com per-bounty OG template:
+ *  black field, Ken Pixel type, "GNARS CHALLENGE" kicker, big title, the
+ *  onchain reward in gold, grants seal, footer URL. The clip plays in a framed
+ *  window in the upper-middle (this is a video tool — the footage stays the
+ *  hero), with the bounty chrome stacked around it. */
+function drawBountyCard(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  card: CardData,
+  clipEl: HTMLVideoElement | null,
+  framing: { offsetX: number; offsetY: number; scale: number },
+) {
+  ensureGnarsBountyAssets();
+  const gold = card.accent || GN.gold;
+  const fs = card.fontScale || 1;
+  const S = Math.min(W, H) / 1080;
+  const f = (n: number) => n * S * fs;
+  const P = W * 0.08;
+  const topSafe = H * 0.06;
+  const botSafe = H * 0.07;
+  const pix = (px: number) => {
+    ctx.font = `400 ${f(px)}px 'Ken Pixel', 'JetBrains Mono', ui-monospace, monospace`;
+  };
+  // Letter-spaced centered pixel text; returns the baseline advance used.
+  const centerText = (text: string, cy: number, color: string, spacing: number) => {
+    ctx.textAlign = "left";
+    ctx.fillStyle = color;
+    let total = 0;
+    for (const ch of text) total += ctx.measureText(ch).width + spacing;
+    total -= spacing;
+    let x = W / 2 - total / 2;
+    for (const ch of text) {
+      ctx.fillText(ch, x, cy);
+      x += ctx.measureText(ch).width + spacing;
+    }
+  };
+
+  // 1) black field
+  ctx.fillStyle = GN.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  let y = topSafe;
+
+  // 2) grants seal, top-center
+  const sealW = Math.min(W, H) * 0.16;
+  if (gnarsSealReady && gnarsSealImg) {
+    const sealH = sealW * (gnarsSealImg.height / gnarsSealImg.width || 1.22);
+    ctx.drawImage(gnarsSealImg, W / 2 - sealW / 2, y, sealW, sealH);
+    y += sealH + f(26);
+  } else {
+    y += sealW * 1.22 + f(26);
+  }
+
+  // 3) kicker — "GNARS CHALLENGE"
+  pix(26);
+  ctx.textBaseline = "alphabetic";
+  centerText("GNARS CHALLENGE", y + f(24), GN.mutedLight, f(6));
+  y += f(24) + f(30);
+
+  // 4) clip window — framed, the footage stays the hero
+  const winX = P;
+  const winW = W - 2 * P;
+  const winH = H * 0.34;
+  ctx.save();
+  roundRectPath(ctx, winX, y, winW, winH, f(10));
+  ctx.clip();
+  if (clipEl && clipEl.readyState >= 2) {
+    drawCoverInRect(ctx, clipEl, winX, y, winW, winH, framing);
+  } else {
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillRect(winX, y, winW, winH);
+  }
+  ctx.restore();
+  // thin gold frame
+  ctx.strokeStyle = gold;
+  ctx.lineWidth = Math.max(2, f(3));
+  roundRectPath(ctx, winX, y, winW, winH, f(10));
+  ctx.stroke();
+  y += winH + f(44);
+
+  // 5) title — Ken Pixel, white, centered, wrapped (≤3 lines)
+  const titleSize = 52;
+  pix(titleSize);
+  const maxW = W - 2 * P;
+  const words = (card.title || "CHALLENGE").toUpperCase().trim().split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  for (const word of words) {
+    const test = cur ? `${cur} ${word}` : word;
+    if (ctx.measureText(test).width > maxW && cur) {
+      lines.push(cur);
+      cur = word;
+      if (lines.length === 2) break;
+    } else cur = test;
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > 3) lines.length = 3;
+  const lineH = f(titleSize * 1.28);
+  for (let i = 0; i < lines.length; i++) {
+    centerText(lines[i], y + f(titleSize) + i * lineH, GN.fg, f(2));
+  }
+  y += lines.length * lineH + f(18);
+
+  // 6) reward — the hero number, gold
+  const reward = (card.reward || "").trim();
+  if (reward) {
+    pix(64);
+    centerText(reward.toUpperCase(), y + f(58), gold, f(3));
+    y += f(58) + f(20);
+  }
+
+  // 7) footer URL — muted, pinned near the bottom
+  pix(20);
+  centerText("GNARS.COM/COMMUNITY/BOUNTIES", H - botSafe, GN.muted, f(3));
 }
 
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
@@ -763,7 +928,9 @@ export function VideoEditor({
         "700 14px 'JetBrains Mono'",
       ].forEach((s) => fonts.load(s).catch(() => {}));
     }
-  }, [cardStyles.length]);
+    // Gnars bounty cards need the Ken Pixel font + grants seal.
+    if (cardStyles.includes("bounty")) ensureGnarsBountyAssets();
+  }, [cardStyles]);
 
   // --- audio graph -----------------------------------------------------------
 
@@ -1410,18 +1577,21 @@ export function VideoEditor({
         skater: author ? `@${author}` : "@skater",
         title: item?.name ?? "UNTITLED",
         description: "",
-        type: "STREET",
+        type: style === "bounty" ? "CHALLENGE" : "STREET",
         upvotes: votes ?? "0",
         runtime,
         serial: (votes ?? "0000").padStart(4, "0").slice(0, 4),
         rarity: "Rare",
         motion: false,
         accent:
-          CARD_STYLE_META[style].defaultAccent === "#a3e635"
-            ? brandAccent
-            : CARD_STYLE_META[style].defaultAccent,
+          style === "bounty"
+            ? CARD_STYLE_META.bounty.defaultAccent
+            : CARD_STYLE_META[style].defaultAccent === "#a3e635"
+              ? brandAccent
+              : CARD_STYLE_META[style].defaultAccent,
         fontScale: 1,
         hidden: [],
+        reward: style === "bounty" ? "0.42 ETH" : undefined,
       };
       const ov: Overlay = {
         id: nextId(),
@@ -3658,14 +3828,24 @@ function CardInspector({
       />
     </label>
   );
+  const isBounty = card.style === "bounty";
   return (
     <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
-      <span className="font-medium text-foreground">Card</span>
-      {field("@", card.skater, "skater", "w-24")}
-      {field("title", card.title, "title", "w-48")}
-      {field("type", card.type, "type", "w-20")}
-      {field("▲", card.upvotes, "upvotes", "w-14")}
-      {field("time", card.runtime, "runtime", "w-14")}
+      <span className="font-medium text-foreground">{isBounty ? "Bounty" : "Card"}</span>
+      {isBounty ? (
+        <>
+          {field("title", card.title, "title", "w-56")}
+          {field("reward", card.reward ?? "", "reward", "w-24")}
+        </>
+      ) : (
+        <>
+          {field("@", card.skater, "skater", "w-24")}
+          {field("title", card.title, "title", "w-48")}
+          {field("type", card.type, "type", "w-20")}
+          {field("▲", card.upvotes, "upvotes", "w-14")}
+          {field("time", card.runtime, "runtime", "w-14")}
+        </>
+      )}
       <span className="flex items-center gap-1">
         accent
         {CARD_ACCENTS.map((c) => (
