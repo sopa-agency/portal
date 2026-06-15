@@ -88,6 +88,19 @@ const MAX_BODY_BYTES = 2_000_000; // 2 MB request body cap
 
 const PINNED_BASENAMES = new Set(["playbook.md"]);
 
+// Root-level agent boot files — editable but never deletable (deleting one
+// breaks the agent's bootstrap). Mirrors isProtectedBrainFile() in
+// brain-workspace.ts. Defense-in-depth: the portal blocks these too.
+const PROTECTED_ROOT_BASENAMES = new Set(
+  CORE_ORDER.map((n) => n.toLowerCase()),
+);
+
+function isProtectedBrainFile(relPath) {
+  const norm = String(relPath).replace(/\\/g, "/");
+  if (norm.includes("/")) return false;
+  return PROTECTED_ROOT_BASENAMES.has(norm.toLowerCase());
+}
+
 const IMAGE_EXTS = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".bmp", ".tif", ".tiff",
 ]);
@@ -384,6 +397,11 @@ async function handleFileDelete(req, res, url, agentId) {
   if (!abs) {
     send(res, 400, { ok: false, error: "Invalid path" });
     log(req.method, url.pathname, agentId, 400);
+    return;
+  }
+  if (isProtectedBrainFile(relPath)) {
+    send(res, 403, { ok: false, error: "This is a protected boot file and cannot be deleted." });
+    log(req.method, url.pathname, agentId, 403);
     return;
   }
 

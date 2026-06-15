@@ -10,6 +10,7 @@ import {
   Folder,
   FolderOpen,
   Loader2,
+  Lock,
   Pin,
   RotateCcw,
   Save,
@@ -19,6 +20,26 @@ import { MarkdownContent } from "@/components/markdown-content";
 
 function cn(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
+}
+
+// Mirror of isProtectedBrainFile() in src/lib/brain-workspace.ts — root-level
+// agent boot files that can be edited but never deleted. The server enforces
+// this authoritatively; here we just hide the Delete affordance.
+const PROTECTED_ROOT_BASENAMES = new Set([
+  "soul.md",
+  "identity.md",
+  "user.md",
+  "agents.md",
+  "tools.md",
+  "heartbeat.md",
+  "memory.md",
+  "bootstrap.md",
+]);
+
+function isProtectedBrainFile(relPath: string): boolean {
+  const norm = relPath.replace(/\\/g, "/");
+  if (norm.includes("/")) return false;
+  return PROTECTED_ROOT_BASENAMES.has(norm.toLowerCase());
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +535,10 @@ export function BrainExplorer({ agentName }: { agentName: string }) {
 
   async function del() {
     if (!file) return;
+    if (isProtectedBrainFile(file)) {
+      setError("This is a protected boot file and cannot be deleted.");
+      return;
+    }
     if (!confirm(`Delete ${file}? This cannot be undone.`)) return;
     setSaving(true);
     setError("");
@@ -713,14 +738,23 @@ export function BrainExplorer({ agentName }: { agentName: string }) {
                 >
                   <RotateCcw className="h-3.5 w-3.5" /> Reload
                 </button>
-                <button
-                  type="button"
-                  onClick={del}
-                  disabled={saving || !file}
-                  className="flex items-center gap-1.5 rounded-lg border border-danger/30 px-2.5 py-1.5 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-40"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Delete
-                </button>
+                {file && isProtectedBrainFile(file) ? (
+                  <span
+                    className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-faint"
+                    title="Boot file — protected from deletion so the agent can always bootstrap. You can still edit it."
+                  >
+                    <Lock className="h-3.5 w-3.5" /> Protected
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={del}
+                    disabled={saving || !file}
+                    className="flex items-center gap-1.5 rounded-lg border border-danger/30 px-2.5 py-1.5 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-40"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={save}

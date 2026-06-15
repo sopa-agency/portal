@@ -4,6 +4,7 @@ import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getActiveProject } from "@/projects";
 import {
   deleteBrainFile,
+  isProtectedBrainFile,
   readBrainFile,
   resolveSafePath,
   workspaceForProject,
@@ -81,6 +82,13 @@ export async function DELETE(req: Request) {
   const workspace = workspaceForProject(project);
   const abs = resolveSafePath(workspace, file);
   if (!abs) return NextResponse.json({ ok: false, error: "Invalid path" }, { status: 400 });
+
+  if (isProtectedBrainFile(file)) {
+    return NextResponse.json(
+      { ok: false, error: "This is a protected boot file and cannot be deleted." },
+      { status: 403 },
+    );
+  }
 
   try {
     await deleteBrainFile(abs);

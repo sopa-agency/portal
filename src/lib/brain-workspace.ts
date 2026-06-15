@@ -43,6 +43,26 @@ const CORE_ORDER = [
   "BOOTSTRAP.md",
 ];
 
+// Agent boot/identity files at the workspace ROOT. Deleting one of these breaks
+// the agent (it can't bootstrap), so the portal refuses to delete them — they
+// can still be edited. Matched by basename (case-insensitive) at root level
+// only; a same-named file inside a folder (e.g. docs/MEMORY.md) is "soft" and
+// stays deletable.
+const PROTECTED_ROOT_BASENAMES = new Set(
+  CORE_ORDER.map((n) => n.toLowerCase()),
+);
+
+/**
+ * Whether a workspace-relative path is a protected boot file (root-level
+ * SOUL.md / IDENTITY.md / USER.md / AGENTS.md / TOOLS.md / HEARTBEAT.md /
+ * MEMORY.md / BOOTSTRAP.md). Used to block deletion across every transport.
+ */
+export function isProtectedBrainFile(relPath: string): boolean {
+  const norm = relPath.replace(/\\/g, "/");
+  if (norm.includes("/")) return false; // only root-level boot files are protected
+  return PROTECTED_ROOT_BASENAMES.has(norm.toLowerCase());
+}
+
 const MAX_FILE_BYTES = 1_000_000; // 1MB cap on previews/edits
 
 // Files that, even when they live inside a folder, are surfaced at the TOP of
@@ -376,6 +396,13 @@ export async function writeBrainFile(absPath: string, content: string): Promise<
 }
 
 export async function deleteBrainFile(absPath: string): Promise<void> {
+  // Authoritative guard — applies to every transport. Protected boot files can
+  // be edited but never deleted, so the agent always keeps its bootstrap.
+  const wsForGuard = workspaceFromAbsPath(absPath);
+  if (wsForGuard && isProtectedBrainFile(path.relative(wsForGuard, absPath))) {
+    throw new Error("This is a protected boot file and cannot be deleted.");
+  }
+
   if (useBrainQueue()) {
     const ws = workspaceFromAbsPath(absPath);
     if (!ws) throw new Error("Cannot derive workspace from path in queue mode");
