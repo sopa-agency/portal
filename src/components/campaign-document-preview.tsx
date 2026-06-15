@@ -355,9 +355,60 @@ function DiscordPreview({ content, brand }: { content: string; brand?: CampaignP
             </span>
             <span className="text-[10px] text-zinc-400">Today at 12:00 PM</span>
           </div>
-          <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#dcddde]">{content}</div>
+          <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#dcddde]">
+            <DiscordRichText text={content} />
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// Renders Discord message content like Discord does: custom emojis
+// (<:name:id> / <a:name:id>) become CDN images, **bold** renders bold. The id
+// is embedded in the syntax, so no server lookup is needed to preview them.
+const CUSTOM_EMOJI_RE = /<(a)?:(\w+):(\d+)>/g;
+
+function DiscordRichText({ text }: { text: string }) {
+  const nodes: React.ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  const re = new RegExp(CUSTOM_EMOJI_RE);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(<DiscordBold key={key++} text={text.slice(last, m.index)} />);
+    const animated = !!m[1];
+    const name = m[2];
+    const id = m[3];
+    nodes.push(
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        key={key++}
+        src={`https://cdn.discordapp.com/emojis/${id}.${animated ? "gif" : "png"}?size=48`}
+        alt={`:${name}:`}
+        title={`:${name}:`}
+        className="inline-block h-[1.35em] w-[1.35em] align-text-bottom"
+      />,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) nodes.push(<DiscordBold key={key++} text={text.slice(last)} />);
+  return <>{nodes}</>;
+}
+
+function DiscordBold({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.startsWith("**") && p.endsWith("**") ? (
+          <strong key={i} className="font-semibold text-white">
+            {p.slice(2, -2)}
+          </strong>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
   );
 }

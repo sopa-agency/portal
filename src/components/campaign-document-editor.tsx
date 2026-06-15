@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { renameDocument, updateDocumentContent } from "@/app/actions/campaigns";
 import { signPostMediaUpload } from "@/app/actions/post-creator";
 import { MarkdownContent } from "@/components/markdown-content";
+import { EmojiPicker } from "@/components/emoji-picker";
 
 type Mode = "edit" | "preview";
 
@@ -122,6 +123,17 @@ export function CampaignDocumentEditor({
     </label>
   ) : null;
 
+  // Edit toolbar: emoji picker (always) + image upload (social kinds). The
+  // emoji picker shows the Discord server's custom emojis when editing the
+  // Discord announcement.
+  const Toolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <EmojiPicker onPick={insertAtCaret} withServerEmojis={imageKind === "discord"} />
+      {ImageButton}
+      {uploadError && <span className="text-[11px] text-danger">{uploadError}</span>}
+    </div>
+  );
+
   useEffect(() => {
     if (content === savedContentRef.current) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -145,12 +157,7 @@ export function CampaignDocumentEditor({
   if (bare) {
     return (
       <div>
-        {ImageButton && (
-          <div className="mb-2 flex items-center gap-2">
-            {ImageButton}
-            {uploadError && <span className="text-[11px] text-danger">{uploadError}</span>}
-          </div>
-        )}
+        <div className="mb-2">{Toolbar}</div>
         <textarea
           ref={textareaRef}
           value={content}
@@ -192,12 +199,7 @@ export function CampaignDocumentEditor({
 
       {editorOnly || mode === "edit" ? (
         <>
-          {ImageButton && (
-            <div className="mt-3 flex items-center gap-2">
-              {ImageButton}
-              {uploadError && <span className="text-[11px] text-danger">{uploadError}</span>}
-            </div>
-          )}
+          <div className="mt-3">{Toolbar}</div>
           <textarea
             ref={textareaRef}
             value={content}

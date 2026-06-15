@@ -63,6 +63,7 @@ import dynamic from "next/dynamic";
 import { Toaster as StudioToaster } from "@/components/studio/ui/sonner";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
+import { EmojiPicker } from "@/components/emoji-picker";
 
 // Studio (vendored Figma-like design tool) — heavy + browser-only, so it loads
 // on demand when the tab opens.
@@ -415,6 +416,7 @@ function PostDialog({
 }) {
   const router = useRouter();
   const closeRef = useRef<HTMLButtonElement>(null);
+  const captionRef = useRef<HTMLTextAreaElement>(null);
   const [dialogCaption, setDialogCaption] = useState(post.caption);
   const [dialogComment, setDialogComment] = useState(post.firstComment ?? "");
   const [dialogSchedule, setDialogSchedule] = useState(
@@ -702,11 +704,23 @@ function PostDialog({
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-medium text-foreground-muted">Caption</label>
-                      <span className="text-[11px] tabular-nums text-foreground-faint">
-                        {dialogCaption.length}/{CAPTION_MAX}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <EmojiPicker
+                          align="right"
+                          onPick={(emoji) => {
+                            const el = captionRef.current;
+                            const at = el ? el.selectionStart : dialogCaption.length;
+                            const end = el ? el.selectionEnd : dialogCaption.length;
+                            setDialogCaption(dialogCaption.slice(0, at) + emoji + dialogCaption.slice(end));
+                          }}
+                        />
+                        <span className="text-[11px] tabular-nums text-foreground-faint">
+                          {dialogCaption.length}/{CAPTION_MAX}
+                        </span>
+                      </div>
                     </div>
                     <textarea
+                      ref={captionRef}
                       value={dialogCaption}
                       onChange={(e) => setDialogCaption(e.target.value)}
                       rows={4}
