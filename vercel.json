@@ -3,6 +3,6 @@
   "framework": "nextjs",
   "buildCommand": "prisma generate && next build",
   "crons": [
-    { "path": "/api/scheduler/cron", "schedule": "*/5 * * * *" }
+    { "path": "/api/scheduler/cron", "schedule": "*/15 * * * *" }
   ]
 }
