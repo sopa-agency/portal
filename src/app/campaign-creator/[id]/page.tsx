@@ -44,6 +44,7 @@ export default async function CampaignFolderPage({
     handle: primaryHandle ?? project.hive.account,
     hiveAccount: project.hive.account,
     hiveCommunity: project.hive.community,
+    farcasterChannel: project.farcaster.channel,
     siteUrl: project.hive.frontend ?? "https://peakd.com",
     accent: project.theme.accentDark,
     accentDark: project.theme.accentLight,

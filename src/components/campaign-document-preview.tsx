@@ -39,6 +39,8 @@ export type CampaignPreviewBrand = {
   handle: string;
   hiveAccount: string;
   hiveCommunity: string;
+  /** Farcaster channel WITHOUT leading slash, e.g. "gnars" or "skateboard". */
+  farcasterChannel?: string;
   /** Brand site for default email button hrefs, e.g. "https://skatehive.app" */
   siteUrl?: string;
   /** Inline hex accents for email builder defaults (email needs literal colors). */
@@ -231,11 +233,12 @@ function FarcasterCastPreview({ content, brand }: { content: string; brand?: Cam
   const displayName = brand?.displayName ?? "skatehive";
   const handle = brand?.handle ?? "skatehive";
   const avatarUrl = brand?.avatarUrl ?? "/skatehive-logo-circle.svg";
+  const channel = brand?.farcasterChannel ?? "skateboard";
 
   return (
     <div className="rounded-2xl border border-purple-500/30 bg-black px-4 py-3 text-zinc-100">
       <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-        <span>Farcaster cast · /skateboard</span>
+        <span>Farcaster cast · /{channel}</span>
         <span className={overLimit ? "text-rose-400" : "text-zinc-500"}>{body.length}/320</span>
       </div>
       <div className="mt-2 flex gap-3">
@@ -251,7 +254,7 @@ function FarcasterCastPreview({ content, brand }: { content: string; brand?: Cam
             <span className="text-purple-400">◆</span>
             <span className="text-zinc-500">@{handle}</span>
             <span className="text-zinc-500">·</span>
-            <span className="text-zinc-500">/skateboard</span>
+            <span className="text-zinc-500">/{channel}</span>
           </div>
           <div className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5 text-zinc-100">
             <HighlightedText tokens={tokens} linkClassName="text-purple-300" />
