@@ -138,17 +138,29 @@ async function processJob(job) {
   }
 }
 
+const CONCURRENCY = Number(process.env.BRIEFING_WORKER_CONCURRENCY ?? 3);
+let active = 0;
+
 async function loop() {
-  console.log(`[briefing-worker] up — gateway ${GATEWAY_URL}, poll ${POLL_INTERVAL_MS}ms`);
+  console.log(
+    `[briefing-worker] up — gateway ${GATEWAY_URL}, poll ${POLL_INTERVAL_MS}ms, concurrency ${CONCURRENCY}`,
+  );
   for (;;) {
     try {
-      const job = await claimJob();
-      if (job) await processJob(job);
-      else await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      // Claim up to CONCURRENCY jobs and run them in parallel so a project's
+      // multiple agents (e.g. SkateHive dev + marketing) don't serialize.
+      while (active < CONCURRENCY) {
+        const job = await claimJob();
+        if (!job) break;
+        active++;
+        processJob(job).finally(() => {
+          active--;
+        });
+      }
     } catch (err) {
       console.error("[briefing-worker] loop error:", err?.message ?? err);
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
 }
 

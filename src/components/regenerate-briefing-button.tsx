@@ -1,38 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import {
   regenerateAllBriefings,
-  getBriefingJobs,
   type BriefingLanguage,
 } from "@/app/actions/briefings";
-
-/** Poll enqueued briefing jobs until all settle (done/error) or timeout. */
-async function waitForBriefingJobs(ids: string[]): Promise<string | null> {
-  if (ids.length === 0) return null;
-  const deadline = Date.now() + 6 * 60_000;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 3000));
-    let jobs;
-    try {
-      jobs = await getBriefingJobs(ids);
-    } catch {
-      continue;
-    }
-    if (jobs.length && jobs.every((j) => j.status === "done" || j.status === "error")) {
-      return jobs.find((j) => j.status === "error")?.error ?? null;
-    }
-  }
-  return "Timed out waiting for the briefing worker.";
-}
+import { BriefingRegenDialog } from "@/components/briefing-regen-dialog";
 
 export function RegenerateBriefingButton() {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progressJobs, setProgressJobs] = useState<{ agent: string; jobId: string }[] | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -56,17 +36,14 @@ export function RegenerateBriefingButton() {
     setError(null);
     startTransition(async () => {
       const result = await regenerateAllBriefings(language);
-      if (!result.ok && result.jobIds.length === 0) {
+      const enqueued = result.results.filter((r) => r.jobId);
+      if (enqueued.length === 0) {
         setError(result.results.find((r) => !r.ok)?.error ?? "Regeneration failed");
         return;
       }
-      // Enqueued — the Mac worker runs it; poll until the briefings land.
-      const err = await waitForBriefingJobs(result.jobIds);
-      if (err) {
-        setError(err);
-        return;
-      }
-      router.refresh();
+      // Hand off to the progress dialog — it polls the Mac worker jobs and
+      // refreshes when they land, with per-agent status + a time expectation.
+      setProgressJobs(enqueued.map((r) => ({ agent: r.agent, jobId: r.jobId! })));
     });
   };
 
@@ -133,6 +110,10 @@ export function RegenerateBriefingButton() {
         <p className="max-w-xs truncate text-right text-[11px] text-red-300" title={error}>
           {error}
         </p>
+      )}
+
+      {progressJobs && (
+        <BriefingRegenDialog jobs={progressJobs} onClose={() => setProgressJobs(null)} />
       )}
     </div>
   );
