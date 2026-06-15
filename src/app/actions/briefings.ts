@@ -112,6 +112,23 @@ async function assembleBriefingPrompt(
       kanban;
   }
 
+  // Anchor for incremental work: the timestamp of this agent's last briefing.
+  // Lets the agent bound its repo/code inspection to the delta since then
+  // (e.g. `git log --since=[since]`) instead of re-scanning from scratch.
+  const last = await prisma.briefing
+    .findFirst({
+      where: { agentSlug },
+      orderBy: [{ date: "desc" }, { generatedAt: "desc" }],
+      select: { generatedAt: true },
+    })
+    .catch(() => null);
+  const since = last?.generatedAt?.toISOString() ?? null;
+  prompt +=
+    "\n\n=== [since] Last briefing for this agent ===\n" +
+    (since
+      ? `${since}\nOnly inspect what changed since this instant. For code, run a bounded delta (e.g. \`git -C ~/Code/skatehive3.0 log --oneline --since='${since}'\`) instead of scanning the whole repo.`
+      : "No prior briefing — this is the first run, so a fuller pass is fine.");
+
   if (feedback) {
     prompt +=
       "\n\nREMINDER: apply every item under '=== Team corrections to honor ===' above. They override default phrasing.";
