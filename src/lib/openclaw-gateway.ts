@@ -15,7 +15,7 @@ import WebSocket from "ws";
 import type { ProjectConfig } from "@/projects/types";
 import { projectEnv } from "@/projects/secrets";
 
-const WS_CONNECT_TIMEOUT_MS = 10_000;
+const WS_CONNECT_TIMEOUT_MS = 20_000; // cross-region funnel connects can be slow
 const DEFAULT_PROMPT_TIMEOUT_MS = 120_000;
 
 type GatewayFrame = {
@@ -334,6 +334,23 @@ export async function callOpenClaw(
     (opts.project ? projectEnv(opts.project, "PORTAL_DEVICE_PRIVATE_KEY_BASE64") : null) ??
     trimmed("OPENCLAW_PORTAL_DEVICE_PRIVATE_KEY_BASE64");
   const hasDeviceAuth = !!deviceId && !!publicKey && !!privateKey;
-  if (hasDeviceAuth) return callOverWs(prompt, agentId, opts);
-  return callOverHttp(prompt, agentId, opts);
+  const hasToken = !!(
+    (opts.project ? projectEnv(opts.project, "GATEWAY_TOKEN") : null) ??
+    trimmed("OPENCLAW_GATEWAY_TOKEN") ??
+    trimmed("GATEWAY_TOKEN")
+  );
+  if (!hasDeviceAuth) return callOverHttp(prompt, agentId, opts);
+  // Production over the Tailscale Funnel: the signed-WS connect is flaky from
+  // Vercel (cross-region/cold start often blows the connect budget), while the
+  // plain-HTTPS /v1/responses path on the same funnel is reliable. Try WS, and
+  // on a connect failure fall back to the token-auth HTTP transport.
+  try {
+    return await callOverWs(prompt, agentId, opts);
+  } catch (err) {
+    if (!hasToken) throw err;
+    console.warn(
+      `[openclaw] WS transport failed (${err instanceof Error ? err.message : err}); falling back to HTTP.`,
+    );
+    return callOverHttp(prompt, agentId, opts);
+  }
 }
