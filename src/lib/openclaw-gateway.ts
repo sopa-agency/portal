@@ -369,10 +369,17 @@ export async function callOpenClaw(
     try {
       return await callOverHttp(prompt, agentId, opts);
     } catch (err) {
-      if (!hasDeviceAuth) throw err;
+      // undici hides the real reason in err.cause (ENOTFOUND / ECONNREFUSED /
+      // UND_ERR_CONNECT_TIMEOUT / TLS …) — surface it so we can see WHY Vercel
+      // can't reach the funnel.
+      const cause = (err as { cause?: unknown })?.cause;
       console.warn(
-        `[openclaw] HTTP transport failed (${err instanceof Error ? err.message : err}); falling back to signed WS.`,
+        `[openclaw] HTTP transport failed: ${err instanceof Error ? err.message : err} | cause: ${
+          cause instanceof Error ? `${cause.name}: ${cause.message}` : JSON.stringify(cause)
+        }`,
       );
+      if (!hasDeviceAuth) throw err;
+      console.warn("[openclaw] falling back to signed WS.");
       return callOverWs(prompt, agentId, opts);
     }
   }
