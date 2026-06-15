@@ -339,18 +339,23 @@ export async function callOpenClaw(
     trimmed("OPENCLAW_GATEWAY_TOKEN") ??
     trimmed("GATEWAY_TOKEN")
   );
-  if (!hasDeviceAuth) return callOverHttp(prompt, agentId, opts);
-  // Production over the Tailscale Funnel: the signed-WS connect is flaky from
-  // Vercel (cross-region/cold start often blows the connect budget), while the
-  // plain-HTTPS /v1/responses path on the same funnel is reliable. Try WS, and
-  // on a connect failure fall back to the token-auth HTTP transport.
-  try {
-    return await callOverWs(prompt, agentId, opts);
-  } catch (err) {
-    if (!hasToken) throw err;
-    console.warn(
-      `[openclaw] WS transport failed (${err instanceof Error ? err.message : err}); falling back to HTTP.`,
-    );
-    return callOverHttp(prompt, agentId, opts);
+  // Default to the transport that actually works: the token-auth HTTP
+  // /v1/responses path is reliable over the Tailscale Funnel, while the
+  // signed-WS connect is flaky from Vercel (cross-region/cold-start timeouts).
+  // Lead with HTTP whenever a token exists; only fall back to signed-WS if
+  // HTTP fails and device auth is configured.
+  if (hasToken) {
+    try {
+      return await callOverHttp(prompt, agentId, opts);
+    } catch (err) {
+      if (!hasDeviceAuth) throw err;
+      console.warn(
+        `[openclaw] HTTP transport failed (${err instanceof Error ? err.message : err}); falling back to signed WS.`,
+      );
+      return callOverWs(prompt, agentId, opts);
+    }
   }
+  // No token — signed WS is the only option (or HTTP surfaces the clean
+  // "token missing" error when neither is configured).
+  return hasDeviceAuth ? callOverWs(prompt, agentId, opts) : callOverHttp(prompt, agentId, opts);
 }
