@@ -1,4 +1,8 @@
 export const dynamic = "force-dynamic";
+// Briefing regeneration runs as a Server Action from this route and calls the
+// agent gateway (minutes). Without this the function is killed at the default
+// ~60s → 504 gateway timeout. Fluid Compute allows up to 300s.
+export const maxDuration = 300;
 
 import { redirect } from "next/navigation";
 import { TrendingDown, TrendingUp } from "lucide-react";

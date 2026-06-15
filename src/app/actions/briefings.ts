@@ -16,7 +16,9 @@ import {
   getProjectSocialMetricsContext,
 } from "@/lib/social-insights-core";
 
-const TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 5 * 60_000);
+// Abort the agent call a hair before the 300s function budget so the action
+// returns a clean error instead of a raw 504 if a run goes long.
+const TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 285_000);
 const ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".openclaw", ".env");
 
 export type BriefingLanguage = "pt" | "en";
