@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, Loader2, Sparkles, X } from "lucide-react";
 import {
@@ -95,11 +95,15 @@ export function ImprovePromptButton({
 
             <div className="flex-1 overflow-y-auto px-5 py-5">
               {pending && (
-                <div className="flex flex-col items-center gap-3 py-12 text-foreground-muted">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  <p className="text-sm">Asking the agent to critique itself…</p>
-                  <p className="text-[11px] text-foreground-subtle">~30–60s</p>
-                </div>
+                <PendingBlock
+                  label="Asking the agent to critique itself…"
+                  steps={[
+                    "Reviewing the current prompt…",
+                    "Spotting gaps & ambiguities…",
+                    "Proposing a sharper version…",
+                  ]}
+                  hint="usually ~30–60s"
+                />
               )}
 
               {error && !pending && (
@@ -240,5 +244,45 @@ function CopyButton({ text }: { text: string }) {
       <Copy className="h-3 w-3" />
       {copied ? "copied" : "copy"}
     </button>
+  );
+}
+
+// The agent call runs through the Mac job queue (Vercel can't reach the gateway
+// directly), so show a live elapsed timer + rotating captions while we wait.
+function PendingBlock({
+  label,
+  steps,
+  hint,
+}: {
+  label: string;
+  steps?: string[];
+  hint?: string;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+  const [step, setStep] = useState(0);
+  const startRef = useRef(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
+    const s = steps && steps.length > 1
+      ? setInterval(() => setStep((i) => (i + 1) % steps.length), 3000)
+      : undefined;
+    return () => {
+      clearInterval(t);
+      if (s) clearInterval(s);
+    };
+  }, [steps]);
+  const secs = Math.floor(elapsed / 1000);
+  return (
+    <div className="flex flex-col items-center gap-3 py-12 text-foreground-muted">
+      <Loader2 className="h-6 w-6 animate-spin text-accent" />
+      <p className="text-sm">{label}</p>
+      {steps && steps.length > 0 && (
+        <p className="text-xs text-foreground-subtle">{steps[step]}</p>
+      )}
+      <p className="font-mono text-[11px] tabular-nums text-foreground-faint">
+        {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+        {hint ? ` · ${hint}` : ""}
+      </p>
+    </div>
   );
 }

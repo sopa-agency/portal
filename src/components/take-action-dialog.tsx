@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, MessageSquare, RefreshCw, Send, Sparkles, X, Zap } from "lucide-react";
 import {
@@ -205,11 +205,27 @@ export function TakeActionButton({
 
             <div className="flex-1 overflow-y-auto px-5 py-5">
               {pending && (
-                <LoadingBlock label="Asking the project agent what it recommends…" hint="~30–60s" />
+                <LoadingBlock
+                  label="Asking the project agent what it recommends…"
+                  hint="usually ~30–60s"
+                  steps={[
+                    "Reading the latest briefing…",
+                    "Checking project context & priorities…",
+                    "Drafting a recommended action…",
+                  ]}
+                />
               )}
 
               {step === "executing" && (
-                <LoadingBlock label="Agent is executing the approved action…" hint="~30–120s" />
+                <LoadingBlock
+                  label="Agent is executing the approved action…"
+                  hint="usually ~30–120s"
+                  steps={[
+                    "Preparing the action…",
+                    "Working through the steps…",
+                    "Wrapping up & reporting back…",
+                  ]}
+                />
               )}
 
               {error && !pending && step !== "executing" && (
@@ -308,12 +324,43 @@ export function TakeActionButton({
   );
 }
 
-function LoadingBlock({ label, hint }: { label: string; hint?: string }) {
+// The agent call runs through the Mac job queue (Vercel can't reach the gateway
+// directly), so it can take a while. Show a live elapsed timer + rotating
+// captions so the wait reads as "working", not "stuck".
+function LoadingBlock({
+  label,
+  hint,
+  steps,
+}: {
+  label: string;
+  hint?: string;
+  steps?: string[];
+}) {
+  const [elapsed, setElapsed] = useState(0);
+  const [step, setStep] = useState(0);
+  const startRef = useRef(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
+    const s = steps && steps.length > 1
+      ? setInterval(() => setStep((i) => (i + 1) % steps.length), 3000)
+      : undefined;
+    return () => {
+      clearInterval(t);
+      if (s) clearInterval(s);
+    };
+  }, [steps]);
+  const secs = Math.floor(elapsed / 1000);
   return (
     <div className="flex flex-col items-center gap-3 py-12 text-foreground-muted">
-      <Loader2 className="h-6 w-6 animate-spin" />
+      <Loader2 className="h-6 w-6 animate-spin text-accent" />
       <p className="text-sm">{label}</p>
-      {hint && <p className="text-[11px] text-foreground-subtle">{hint}</p>}
+      {steps && steps.length > 0 && (
+        <p className="text-xs text-foreground-subtle">{steps[step]}</p>
+      )}
+      <p className="font-mono text-[11px] tabular-nums text-foreground-faint">
+        {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+        {hint ? ` · ${hint}` : ""}
+      </p>
     </div>
   );
 }
