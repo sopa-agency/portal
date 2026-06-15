@@ -1819,6 +1819,11 @@ export function PostCreator({
   // Base fields
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [aspectTouched, setAspectTouched] = useState(false);
+  // When media has an intrinsic, baked-in aspect (a Studio/Figma export or any
+  // video), the format is decided by the media — not a re-pickable crop. We
+  // lock it to the real ratio and skip the "format" step so the user isn't
+  // asked to choose again, and the preview obeys the actual exported aspect.
+  const [aspectLocked, setAspectLocked] = useState(false);
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [collabInput, setCollabInput] = useState("");
   const [firstComment, setFirstComment] = useState("");
@@ -1911,6 +1916,14 @@ export function PostCreator({
   // below must skip exactly that one transition.
   const studioSeedRef = useRef(false);
 
+  // The actually-visible step sequence: drops "format" when the aspect is
+  // locked to the media (Studio/Figma export or video) so there's no redundant
+  // crop re-prompt.
+  const visibleSteps = (pt: PostType = postType): StepId[] => {
+    const seq = computeSteps(pt);
+    return aspectLocked ? seq.filter((s) => s !== "format") : seq;
+  };
+
   // Reset uploads when type changes (keep caption)
   useEffect(() => {
     if (studioSeedRef.current) {
@@ -1923,6 +1936,7 @@ export function PostCreator({
     resetCover();
     setTaggingActive(false);
     setPendingTag(null);
+    setAspectLocked(false); // fresh manual media — crop is choosable again
     if (postType === "REELS") {
       setAspectRatio("9:16");
       setAspectTouched(true);
@@ -1932,14 +1946,15 @@ export function PostCreator({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postType]);
 
-  // Sync step to valid sequence when postType changes
+  // Sync step to valid sequence when postType OR the lock changes (locking
+  // removes "format", so if we're sitting on it, move on).
   useEffect(() => {
-    const seq = computeSteps(postType);
+    const seq = visibleSteps(postType);
     if (!seq.includes(stepId)) {
       setStepId(seq[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postType]);
+  }, [postType, aspectLocked]);
 
   // Focus first focusable element when step changes
   useEffect(() => {
@@ -1960,19 +1975,19 @@ export function PostCreator({
   }
 
   function goNext() {
-    const seq = computeSteps(postType);
+    const seq = visibleSteps(postType);
     const idx = seq.indexOf(stepId);
     if (idx < seq.length - 1) navigate(seq[idx + 1], "forward");
   }
 
   function goPrev() {
-    const seq = computeSteps(postType);
+    const seq = visibleSteps(postType);
     const idx = seq.indexOf(stepId);
     if (idx > 0) navigate(seq[idx - 1], "back");
   }
 
   function jumpTo(id: StepId) {
-    const seq = computeSteps(postType);
+    const seq = visibleSteps(postType);
     const cur = seq.indexOf(stepId);
     const target = seq.indexOf(id);
     navigate(id, target > cur ? "forward" : "back");
@@ -2299,6 +2314,9 @@ export function PostCreator({
     );
     setAspectRatio(nearest[0] as typeof aspectRatio);
     setAspectTouched(true);
+    // The export already baked in its aspect — lock it so the user isn't asked
+    // to re-pick a crop, and the preview obeys the real exported ratio.
+    setAspectLocked(true);
     setUserTags([]);
     resetCover();
     setCurrentDraftId(null);
@@ -2307,8 +2325,8 @@ export function PostCreator({
     setPublishResult(null);
     setUploadError(null);
     setViewTab("create");
-    // Land on media, not caption: the Reel cover/thumbnail picker lives there,
-    // and format (aspect) comes right after — no skipped decisions.
+    // Land on media (the Reel cover/thumbnail picker lives there). The format
+    // step is skipped — the export's aspect is already locked in.
     navigate("media", "forward");
   }
 
@@ -2652,7 +2670,7 @@ export function PostCreator({
   );
 
   // Current step sequence for the selected post type
-  const stepSeq = computeSteps(postType);
+  const stepSeq = visibleSteps(postType);
   const stepIndex = stepSeq.indexOf(stepId);
   const totalSteps = stepSeq.length;
 
