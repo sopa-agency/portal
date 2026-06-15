@@ -35,6 +35,10 @@ const gnars: ProjectConfig = {
     // Gnars posts to the gnars Hive community.
     account: "gnars",
     community: "hive-173115", // shared skateboarding/extreme-sports community
+    // skatehive.app is the official Hive frontend for the SkateHive-branch
+    // portals (SkateHive, Gnars, Reelflip). Posts read/link via skatehive.app,
+    // NOT peakd — peakd is only used by KeepKey (no frontend set there).
+    frontend: "https://skatehive.app",
   },
   farcaster: {
     // Gnars casts in the /gnars channel on Farcaster.

@@ -21,6 +21,7 @@ import { brandEnv, brandEnvByPrefix, hasBrandEnv } from "@/lib/brand-env";
 import { getActiveProject } from "@/projects/index";
 import type { ProjectConfig } from "@/projects/types";
 import {
+  buildPostUrl,
   fetchLatestWeeklyStokenIssue,
   fetchTopSkatehivePosts,
   formatPostsForPrompt,
@@ -1143,8 +1144,9 @@ function magPostPermlink(campaignName: string, campaignId: string): string {
 }
 
 function magPostUrl(project: ProjectConfig, account: string, permlink: string): string {
-  const base = project.hive.frontend?.replace(/\/+$/, "");
-  return base ? `${base}/post/${account}/${permlink}` : `https://peakd.com/@${account}/${permlink}`;
+  // Canonical builder — skatehive.app `/post/…` for the SkateHive-branch
+  // portals, peakd `/@…` fallback (KeepKey) when no frontend is set.
+  return buildPostUrl(account, permlink, project.hive.frontend);
 }
 
 // ---------------------------------------------------------------------------

@@ -107,10 +107,13 @@ export type FetchOptions = {
 };
 
 /** Build a post URL from author + permlink using the project's frontend.
- *  If frontendUrl is provided (e.g. "https://skatehive.app"), the link is
- *  `${frontendUrl}/post/${author}/${permlink}`. Otherwise falls back to the
- *  universal PeakD URL `https://peakd.com/@${author}/${permlink}`. */
-function buildPostUrl(author: string, permlink: string, frontendUrl?: string): string {
+ *  CANONICAL Hive post-URL builder — every read/link path should use this so
+ *  the per-platform pattern stays consistent:
+ *   - Project frontend set (e.g. "https://skatehive.app", the official frontend
+ *     for the SkateHive/Gnars/Reelflip portals): `${frontend}/post/${author}/${permlink}`.
+ *   - No frontend (e.g. KeepKey): universal PeakD `https://peakd.com/@${author}/${permlink}`.
+ *  Note the PATH differs by platform — skatehive.app uses `/post/…`, peakd uses `/@…`. */
+export function buildPostUrl(author: string, permlink: string, frontendUrl?: string): string {
   if (frontendUrl) {
     return `${frontendUrl.replace(/\/$/, "")}/post/${author}/${permlink}`;
   }

@@ -5,6 +5,7 @@ import type { ProjectConfig } from "@/projects/types";
 import { brandEnv } from "@/lib/brand-env";
 import { prisma } from "@/lib/prisma";
 import { HIVE_NODES } from "@/lib/social-publish";
+import { buildPostUrl } from "@/lib/skatehive-content";
 
 export type PostMetric = {
   title?: string;
@@ -179,7 +180,9 @@ async function fetchHiveMetrics(
         : parseFloat(p.pending_payout_value ?? "0") || 0;
     const votes = p.stats?.total_votes ?? (p.active_votes?.length ?? 0);
     const comments = p.children ?? 0;
-    const url = `https://peakd.com/@${p.author}/${p.permlink}`;
+    // Link via the project's official frontend (skatehive.app for the
+    // SkateHive/Gnars/Reelflip portals), not the universal peakd fallback.
+    const url = buildPostUrl(p.author ?? account, p.permlink ?? "", project.hive.frontend);
 
     // Best-effort thumbnail from json_metadata
     let thumbnail: string | undefined;
