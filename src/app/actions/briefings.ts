@@ -126,7 +126,7 @@ async function assembleBriefingPrompt(
   prompt +=
     "\n\n=== [since] Last briefing for this agent ===\n" +
     (since
-      ? `${since}\nOnly inspect what changed since this instant. For code, run a bounded delta (e.g. \`git -C ~/Code/skatehive3.0 log --oneline --since='${since}'\`) instead of scanning the whole repo.`
+      ? `${since}\nOnly inspect what changed since this instant. For any code/repo source, run a bounded delta since this timestamp (e.g. \`git log --since='${since}'\`) instead of scanning from scratch — use the exact path/command your own prompt specifies.`
       : "No prior briefing — this is the first run, so a fuller pass is fine.");
 
   if (feedback) {

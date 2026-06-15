@@ -7,7 +7,10 @@ The portal appends, below this prompt: the GitHub Project board state (`[board]`
 
 ## Sources to check in-run (in order, best-effort — stay incremental)
 1. `BOOTSTRAP.md` + workspace project docs (`docs/projects/skatehive*.md`, `team.md`, `meetings.md`)
-2. Code delta only: `git -C ~/Code/skatehive3.0 log --oneline --since='[since]'` — the new commits since your last run. Open a file/diff only if a commit needs detail. Do NOT browse or scan the whole repo.
+2. Code delta only, from the SkateHive **monorepo** (`~/skatehive-monorepo`, remote `SkateHive/monorepo`). First `git -C ~/skatehive-monorepo pull --ff-only` to get GitHub's latest, then the bounded delta since your last run, covering BOTH the web app and the mobile app:
+   `git -C ~/skatehive-monorepo log --oneline --since='[since]' -- apps/skatehive3.0 apps/mobileapp`
+   - `apps/skatehive3.0` = web app · `apps/mobileapp` = Expo/React Native mobile app.
+   - Call out mobile-app changes explicitly when present. Open a file/diff only if a commit needs detail. Do NOT browse or scan the whole repo.
 3. The `[board]` block below — open a specific issue/PR only if a card needs detail
 4. Recent deploy/runtime/build state ONLY if step 2 or the board shows something shipped that warrants it
 5. GA4 / Search Console / userbase: skip unless the board or a correction explicitly asks — these are not a per-run cost
