@@ -63,100 +63,105 @@ async function readPrompt(agentSlug: string): Promise<string> {
   return fs.readFile(file, "utf8");
 }
 
+/** Assemble the full briefing prompt (base + feedback + social + board). */
+async function assembleBriefingPrompt(
+  project: Awaited<ReturnType<typeof getActiveProject>>,
+  agentSlug: string,
+  language: BriefingLanguage,
+): Promise<{ ok: true; prompt: string } | { ok: false; error: string }> {
+  let prompt: string;
+  try {
+    prompt = await readPrompt(agentSlug);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Cannot read prompt for ${agentSlug}: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  // Team corrections go FIRST, right after the base prompt.
+  const feedback = await feedbackPromptBlock(feedbackScope("briefing", project.slug, agentSlug));
+  if (feedback) prompt += `\n\n${feedback}`;
+
+  if (language === "en") {
+    prompt +=
+      "\n\n## Language override\n" +
+      "Write the entire briefing in English. Translate every section heading and bullet to English, " +
+      "including the top-level title. Keep the same structural format (## headings, bullet lists).";
+  }
+
+  const ctx = await getProjectSocialInsightsContext(project.slug);
+  if (ctx) {
+    prompt +=
+      "\n\n=== Social analytics context — the agent's prior AI analysis per channel (use when relevant) ===\n" + ctx;
+  }
+
+  // Live social numbers + GitHub Project board, in parallel — grounding the
+  // agent should use as-is instead of re-fetching.
+  const [liveNumbers, kanban] = await Promise.all([
+    getProjectSocialMetricsContext(project),
+    getProjectKanbanContext(project),
+  ]);
+  if (liveNumbers) {
+    prompt +=
+      "\n\n=== Social LIVE numbers, fetched THIS run — treat as current evidence, cite them, label [live] ===\n" +
+      liveNumbers;
+  }
+  if (kanban) {
+    prompt +=
+      "\n\n=== GitHub Project board, fetched THIS run — current kanban state; ground priorities/blockers in it, label [board] ===\n" +
+      kanban;
+  }
+
+  if (feedback) {
+    prompt +=
+      "\n\nREMINDER: apply every item under '=== Team corrections to honor ===' above. They override default phrasing.";
+  }
+  return { ok: true, prompt };
+}
+
+// Regeneration is ENQUEUED, not run inline: Vercel can't reach the agent
+// gateway over the Tailscale funnel (TLS handshake drops), so the portal
+// assembles the prompt and writes a BriefingJob. The Mac mini worker (which
+// reaches the local gateway at 127.0.0.1) runs it and writes the Briefing.
 export async function regenerateBriefing(
   agentSlug: string,
   language: BriefingLanguage = "pt",
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; jobId?: string }> {
   try {
     const project = await getActiveProject();
     const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
 
-    // Social insights are NOT regenerated here — that fanned out one agent call
-    // per channel (expensive). They're refreshed on demand, one social at a
-    // time, via each channel's "Generate AI insights" button; the briefing just
-    // injects whatever's already saved (see getProjectSocialInsightsContext).
+    const built = await assembleBriefingPrompt(project, agentSlug, language);
+    if (!built.ok) return built;
 
-    let prompt: string;
-    try {
-      prompt = await readPrompt(agentSlug);
-    } catch (err) {
-      return {
-        ok: false,
-        error: `Cannot read prompt for ${agentSlug}: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    // Team corrections go FIRST, right after the base prompt — appended at the
-    // bottom of the long context dump they were getting skimmed by the model
-    // (feedback saved but visibly not honored on regeneration).
-    const feedback = await feedbackPromptBlock(feedbackScope("briefing", project.slug, agentSlug));
-    if (feedback) prompt += `\n\n${feedback}`;
-
-    if (language === "en") {
-      prompt +=
-        "\n\n## Language override\n" +
-        "Write the entire briefing in English. Translate every section heading and bullet to English, " +
-        "including the top-level title. Keep the same structural format (## headings, bullet lists).";
-    }
-
-    // Append the per-channel AI analysis from saved insights (if any).
-    const ctx = await getProjectSocialInsightsContext(project.slug);
-    if (ctx) {
-      prompt +=
-        "\n\n=== Social analytics context — the agent's prior AI analysis per channel (use when relevant) ===\n" + ctx;
-    }
-
-    // Append freshly-fetched LIVE social numbers + the GitHub Project board
-    // state in parallel — both grounding context the agent should use as-is
-    // instead of re-fetching (keeps generation lean and fast).
-    const [liveNumbers, kanban] = await Promise.all([
-      getProjectSocialMetricsContext(project),
-      getProjectKanbanContext(project),
-    ]);
-    if (liveNumbers) {
-      prompt +=
-        "\n\n=== Social LIVE numbers, fetched THIS run — treat as current evidence, cite them, label [live] ===\n" +
-        liveNumbers;
-    }
-    if (kanban) {
-      prompt +=
-        "\n\n=== GitHub Project board, fetched THIS run — current kanban state; ground priorities/blockers in it, label [board] ===\n" +
-        kanban;
-    }
-
-    // Re-state the corrections at the END too — long contexts get "lost in the
-    // middle"; the duplicate header costs a few tokens and doubles compliance.
-    if (feedback) {
-      prompt += "\n\nREMINDER: apply every item under '=== Team corrections to honor ===' above. They override default phrasing.";
-    }
-
-    await ensureLocalGatewayToken();
-    const text = await callOpenClaw(prompt, agentSlug, { timeoutMs: TIMEOUT_MS, project });
-    if (!text) return { ok: false, error: "Empty briefing returned from gateway" };
-
-    const date = todayIsoDate();
-    await prisma.briefing.upsert({
-      where: { agentSlug_date: { agentSlug, date } },
-      create: {
-        agentSlug,
-        date,
-        language,
-        body: text,
-        generatedBy: "manual",
-      },
-      update: {
-        body: text,
-        language,
-        generatedBy: "manual",
-        generatedAt: new Date(),
-      },
+    const job = await prisma.briefingJob.create({
+      data: { agentSlug, projectSlug: project.slug, language, prompt: built.prompt },
     });
-
-    revalidatePath("/");
-    return { ok: true };
+    return { ok: true, jobId: job.id };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+export type BriefingJobStatus = {
+  id: string;
+  status: "queued" | "running" | "done" | "error";
+  error: string | null;
+};
+
+/** Poll the status of enqueued briefing jobs (client waits on these). */
+export async function getBriefingJobs(ids: string[]): Promise<BriefingJobStatus[]> {
+  if (ids.length === 0) return [];
+  const rows = await prisma.briefingJob.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, status: true, error: true },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    status: r.status as BriefingJobStatus["status"],
+    error: r.error,
+  }));
 }
 
 export type PromptImprovement = {
@@ -432,20 +437,18 @@ export async function regenerateAllBriefings(
   language: BriefingLanguage = "pt",
 ): Promise<{
   ok: boolean;
-  results: Array<{ agent: string; ok: boolean; error?: string }>;
+  jobIds: string[];
+  results: Array<{ agent: string; ok: boolean; error?: string; jobId?: string }>;
 }> {
   const project = await getActiveProject();
-
-  // Social insights are refreshed on demand (one social at a time) via the UI,
-  // not as part of briefing generation — keeps each briefing to one agent call.
-
   const results = await Promise.all(
     project.briefingAgents.map(async (a) => {
       const r = await regenerateBriefing(a.slug, language);
-      return { agent: a.slug, ok: r.ok, error: r.error };
+      return { agent: a.slug, ok: r.ok, error: r.error, jobId: r.jobId };
     }),
   );
-  return { ok: results.every((r) => r.ok), results };
+  const jobIds = results.map((r) => r.jobId).filter((id): id is string => !!id);
+  return { ok: results.every((r) => r.ok), jobIds, results };
 }
 
 // ---------------------------------------------------------------------------

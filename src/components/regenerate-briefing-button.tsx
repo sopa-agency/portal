@@ -5,8 +5,28 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import {
   regenerateAllBriefings,
+  getBriefingJobs,
   type BriefingLanguage,
 } from "@/app/actions/briefings";
+
+/** Poll enqueued briefing jobs until all settle (done/error) or timeout. */
+async function waitForBriefingJobs(ids: string[]): Promise<string | null> {
+  if (ids.length === 0) return null;
+  const deadline = Date.now() + 6 * 60_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    let jobs;
+    try {
+      jobs = await getBriefingJobs(ids);
+    } catch {
+      continue;
+    }
+    if (jobs.length && jobs.every((j) => j.status === "done" || j.status === "error")) {
+      return jobs.find((j) => j.status === "error")?.error ?? null;
+    }
+  }
+  return "Timed out waiting for the briefing worker.";
+}
 
 export function RegenerateBriefingButton() {
   const router = useRouter();
@@ -36,10 +56,14 @@ export function RegenerateBriefingButton() {
     setError(null);
     startTransition(async () => {
       const result = await regenerateAllBriefings(language);
-      if (!result.ok) {
-        const firstError =
-          result.results.find((r) => !r.ok)?.error ?? "Regeneration failed";
-        setError(firstError);
+      if (!result.ok && result.jobIds.length === 0) {
+        setError(result.results.find((r) => !r.ok)?.error ?? "Regeneration failed");
+        return;
+      }
+      // Enqueued — the Mac worker runs it; poll until the briefings land.
+      const err = await waitForBriefingJobs(result.jobIds);
+      if (err) {
+        setError(err);
         return;
       }
       router.refresh();

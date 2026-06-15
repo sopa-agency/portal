@@ -8,6 +8,7 @@ import {
   followUpBriefingAction,
   proposeBriefingAction,
   regenerateBriefing,
+  getBriefingJobs,
 } from "@/app/actions/briefings";
 import { MarkdownContent } from "@/components/markdown-content";
 
@@ -125,13 +126,36 @@ export function TakeActionButton({
     setRegenerating(true);
     setError(null);
     const r = await regenerateBriefing(agentSlug, "pt");
-    setRegenerating(false);
-    if (!r.ok) {
+    if (!r.ok || !r.jobId) {
+      setRegenerating(false);
       setError(r.error ?? "Failed to regenerate");
       return;
     }
-    router.refresh();
-    close();
+    // Enqueued — poll the Mac worker job until it lands.
+    const deadline = Date.now() + 6 * 60_000;
+    while (Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, 3000));
+      let jobs;
+      try {
+        jobs = await getBriefingJobs([r.jobId]);
+      } catch {
+        continue;
+      }
+      const job = jobs[0];
+      if (job?.status === "done") {
+        setRegenerating(false);
+        router.refresh();
+        close();
+        return;
+      }
+      if (job?.status === "error") {
+        setRegenerating(false);
+        setError(job.error ?? "Failed to regenerate");
+        return;
+      }
+    }
+    setRegenerating(false);
+    setError("Timed out waiting for the briefing worker.");
   };
 
   return (

@@ -11,6 +11,7 @@
     "db:push": "dotenv -e .env.local -- prisma db push",
     "worker:repo-to-social": "node scripts/repo-to-social-worker.js",
     "worker:marketing-suggestions": "node scripts/marketing-suggestions-worker.js",
+    "worker:briefing": "node scripts/briefing-worker.js",
     "worker:brain-file-server": "node scripts/brain-file-server.js"
   },
   "dependencies": {

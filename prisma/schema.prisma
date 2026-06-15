@@ -344,3 +344,22 @@ model ChatJob {
 
   @@index([projectSlug, createdAt(sort: Desc)])
 }
+
+// Briefing regeneration jobs — the portal (Vercel) assembles the prompt and
+// enqueues here; the Mac mini worker (which can reach the local gateway at
+// 127.0.0.1) runs it and writes the result into Briefing. Sidesteps the
+// unreliable Vercel→Tailscale-funnel path entirely (TLS handshake drops).
+model BriefingJob {
+  id          String    @id @default(cuid())
+  agentSlug   String
+  projectSlug String
+  language    String    @default("pt")
+  prompt      String    @db.Text
+  status      String    @default("queued") // queued | running | done | error
+  error       String?
+  lockedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}

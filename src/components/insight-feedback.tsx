@@ -8,7 +8,7 @@ import {
   addInsightFeedback,
   removeInsightFeedback,
 } from "@/app/actions/insight-feedback";
-import { regenerateBriefing } from "@/app/actions/briefings";
+import { regenerateBriefing, getBriefingJobs } from "@/app/actions/briefings";
 import type { FeedbackKind, FeedbackNote } from "@/lib/insight-feedback";
 
 function relativeTime(iso: string): string {
@@ -55,13 +55,36 @@ export function FeedbackButton({
     if (!canRegenerate || regen === "busy") return;
     setRegen("busy");
     const r = await regenerateBriefing(channelKey!);
-    if (r.ok) {
-      setRegen("done");
-      router.refresh();
-    } else {
+    if (!r.ok || !r.jobId) {
       setRegen("error");
       setError(r.error ?? "Regeneration failed");
+      return;
     }
+    // Enqueued — poll the Mac worker job until the briefing regenerates.
+    const jobId = r.jobId;
+    const deadline = Date.now() + 6 * 60_000;
+    while (Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, 3000));
+      let jobs;
+      try {
+        jobs = await getBriefingJobs([jobId]);
+      } catch {
+        continue;
+      }
+      const job = jobs[0];
+      if (job?.status === "done") {
+        setRegen("done");
+        router.refresh();
+        return;
+      }
+      if (job?.status === "error") {
+        setRegen("error");
+        setError(job.error ?? "Regeneration failed");
+        return;
+      }
+    }
+    setRegen("error");
+    setError("Timed out waiting for the briefing worker.");
   }
 
   // Lazily fetch the count once so the badge reflects existing feedback.
