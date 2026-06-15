@@ -363,3 +363,24 @@ model BriefingJob {
 
   @@index([status, createdAt])
 }
+
+// Generic agent-call queue. Vercel can't reach the agent gateway over the
+// Tailscale funnel (TLS handshake drops), so any feature that needs an agent
+// reply enqueues an AgentJob with the prompt; the Mac-mini agent-worker (where
+// the gateway is a local 127.0.0.1 call) runs it and writes `result` back.
+// callOpenClaw() routes through this transparently when running on Vercel, so
+// callers keep their `Promise<string>` contract — they just wait on the worker.
+model AgentJob {
+  id        String    @id @default(cuid())
+  agentSlug String
+  prompt    String    @db.Text
+  timeoutMs Int       @default(285000)
+  status    String    @default("queued") // queued | running | done | error
+  result    String?   @db.Text
+  error     String?
+  lockedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}

@@ -338,13 +338,62 @@ async function callOverWs(
   }
 }
 
-// Pick a transport. Device keys configured => WebSocket signed (production
-// over public Tailscale Funnel). Otherwise loopback HTTP (Mac mini local).
+// Should this process reach the gateway through the DB job queue instead of
+// calling it directly? Vercel (process.env.VERCEL === "1") can't reach the
+// gateway over the Tailscale funnel — the TLS handshake drops — so it enqueues
+// an AgentJob and waits for the Mac-mini worker (local 127.0.0.1) to fill in
+// the result. The Mac itself (no VERCEL env) keeps calling the gateway directly.
+// Override with OPENCLAW_TRANSPORT = "queue" | "direct".
+function shouldUseQueue(): boolean {
+  const t = trimmed("OPENCLAW_TRANSPORT");
+  if (t === "queue") return true;
+  if (t === "direct") return false;
+  return !!process.env.VERCEL;
+}
+
+// Enqueue an AgentJob and poll until the Mac worker writes a result. Keeps the
+// Promise<string> contract so every caller works unchanged — it just waits on
+// the worker rather than the (unreachable) gateway.
+async function callViaQueue(
+  prompt: string,
+  agentId: string,
+  timeoutMs: number,
+): Promise<string> {
+  const { prisma } = await import("@/lib/prisma");
+  const job = await prisma.agentJob.create({
+    data: { agentSlug: agentId, prompt, timeoutMs },
+  });
+  // Give the worker the job's own budget plus headroom for poll/claim latency,
+  // but never exceed the serverless function ceiling.
+  const deadline = Date.now() + Math.min(timeoutMs + 30_000, 290_000);
+  let delay = 1_500;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 1.4, 4_000);
+    let row;
+    try {
+      row = await prisma.agentJob.findUnique({ where: { id: job.id } });
+    } catch {
+      continue; // transient DB blip — keep polling
+    }
+    if (!row) continue;
+    if (row.status === "done") return row.result ?? "";
+    if (row.status === "error") throw new Error(row.error || "Agent job failed");
+  }
+  throw new Error("Agent job timed out waiting for the worker");
+}
+
+// Pick a transport. On Vercel, route through the DB job queue (the gateway is
+// unreachable over the funnel). Otherwise: device keys configured => WebSocket
+// signed; token => loopback/funnel HTTP (Mac mini local).
 export async function callOpenClaw(
   prompt: string,
   agentId: string,
   opts: { timeoutMs?: number; project?: ProjectConfig; sessionSuffix?: string } = {},
 ): Promise<string> {
+  if (shouldUseQueue()) {
+    return callViaQueue(prompt, agentId, opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS);
+  }
   const deviceId =
     (opts.project ? projectEnv(opts.project, "PORTAL_DEVICE_ID") : null) ??
     trimmed("OPENCLAW_PORTAL_DEVICE_ID");

@@ -12,6 +12,7 @@
     "worker:repo-to-social": "node scripts/repo-to-social-worker.js",
     "worker:marketing-suggestions": "node scripts/marketing-suggestions-worker.js",
     "worker:briefing": "node scripts/briefing-worker.js",
+    "worker:agent": "node scripts/agent-worker.js",
     "worker:brain-file-server": "node scripts/brain-file-server.js"
   },
   "dependencies": {
