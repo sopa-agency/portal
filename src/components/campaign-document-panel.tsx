@@ -77,6 +77,7 @@ export function CampaignDocumentPanel({
             initialContent={content}
             editorOnly
             bare
+            imageKind={kind === "doc" ? undefined : kind}
             onContentChange={onContentChange}
           />
         )}
