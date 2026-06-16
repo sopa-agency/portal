@@ -100,6 +100,11 @@ type CardData = {
   hidden: string[]; // element ids to hide: eyebrow watermark stats serial type
   /** Bounty style only — onchain reward shown in the accent (e.g. "0.42 ETH"). */
   reward?: string;
+  /** Bounty style only — logo asset drawn top-center. "" = no logo. Undefined
+   *  falls back to the Gnars grants seal for back-compat. */
+  logo?: string;
+  /** Bounty style only — footer URL highlighted near the bottom. */
+  footerUrl?: string;
 };
 
 type Overlay = {
@@ -133,6 +138,33 @@ const RARITY: Record<Rarity, { label: string; gems: number; accent2: string }> =
   Legendary: { label: "LEGENDARY", gems: 6, accent2: "#ffd86b" },
 };
 
+/** Logos selectable for the bounty card's top-center slot. `src: ""` = none. */
+const BOUNTY_LOGO = "/og-assets/grants-seal.png";
+const CARD_LOGOS: { label: string; src: string }[] = [
+  { label: "Grants Seal", src: BOUNTY_LOGO },
+  { label: "Gnars", src: "/projects/gnars/logo.png" },
+  { label: "Skatehive", src: "/projects/skatehive/logo.svg" },
+  { label: "None", src: "" },
+];
+
+// Module-scoped image cache so the pure draw functions can paint any logo by
+// src without prop-drilling. Each entry tracks its own load state; draw code
+// reserves layout space until ready so the composition doesn't jump.
+const logoCache = new Map<string, { img: HTMLImageElement; ready: boolean }>();
+function ensureLogo(src: string) {
+  if (!src || typeof Image === "undefined" || logoCache.has(src)) return;
+  const entry = { img: new Image(), ready: false };
+  entry.img.onload = () => {
+    entry.ready = true;
+  };
+  entry.img.src = src;
+  logoCache.set(src, entry);
+}
+function getLogo(src: string): HTMLImageElement | null {
+  const e = logoCache.get(src);
+  return e && e.ready ? e.img : null;
+}
+
 const CARD_STYLE_META: Record<CardStyle, { name: string; note: string; defaultAccent: string }> = {
   holo: { name: "Neon Holo Rare", note: "Lime holographic foil + glow", defaultAccent: "#a3e635" },
   pixel: { name: "Pixel Arcade Legend", note: "8-bit border + CRT scanlines", defaultAccent: "#bdf25a" },
@@ -149,11 +181,9 @@ const GN = {
   gold: "#fbbf24", // accentYellow — the hero reward color
 };
 
-// The "Ken Pixel" font + the grants seal both live in /public/og-assets,
-// copied from gnars-website. Loaded once on the client and cached at module
-// scope so the pure drawCard() function can use them without prop-drilling.
-let gnarsSealImg: HTMLImageElement | null = null;
-let gnarsSealReady = false;
+// The "Ken Pixel" font lives in /public/og-assets, copied from gnars-website.
+// Loaded once on the client. The bounty logo (default grants seal) is loaded
+// separately via the generic logoCache so it can be swapped per-card.
 let gnarsAssetsRequested = false;
 function ensureGnarsBountyAssets() {
   if (gnarsAssetsRequested || typeof document === "undefined") return;
@@ -168,14 +198,7 @@ function ensureGnarsBountyAssets() {
   } catch {
     /* FontFace unsupported — falls back to monospace */
   }
-  if (typeof Image !== "undefined") {
-    const img = new Image();
-    img.onload = () => {
-      gnarsSealReady = true;
-    };
-    img.src = "/og-assets/grants-seal.png";
-    gnarsSealImg = img;
-  }
+  ensureLogo(BOUNTY_LOGO);
 }
 
 // Reference palette (reel.css).
@@ -415,14 +438,21 @@ function drawBountyCard(
 
   let y = topSafe;
 
-  // 2) grants seal, top-center
-  const sealW = Math.min(W, H) * 0.16;
-  if (gnarsSealReady && gnarsSealImg) {
-    const sealH = sealW * (gnarsSealImg.height / gnarsSealImg.width || 1.22);
-    ctx.drawImage(gnarsSealImg, W / 2 - sealW / 2, y, sealW, sealH);
-    y += sealH + f(26);
-  } else {
-    y += sealW * 1.22 + f(26);
+  // 2) logo, top-center — configurable (defaults to the grants seal). "" = none,
+  // which reclaims the space so the kicker rides higher.
+  const logoSrc = card.logo === undefined ? BOUNTY_LOGO : card.logo;
+  if (logoSrc) {
+    ensureLogo(logoSrc);
+    const logoImg = getLogo(logoSrc);
+    const logoW = Math.min(W, H) * 0.16;
+    if (logoImg) {
+      const logoH = logoW * (logoImg.height / logoImg.width || 1.22);
+      ctx.drawImage(logoImg, W / 2 - logoW / 2, y, logoW, logoH);
+      y += logoH + f(26);
+    } else {
+      // reserve space while the logo loads so the layout doesn't jump
+      y += logoW * 1.22 + f(26);
+    }
   }
 
   // 3) kicker — "GNARS CHALLENGE"
@@ -483,9 +513,12 @@ function drawBountyCard(
     y += f(58) + f(20);
   }
 
-  // 7) footer URL — muted, pinned near the bottom
-  pix(20);
-  centerText("GNARS.COM/COMMUNITY/BOUNTIES", H - botSafe, GN.muted, f(3));
+  // 7) footer URL — muted, pinned near the bottom (configurable)
+  const footer = (card.footerUrl ?? "GNARS.COM/COMMUNITY/BOUNTIES").trim();
+  if (footer) {
+    pix(20);
+    centerText(footer.toUpperCase(), H - botSafe, GN.muted, f(3));
+  }
 }
 
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
@@ -825,7 +858,7 @@ export function VideoEditor({
   brandName = "SkateHive",
   brandAccent = "#a3e635",
 }: {
-  onUseInPost?: (files: File[], caption: string) => Promise<void>;
+  onUseInPost?: (files: File[], caption: string, aspectHint?: number) => Promise<void>;
   cardStyles?: CardStyle[];
   brandName?: string;
   brandAccent?: string;
@@ -1592,6 +1625,8 @@ export function VideoEditor({
         fontScale: 1,
         hidden: [],
         reward: style === "bounty" ? "0.42 ETH" : undefined,
+        logo: style === "bounty" ? BOUNTY_LOGO : undefined,
+        footerUrl: style === "bounty" ? "gnars.com/community/bounties" : undefined,
       };
       const ov: Overlay = {
         id: nextId(),
@@ -2219,7 +2254,11 @@ export function VideoEditor({
     if (!exportResult || !onUseInPost || sending) return;
     setSending(true);
     try {
-      await onUseInPost([exportResult], "");
+      // The export was rendered at this exact aspect — hand it over so the post
+      // creator locks the preview to the real ratio instead of re-probing the
+      // video (metadata probes can fail and fall back to the wrong crop).
+      const dims = ASPECTS[aspect];
+      await onUseInPost([exportResult], "", dims.w / dims.h);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -3836,6 +3875,21 @@ function CardInspector({
         <>
           {field("title", card.title, "title", "w-56")}
           {field("reward", card.reward ?? "", "reward", "w-24")}
+          {field("url", card.footerUrl ?? "", "footerUrl", "w-56")}
+          <label className="flex items-center gap-1 text-foreground-muted">
+            logo
+            <select
+              value={card.logo ?? BOUNTY_LOGO}
+              onChange={(e) => onChange({ logo: e.target.value })}
+              className="rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
+            >
+              {CARD_LOGOS.map((l) => (
+                <option key={l.label} value={l.src}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </>
       ) : (
         <>

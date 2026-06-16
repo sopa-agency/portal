@@ -74,7 +74,7 @@ type Rect = { x: number; y: number; w: number; h: number };
 export function Editor({
   onUseInPost,
 }: {
-  onUseInPost?: (files: File[], caption: string) => Promise<void>;
+  onUseInPost?: (files: File[], caption: string, aspectHint?: number) => Promise<void>;
 } = {}) {
   const [doc, setDoc] = useState<Carousel>(() => structuredClone(SEED_DOC));
   const [active, setActive] = useState(0);
@@ -545,7 +545,9 @@ export function Editor({
       };
       await Promise.all(Array.from({ length: Math.min(RENDER_CONCURRENCY, cards.length) }, worker));
       toast.loading("Enviando para o post…", { id: tid });
-      await onUseInPost(files, doc.meta.legenda ?? "");
+      // Reelflip cards render at a fixed 1080×1350 (4:5) — pass that so the post
+      // creator locks the preview crop instead of re-probing each PNG.
+      await onUseInPost(files, doc.meta.legenda ?? "", 1080 / 1350);
       toast.success("Cards no post!", { id: tid });
     } catch (e) { toast.error("Falha ao usar no post.", { id: tid, description: "Tente novamente." }); console.error(e); }
     finally { setBusy(null); }

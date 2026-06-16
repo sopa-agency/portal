@@ -213,6 +213,8 @@ function IgPreview({
   taggingActive,
   onTagClick,
   onRemoveTag,
+  fit,
+  onToggleFit,
 }: {
   handle: string;
   caption: string;
@@ -224,6 +226,8 @@ function IgPreview({
   taggingActive: boolean;
   onTagClick: (x: number, y: number) => void;
   onRemoveTag: (username: string) => void;
+  fit: "cover" | "contain";
+  onToggleFit: () => void;
 }) {
   const [slideIndex, setSlideIndex] = useState(0);
   const mediaRef = useRef<HTMLDivElement>(null);
@@ -277,7 +281,7 @@ function IgPreview({
             // eslint-disable-next-line @next/next/no-img-element
             <video
               src={current.previewUrl}
-              className="h-full w-full object-cover"
+              className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
               muted
               loop
               playsInline
@@ -288,13 +292,28 @@ function IgPreview({
             <img
               src={current.previewUrl}
               alt="Post preview"
-              className="h-full w-full object-cover"
+              className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
             />
           )
         ) : (
           <div className="flex h-full w-full items-center justify-center">
             <ImagePlus className="h-8 w-8 text-foreground-faint" />
           </div>
+        )}
+
+        {/* Fill / Fit toggle — Fill (cover) simulates the feed crop, Fit
+            (contain) shows the true exported frame uncropped. */}
+        {current && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFit();
+            }}
+            className="absolute right-2 top-2 z-10 rounded-full bg-surface/85 px-2 py-0.5 text-[10px] font-semibold text-foreground shadow backdrop-blur hover:bg-surface"
+          >
+            {fit === "contain" ? "Fit" : "Fill"}
+          </button>
         )}
 
         {/* User tag pins — IMAGE only */}
@@ -424,6 +443,7 @@ function PostDialog({
   );
   const [saving, setSaving] = useState(false);
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
+  const [dialogFit, setDialogFit] = useState<"cover" | "contain">("cover");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmPublishDialog, setConfirmPublishDialog] = useState(false);
   const [publishingDialog, setPublishingDialog] = useState(false);
@@ -602,6 +622,8 @@ function PostDialog({
                 taggingActive={false}
                 onTagClick={() => {}}
                 onRemoveTag={() => {}}
+                fit={dialogFit}
+                onToggleFit={() => setDialogFit((f) => (f === "cover" ? "contain" : "cover"))}
               />
             </div>
           </div>
@@ -1824,6 +1846,20 @@ export function PostCreator({
   // lock it to the real ratio and skip the "format" step so the user isn't
   // asked to choose again, and the preview obeys the actual exported aspect.
   const [aspectLocked, setAspectLocked] = useState(false);
+  // Preview crop mode. Fill (cover) simulates the feed crop for manually-picked
+  // ratios; Fit (contain) shows the true exported frame. Default to Fit when the
+  // media carries a baked-in aspect so the preview never lies about cropping.
+  const [previewFit, setPreviewFit] = useState<"cover" | "contain">("cover");
+  // Reset the fit default when the lock flips (baked-in aspect → Fit), using the
+  // render-time "adjust state on prop change" pattern so a manual toggle still
+  // sticks until the media changes again.
+  const [prevAspectLocked, setPrevAspectLocked] = useState(aspectLocked);
+  if (prevAspectLocked !== aspectLocked) {
+    setPrevAspectLocked(aspectLocked);
+    setPreviewFit(aspectLocked ? "contain" : "cover");
+  }
+  const toggleFit = () =>
+    setPreviewFit((f) => (f === "cover" ? "contain" : "cover"));
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [collabInput, setCollabInput] = useState("");
   const [firstComment, setFirstComment] = useState("");
@@ -2260,7 +2296,7 @@ export function PostCreator({
   // Studio → post: upload the rendered cards and seed the wizard
   // ---------------------------------------------------------------------------
 
-  async function handleUseInPost(files: File[], legenda: string) {
+  async function handleUseInPost(files: File[], legenda: string, aspectHint?: number) {
     const capped = files.slice(0, 10); // Instagram carousel hard limit
     const seeded: UploadState[] = [];
     // Real media probing — the Studio video editor sends videos through here
@@ -2290,7 +2326,9 @@ export function PostCreator({
       if (!result.ok) throw new Error(result.error);
       const isVideo = file.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(file.name);
       const previewUrl = URL.createObjectURL(file);
-      const aspect = await probeAspect(previewUrl, isVideo);
+      // Prefer the caller's known export aspect — probing video metadata can
+      // fail and fall back to the wrong ratio (the "9:16 shows as 4:5" bug).
+      const aspect = aspectHint ?? (await probeAspect(previewUrl, isVideo));
       seeded.push({ url: result.url, previewUrl, isVideo, aspect });
     }
 
@@ -4091,6 +4129,8 @@ export function PostCreator({
               taggingActive={previewTaggingActive}
               onTagClick={handleTagClick}
               onRemoveTag={removeTag}
+              fit={previewFit}
+              onToggleFit={toggleFit}
             />
             {stepId === "tags" && postType === "IMAGE" && (
               <p className="text-center text-[11px] text-foreground-faint">
