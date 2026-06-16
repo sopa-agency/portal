@@ -1,8 +1,22 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ImagePlus, Loader2, X, Calendar, Send, FlaskConical } from "lucide-react";
+import dynamic from "next/dynamic";
+import { ImagePlus, Loader2, X, Calendar, Send, FlaskConical, Clapperboard } from "lucide-react";
 import { signLabMediaUpload } from "@/app/actions/lab";
+import { IgPreview } from "@/components/post/ig-preview";
+import { aspectToClass, snapToFeedRatio, type UploadState } from "@/lib/post-aspect";
+
+// The real Studio editors (image + video), reused as-is — same ones the Post
+// Creator uses. They hand finished media back via onUseInPost.
+const StudioEditor = dynamic(() => import("@/components/studio/editor").then((m) => m.Editor), {
+  ssr: false,
+  loading: () => <div className="p-8 text-center text-sm text-foreground-muted">Carregando Studio…</div>,
+});
+const StudioVideoEditor = dynamic(
+  () => import("@/components/studio/video-editor").then((m) => m.VideoEditor),
+  { ssr: false, loading: () => <div className="p-8 text-center text-sm text-foreground-muted">Carregando Studio…</div> },
+);
 
 // ---------------------------------------------------------------------------
 // Lab — experimental unified composer. Compose ONE base message, fan it out to
@@ -85,7 +99,31 @@ export function PostLab({ brand }: { brand: LabBrand }) {
   const [scheduleWhen, setScheduleWhen] = useState("");
   const [uploading, setUploading] = useState(false);
   const [plan, setPlan] = useState<string | null>(null);
+  const [studio, setStudio] = useState<null | "image" | "video">(null);
+  const [igFit, setIgFit] = useState<"cover" | "contain">("cover");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Studio handoff — the real editor returns File[]; upload them into the lab.
+  async function handleStudioUseInPost(files: File[], caption: string) {
+    setUploading(true);
+    for (const f of files) {
+      const r = await uploadLabMedia(f);
+      if (r.ok) setMedia((prev) => [...prev, r.media]);
+    }
+    setUploading(false);
+    if (caption.trim() && !baseText.trim()) setBaseText(caption.trim());
+    setStudio(null);
+  }
+
+  // Map lab media → the IgPreview's UploadState shape.
+  const igUploads: UploadState[] = media.map((m) => ({
+    url: m.url,
+    previewUrl: m.url,
+    isVideo: m.isVideo,
+  }));
+  const igAspectClass = aspectToClass(
+    media.some((m) => m.isVideo) ? "9:16" : snapToFeedRatio(1),
+  );
 
   const availableNetworks = useMemo(
     () => NETWORKS.filter((n) => mode === "campaign" || !n.campaignOnly),
@@ -274,6 +312,23 @@ export function PostLab({ brand }: { brand: LabBrand }) {
                 {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
               </button>
             </div>
+            {/* Real Studio editors (image + video) — same as the Post Creator. */}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setStudio("image")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"
+              >
+                <Clapperboard className="h-3.5 w-3.5" /> Studio (imagem/figma)
+              </button>
+              <button
+                type="button"
+                onClick={() => setStudio("video")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"
+              >
+                <Clapperboard className="h-3.5 w-3.5" /> Studio (vídeo)
+              </button>
+            </div>
           </div>
 
           {/* Schedule + action */}
@@ -312,13 +367,62 @@ export function PostLab({ brand }: { brand: LabBrand }) {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              {activeNetworks.map((n) => (
-                <ChannelPreview key={n.id} network={n} text={effectiveText(n.id)} media={media} brand={brand} />
-              ))}
+              {activeNetworks.map((n) =>
+                n.id === "instagram" ? (
+                  <div key={n.id} className="flex flex-col items-center gap-2">
+                    <span className="flex items-center gap-1.5 self-start text-xs font-bold" style={{ color: n.color }}>
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: n.color }} />
+                      Instagram
+                    </span>
+                    <IgPreview
+                      handle={brand.instagramHandle}
+                      caption={effectiveText(n.id)}
+                      uploads={igUploads}
+                      type={igUploads.length > 1 ? "CAROUSEL" : igUploads.some((u) => u.isVideo) ? "REELS" : "IMAGE"}
+                      aspectClass={igAspectClass}
+                      collaborators={[]}
+                      userTags={[]}
+                      taggingActive={false}
+                      onTagClick={() => {}}
+                      onRemoveTag={() => {}}
+                      fit={igFit}
+                      onToggleFit={() => setIgFit((f) => (f === "cover" ? "contain" : "cover"))}
+                    />
+                  </div>
+                ) : (
+                  <ChannelPreview key={n.id} network={n} text={effectiveText(n.id)} media={media} brand={brand} />
+                ),
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Studio overlay — the real image/video editor */}
+      {studio && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2">
+            <span className="text-sm font-semibold text-foreground">
+              Studio — {studio === "image" ? "imagem / figma" : "vídeo"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setStudio(null)}
+              className="rounded-md p-1.5 text-foreground-muted hover:text-foreground"
+              aria-label="Fechar Studio"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+            {studio === "image" ? (
+              <StudioEditor onUseInPost={handleStudioUseInPost} />
+            ) : (
+              <StudioVideoEditor onUseInPost={handleStudioUseInPost} />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
