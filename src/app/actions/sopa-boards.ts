@@ -14,6 +14,8 @@ import { getActiveProject } from "@/projects/index";
 
 export type BoardKind = "orgchart" | "portfolio";
 
+export type TeamMember = { role: string; name: string };
+
 export type BoardCard = {
   id: string;
   board: string;
@@ -21,8 +23,46 @@ export type BoardCard = {
   title: string;
   body: string | null;
   logoUrl: string | null;
+  /** org-chart only: engagement tier id ("pontual" | "operacao" | "motor"). */
+  tier: string | null;
+  /** org-chart only: assigned roles → person. */
+  team: TeamMember[];
   order: number;
 };
+
+/** Patchable fields stored inside the meta JSON blob. */
+type MetaPatch = {
+  logoUrl?: string | null;
+  tier?: string | null;
+  team?: TeamMember[];
+};
+
+/** Merge meta patches onto the existing blob so updating one key never wipes the
+ *  others (logo vs tier vs team are edited from different places). Returns
+ *  Prisma.JsonNull when nothing is left so the column clears cleanly. */
+function mergeMeta(
+  current: Prisma.JsonValue | undefined,
+  patch: MetaPatch,
+): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+  const base: Record<string, unknown> =
+    current && typeof current === "object" && !Array.isArray(current)
+      ? { ...(current as Record<string, unknown>) }
+      : {};
+  if (patch.logoUrl !== undefined) {
+    if (patch.logoUrl) base.logoUrl = patch.logoUrl;
+    else delete base.logoUrl;
+  }
+  if (patch.tier !== undefined) {
+    if (patch.tier) base.tier = patch.tier;
+    else delete base.tier;
+  }
+  if (patch.team !== undefined) {
+    const clean = patch.team.filter((m) => m.name.trim());
+    if (clean.length) base.team = clean.map((m) => ({ role: m.role, name: m.name.trim() }));
+    else delete base.team;
+  }
+  return Object.keys(base).length ? (base as Prisma.InputJsonValue) : Prisma.JsonNull;
+}
 
 async function assertSopa() {
   const project = await getActiveProject();
@@ -44,6 +84,15 @@ function toCard(r: {
     r.meta && typeof r.meta === "object" && !Array.isArray(r.meta)
       ? (r.meta as Record<string, unknown>)
       : {};
+  const team: TeamMember[] = Array.isArray(meta.team)
+    ? (meta.team as unknown[])
+        .filter(
+          (m): m is { role: unknown; name: unknown } =>
+            !!m && typeof m === "object",
+        )
+        .map((m) => ({ role: String(m.role ?? ""), name: String(m.name ?? "") }))
+        .filter((m) => m.role && m.name)
+    : [];
   return {
     id: r.id,
     board: r.board,
@@ -51,6 +100,8 @@ function toCard(r: {
     title: r.title,
     body: r.body,
     logoUrl: typeof meta.logoUrl === "string" ? meta.logoUrl : null,
+    tier: typeof meta.tier === "string" ? meta.tier : null,
+    team,
     order: r.order,
   };
 }
@@ -105,6 +156,8 @@ export async function createCard(input: {
   title: string;
   body?: string;
   logoUrl?: string;
+  tier?: string | null;
+  team?: TeamMember[];
 }): Promise<BoardCard> {
   await assertSopa();
   const title = input.title.trim() || "Sem título";
@@ -118,7 +171,11 @@ export async function createCard(input: {
       parentId: input.parentId ?? null,
       title,
       body: input.body?.trim() || null,
-      meta: input.logoUrl ? { logoUrl: input.logoUrl } : Prisma.JsonNull,
+      meta: mergeMeta(undefined, {
+        logoUrl: input.logoUrl,
+        tier: input.tier,
+        team: input.team,
+      }),
       order: siblings,
     },
   });
@@ -128,17 +185,20 @@ export async function createCard(input: {
 
 export async function updateCard(
   id: string,
-  patch: { title?: string; body?: string; logoUrl?: string | null },
+  patch: { title?: string; body?: string } & MetaPatch,
 ): Promise<BoardCard> {
   await assertSopa();
+  const touchesMeta =
+    patch.logoUrl !== undefined || patch.tier !== undefined || patch.team !== undefined;
+  const existing = touchesMeta
+    ? await prisma.sopaBoard.findUnique({ where: { id }, select: { meta: true } })
+    : null;
   const row = await prisma.sopaBoard.update({
     where: { id },
     data: {
       ...(patch.title !== undefined ? { title: patch.title.trim() || "Sem título" } : {}),
       ...(patch.body !== undefined ? { body: patch.body.trim() || null } : {}),
-      ...(patch.logoUrl !== undefined
-        ? { meta: patch.logoUrl ? { logoUrl: patch.logoUrl } : Prisma.JsonNull }
-        : {}),
+      ...(touchesMeta ? { meta: mergeMeta(existing?.meta, patch) } : {}),
     },
   });
   revalidatePath(row.board === "orgchart" ? "/org-chart" : "/portfolio");
