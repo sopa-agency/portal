@@ -51,6 +51,8 @@ export type FloatingAgentChatProps = {
   agentEmoji?: string;
   greeting?: string;
   logo: string;
+  /** When true, a failed/timed-out turn offers to park the task as a Kanban card. */
+  kanbanEnabled?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -295,6 +297,7 @@ export function FloatingAgentChat({
   projectSlug,
   agentId,
   agentName,
+  kanbanEnabled = false,
   agentEmoji,
   greeting,
   logo,
@@ -347,6 +350,10 @@ export function FloatingAgentChat({
   const [draft, setDraft] = useState("");
   const [deepMode, setDeepMode] = useState(false);
   const [sending, setSending] = useState(false);
+  // Failed-turn → Kanban handoff: the request that errored/timed out, parked
+  // for a human to pick up later.
+  const [failedTask, setFailedTask] = useState<string | null>(null);
+  const [cardState, setCardState] = useState<"idle" | "creating" | "created" | "failed">("idle");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [selectingComponent, setSelectingComponent] = useState(false);
@@ -560,12 +567,33 @@ export function FloatingAgentChat({
     window.addEventListener("pointerup", onUp, { once: true });
   }
 
+  // Park a failed/timed-out request as a Kanban draft card for a human later.
+  async function parkAsKanbanCard() {
+    if (!failedTask) return;
+    setCardState("creating");
+    try {
+      const title = `[${agentName}] ${failedTask.slice(0, 80)}${failedTask.length > 80 ? "…" : ""}`;
+      const body = `Pedido feito no chat do ${agentName} que falhou ou deu timeout — executar com um humano.\n\n---\n\n${failedTask}`;
+      const res = await fetch("/api/kanban", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "addDraftAuto", title, body }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      setCardState(res.ok && data.ok ? "created" : "failed");
+    } catch {
+      setCardState("failed");
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Send message
   // -------------------------------------------------------------------------
   async function sendMessage() {
     const text = draft.trim();
     if (!text || !sessionId || sending) return;
+    setFailedTask(null);
+    setCardState("idle");
 
     const selectionToSend = selectedComponent;
     // Recent turns BEFORE this message — the agent needs them to keep the
@@ -723,6 +751,8 @@ export function FloatingAgentChat({
 
       const message = rawMessage === "__stream_dropped__" ? "A conexão fechou antes da resposta final." : rawMessage;
       setError(message);
+      // Offer to park the failed/timed-out request as a Kanban card for a human.
+      if (kanbanEnabled) setFailedTask(text);
       setMessages((prev) => {
         const next = [
           ...prev,
@@ -841,6 +871,44 @@ export function FloatingAgentChat({
                 <div className="flex justify-start">
                   <div className="rounded-2xl border border-border bg-surface px-3 py-2 text-sm text-foreground-muted shadow-sm">
                     {status || "pensando..."}
+                  </div>
+                </div>
+              ) : null}
+              {!sending && kanbanEnabled && failedTask ? (
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] rounded-2xl border border-border bg-surface px-3 py-2.5 text-sm text-foreground shadow-sm">
+                    {cardState === "created" ? (
+                      <p className="text-success">✓ Card criado no Kanban — alguém executa depois.</p>
+                    ) : (
+                      <>
+                        <p className="text-foreground-muted">
+                          Esse pedido não terminou. Quer que eu crie um card no Kanban pra alguém
+                          executar depois?
+                        </p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void parkAsKanbanCard()}
+                            disabled={cardState === "creating"}
+                            className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {cardState === "creating" ? "Criando…" : "Criar card no Kanban"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFailedTask(null)}
+                            className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-muted hover:text-foreground"
+                          >
+                            Dispensar
+                          </button>
+                        </div>
+                        {cardState === "failed" && (
+                          <p className="mt-1.5 text-xs text-danger">
+                            Não consegui criar o card. Tente pelo Kanban.
+                          </p>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               ) : null}

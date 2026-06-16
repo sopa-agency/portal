@@ -107,6 +107,7 @@ export default async function RootLayout({
                 agentEmoji={project.agent.emoji}
                 greeting={project.agent.greeting}
                 logo={project.theme.logo}
+                kanbanEnabled={!!project.githubProject}
               />
             </div>
             </PresenceProvider>

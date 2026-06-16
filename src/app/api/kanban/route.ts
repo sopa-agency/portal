@@ -122,7 +122,7 @@ export async function GET() {
 
 type Body = {
   action:
-    | "setStatus" | "clearStatus" | "move" | "addDraft" | "archive" | "delete" | "setAssignees"
+    | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "createIssue"
     | "aiBody";
   projectId?: string;
@@ -171,6 +171,27 @@ export async function POST(req: Request) {
   }
 
   const { action, projectId, fieldId, itemId, optionId, afterId, title } = body;
+
+  // addDraftAuto: create a draft card WITHOUT a client-supplied projectId — we
+  // resolve the board node id server-side. Used by surfaces that don't load the
+  // board first (e.g. the floating chat parking a failed task for a human).
+  if (action === "addDraftAuto") {
+    if (!title?.trim()) {
+      return NextResponse.json({ ok: false, error: "title required" }, { status: 400 });
+    }
+    const board = await fetchGitHubProject(project);
+    if (!board.ok) {
+      return NextResponse.json({ ok: false, error: board.error }, { status: 400 });
+    }
+    const result = await addDraftIssue({
+      token,
+      projectId: board.projectId,
+      title: title.trim(),
+      body: body.body,
+    });
+    return NextResponse.json(result, { status: result.ok ? 200 : 500 });
+  }
+
   if (!projectId) {
     return NextResponse.json({ ok: false, error: "projectId is required" }, { status: 400 });
   }
