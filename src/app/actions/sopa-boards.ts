@@ -14,7 +14,7 @@ import { getActiveProject } from "@/projects/index";
 
 export type BoardKind = "orgchart" | "portfolio";
 
-export type TeamMember = { role: string; name: string };
+export type TeamMember = { role: string; username: string };
 
 export type BoardCard = {
   id: string;
@@ -57,8 +57,9 @@ function mergeMeta(
     else delete base.tier;
   }
   if (patch.team !== undefined) {
-    const clean = patch.team.filter((m) => m.name.trim());
-    if (clean.length) base.team = clean.map((m) => ({ role: m.role, name: m.name.trim() }));
+    const clean = patch.team.filter((m) => m.username.trim());
+    if (clean.length)
+      base.team = clean.map((m) => ({ role: m.role, username: m.username.trim() }));
     else delete base.team;
   }
   return Object.keys(base).length ? (base as Prisma.InputJsonValue) : Prisma.JsonNull;
@@ -86,12 +87,13 @@ function toCard(r: {
       : {};
   const team: TeamMember[] = Array.isArray(meta.team)
     ? (meta.team as unknown[])
-        .filter(
-          (m): m is { role: unknown; name: unknown } =>
-            !!m && typeof m === "object",
-        )
-        .map((m) => ({ role: String(m.role ?? ""), name: String(m.name ?? "") }))
-        .filter((m) => m.role && m.name)
+        .filter((m): m is Record<string, unknown> => !!m && typeof m === "object")
+        // `name` fallback keeps any early free-text entries working.
+        .map((m) => ({
+          role: String(m.role ?? ""),
+          username: String(m.username ?? m.name ?? ""),
+        }))
+        .filter((m) => m.role && m.username)
     : [];
   return {
     id: r.id,

@@ -29,6 +29,26 @@ const ROLES = [
 
 const tierMeta = (id: string | null) => TIERS.find((t) => t.id === id) ?? null;
 
+// Native projects are the brand's own (one color); everything else under SOPA is
+// a client (another color). Only clients carry an engagement tier.
+const NATIVE_PROJECTS = new Set(["reelflip", "gnars", "skatehive", "blockwire"]);
+type NodeKind = "root" | "native" | "client";
+function nodeKind(node: { parentId: string | null; title: string }): NodeKind {
+  if (node.parentId === null) return "root";
+  return NATIVE_PROJECTS.has(node.title.trim().toLowerCase()) ? "native" : "client";
+}
+const KIND_STYLE: Record<NodeKind, { wrap: string; title: string; badge: string | null }> = {
+  root: { wrap: "border-accent-border bg-accent-bg", title: "text-accent", badge: null },
+  native: { wrap: "border-accent-border bg-surface-elevated", title: "text-accent", badge: "Nativo" },
+  client: {
+    wrap: "border-sky-400/40 bg-sky-400/10",
+    title: "text-sky-600 dark:text-sky-300",
+    badge: "Cliente",
+  },
+};
+
+export type Person = { username: string; avatarUrl: string; profileUrl: string };
+
 type CardPatch = { title?: string; body?: string; tier?: string | null; team?: TeamMember[] };
 
 type Node = BoardCard & { children: Node[] };
@@ -44,12 +64,22 @@ function buildTree(cards: BoardCard[]): Node[] {
   return roots;
 }
 
-export function SopaOrgChart({ initial }: { initial: BoardCard[] }) {
+export function SopaOrgChart({
+  initial,
+  roster,
+}: {
+  initial: BoardCard[];
+  roster: Person[];
+}) {
   const [cards, setCards] = useState<BoardCard[]>(initial);
   const [openId, setOpenId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const tree = useMemo(() => buildTree(cards), [cards]);
+  const rosterMap = useMemo(
+    () => new Map(roster.map((p) => [p.username.toLowerCase(), p])),
+    [roster],
+  );
   const openCard = cards.find((c) => c.id === openId) ?? null;
 
   function addChild(parentId: string, title: string) {
@@ -98,6 +128,7 @@ export function SopaOrgChart({ initial }: { initial: BoardCard[] }) {
               <TreeNode
                 key={n.id}
                 node={n}
+                rosterMap={rosterMap}
                 onOpen={setOpenId}
                 onAddChild={addChild}
                 disabled={pending}
@@ -110,6 +141,7 @@ export function SopaOrgChart({ initial }: { initial: BoardCard[] }) {
       {openCard && (
         <CardDialog
           card={openCard}
+          roster={roster}
           isRoot={openCard.parentId === null}
           onClose={() => setOpenId(null)}
           onSave={saveCard}
@@ -149,18 +181,22 @@ export function SopaOrgChart({ initial }: { initial: BoardCard[] }) {
 
 function TreeNode({
   node,
+  rosterMap,
   onOpen,
   onAddChild,
   disabled,
 }: {
   node: Node;
+  rosterMap: Map<string, Person>;
   onOpen: (id: string) => void;
   onAddChild: (parentId: string, title: string) => void;
   disabled: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
-  const isRoot = node.parentId === null;
+  const kind = nodeKind(node);
+  const style = KIND_STYLE[kind];
+  const showTier = kind === "client" && tierMeta(node.tier);
 
   function confirmAdd() {
     const t = draft.trim();
@@ -175,27 +211,22 @@ function TreeNode({
         <button
           type="button"
           onClick={() => onOpen(node.id)}
-          className={`group w-[200px] rounded-xl border px-4 py-3 text-center shadow-sm transition hover:border-border-strong ${
-            isRoot
-              ? "border-accent-border bg-accent-bg"
-              : "border-border bg-surface-elevated"
-          }`}
+          className={`group w-[200px] rounded-xl border px-4 py-3 text-center shadow-sm transition hover:border-border-strong ${style.wrap}`}
         >
-          <div className="flex items-center justify-center gap-2">
-            <span
-              className={`truncate text-sm font-semibold ${
-                isRoot ? "text-accent" : "text-foreground"
-              }`}
-            >
-              {node.title}
+          {style.badge && (
+            <span className="mb-1 block text-[8px] font-bold uppercase tracking-[0.15em] text-foreground-faint">
+              {style.badge}
             </span>
-            {tierMeta(node.tier) && (
-              <span className="shrink-0 rounded-full bg-accent-bg px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-accent">
+          )}
+          <div className="flex items-center justify-center gap-2">
+            <span className={`truncate text-sm font-semibold ${style.title}`}>{node.title}</span>
+            {showTier && (
+              <span className="shrink-0 rounded-full bg-sky-400/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-600 dark:text-sky-300">
                 {tierMeta(node.tier)!.pct}
               </span>
             )}
           </div>
-          {tierMeta(node.tier) && (
+          {showTier && (
             <span className="mt-0.5 block text-[10px] font-medium text-foreground-subtle">
               {tierMeta(node.tier)!.label}
             </span>
@@ -206,17 +237,28 @@ function TreeNode({
             </span>
           )}
           {node.team.length > 0 && (
-            <div className="mt-2 space-y-1 border-t border-border pt-2 text-left">
-              {node.team.map((m) => (
-                <div key={m.role} className="flex items-baseline justify-between gap-2">
-                  <span className="shrink-0 text-[9px] uppercase tracking-wide text-foreground-faint">
-                    {m.role}
-                  </span>
-                  <span className="truncate text-[11px] font-medium text-foreground">
-                    {m.name}
-                  </span>
-                </div>
-              ))}
+            <div className="mt-2 space-y-1.5 border-t border-border pt-2 text-left">
+              {node.team.map((m) => {
+                const person = rosterMap.get(m.username.toLowerCase());
+                return (
+                  <div key={m.role} className="flex items-center justify-between gap-2">
+                    <span className="shrink-0 text-[9px] uppercase tracking-wide text-foreground-faint">
+                      {m.role}
+                    </span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={person?.avatarUrl ?? `https://images.hive.blog/u/${m.username}/avatar`}
+                        alt=""
+                        className="h-4 w-4 shrink-0 rounded-full object-cover"
+                      />
+                      <span className="truncate text-[11px] font-medium text-foreground">
+                        {m.username}
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </button>
@@ -276,6 +318,7 @@ function TreeNode({
             <TreeNode
               key={c.id}
               node={c}
+              rosterMap={rosterMap}
               onOpen={onOpen}
               onAddChild={onAddChild}
               disabled={disabled}
@@ -289,6 +332,7 @@ function TreeNode({
 
 function CardDialog({
   card,
+  roster,
   isRoot,
   onClose,
   onSave,
@@ -296,6 +340,7 @@ function CardDialog({
   busy,
 }: {
   card: BoardCard;
+  roster: Person[];
   isRoot: boolean;
   onClose: () => void;
   onSave: (id: string, patch: CardPatch) => void;
@@ -307,14 +352,17 @@ function CardDialog({
   const [tier, setTier] = useState<string | null>(card.tier);
   const [team, setTeam] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
-    card.team.forEach((t) => (m[t.role] = t.name));
+    card.team.forEach((t) => (m[t.role] = t.username));
     return m;
   });
   const [confirmDel, setConfirmDel] = useState(false);
 
-  const teamArr: TeamMember[] = ROLES.map((r) => ({ role: r, name: (team[r] ?? "").trim() })).filter(
-    (m) => m.name,
-  );
+  const kind = nodeKind(card);
+  const rosterByUser = new Map(roster.map((p) => [p.username.toLowerCase(), p]));
+  const teamArr: TeamMember[] = ROLES.map((r) => ({
+    role: r,
+    username: (team[r] ?? "").trim(),
+  })).filter((m) => m.username);
   const dirty =
     title !== card.title ||
     body !== (card.body ?? "") ||
@@ -349,50 +397,75 @@ function CardDialog({
           className="mb-4 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
         />
 
-        <label className="mb-1 block text-xs font-medium text-foreground-muted">
-          Tier de trabalho
-        </label>
-        <div className="mb-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setTier(null)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-              tier === null
-                ? "border-border-strong bg-surface-elevated text-foreground"
-                : "border-border text-foreground-muted hover:border-border-strong"
-            }`}
-          >
-            Nenhum
-          </button>
-          {TIERS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTier(t.id)}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                tier === t.id
-                  ? "border-accent-border bg-accent-bg text-accent"
-                  : "border-border text-foreground-muted hover:border-border-strong"
-              }`}
-            >
-              {t.label} · {t.pct}
-            </button>
-          ))}
-        </div>
-
-        <label className="mb-1.5 block text-xs font-medium text-foreground-muted">Time</label>
-        <div className="mb-4 space-y-2">
-          {ROLES.map((role) => (
-            <div key={role} className="flex items-center gap-2">
-              <span className="w-40 shrink-0 text-[11px] text-foreground-subtle">{role}</span>
-              <input
-                value={team[role] ?? ""}
-                onChange={(e) => setTeam((prev) => ({ ...prev, [role]: e.target.value }))}
-                placeholder="@quem"
-                className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
-              />
+        {kind === "client" && (
+          <>
+            <label className="mb-1 block text-xs font-medium text-foreground-muted">
+              Tier de trabalho
+            </label>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setTier(null)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                  tier === null
+                    ? "border-border-strong bg-surface-elevated text-foreground"
+                    : "border-border text-foreground-muted hover:border-border-strong"
+                }`}
+              >
+                Nenhum
+              </button>
+              {TIERS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTier(t.id)}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                    tier === t.id
+                      ? "border-sky-400/50 bg-sky-400/10 text-sky-600 dark:text-sky-300"
+                      : "border-border text-foreground-muted hover:border-border-strong"
+                  }`}
+                >
+                  {t.label} · {t.pct}
+                </button>
+              ))}
             </div>
-          ))}
+          </>
+        )}
+
+        <label className="mb-1.5 block text-xs font-medium text-foreground-muted">
+          Time <span className="text-foreground-faint">(membros dos projetos)</span>
+        </label>
+        <div className="mb-4 space-y-2">
+          {ROLES.map((role) => {
+            const selected = rosterByUser.get((team[role] ?? "").toLowerCase());
+            return (
+              <div key={role} className="flex items-center gap-2">
+                <span className="w-40 shrink-0 text-[11px] text-foreground-subtle">{role}</span>
+                {selected ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={selected.avatarUrl}
+                    alt=""
+                    className="h-5 w-5 shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="h-5 w-5 shrink-0 rounded-full border border-dashed border-border" />
+                )}
+                <select
+                  value={team[role] ?? ""}
+                  onChange={(e) => setTeam((prev) => ({ ...prev, [role]: e.target.value }))}
+                  className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
+                >
+                  <option value="">—</option>
+                  {roster.map((p) => (
+                    <option key={p.username} value={p.username}>
+                      @{p.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
         </div>
 
         <label className="mb-1 block text-xs font-medium text-foreground-muted">Detalhes</label>
@@ -431,7 +504,14 @@ function CardDialog({
           <button
             type="button"
             disabled={!dirty || busy}
-            onClick={() => onSave(card.id, { title, body, tier, team: teamArr })}
+            onClick={() =>
+              onSave(card.id, {
+                title,
+                body,
+                tier: kind === "client" ? tier : null,
+                team: teamArr,
+              })
+            }
             className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-40"
           >
             Salvar
