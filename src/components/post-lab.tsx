@@ -16,6 +16,7 @@ import { Lightbulb } from "lucide-react";
 import { type PostType, type CalendarExtra, createDraft, scheduleDraft } from "@/app/actions/post-creator";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
 import { IgPreview } from "@/components/post/ig-preview";
+import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
 import { aspectToClass, snapToFeedRatio, type UploadState } from "@/lib/post-aspect";
 
 // The real Studio editors (image + video), reused as-is — same ones the Post
@@ -70,6 +71,7 @@ const NETWORKS: Network[] = [
   { id: "discord", label: "Discord", color: "#5865F2", limit: 0, image: "bare", note: "**bold** + URL nua auto-embeda." },
   { id: "binance", label: "Binance Square", color: "#F0B90B", limit: 0, image: "none", note: "Só texto — sem URL/markdown." },
   { id: "hive_mag", label: "Hive Magazine", color: "#E31337", limit: 0, image: "markdown", campaignOnly: true, note: "Post longo em markdown na comunidade." },
+  { id: "email", label: "Email / Newsletter", color: "#0ea5e9", limit: 0, image: "none", campaignOnly: true, note: "Corpo do email; o builder visual entra na próxima fatia." },
 ];
 
 type Media = { url: string; isVideo: boolean };
@@ -125,6 +127,8 @@ export function PostLab({
   const [plan, setPlan] = useState<string | null>(null);
   const [studio, setStudio] = useState<null | "image" | "video">(null);
   const [igFit, setIgFit] = useState<"cover" | "contain">("cover");
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [thumbOffsetMs, setThumbOffsetMs] = useState<number | null>(null);
   const [aiBusy, setAiBusy] = useState<null | "improve" | "generate" | "variants" | "insight">(null);
   const [aiErr, setAiErr] = useState<string | null>(null);
   const [openInsight, setOpenInsight] = useState<string | null>(null);
@@ -245,6 +249,8 @@ export function PostLab({
           caption: effectiveText("instagram"),
           mediaUrls: media.map((m) => m.url),
           aspectRatio: media.some((m) => m.isVideo) ? "9:16" : "1:1",
+          coverUrl: postType === "REELS" ? coverUrl : null,
+          thumbOffsetMs: postType === "REELS" ? thumbOffsetMs : null,
         });
         if (!r.ok) igLine = `• Instagram: erro — ${r.error}`;
         else if (scheduleWhen) {
@@ -547,6 +553,22 @@ export function PostLab({
               </button>
             </div>
           </div>
+
+          {/* Reel cover/thumbnail picker — same component as the Post Creator,
+              shown when there's a video (the Reel cover applies to Instagram). */}
+          {media.some((m) => m.isVideo) && (
+            <ReelCoverPicker
+              videoUrl={media.find((m) => m.isVideo)!.url}
+              coverUrl={coverUrl}
+              thumbOffsetMs={thumbOffsetMs}
+              onCoverUrl={setCoverUrl}
+              onThumbOffset={setThumbOffsetMs}
+              uploadImage={async (file) => {
+                const r = await uploadLabMedia(file);
+                return r.ok ? { ok: true, url: r.media.url } : r;
+              }}
+            />
+          )}
 
           {/* Schedule + action */}
           <div className="mt-auto border-t border-border pt-4">

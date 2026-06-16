@@ -53,6 +53,7 @@ import {
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
 import { IgPreview } from "@/components/post/ig-preview";
+import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
 import {
   type AspectRatio,
   type UploadState,
@@ -1639,11 +1640,6 @@ export function PostCreator({
   // REELS cover — custom image (cover_url) wins over a frame offset (thumb_offset)
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [thumbOffsetMs, setThumbOffsetMs] = useState<number | null>(null);
-  const [coverDurationMs, setCoverDurationMs] = useState<number | null>(null);
-  const [coverUploading, setCoverUploading] = useState(false);
-  const [coverError, setCoverError] = useState<string | null>(null);
-  const coverVideoRef = useRef<HTMLVideoElement | null>(null);
-  const coverInputRef = useRef<HTMLInputElement | null>(null);
 
   // User tags (IMAGE only)
   const [userTags, setUserTags] = useState<UserTag[]>([]);
@@ -1911,44 +1907,19 @@ export function PostCreator({
   function resetCover() {
     setCoverUrl(null);
     setThumbOffsetMs(null);
-    setCoverDurationMs(null);
-    setCoverError(null);
   }
 
-  function handleCoverScrub(ms: number | null) {
-    setThumbOffsetMs(ms);
-    const v = coverVideoRef.current;
-    if (v) v.currentTime = (ms ?? 0) / 1000;
-  }
-
-  async function handleCoverFile(files: FileList | null) {
-    const file = files?.[0];
-    if (!file) return;
-    if (!/^image\//.test(file.type)) {
-      setCoverError("Cover must be an image.");
-      return;
+  // Uploader handed to ReelCoverPicker — direct→Pinata with the server fallback.
+  async function coverUploader(
+    file: File,
+  ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+    let result = await uploadMediaDirect(file);
+    if (!result.ok) {
+      const fd = new FormData();
+      fd.set("file", file);
+      result = await uploadPostMedia(fd);
     }
-    setCoverError(null);
-    setCoverUploading(true);
-    try {
-      let result = await uploadMediaDirect(file);
-      if (!result.ok) {
-        const fd = new FormData();
-        fd.set("file", file);
-        result = await uploadPostMedia(fd);
-      }
-      if (result.ok) {
-        setCoverUrl(result.url);
-        setThumbOffsetMs(null);
-      } else {
-        setCoverError(result.error);
-      }
-    } catch (err) {
-      setCoverError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCoverUploading(false);
-      if (coverInputRef.current) coverInputRef.current.value = "";
-    }
+    return result;
   }
 
   function moveUpload(index: number, dir: -1 | 1) {
@@ -2200,8 +2171,6 @@ export function PostCreator({
     setUserTags(d.userTags ?? []);
     setCoverUrl(d.coverUrl ?? null);
     setThumbOffsetMs(d.thumbOffsetMs ?? null);
-    setCoverDurationMs(null);
-    setCoverError(null);
     setMusicNote(d.musicNote ?? "");
     setBrandedPartner(d.brandedPartner ?? "");
     setLocationNote(d.locationNote ?? "");
@@ -2647,108 +2616,14 @@ export function PostCreator({
 
             {/* Reel cover picker — frame scrubber or custom image */}
             {postType === "REELS" && uploads[0]?.isVideo && (
-              <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
-                <p className="text-[12px] font-semibold uppercase tracking-wider text-foreground-subtle">
-                  Reel cover
-                </p>
-                {coverUrl ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="flex w-full justify-center">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={coverUrl}
-                        alt="Custom cover"
-                        className="h-44 w-[100px] rounded-lg border border-border object-cover"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setCoverUrl(null)}
-                      className="text-center text-[12px] text-foreground-muted transition-colors hover:text-danger"
-                    >
-                      Remove custom cover
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex w-full justify-center">
-                      <video
-                        ref={coverVideoRef}
-                        src={uploads[0].previewUrl}
-                        muted
-                        playsInline
-                        preload="metadata"
-                        onLoadedMetadata={(e) => {
-                          const d = e.currentTarget.duration;
-                          if (Number.isFinite(d) && d > 0) setCoverDurationMs(Math.floor(d * 1000));
-                        }}
-                        className="h-44 w-[100px] rounded-lg border border-border bg-surface-elevated object-cover"
-                      />
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={coverDurationMs ?? 0}
-                      step={100}
-                      value={thumbOffsetMs ?? 0}
-                      disabled={!coverDurationMs}
-                      onChange={(e) => handleCoverScrub(Number(e.target.value))}
-                      className="w-full accent-current text-accent"
-                      aria-label="Cover frame position"
-                    />
-                    <div className="flex items-center gap-3">
-                      <p className="text-[11px] text-foreground-muted">
-                        {thumbOffsetMs === null
-                          ? "Cover: first frame. Drag the slider to pick a different frame."
-                          : `Cover frame at ${(thumbOffsetMs / 1000).toFixed(1)}s`}
-                      </p>
-                      {thumbOffsetMs !== null && (
-                        <button
-                          type="button"
-                          onClick={() => handleCoverScrub(null)}
-                          className="text-[11px] text-foreground-muted underline transition-colors hover:text-foreground"
-                        >
-                          Reset to first frame
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => coverInputRef.current?.click()}
-                  disabled={coverUploading}
-                  className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
-                >
-                  {coverUploading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <ImagePlus className="h-3.5 w-3.5" />
-                  )}
-                  {coverUploading
-                    ? "Uploading cover…"
-                    : coverUrl
-                    ? "Replace custom cover"
-                    : "Upload custom cover image"}
-                </button>
-                <input
-                  ref={coverInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(e) => handleCoverFile(e.target.files)}
-                />
-                {coverError && (
-                  <p className="flex items-center gap-1.5 text-sm text-danger">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    {coverError}
-                  </p>
-                )}
-                <p className="text-[11px] text-foreground-faint">
-                  The profile grid shows a centered crop of this cover — Instagram&apos;s API has no
-                  separate grid-crop control, so use a 9:16 cover with the subject centered.
-                </p>
-              </div>
+              <ReelCoverPicker
+                videoUrl={uploads[0].previewUrl}
+                coverUrl={coverUrl}
+                thumbOffsetMs={thumbOffsetMs}
+                onCoverUrl={setCoverUrl}
+                onThumbOffset={setThumbOffsetMs}
+                uploadImage={coverUploader}
+              />
             )}
 
             {carouselAspectMismatch && (

@@ -57,10 +57,20 @@ export async function labGenerateVariants(
     const project = await labGate();
     if (!baseText.trim()) return { ok: false, error: "Write a base message first." };
     if (!networks.length) return { ok: false, error: "No channels selected." };
-    const list = networks.map((n) => `- "${n.id}" (${n.label}): ${n.rule}`).join("\n");
+    // Long-form channels get explicit length specs — mirrors the campaign
+    // creator's brief→artifacts behavior so Hive Mag + email aren't short.
+    const LONGFORM: Record<string, string> = {
+      hive_mag:
+        "FULL magazine article in Markdown — start with an H1 title, then multiple sections with headers, ~450–800 words. This is long-form editorial, NOT a short post. Expand the base message into a real article.",
+      email:
+        "Newsletter email — a subject line as the first line, then a well-structured body with several short paragraphs (and a clear CTA at the end), ~200–400 words. Scannable, NOT a one-liner.",
+    };
+    const list = networks
+      .map((n) => `- "${n.id}" (${n.label}): ${LONGFORM[n.id] ?? n.rule}`)
+      .join("\n");
     const prompt = `You are the ${project.agent.displayName} content lead. Read your brand playbook (docs/playbook.md) for voice.
 
-Take this base message and write a tailored version for EACH channel below, respecting each channel's norms and limits:
+Take this base message and write a tailored version for EACH channel below. Respect each channel's norms, limits AND length — short channels stay short, long-form channels (Hive Magazine, email) must be genuinely long as specified:
 
 BASE MESSAGE:
 """
@@ -70,7 +80,7 @@ ${baseText}
 CHANNELS:
 ${list}
 
-Return ONLY a JSON object mapping each channel id to its tailored text, e.g. {"hive":"...","farcaster":"..."}. No preamble, no code fences.`;
+Return ONLY a JSON object mapping each channel id to its tailored text, e.g. {"hive":"...","hive_mag":"# Title...","email":"Subject...\\n\\n..."}. No preamble, no code fences.`;
     const raw = await callOpenClaw(prompt, project.agent.id, { project, timeoutMs: LAB_AI_TIMEOUT_MS });
     if (!raw) return { ok: false, error: "Agent returned empty." };
     const jsonStr = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
