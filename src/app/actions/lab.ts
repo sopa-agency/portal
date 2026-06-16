@@ -4,6 +4,8 @@ import { createPinataSignedUploadUrl } from "@/lib/social-publish";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { buildGenerateCaptionPrompt, buildImproveCaptionPrompt } from "@/lib/post-creator-prompts";
 import type { PostType } from "@/app/actions/post-creator";
+import { getLatestSocialInsight } from "@/app/actions/social-insights";
+import { getLatestAnalyticsInsight } from "@/app/actions/analytics-insights";
 import { getActiveProject } from "@/projects/index";
 
 const LAB_AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 120_000);
@@ -96,6 +98,55 @@ export async function signLabMediaUpload(
     const project = await getActiveProject();
     if (!project.lab) return { ok: false, error: "Lab is not enabled for this project." };
     return await createPinataSignedUploadUrl(filename, sizeBytes, mimeType);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type LabInsight = { key: string; label: string; body: string; generatedAt: string };
+
+/** Gather the project's latest AI insights (analytics + per-platform social) so
+ *  the Lab can turn one into a post. */
+export async function getLabInsights(): Promise<LabInsight[]> {
+  try {
+    const project = await labGate();
+    const out: LabInsight[] = [];
+    const analytics = await getLatestAnalyticsInsight().catch(() => null);
+    if (analytics?.body?.trim())
+      out.push({ key: "analytics", label: "Analytics (GA4 + Search)", body: analytics.body, generatedAt: analytics.generatedAt });
+    const seen = new Set<string>();
+    for (const s of project.socials) {
+      const platform = s.platform.toLowerCase();
+      if (seen.has(platform)) continue;
+      seen.add(platform);
+      const ins = await getLatestSocialInsight(s.platform).catch(() => null);
+      if (ins?.body?.trim())
+        out.push({ key: `social:${platform}`, label: `${s.platform} insight`, body: ins.body, generatedAt: ins.generatedAt });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** Generate a post that acts on an AI insight, in the project agent's voice. */
+export async function labGeneratePostFromInsight(insight: string, type: PostType): Promise<TextResult> {
+  try {
+    const project = await labGate();
+    if (!insight.trim()) return { ok: false, error: "Empty insight." };
+    const prompt = `You are the ${project.agent.displayName} content lead. Read your brand playbook (docs/playbook.md) for voice.
+
+Based on the AI insight below about our channels/audience, write ONE strong ${type} post that ACTS on it — double down on what's working or address what's flagged. Make it concrete and on-brand, not a summary of the insight.
+
+INSIGHT:
+"""
+${insight}
+"""
+
+Return ONLY the post text — no preamble, no quotes.`;
+    const out = await callOpenClaw(prompt, project.agent.id, { project, timeoutMs: LAB_AI_TIMEOUT_MS });
+    if (!out) return { ok: false, error: "Agent returned empty." };
+    return { ok: true, text: out.trim() };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

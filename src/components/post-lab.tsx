@@ -9,7 +9,10 @@ import {
   labImproveText,
   labGenerateText,
   labGenerateVariants,
+  labGeneratePostFromInsight,
+  type LabInsight,
 } from "@/app/actions/lab";
+import { Lightbulb } from "lucide-react";
 import { type PostType, type CalendarExtra, createDraft, scheduleDraft } from "@/app/actions/post-creator";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
 import { IgPreview } from "@/components/post/ig-preview";
@@ -101,10 +104,12 @@ export function PostLab({
   brand,
   calendarEvents,
   activeSlug,
+  insights,
 }: {
   brand: LabBrand;
   calendarEvents: CalendarExtra[];
   activeSlug: string;
+  insights: LabInsight[];
 }) {
   const router = useRouter();
   const [view, setView] = useState<"compose" | "calendar">("compose");
@@ -120,8 +125,9 @@ export function PostLab({
   const [plan, setPlan] = useState<string | null>(null);
   const [studio, setStudio] = useState<null | "image" | "video">(null);
   const [igFit, setIgFit] = useState<"cover" | "contain">("cover");
-  const [aiBusy, setAiBusy] = useState<null | "improve" | "generate" | "variants">(null);
+  const [aiBusy, setAiBusy] = useState<null | "improve" | "generate" | "variants" | "insight">(null);
   const [aiErr, setAiErr] = useState<string | null>(null);
+  const [openInsight, setOpenInsight] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const postType: PostType =
@@ -145,6 +151,17 @@ export function PostLab({
     setAiBusy(null);
     if (r.ok) setEditingText(r.text);
     else setAiErr(r.error);
+  }
+  async function aiFromInsight(body: string) {
+    setAiErr(null);
+    setAiBusy("insight");
+    const r = await labGeneratePostFromInsight(body, postType);
+    setAiBusy(null);
+    if (r.ok) {
+      setBaseText(r.text);
+      setEditing("base");
+      setView("compose");
+    } else setAiErr(r.error);
   }
   async function aiVariants() {
     setAiErr(null);
@@ -325,6 +342,50 @@ export function PostLab({
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,420px)_1fr]">
         {/* LEFT — composer */}
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
+          {/* AI Insights → post */}
+          {insights.length > 0 && (
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
+                <Lightbulb className="h-3.5 w-3.5 text-accent" /> Criar a partir de AI insights
+              </p>
+              <div className="space-y-1.5">
+                {insights.map((ins) => {
+                  const open = openInsight === ins.key;
+                  return (
+                    <div key={ins.key} className="rounded-lg border border-border bg-surface-elevated">
+                      <button
+                        type="button"
+                        onClick={() => setOpenInsight(open ? null : ins.key)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                      >
+                        <span className="truncate text-xs font-medium text-foreground">{ins.label}</span>
+                        <span className="shrink-0 text-[10px] text-foreground-faint">
+                          {new Date(ins.generatedAt).toLocaleDateString()}
+                        </span>
+                      </button>
+                      {open && (
+                        <div className="border-t border-border px-3 py-2">
+                          <p className="mb-2 max-h-32 overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed text-foreground-muted">
+                            {ins.body}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void aiFromInsight(ins.body)}
+                            disabled={!!aiBusy}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-accent-bg px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+                          >
+                            {aiBusy === "insight" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                            Gerar post deste insight
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Networks */}
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
