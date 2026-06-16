@@ -132,6 +132,12 @@ export type ProjectConfig = {
    */
   postCreator?: boolean;
   /**
+   * When true, the About nav item and /about route are enabled — a deck-style
+   * presentation page describing the org/model. Currently SOPA-only (the deck
+   * content is keyed by slug in the /about page). Absent = nav hidden + 404.
+   */
+  about?: boolean;
+  /**
    * Treasury wallets shown on /treasury — the SAME wallets/sources the
    * project's native app shows (skatehive.app/dao, gnars.com/treasury).
    * Omitted = nav item hidden and route 404s.

@@ -53,6 +53,9 @@ const sopa: ProjectConfig = {
   ],
   // No wallets of its own — the page shows the combined view of everything
   // the org operates (empty own group is filtered out).
+  // Deck-style presentation of the SOPA model (the agency, the engagement
+  // tiers, the operating structure). Enables the /about route + nav item.
+  about: true,
   treasury: {
     ethWallets: [],
     includeProjects: ["reelflip", "gnars", "skatehive"],

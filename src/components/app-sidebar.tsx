@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
@@ -17,6 +17,7 @@ const NAV = [
   { href: "/analytics", label: "Analytics", icon: ChartColumn },
   { href: "/kanban", label: "Kanban", icon: SquareKanban, requiresKanban: true },
   { href: "/treasury", label: "Treasury", icon: Landmark },
+  { href: "/about", label: "About", icon: Presentation, requiresAbout: true },
   { href: "/team", label: "Team", icon: UsersRound },
 ];
 
@@ -45,9 +46,10 @@ type AppSidebarProps = {
   hiddenRoutes?: string[];
   postCreatorEnabled?: boolean;
   kanbanEnabled?: boolean;
+  aboutEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -85,6 +87,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if (hiddenRoutes?.includes(item.href)) return false;
     if ("requiresPostCreator" in item && item.requiresPostCreator && !postCreatorEnabled) return false;
     if ("requiresKanban" in item && item.requiresKanban && !kanbanEnabled) return false;
+    if ("requiresAbout" in item && item.requiresAbout && !aboutEnabled) return false;
     return true;
   });
 

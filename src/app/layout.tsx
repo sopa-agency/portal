@@ -91,6 +91,7 @@ export default async function RootLayout({
                 hiddenRoutes={project.hiddenRoutes}
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject}
+                aboutEnabled={!!project.about}
               />
               <ThemeToggle />
               <PageInfo />
