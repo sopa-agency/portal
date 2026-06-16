@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { ImagePlus, Loader2, X, Calendar, Send, FlaskConical, Clapperboard, Sparkles, Wand2 } from "lucide-react";
 import {
@@ -9,7 +10,7 @@ import {
   labGenerateText,
   labGenerateVariants,
 } from "@/app/actions/lab";
-import type { PostType, CalendarExtra } from "@/app/actions/post-creator";
+import { type PostType, type CalendarExtra, createDraft, scheduleDraft } from "@/app/actions/post-creator";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
 import { IgPreview } from "@/components/post/ig-preview";
 import { aspectToClass, snapToFeedRatio, type UploadState } from "@/lib/post-aspect";
@@ -105,8 +106,10 @@ export function PostLab({
   calendarEvents: CalendarExtra[];
   activeSlug: string;
 }) {
+  const router = useRouter();
   const [view, setView] = useState<"compose" | "calendar">("compose");
   const [mode, setMode] = useState<Mode>("single");
+  const [submitting, setSubmitting] = useState(false);
   const [baseText, setBaseText] = useState("");
   const [media, setMedia] = useState<Media[]>([]);
   const [enabled, setEnabled] = useState<Record<string, boolean>>({ instagram: true, hive: true, farcaster: true });
@@ -207,20 +210,56 @@ export function PostLab({
     setUploading(false);
   }
 
-  function buildPlan() {
+  async function submit() {
+    setSubmitting(true);
+    setPlan(null);
     const when = scheduleWhen ? new Date(scheduleWhen).toLocaleString() : "agora";
-    const lines = activeNetworks.map((n) => {
-      const t = effectiveText(n.id).trim();
-      const over = overrides[n.id] !== undefined ? " (texto próprio)" : "";
-      return `• ${n.label}${over}: ${t.slice(0, 60)}${t.length > 60 ? "…" : ""}`;
-    });
+
+    // REAL: Instagram lane → create (and schedule) an InstagramPost draft, which
+    // then shows up in the Calendário tab. Other networks stay a planned summary
+    // (their real wiring is the next slice).
+    let igLine = "";
+    if (enabled.instagram) {
+      if (media.length === 0) {
+        igLine = "• Instagram: precisa de mídia — pulado";
+      } else {
+        const r = await createDraft({
+          type: postType,
+          caption: effectiveText("instagram"),
+          mediaUrls: media.map((m) => m.url),
+          aspectRatio: media.some((m) => m.isVideo) ? "9:16" : "1:1",
+        });
+        if (!r.ok) igLine = `• Instagram: erro — ${r.error}`;
+        else if (scheduleWhen) {
+          const s = await scheduleDraft(r.id, new Date(scheduleWhen).toISOString());
+          igLine = s.ok ? `• Instagram: ✓ agendado (${when})` : `• Instagram: rascunho criado, mas agendar falhou — ${s.error}`;
+        } else {
+          igLine = "• Instagram: ✓ rascunho criado (publique pelo Post Creator ou agende com data)";
+        }
+      }
+    }
+
+    const others = activeNetworks
+      .filter((n) => n.id !== "instagram")
+      .map((n) => {
+        const t = effectiveText(n.id).trim();
+        const over = overrides[n.id] !== undefined ? " (texto próprio)" : "";
+        return `• ${n.label}${over} — planejado: ${t.slice(0, 50)}${t.length > 50 ? "…" : ""}`;
+      });
+
     const kind = mode === "single" ? "Single post (cross-post)" : "Campanha (conjunto coordenado)";
     setPlan(
-      `${kind}\nQuando: ${when}\nMídia: ${media.length} arquivo(s)\nRedes:\n${lines.join("\n")}\n\n` +
-        `(protótipo — o disparo real pluga nas actions existentes: ${
-          mode === "single" ? "createDraft/scheduleDraft + publish por rede" : "createCampaign + generate/publish artifacts"
-        })`,
+      [
+        `${kind} · Quando: ${when}`,
+        igLine,
+        ...others,
+        others.length ? "\n(redes não-IG: wiring real é a próxima fatia — IG já cria/agenda de verdade)" : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
+    setSubmitting(false);
+    router.refresh(); // refresh the unified calendar with the new scheduled post
   }
 
   const editingText = editing === "base" ? baseText : overrides[editing] ?? "";
@@ -461,11 +500,11 @@ export function PostLab({
             />
             <button
               type="button"
-              onClick={buildPlan}
-              disabled={activeNetworks.length === 0 || !baseText.trim()}
+              onClick={() => void submit()}
+              disabled={submitting || activeNetworks.length === 0 || !baseText.trim()}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
             >
-              <Send className="h-4 w-4" />
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               {scheduleWhen ? "Agendar" : "Publicar"} {mode === "single" ? "post" : "campanha"}
             </button>
             {plan && (
