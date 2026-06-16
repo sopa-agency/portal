@@ -11,6 +11,7 @@ import {
   labGenerateVariants,
   labGeneratePostFromInsight,
   labPublishNow,
+  labSchedulePost,
   type LabInsight,
 } from "@/app/actions/lab";
 import { Lightbulb } from "lucide-react";
@@ -273,16 +274,17 @@ export function PostLab({
         continue;
       }
       if (n.id === "x") {
-        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(t)}`, "_blank");
-        others.push("• X: intent aberto numa aba — publique lá");
+        if (scheduleWhen) {
+          others.push("• X: agendar não é suportado (sem API de publish) — abra o intent na hora");
+        } else {
+          window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(t)}`, "_blank");
+          others.push("• X: intent aberto numa aba — publique lá");
+        }
         continue;
       }
       if (scheduleWhen) {
-        others.push(`• ${n.label}: agendamento ainda não wired (só IG agenda) — publique agora`);
-        continue;
-      }
-      if (n.id === "hive_mag" || n.id === "email") {
-        others.push(`• ${n.label}: long-form pronto — publicação pelo fluxo próprio (próxima fatia)`);
+        const sr = await labSchedulePost(n.id, t, new Date(scheduleWhen).toISOString());
+        others.push(sr.ok ? `• ${n.label}: ✓ agendado (${when})` : `• ${n.label}: erro ao agendar — ${sr.error}`);
         continue;
       }
       const pr = await labPublishNow(n.id, t);

@@ -658,7 +658,7 @@ export async function markPosted(
 
 export type CalendarExtra = {
   id: string;
-  kind: "suggestion" | "repo" | "instagram";
+  kind: "suggestion" | "repo" | "instagram" | "lab";
   /** Origin project (badged in the calendar when not the active one). */
   projectSlug: string;
   platform: string;
@@ -737,6 +737,22 @@ export async function listCalendarExtras(): Promise<
           when: r.scheduledFor.toISOString(),
         });
       }
+    }
+
+    // Lab-scheduled cross-network posts (non-IG), family-wide.
+    const labPosts = await prisma.labScheduledPost.findMany({
+      where: { projectSlug: { in: family }, status: { in: ["scheduled", "publishing"] } },
+      select: { id: true, projectSlug: true, network: true, text: true, scheduledFor: true },
+    });
+    for (const lp of labPosts) {
+      events.push({
+        id: `lab:${lp.id}`,
+        kind: "lab",
+        projectSlug: lp.projectSlug,
+        platform: lp.network,
+        title: lp.text.slice(0, 600),
+        when: lp.scheduledFor.toISOString(),
+      });
     }
 
     events.sort((a, b) => (a.when < b.when ? -1 : 1));

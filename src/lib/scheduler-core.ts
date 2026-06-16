@@ -8,16 +8,19 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import {
+  publishTweetToBinance,
   publishTweetToFarcaster,
   publishTweetToHive,
   type TweetStateMap,
 } from "@/app/actions/repo-to-social";
 import type { SchedulablePlatform } from "@/lib/social-publish";
 import {
+  publishMarketingTweetToBinance,
   publishMarketingTweetToFarcaster,
   publishMarketingTweetToHive,
 } from "@/app/actions/marketing-suggestions";
 import { publishInstagramPost, type IgUserTag } from "@/lib/instagram-publish";
+import { publishLabChannel } from "@/lib/lab-publish";
 import { getProject } from "@/projects/index";
 
 const MAX_PER_TICK = 5;
@@ -41,7 +44,7 @@ function findDueInStates(
   for (const [key, entry] of Object.entries(states)) {
     const scheduled = entry.scheduledFor;
     if (!scheduled) continue;
-    for (const p of ["hive", "farcaster"] as const) {
+    for (const p of ["hive", "farcaster", "binance"] as const) {
       const whenISO = scheduled[p];
       if (!whenISO) continue;
       if (entry.publishedTo?.[p]) continue;
@@ -135,13 +138,15 @@ async function clearScheduled(
 
 async function publishDue(item: DueItem) {
   if (item.source === "repo-to-social") {
-    return item.platform === "hive"
-      ? publishTweetToHive(item.runId, item.tweetIndex)
-      : publishTweetToFarcaster(item.runId, item.tweetIndex);
+    if (item.platform === "hive") return publishTweetToHive(item.runId, item.tweetIndex);
+    if (item.platform === "farcaster") return publishTweetToFarcaster(item.runId, item.tweetIndex);
+    return publishTweetToBinance(item.runId, item.tweetIndex);
   }
-  return item.platform === "hive"
-    ? publishMarketingTweetToHive(item.runId, item.tweetIndex)
-    : publishMarketingTweetToFarcaster(item.runId, item.tweetIndex);
+  if (item.platform === "hive") return publishMarketingTweetToHive(item.runId, item.tweetIndex);
+  if (item.platform === "farcaster") {
+    return publishMarketingTweetToFarcaster(item.runId, item.tweetIndex);
+  }
+  return publishMarketingTweetToBinance(item.runId, item.tweetIndex);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +259,62 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Lab cross-network scheduled posts (non-Instagram) — published via the shared
+// publishLabChannel dispatch. Mirrors the IG lane: atomic claim + stale-recover.
+// ---------------------------------------------------------------------------
+
+const LAB_MAX_PER_TICK = 5;
+
+type LabResult = {
+  id: string;
+  projectSlug: string;
+  network: string;
+  ok: boolean;
+  url?: string;
+  error?: string;
+};
+
+async function publishDueLabPosts(now: number): Promise<LabResult[]> {
+  const staleThreshold = new Date(now - STALE_PUBLISHING_MS);
+  const candidates = await prisma.labScheduledPost.findMany({
+    where: {
+      OR: [
+        { status: "scheduled", scheduledFor: { lte: new Date(now) } },
+        { status: "publishing", updatedAt: { lte: staleThreshold } },
+      ],
+    },
+    orderBy: { scheduledFor: "asc" },
+    take: LAB_MAX_PER_TICK * 3,
+  });
+
+  const results: LabResult[] = [];
+  for (const post of candidates) {
+    if (results.length >= LAB_MAX_PER_TICK) break;
+    const claim = await prisma.labScheduledPost.updateMany({
+      where: { id: post.id, status: { in: ["scheduled", "publishing"] } },
+      data: { status: "publishing" },
+    });
+    if (claim.count === 0) continue;
+    const project = getProject(post.projectSlug);
+    try {
+      const r = await publishLabChannel(post.network, post.text, project);
+      await prisma.labScheduledPost.update({
+        where: { id: post.id },
+        data: r.ok
+          ? { status: "published", resultUrl: r.url ?? null, error: null }
+          : { status: "failed", error: r.error },
+      });
+      results.push({ id: post.id, projectSlug: post.projectSlug, network: post.network, ok: r.ok, url: r.ok ? r.url : undefined, error: r.ok ? undefined : r.error });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      await prisma.labScheduledPost.update({ where: { id: post.id }, data: { status: "failed", error } });
+      results.push({ id: post.id, projectSlug: post.projectSlug, network: post.network, ok: false, error });
+    }
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Public orchestration
 // ---------------------------------------------------------------------------
 
@@ -268,15 +329,17 @@ export type TickResult = {
     error?: string;
   }>;
   instagram: IgResult[];
+  lab?: LabResult[];
 };
 
-/** Publish everything currently due (tweets + Instagram). Idempotent/safe to
- *  run concurrently — IG uses an atomic claim, tweets clear their schedule on
- *  success. */
+/** Publish everything currently due (tweets + Instagram + Lab cross-network).
+ *  Idempotent/safe to run concurrently — each lane uses an atomic claim or
+ *  clears its schedule on success. */
 export async function runScheduledPublish(now: number): Promise<TickResult> {
-  const [tweetDue, igResults] = await Promise.all([
+  const [tweetDue, igResults, labResults] = await Promise.all([
     findDueItems(now),
     publishDueIgPosts(now),
+    publishDueLabPosts(now),
   ]);
 
   const due = tweetDue.slice(0, MAX_PER_TICK);
@@ -296,7 +359,7 @@ export async function runScheduledPublish(now: number): Promise<TickResult> {
     }
   }
 
-  return { checkedAt: new Date(now).toISOString(), processed, instagram: igResults };
+  return { checkedAt: new Date(now).toISOString(), processed, instagram: igResults, lab: labResults };
 }
 
 // ---------------------------------------------------------------------------

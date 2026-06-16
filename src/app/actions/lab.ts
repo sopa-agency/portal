@@ -1,14 +1,10 @@
 "use server";
 
 import { cookies } from "next/headers";
-import {
-  createPinataSignedUploadUrl,
-  publishSnapToHive,
-  publishCastToFarcaster,
-  publishToBinanceSquare,
-  publishToDiscord,
-} from "@/lib/social-publish";
+import { createPinataSignedUploadUrl } from "@/lib/social-publish";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { publishLabChannel } from "@/lib/lab-publish";
+import { prisma } from "@/lib/prisma";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { buildGenerateCaptionPrompt, buildImproveCaptionPrompt } from "@/lib/post-creator-prompts";
 import type { PostType } from "@/app/actions/post-creator";
@@ -183,25 +179,38 @@ export async function labPublishNow(
     const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
     if (!session) return { ok: false, error: "Unauthorized." };
     if (!text.trim()) return { ok: false, error: "Empty text." };
-
-    let r;
-    switch (network) {
-      case "hive":
-        r = await publishSnapToHive(text, project);
-        break;
-      case "farcaster":
-        r = await publishCastToFarcaster(text, project);
-        break;
-      case "binance":
-        r = await publishToBinanceSquare(text, project);
-        break;
-      case "discord":
-        r = await publishToDiscord(text, project);
-        break;
-      default:
-        return { ok: false, error: `"${network}" não suporta publicar-agora aqui ainda.` };
-    }
+    const r = await publishLabChannel(network, text, project);
     return r.ok ? { ok: true, url: r.url } : { ok: false, error: r.error };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Enqueue a non-IG channel to publish later. The scheduler's publishDueLabPosts
+ *  picks it up at scheduledFor and publishes via publishLabChannel. */
+export async function labSchedulePost(
+  network: string,
+  text: string,
+  whenISO: string,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  try {
+    const project = await labGate();
+    const cookieStore = await cookies();
+    const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+    if (!session) return { ok: false, error: "Unauthorized." };
+    if (!text.trim()) return { ok: false, error: "Empty text." };
+    const when = new Date(whenISO);
+    if (Number.isNaN(when.getTime())) return { ok: false, error: "Invalid date." };
+    const row = await prisma.labScheduledPost.create({
+      data: {
+        projectSlug: project.slug,
+        network,
+        text: text.trim(),
+        scheduledFor: when,
+        createdBy: session.username,
+      },
+    });
+    return { ok: true, id: row.id };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
