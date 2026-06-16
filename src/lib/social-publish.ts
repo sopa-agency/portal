@@ -20,7 +20,7 @@ export const SNAPS_CONTAINER_AUTHOR = "peak.snaps";
 export const FC_CHANNEL_ID = "skateboard";
 
 export type Platform = "x" | "hive" | "farcaster" | "binance";
-export type SchedulablePlatform = "hive" | "farcaster";
+export type SchedulablePlatform = "hive" | "farcaster" | "binance";
 
 export type PublishedRecord = {
   at: string;
