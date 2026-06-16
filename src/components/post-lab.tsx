@@ -9,7 +9,8 @@ import {
   labGenerateText,
   labGenerateVariants,
 } from "@/app/actions/lab";
-import type { PostType } from "@/app/actions/post-creator";
+import type { PostType, CalendarExtra } from "@/app/actions/post-creator";
+import { ScheduleCalendar } from "@/components/schedule-calendar";
 import { IgPreview } from "@/components/post/ig-preview";
 import { aspectToClass, snapToFeedRatio, type UploadState } from "@/lib/post-aspect";
 
@@ -95,7 +96,16 @@ async function uploadLabMedia(
   }
 }
 
-export function PostLab({ brand }: { brand: LabBrand }) {
+export function PostLab({
+  brand,
+  calendarEvents,
+  activeSlug,
+}: {
+  brand: LabBrand;
+  calendarEvents: CalendarExtra[];
+  activeSlug: string;
+}) {
+  const [view, setView] = useState<"compose" | "calendar">("compose");
   const [mode, setMode] = useState<Mode>("single");
   const [baseText, setBaseText] = useState("");
   const [media, setMedia] = useState<Media[]>([]);
@@ -228,22 +238,51 @@ export function PostLab({ brand }: { brand: LabBrand }) {
             </p>
           </div>
         </div>
-        <div className="flex items-center rounded-lg border border-border p-0.5">
-          {(["single", "campaign"] as Mode[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMode(m)}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                mode === m ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
-              }`}
-            >
-              {m === "single" ? "Single post" : "Campanha"}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-lg border border-border p-0.5">
+            {(["compose", "calendar"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  view === v ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
+                }`}
+              >
+                {v === "compose" ? "Compor" : "Calendário"}
+              </button>
+            ))}
+          </div>
+          {view === "compose" && (
+            <div className="flex items-center rounded-lg border border-border p-0.5">
+              {(["single", "campaign"] as Mode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                    mode === m ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
+                  }`}
+                >
+                  {m === "single" ? "Single post" : "Campanha"}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
+      {view === "calendar" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
+          {calendarEvents.length === 0 ? (
+            <p className="py-12 text-center text-sm text-foreground-faint">
+              Nada agendado ainda. Agende um post na aba Compor.
+            </p>
+          ) : (
+            <ScheduleCalendar events={calendarEvents} activeSlug={activeSlug} />
+          )}
+        </div>
+      ) : (
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,420px)_1fr]">
         {/* LEFT — composer */}
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
@@ -475,6 +514,7 @@ export function PostLab({ brand }: { brand: LabBrand }) {
           )}
         </div>
       </div>
+      )}
 
       {/* Studio overlay — the real image/video editor */}
       {studio && (

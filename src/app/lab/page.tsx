@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getActiveProject } from "@/projects";
+import { listUnifiedCalendar } from "@/app/actions/post-creator";
 import { PostLab, type LabBrand } from "@/components/post-lab";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +8,10 @@ export const dynamic = "force-dynamic";
 export default async function LabPage() {
   const project = await getActiveProject();
   if (!project.lab) notFound();
+
+  // Real unified calendar (IG posts + scheduled tweets + nested projects).
+  const cal = await listUnifiedCalendar().catch(() => null);
+  const calendarEvents = cal?.ok ? cal.events : [];
 
   // Everything the channel previews need to render accurately for this tenant.
   const brand: LabBrand = {
@@ -21,5 +26,5 @@ export default async function LabPage() {
     farcasterChannel: project.farcaster.channel,
   };
 
-  return <PostLab brand={brand} />;
+  return <PostLab brand={brand} calendarEvents={calendarEvents} activeSlug={project.slug} />;
 }
