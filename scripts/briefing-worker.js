@@ -24,7 +24,11 @@ const STALE_LOCK_MS = Number(process.env.WORKER_STALE_LOCK_MS ?? 10 * 60_000);
 // Always use the LOCAL gateway here — that's the whole point of this worker.
 const GATEWAY_URL = process.env.BRIEFING_GATEWAY_URL ?? "http://127.0.0.1:18789";
 const OPENCLAW_ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".openclaw", ".env");
-const TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 285_000);
+// 8 min default. The worker runs on the Mac (no Vercel 300s function cap), and
+// heavy briefings (SkateHive marketing pulls IG metrics + Weekly Stoken) can
+// run long — 285s was clipping them. Per-project serialization (see claimJob)
+// also removes the contention that pushed marketing over the edge.
+const TIMEOUT_MS = Number(process.env.BRIEFING_WORKER_TIMEOUT_MS ?? process.env.OPENCLAW_TIMEOUT_MS ?? 480_000);
 
 const prisma = new PrismaClient({ log: ["error"] });
 
@@ -97,8 +101,17 @@ async function claimJob() {
     where: { status: "running", lockedAt: { lt: new Date(Date.now() - STALE_LOCK_MS) } },
     data: { status: "queued", lockedAt: null },
   });
+  // Serialize per project: never run two jobs from the same projectSlug at
+  // once. SkateHive's dev + marketing both hit the same gateway/model, and
+  // running them concurrently starved marketing into the 285s timeout. Jobs
+  // from DIFFERENT projects still run in parallel (up to CONCURRENCY).
+  const running = await prisma.briefingJob.findMany({
+    where: { status: "running" },
+    select: { projectSlug: true },
+  });
+  const busyProjects = [...new Set(running.map((r) => r.projectSlug))];
   const job = await prisma.briefingJob.findFirst({
-    where: { status: "queued" },
+    where: { status: "queued", projectSlug: { notIn: busyProjects } },
     orderBy: { createdAt: "asc" },
   });
   if (!job) return null;
@@ -147,8 +160,10 @@ async function loop() {
   );
   for (;;) {
     try {
-      // Claim up to CONCURRENCY jobs and run them in parallel so a project's
-      // multiple agents (e.g. SkateHive dev + marketing) don't serialize.
+      // Claim up to CONCURRENCY jobs and run them in parallel. claimJob()
+      // serializes per-project (one running job per projectSlug), so different
+      // projects run concurrently but a single project's agents (SkateHive dev
+      // + marketing) run one at a time to avoid gateway contention/timeouts.
       while (active < CONCURRENCY) {
         const job = await claimJob();
         if (!job) break;
