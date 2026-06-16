@@ -30,6 +30,15 @@ export default async function LabPage() {
     farcasterChannel: project.farcaster.channel,
   };
 
+  // Studio card-overlay templates: full set for SkateHive, the POIDH bounty
+  // template for Gnars, none elsewhere (same mapping as the Post Creator).
+  const cardStyles =
+    project.slug === "skatehive"
+      ? (["holo", "pixel", "gold"] as const)
+      : project.slug === "gnars"
+        ? (["bounty"] as const)
+        : ([] as const);
+
   return (
     <PostLab
       brand={brand}
@@ -37,6 +46,7 @@ export default async function LabPage() {
       activeSlug={project.slug}
       insights={insights}
       hasRepo={(project.repos?.length ?? 0) > 0}
+      cardStyles={[...cardStyles]}
     />
   );
 }

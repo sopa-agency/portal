@@ -128,12 +128,15 @@ export function PostLab({
   activeSlug,
   insights,
   hasRepo,
+  cardStyles = [],
 }: {
   brand: LabBrand;
   calendarEvents: CalendarExtra[];
   activeSlug: string;
   insights: LabInsight[];
   hasRepo: boolean;
+  /** Studio card-overlay templates (POIDH bounty, SkateHive trading cards). */
+  cardStyles?: ("holo" | "pixel" | "gold" | "bounty")[];
 }) {
   const router = useRouter();
   const [view, setView] = useState<"compose" | "calendar">("compose");
@@ -722,7 +725,12 @@ export function PostLab({
             {studio === "image" ? (
               <StudioEditor onUseInPost={handleStudioUseInPost} />
             ) : (
-              <StudioVideoEditor onUseInPost={handleStudioUseInPost} />
+              <StudioVideoEditor
+                onUseInPost={handleStudioUseInPost}
+                cardStyles={cardStyles}
+                brandName={brand.projectName}
+                brandAccent={brand.accent}
+              />
             )}
           </div>
         </div>
