@@ -253,19 +253,29 @@ function TreeNode({
           )}
           {node.team.length > 0 && (
             <div className="mt-2 flex items-center justify-center -space-x-1.5 border-t border-border pt-2.5">
-              {node.team.map((m) => {
-                const person = rosterMap.get(m.username.toLowerCase());
-                return (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={m.role}
-                    src={person?.avatarUrl ?? `https://images.hive.blog/u/${m.username}/avatar`}
-                    alt={m.username}
-                    title={`${m.role}: @${m.username}`}
-                    className="h-6 w-6 rounded-full border-2 border-surface-elevated object-cover"
-                  />
-                );
-              })}
+              {/* One avatar per person — collapse multiple roles for the same
+                  user, listing all their roles in the tooltip. */}
+              {(() => {
+                const byUser = new Map<string, string[]>();
+                for (const m of node.team) {
+                  const key = m.username.toLowerCase();
+                  byUser.set(key, [...(byUser.get(key) ?? []), m.role]);
+                }
+                return [...byUser.entries()].map(([key, roles]) => {
+                  const person = rosterMap.get(key);
+                  const username = person?.username ?? key;
+                  return (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={key}
+                      src={person?.avatarUrl ?? `https://images.hive.blog/u/${username}/avatar`}
+                      alt={username}
+                      title={`${roles.join(", ")}: @${username}`}
+                      className="h-6 w-6 rounded-full border-2 border-surface-elevated object-cover"
+                    />
+                  );
+                });
+              })()}
             </div>
           )}
         </button>
