@@ -9,6 +9,7 @@ const reelflip: ProjectConfig = {
   subdomain: "admin",
   switcher: { rank: 10 },
   lab: true,
+  zineStudio: true,
   name: "Reelflip",
   description: "Internal ops portal for Reelflip — editorial brand applying the skater's lens to culture.",
   allowlist: [

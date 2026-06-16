@@ -144,6 +144,12 @@ export type ProjectConfig = {
    */
   lab?: boolean;
   /**
+   * When true, the Zine Studio nav item + /zine route are enabled — a page-based
+   * editor for printable zines (Reelflip-family brands). Imports from Drive +
+   * SkateHive, exports a print-ready PDF.
+   */
+  zineStudio?: boolean;
+  /**
    * When true, the Org Chart nav item + /org-chart route are enabled — an
    * editable flowchart (SOPA-only). Absent = nav hidden + 404.
    */

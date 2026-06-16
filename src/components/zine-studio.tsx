@@ -1,0 +1,568 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import {
+  ImagePlus,
+  Type,
+  Plus,
+  Copy,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  Printer,
+  Eye,
+  Pencil,
+  Loader2,
+  HardDrive,
+  Layers,
+  X,
+} from "lucide-react";
+import { signZineMediaUpload } from "@/app/actions/zine";
+
+// ---------------------------------------------------------------------------
+// Zine Studio — page-based editor for printable zines (Reelflip-family brands).
+// Compose pages with draggable image/text elements, import from upload + Google
+// Drive, preview as spreads, and print to a real PDF (@page-sized, page-break
+// per zine page). State persists to localStorage so a refresh never loses work.
+// Imposition (saddle-stitch printer spreads) is the next slice — v1 prints in
+// reading order at the chosen page size.
+// ---------------------------------------------------------------------------
+
+type ElKind = "image" | "text";
+type Element = {
+  id: string;
+  kind: ElKind;
+  x: number; // % of page width
+  y: number; // % of page height
+  w: number; // % of page width
+  h: number; // % of page height (image only; text is auto)
+  z: number;
+  src?: string;
+  fit?: "cover" | "contain";
+  text?: string;
+  fontSize?: number; // in cqw (% of page width) so it scales on screen + print
+  color?: string;
+  align?: "left" | "center" | "right";
+  bold?: boolean;
+};
+type Page = { id: string; bg: string; elements: Element[] };
+
+const PAGE_SIZES = [
+  { id: "A6", label: "A6 (mini)", css: "A6" },
+  { id: "A5", label: "A5 (zine)", css: "A5" },
+  { id: "A4", label: "A4", css: "A4" },
+] as const;
+type PageSizeId = (typeof PAGE_SIZES)[number]["id"];
+
+function uid() {
+  return `${Date.now().toString(36)}${Math.floor(performance.now()).toString(36)}${(globalThis.crypto?.getRandomValues?.(new Uint32Array(1))?.[0] ?? 0).toString(36)}`;
+}
+
+function blankPage(): Page {
+  return { id: uid(), bg: "#ffffff", elements: [] };
+}
+
+async function uploadZineImage(
+  file: File,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  try {
+    const signed = await signZineMediaUpload(file.name, file.size, file.type);
+    if (!signed.ok) return signed;
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("network", "public");
+    const res = await fetch(signed.url, { method: "POST", body: fd });
+    if (!res.ok) return { ok: false, error: `Pinata HTTP ${res.status}` };
+    const json = (await res.json().catch(() => null)) as { data?: { cid?: string } } | null;
+    const cid = json?.data?.cid;
+    if (!cid) return { ok: false, error: "Pinata returned no CID" };
+    return { ok: true, url: `${signed.gateway}/${cid}?filename=${encodeURIComponent(file.name)}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+type DriveFile = { id: string; name: string; mimeType: string };
+
+export function ZineStudio({
+  projectSlug,
+  projectName,
+  accent,
+}: {
+  projectSlug: string;
+  projectName: string;
+  accent: string;
+}) {
+  const storeKey = `zine-studio:${projectSlug}`;
+  const [pages, setPages] = useState<Page[]>([blankPage()]);
+  const [active, setActive] = useState(0);
+  const [pageSize, setPageSize] = useState<PageSizeId>("A5");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<"edit" | "preview">("edit");
+  const [assetTab, setAssetTab] = useState<"upload" | "drive">("upload");
+  const [uploading, setUploading] = useState(false);
+  const [drive, setDrive] = useState<DriveFile[] | null>(null);
+  const [driveErr, setDriveErr] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Load persisted state once.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) {
+        const saved = JSON.parse(raw) as { pages: Page[]; pageSize: PageSizeId };
+        if (Array.isArray(saved.pages) && saved.pages.length) setPages(saved.pages);
+        if (saved.pageSize) setPageSize(saved.pageSize);
+      }
+    } catch {
+      /* ignore */
+    }
+    setHydrated(true);
+  }, [storeKey]);
+
+  // Persist on change (after hydration so we don't overwrite with the blank).
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(storeKey, JSON.stringify({ pages, pageSize }));
+    } catch {
+      /* quota */
+    }
+  }, [pages, pageSize, hydrated, storeKey]);
+
+  const page = pages[active] ?? pages[0];
+  const selected = page?.elements.find((e) => e.id === selectedId) ?? null;
+
+  function mutatePage(fn: (p: Page) => Page) {
+    setPages((prev) => prev.map((p, i) => (i === active ? fn(p) : p)));
+  }
+  function updateEl(id: string, patch: Partial<Element>) {
+    mutatePage((p) => ({ ...p, elements: p.elements.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
+  }
+  function addElement(el: Omit<Element, "id" | "z">) {
+    const z = Math.max(0, ...page.elements.map((e) => e.z)) + 1;
+    const id = uid();
+    mutatePage((p) => ({ ...p, elements: [...p.elements, { ...el, id, z }] }));
+    setSelectedId(id);
+  }
+  function addImage(src: string) {
+    addElement({ kind: "image", x: 10, y: 10, w: 60, h: 40, src, fit: "cover" });
+  }
+  function addText() {
+    addElement({ kind: "text", x: 12, y: 12, w: 60, h: 0, text: "Texto", fontSize: 6, color: "#000000", align: "left", bold: false });
+  }
+
+  // --- drag + resize ---------------------------------------------------------
+  function onElPointerDown(e: React.PointerEvent, el: Element, mode: "move" | "resize") {
+    if (view !== "edit") return;
+    e.stopPropagation();
+    setSelectedId(el.id);
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const start = { x: el.x, y: el.y, w: el.w, h: el.h };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    function onMove(ev: PointerEvent) {
+      const dxPct = ((ev.clientX - startX) / rect!.width) * 100;
+      const dyPct = ((ev.clientY - startY) / rect!.height) * 100;
+      if (mode === "move") {
+        updateEl(el.id, {
+          x: Math.max(0, Math.min(100 - 2, start.x + dxPct)),
+          y: Math.max(0, Math.min(100 - 2, start.y + dyPct)),
+        });
+      } else {
+        updateEl(el.id, {
+          w: Math.max(5, Math.min(100, start.w + dxPct)),
+          ...(el.kind === "image" ? { h: Math.max(5, Math.min(100, start.h + dyPct)) } : {}),
+        });
+      }
+    }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length) return;
+    setUploading(true);
+    for (const f of files) {
+      const r = await uploadZineImage(f);
+      if (r.ok) addImage(r.url);
+    }
+    setUploading(false);
+  }
+
+  async function loadDrive() {
+    setDriveErr(null);
+    try {
+      const res = await fetch("/api/brain/drive/list", { cache: "no-store" });
+      const data = (await res.json()) as
+        | { ok: true; files: DriveFile[] }
+        | { ok: false; error?: string; reason?: string };
+      if (data.ok) setDrive(data.files.filter((f) => f.mimeType.startsWith("image/")));
+      else {
+        setDrive([]);
+        setDriveErr(data.error ?? data.reason ?? "Drive não conectado");
+      }
+    } catch (err) {
+      setDriveErr(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const sizeMeta = PAGE_SIZES.find((s) => s.id === pageSize)!;
+
+  return (
+    <div className="flex h-[calc(100dvh-3rem)] flex-col gap-3 md:h-[calc(100dvh-4rem)]">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <BookMark accent={accent} />
+          <div>
+            <h1 className="text-lg font-bold text-foreground">Zine Studio</h1>
+            <p className="text-[11px] text-foreground-faint">{projectName} · zine imprimível</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(e.target.value as PageSizeId)}
+            className="rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground"
+          >
+            {PAGE_SIZES.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+          <div className="flex items-center rounded-lg border border-border p-0.5">
+            <button type="button" onClick={() => setView("edit")} className={tab(view === "edit")}>
+              <Pencil className="h-3.5 w-3.5" /> Editar
+            </button>
+            <button type="button" onClick={() => { setSelectedId(null); setView("preview"); }} className={tab(view === "preview")}>
+              <Eye className="h-3.5 w-3.5" /> Preview
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90"
+          >
+            <Printer className="h-3.5 w-3.5" /> Imprimir / PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[150px_1fr_230px]">
+        {/* Pages rail */}
+        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-surface p-2">
+          {pages.map((p, i) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => { setActive(i); setSelectedId(null); }}
+              className={`relative aspect-[1/1.414] w-full overflow-hidden rounded-md border text-left ${i === active ? "border-accent ring-1 ring-accent" : "border-border"}`}
+              style={{ backgroundColor: p.bg }}
+            >
+              <span className="absolute left-1 top-1 z-10 rounded bg-black/60 px-1 text-[9px] font-bold text-white">{i + 1}</span>
+              {p.elements.map((el) => (
+                <ThumbEl key={el.id} el={el} />
+              ))}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => { setPages((prev) => [...prev, blankPage()]); setActive(pages.length); setSelectedId(null); }}
+            className="flex aspect-[1/1.414] w-full items-center justify-center rounded-md border border-dashed border-border text-foreground-faint hover:border-accent-border hover:text-accent"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Canvas */}
+        <div className="flex min-h-0 items-center justify-center overflow-auto rounded-xl border border-border bg-surface-elevated/40 p-4">
+          <div
+            ref={canvasRef}
+            onPointerDown={() => setSelectedId(null)}
+            className="relative aspect-[1/1.414] max-h-full w-auto shadow-lg"
+            style={{ height: "100%", backgroundColor: page?.bg ?? "#fff", containerType: "inline-size" }}
+          >
+            {page?.elements
+              .slice()
+              .sort((a, b) => a.z - b.z)
+              .map((el) => (
+                <ElementView
+                  key={el.id}
+                  el={el}
+                  selected={view === "edit" && el.id === selectedId}
+                  onPointerDown={(e) => onElPointerDown(e, el, "move")}
+                  onResize={(e) => onElPointerDown(e, el, "resize")}
+                  onChangeText={(t) => updateEl(el.id, { text: t })}
+                  editable={view === "edit"}
+                />
+              ))}
+          </div>
+        </div>
+
+        {/* Inspector / assets */}
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-surface p-3">
+          {/* page actions */}
+          <div className="flex flex-wrap gap-1.5">
+            <IconBtn title="Adicionar texto" onClick={addText}><Type className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn title="Duplicar página" onClick={() => { const c: Page = { ...page, id: uid(), elements: page.elements.map((e) => ({ ...e, id: uid() })) }; setPages((prev) => [...prev.slice(0, active + 1), c, ...prev.slice(active + 1)]); setActive(active + 1); }}><Copy className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn title="Mover página ↑" disabled={active === 0} onClick={() => { setPages((prev) => { const n = [...prev]; [n[active - 1], n[active]] = [n[active], n[active - 1]]; return n; }); setActive(active - 1); }}><ChevronUp className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn title="Mover página ↓" disabled={active >= pages.length - 1} onClick={() => { setPages((prev) => { const n = [...prev]; [n[active + 1], n[active]] = [n[active], n[active + 1]]; return n; }); setActive(active + 1); }}><ChevronDown className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn title="Excluir página" disabled={pages.length <= 1} onClick={() => { setPages((prev) => prev.filter((_, i) => i !== active)); setActive(Math.max(0, active - 1)); }}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+          </div>
+
+          {selected ? (
+            <Inspector
+              el={selected}
+              onChange={(patch) => updateEl(selected.id, patch)}
+              onDelete={() => { mutatePage((p) => ({ ...p, elements: p.elements.filter((e) => e.id !== selected.id) })); setSelectedId(null); }}
+              onFront={() => updateEl(selected.id, { z: Math.max(0, ...page.elements.map((e) => e.z)) + 1 })}
+            />
+          ) : (
+            <>
+              <div className="flex items-center rounded-lg border border-border p-0.5 text-xs">
+                <button type="button" onClick={() => setAssetTab("upload")} className={tab(assetTab === "upload")}>Upload</button>
+                <button type="button" onClick={() => { setAssetTab("drive"); if (!drive) void loadDrive(); }} className={tab(assetTab === "drive")}><HardDrive className="h-3.5 w-3.5" /> Drive</button>
+              </div>
+              {assetTab === "upload" ? (
+                <div>
+                  <input ref={fileRef} type="file" accept="image/*" multiple onChange={onPickFiles} className="hidden" />
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-6 text-xs text-foreground-muted hover:border-accent-border hover:text-accent disabled:opacity-50"
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                    {uploading ? "Enviando…" : "Enviar imagens"}
+                  </button>
+                  <p className="mt-2 text-[10px] text-foreground-faint">Imagem do SkateHive entra na próxima fatia (a fonte pronta hoje é vídeo).</p>
+                </div>
+              ) : (
+                <div>
+                  {driveErr ? (
+                    <p className="text-[11px] text-danger">{driveErr}</p>
+                  ) : drive === null ? (
+                    <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…</p>
+                  ) : drive.length === 0 ? (
+                    <p className="text-[11px] text-foreground-faint">Nenhuma imagem na raiz do Drive.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {drive.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => addImage(`/api/brain/drive/file?id=${encodeURIComponent(f.id)}&mode=raw`)}
+                          className="aspect-square overflow-hidden rounded-md border border-border hover:border-accent-border"
+                          title={f.name}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={`/api/brain/drive/file?id=${encodeURIComponent(f.id)}&mode=raw`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Print-only layout — each page at its real size, page-break between. */}
+      <div className="zine-print">
+        {pages.map((p) => (
+          <div key={p.id} className="zine-print-page" style={{ backgroundColor: p.bg, containerType: "inline-size" }}>
+            {p.elements
+              .slice()
+              .sort((a, b) => a.z - b.z)
+              .map((el) => (
+                <ElementView key={el.id} el={el} selected={false} editable={false} />
+              ))}
+          </div>
+        ))}
+      </div>
+
+      <style>{`
+        @media screen { .zine-print { display: none; } }
+        @media print {
+          body * { visibility: hidden; }
+          .zine-print, .zine-print * { visibility: visible; }
+          .zine-print { position: absolute; inset: 0; display: block; }
+          @page { size: ${sizeMeta.css} portrait; margin: 0; }
+          .zine-print-page {
+            position: relative; width: 100%; height: 100vh;
+            page-break-after: always; overflow: hidden;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function tab(activeState: boolean) {
+  return `flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition ${activeState ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`;
+}
+
+function IconBtn({ children, onClick, title, disabled }: { children: React.ReactNode; onClick: () => void; title: string; disabled?: boolean }) {
+  return (
+    <button type="button" title={title} onClick={onClick} disabled={disabled} className="rounded-md border border-border p-1.5 text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-40">
+      {children}
+    </button>
+  );
+}
+
+function ElementView({
+  el,
+  selected,
+  onPointerDown,
+  onResize,
+  onChangeText,
+  editable,
+}: {
+  el: Element;
+  selected: boolean;
+  onPointerDown?: (e: React.PointerEvent) => void;
+  onResize?: (e: React.PointerEvent) => void;
+  onChangeText?: (t: string) => void;
+  editable: boolean;
+}) {
+  const base: React.CSSProperties = {
+    position: "absolute",
+    left: `${el.x}%`,
+    top: `${el.y}%`,
+    width: `${el.w}%`,
+    zIndex: el.z,
+  };
+  return (
+    <div
+      style={el.kind === "image" ? { ...base, height: `${el.h}%` } : base}
+      onPointerDown={editable ? onPointerDown : undefined}
+      className={`${editable ? "cursor-move" : ""} ${selected ? "outline outline-2 outline-accent" : ""}`}
+    >
+      {el.kind === "image" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={el.src} alt="" draggable={false} className="h-full w-full select-none" style={{ objectFit: el.fit ?? "cover", pointerEvents: "none" }} />
+      ) : editable && selected ? (
+        <textarea
+          value={el.text}
+          onChange={(e) => onChangeText?.(e.target.value)}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="w-full resize-none border-none bg-transparent outline-none"
+          style={{ fontSize: `${el.fontSize}cqw`, color: el.color, textAlign: el.align, fontWeight: el.bold ? 700 : 400, lineHeight: 1.25 }}
+          rows={2}
+        />
+      ) : (
+        <p className="whitespace-pre-wrap" style={{ fontSize: `${el.fontSize}cqw`, color: el.color, textAlign: el.align, fontWeight: el.bold ? 700 : 400, lineHeight: 1.25 }}>
+          {el.text}
+        </p>
+      )}
+      {selected && el.kind === "image" && (
+        <span
+          onPointerDown={onResize}
+          className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-se-resize rounded-full border border-white bg-accent"
+        />
+      )}
+      {selected && el.kind === "text" && (
+        <span
+          onPointerDown={onResize}
+          className="absolute -right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 cursor-ew-resize rounded-full border border-white bg-accent"
+        />
+      )}
+    </div>
+  );
+}
+
+function ThumbEl({ el }: { el: Element }) {
+  const base: React.CSSProperties = {
+    position: "absolute",
+    left: `${el.x}%`,
+    top: `${el.y}%`,
+    width: `${el.w}%`,
+    zIndex: el.z,
+  };
+  if (el.kind === "image")
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={el.src} alt="" style={{ ...base, height: `${el.h}%`, objectFit: el.fit ?? "cover" }} />;
+  return (
+    <span style={{ ...base, fontSize: `${(el.fontSize ?? 6) * 0.9}px`, color: el.color, fontWeight: el.bold ? 700 : 400, overflow: "hidden" }}>
+      {el.text}
+    </span>
+  );
+}
+
+function Inspector({
+  el,
+  onChange,
+  onDelete,
+  onFront,
+}: {
+  el: Element;
+  onChange: (patch: Partial<Element>) => void;
+  onDelete: () => void;
+  onFront: () => void;
+}) {
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 font-semibold text-foreground">
+          {el.kind === "image" ? <ImagePlus className="h-3.5 w-3.5" /> : <Type className="h-3.5 w-3.5" />}
+          {el.kind === "image" ? "Imagem" : "Texto"}
+        </span>
+        <button type="button" onClick={onDelete} className="text-foreground-faint hover:text-danger" title="Excluir elemento"><X className="h-4 w-4" /></button>
+      </div>
+
+      {el.kind === "text" && (
+        <>
+          <label className="block text-foreground-muted">Texto
+            <textarea value={el.text} onChange={(e) => onChange({ text: e.target.value })} rows={3} className="mt-1 w-full resize-none rounded-md border border-border bg-surface-elevated p-2 text-foreground focus:border-border-strong focus:outline-none" />
+          </label>
+          <label className="flex items-center justify-between text-foreground-muted">Tamanho
+            <input type="range" min={2} max={18} step={0.5} value={el.fontSize ?? 6} onChange={(e) => onChange({ fontSize: Number(e.target.value) })} />
+          </label>
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-1.5 text-foreground-muted">Cor
+              <input type="color" value={el.color ?? "#000000"} onChange={(e) => onChange({ color: e.target.value })} className="h-6 w-8 rounded border border-border" />
+            </label>
+            <div className="flex items-center gap-1">
+              {(["left", "center", "right"] as const).map((a) => (
+                <button key={a} type="button" onClick={() => onChange({ align: a })} className={`rounded px-1.5 py-0.5 ${el.align === a ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`}>{a[0].toUpperCase()}</button>
+              ))}
+              <button type="button" onClick={() => onChange({ bold: !el.bold })} className={`rounded px-1.5 py-0.5 font-bold ${el.bold ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`}>B</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {el.kind === "image" && (
+        <div className="flex items-center gap-2">
+          <span className="text-foreground-muted">Encaixe</span>
+          {(["cover", "contain"] as const).map((f) => (
+            <button key={f} type="button" onClick={() => onChange({ fit: f })} className={`rounded px-2 py-0.5 ${el.fit === f ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`}>{f === "cover" ? "Preencher" : "Caber"}</button>
+          ))}
+        </div>
+      )}
+
+      <button type="button" onClick={onFront} className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border py-1.5 text-foreground-muted hover:border-border-strong hover:text-foreground">
+        <Layers className="h-3.5 w-3.5" /> Trazer pra frente
+      </button>
+    </div>
+  );
+}
+
+function BookMark({ accent }: { accent: string }) {
+  return (
+    <span className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ backgroundColor: `${accent}22`, color: accent }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+    </span>
+  );
+}

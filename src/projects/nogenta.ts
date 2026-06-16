@@ -13,6 +13,7 @@ import type { ProjectConfig } from "./types";
 const nogenta: ProjectConfig = {
   slug: "nogenta",
   switcher: { rank: 50, parent: "reelflip" },
+  zineStudio: true,
   name: "Nogenta",
   description: "Internal ops portal for Nogenta — skate editorial brand under the Reelflip family.",
   allowlist: [

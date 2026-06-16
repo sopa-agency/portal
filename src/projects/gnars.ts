@@ -6,6 +6,7 @@ const gnars: ProjectConfig = {
   slug: "gnars",
   switcher: { rank: 20, parent: "reelflip" },
   lab: true,
+  zineStudio: true,
   name: "Gnars",
   description: "Internal ops portal for Gnars DAO.",
   allowlist: [
