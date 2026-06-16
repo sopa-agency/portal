@@ -3,13 +3,14 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { ImagePlus, Loader2, X, Calendar, Send, FlaskConical, Clapperboard, Sparkles, Wand2 } from "lucide-react";
+import { ImagePlus, Loader2, X, Calendar, Send, FlaskConical, Clapperboard, Sparkles, Wand2, GitBranch } from "lucide-react";
 import {
   signLabMediaUpload,
   labImproveText,
   labGenerateText,
   labGenerateVariants,
   labGeneratePostFromInsight,
+  labAnalyzeRepo,
   labPublishNow,
   labSchedulePost,
   type LabInsight,
@@ -104,16 +105,35 @@ async function uploadLabMedia(
   }
 }
 
+// Fold the composer's media into a channel's text per its image rule, so what
+// actually publishes matches the preview: Hive renders inline markdown, Farcaster
+// and Discord auto-embed a bare URL. Instagram carries media via createDraft;
+// X intent, Binance and email take text only.
+function appendMedia(n: Network, text: string, media: Media[]): string {
+  if (!media.length) return text;
+  if (n.image === "markdown") {
+    const parts = media.map((m) => (m.isVideo ? m.url : `![](${m.url})`));
+    return `${text}\n\n${parts.join("\n")}`;
+  }
+  if (n.image === "bare") {
+    const limit = n.id === "farcaster" ? 2 : media.length; // Farcaster embeds ≤2
+    return `${text}\n\n${media.slice(0, limit).map((m) => m.url).join("\n")}`;
+  }
+  return text;
+}
+
 export function PostLab({
   brand,
   calendarEvents,
   activeSlug,
   insights,
+  hasRepo,
 }: {
   brand: LabBrand;
   calendarEvents: CalendarExtra[];
   activeSlug: string;
   insights: LabInsight[];
+  hasRepo: boolean;
 }) {
   const router = useRouter();
   const [view, setView] = useState<"compose" | "calendar">("compose");
@@ -131,7 +151,7 @@ export function PostLab({
   const [igFit, setIgFit] = useState<"cover" | "contain">("cover");
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [thumbOffsetMs, setThumbOffsetMs] = useState<number | null>(null);
-  const [aiBusy, setAiBusy] = useState<null | "improve" | "generate" | "variants" | "insight">(null);
+  const [aiBusy, setAiBusy] = useState<null | "improve" | "generate" | "variants" | "insight" | "repo">(null);
   const [aiErr, setAiErr] = useState<string | null>(null);
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -147,6 +167,16 @@ export function PostLab({
     setAiBusy(null);
     if (r.ok) setEditingText(r.text);
     else setAiErr(r.error);
+  }
+  async function aiAnalyzeRepo() {
+    setAiErr(null);
+    setAiBusy("repo");
+    const r = await labAnalyzeRepo(postType);
+    setAiBusy(null);
+    if (r.ok) {
+      setBaseText(r.text);
+      setEditing("base");
+    } else setAiErr(r.error);
   }
   async function aiGenerate() {
     const topic = editingText.trim() || baseText.trim();
@@ -264,8 +294,9 @@ export function PostLab({
       }
     }
 
-    // Other networks: publish NOW via the real primitives (or X intent). Scheduling
-    // for non-IG isn't wired yet; long-form channels go through their own flow.
+    // Other networks: schedule (labSchedulePost) or publish NOW via the real
+    // primitives — X is intent-only. Media is folded into the text per channel
+    // (appendMedia) so what publishes matches the preview.
     const others: string[] = [];
     for (const n of activeNetworks.filter((nn) => nn.id !== "instagram")) {
       const t = effectiveText(n.id).trim();
@@ -282,12 +313,13 @@ export function PostLab({
         }
         continue;
       }
+      const body = appendMedia(n, t, media);
       if (scheduleWhen) {
-        const sr = await labSchedulePost(n.id, t, new Date(scheduleWhen).toISOString());
+        const sr = await labSchedulePost(n.id, body, new Date(scheduleWhen).toISOString());
         others.push(sr.ok ? `• ${n.label}: ✓ agendado (${when})` : `• ${n.label}: erro ao agendar — ${sr.error}`);
         continue;
       }
-      const pr = await labPublishNow(n.id, t);
+      const pr = await labPublishNow(n.id, body);
       others.push(pr.ok ? `• ${n.label}: ✓ publicado${pr.url ? ` — ${pr.url}` : ""}` : `• ${n.label}: erro — ${pr.error}`);
     }
 
@@ -479,6 +511,18 @@ export function PostLab({
                 {aiBusy === "improve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
                 Improve with AI
               </button>
+              {hasRepo && (
+                <button
+                  type="button"
+                  onClick={() => void aiAnalyzeRepo()}
+                  disabled={!!aiBusy}
+                  title="Lê os commits recentes do repo e escreve um post do que saiu"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                >
+                  {aiBusy === "repo" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitBranch className="h-3.5 w-3.5" />}
+                  Analisar repo
+                </button>
+              )}
             </div>
             <textarea
               value={editingText}

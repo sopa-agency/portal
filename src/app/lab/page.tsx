@@ -36,6 +36,7 @@ export default async function LabPage() {
       calendarEvents={calendarEvents}
       activeSlug={project.slug}
       insights={insights}
+      hasRepo={(project.repos?.length ?? 0) > 0}
     />
   );
 }

@@ -225,3 +225,57 @@ export async function labSchedulePost(
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/** Analyze the project's repo(s) and draft a post from what shipped. Fetches
+ *  recent commits via the GitHub API (public; uses a token if available) and
+ *  asks the agent to tell the story — no agent repo-tool dependency. */
+export async function labAnalyzeRepo(type: PostType): Promise<TextResult> {
+  try {
+    const project = await labGate();
+    const repos = project.repos ?? [];
+    if (!repos.length) return { ok: false, error: "Nenhum repo configurado para este projeto." };
+    const token =
+      process.env[`${project.agent.gatewayEnvPrefix}_GITHUB_TOKEN`] ?? process.env.GITHUB_TOKEN;
+
+    const commits: { repo: string; message: string; author: string; date: string }[] = [];
+    for (const r of repos.slice(0, 3)) {
+      const [owner, repo] = r.replace(/^https?:\/\/github\.com\//, "").split("/");
+      if (!owner || !repo) continue;
+      const res = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/commits?per_page=20`,
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            "User-Agent": "marketing-portal-lab",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+      );
+      if (!res.ok) continue;
+      const data = (await res.json().catch(() => [])) as Array<{
+        commit?: { message?: string; author?: { name?: string; date?: string } };
+      }>;
+      for (const c of Array.isArray(data) ? data : []) {
+        const message = (c.commit?.message ?? "").split("\n")[0].slice(0, 160);
+        if (message) commits.push({ repo: r, message, author: c.commit?.author?.name ?? "", date: c.commit?.author?.date ?? "" });
+      }
+    }
+    if (!commits.length) return { ok: false, error: "Não consegui ler commits dos repos (privado sem token?)." };
+
+    const prompt = `You are the ${project.agent.displayName} content lead. Read your brand playbook (docs/playbook.md) for voice.
+
+Below are recent commits from our repo(s). Write ONE ${type} post highlighting what genuinely shipped for the community — concrete, user-facing wins. Tell the story of what's new; do NOT list commits, mention hashes, or include internal/chore/refactor noise. If nothing is user-facing, pick the most interesting real change and frame it for the audience.
+
+COMMITS (internal — do not echo raw):
+${JSON.stringify(commits.slice(0, 20), null, 1)}
+
+Fresh request — produce a distinct post. Seed (diverge, don't mention): ${Math.random().toString(36).slice(2, 10)}.
+
+Return ONLY the finished post text — no preamble, no quotes.`;
+    const out = await callOpenClaw(prompt, project.agent.id, { project, timeoutMs: LAB_AI_TIMEOUT_MS });
+    if (!out) return { ok: false, error: "Agent returned empty." };
+    return { ok: true, text: out.trim() };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
