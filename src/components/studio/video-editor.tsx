@@ -893,6 +893,20 @@ export function VideoEditor({
   const [creatorCursor, setCreatorCursor] = useState<CreatorCursor | null>(null);
   const [creatorMoreBusy, setCreatorMoreBusy] = useState(false);
   const [shSelected, setShSelected] = useState<Set<string>>(new Set());
+
+  // Creator filter chips: the leaderboard top-20 when it's available, always
+  // augmented with the authors actually present in the loaded feed. The
+  // skatehive leaderboard API can return empty/be down — deriving from the feed
+  // keeps "filter by user" working regardless.
+  const creatorChips = useMemo(() => {
+    const byAuthor = new Map<string, number>();
+    for (const c of creators ?? []) byAuthor.set(c.author, c.points);
+    for (const v of shVideos ?? []) if (!byAuthor.has(v.author)) byAuthor.set(v.author, 0);
+    if (selectedCreator && !byAuthor.has(selectedCreator)) byAuthor.set(selectedCreator, 0);
+    return [...byAuthor.entries()]
+      .map(([author, points]) => ({ author, points }))
+      .sort((a, b) => b.points - a.points || a.author.localeCompare(b.author));
+  }, [creators, shVideos, selectedCreator]);
   const [shSyncing, setShSyncing] = useState<{ done: number; total: number } | null>(null);
   /** Click-to-preview for side-panel items (bin + skatehive). */
   const [panelPreview, setPanelPreview] = useState<{
@@ -2489,8 +2503,8 @@ export function VideoEditor({
 
           {binTab === "skatehive" && (
             <>
-              {/* top-20 leaderboard creators */}
-              {creators && (
+              {/* leaderboard creators ∪ authors present in the feed */}
+              {creatorChips.length > 0 && (
                 <div className="flex gap-1.5 overflow-x-auto pb-1">
                   <button
                     type="button"
@@ -2503,7 +2517,7 @@ export function VideoEditor({
                   >
                     All
                   </button>
-                  {creators.map((c) => (
+                  {creatorChips.map((c) => (
                     <button
                       key={c.author}
                       type="button"
