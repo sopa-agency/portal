@@ -120,9 +120,11 @@ export default async function AboutPage() {
           <p className="mt-5 max-w-2xl text-balance text-xl text-foreground-muted md:text-2xl">
             Agência de dev + marketing operando entre portais.
           </p>
-          <p className="mt-3 max-w-2xl text-balance text-base text-foreground-subtle md:text-lg">
-            Modelo híbrido: <span className="text-accent">serviço pago + participação</span> por
-            nível de envolvimento.
+          <p className="mt-6 max-w-xl text-balance text-base leading-relaxed text-foreground-subtle md:text-lg">
+            Toda <span className="text-accent">sopa</span> começa com ingredientes que, sozinhos, não
+            viram refeição. A SOPA é a panela: projetos, pessoas e habilidades entram soltos e saem
+            como algo que alimenta o time todo. Uma cozinha coletiva pra construir e crescer junto —
+            quente, simples e feita pra dividir.
           </p>
           <p className="mt-10 inline-flex items-center gap-2 text-xs text-foreground-faint">
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
