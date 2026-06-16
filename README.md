@@ -6,10 +6,12 @@ per-project "brain". One codebase serves many projects — each on its own
 subdomain, with its own theme, accounts, allowlist, and AI agent.
 
 > **History / naming.** This started as the SkateHive ops portal, then grew into
-> a reusable template under the **Reelflip** umbrella. **SkateHive**, **Gnars**,
-> and **Reelflip** are the first three projects (tenants) running on it. The repo
-> is `multi-tenant-portal` (GitHub: `SkateHive/marketing-portal`); SkateHive is
-> just one tenant, not the product.
+> a reusable template under the **Reelflip** umbrella. Tenants today: **SkateHive**,
+> **Gnars**, **Reelflip**, **Nogenta** (skate editorial, B&W), **KeepKey**,
+> **ColetivoXV** (paused), and **SOPA** — the umbrella "agency" portal that sits
+> above the others (combined treasury + an editable org-chart, portfolio, and a
+> deck-style About). The repo is `multi-tenant-portal` (GitHub:
+> `SkateHive/marketing-portal`); SkateHive is just one tenant, not the product.
 
 ## Stack
 
@@ -55,11 +57,35 @@ scoped so a tenant can only ever see its own workspace.
 | `/campaign-creator` | Build & send campaigns (email templates, Hive publishing, weekly recaps) | `weeklyRecap` spec is per-project |
 | `/userbase` | Supabase-backed account admin | SkateHive only by default |
 | `/brain` | Browse/edit the active agent's workspace files | Tenant-scoped |
+| `/post-creator` | Compose/schedule Instagram posts + Studio (image/video editor, Drive, templates) | `postCreator` projects only |
 | `/analytics` | GA4 + Search Console dashboards with AI insights | Only when `analytics` is configured |
-| Floating chat | In-app chat with the project's OpenClaw agent | `/api/agent/chat` |
+| `/kanban` | GitHub Project V2 board — status, assignees, draft cards | `githubProject` projects only |
+| `/treasury` | Combined on-chain + Hive treasury view | `treasury` projects |
+| `/team` | Team roster, contacts, and messaging | — |
+| `/about`, `/org-chart`, `/portfolio` | SOPA-only: model deck, editable org flowchart (tiers + team avatars), portfolio cards | gated by `about`/`orgChart`/`portfolio` flags |
+| Floating chat | In-app chat with the project's OpenClaw agent | `/api/agent/chat` — see below |
 
-Background **workers** (`scripts/*-worker.js`) run outside Next, claim jobs from
-the DB, and heartbeat; `/api/scheduler/tick` drives scheduled publishing.
+The **floating chat** has a `Deep` mode for heavy/code tasks (longer budget) and,
+when a turn errors or times out, offers to **park the request as a Kanban draft
+card** for a human to pick up later (projects with a board).
+
+### Hybrid architecture (Vercel + Mac mini)
+
+The site runs on **Vercel**, but the **OpenClaw gateway runs on a Mac mini** and
+is **not reachable from Vercel** over the Tailscale funnel. So agent/briefing/
+brain calls don't hit the gateway directly from Vercel — they go through **DB job
+queues** (Neon) that both sides share:
+
+- `AgentJob` / `BriefingJob` / `BrainOpJob` — the portal enqueues; **Mac workers**
+  (`scripts/*-worker.js`, PM2) poll, call the local gateway (`127.0.0.1:18789`),
+  and write results back. Workers **heartbeat** (`lockedAt`) so long jobs aren't
+  reclaimed, **serialize per project** (briefings), and **retry** transient
+  gateway drops.
+- For long chat turns the inline server function hits Vercel's ~290s ceiling, so
+  `ChatJob` links to its `AgentJob` and the client **polls** the worker's result
+  past that ceiling (up to ~20 min in Deep mode).
+- `/api/scheduler/cron` is a **fallback** publisher — it only acts when the Mac's
+  heartbeat lease is stale; normal posting stays on the Mac (residential IP).
 
 ## Adding a new project (tenant)
 
@@ -102,7 +128,13 @@ To exercise a specific tenant locally, hit it by subdomain, e.g.
 ```bash
 npm run worker:repo-to-social         # commits → drafted tweets
 npm run worker:marketing-suggestions  # community signals → drafted posts
+npm run worker:briefing               # BriefingJob queue → morning briefings
+npm run worker:agent                  # AgentJob queue → chat/agent calls
+npm run worker:brain-queue            # BrainOpJob queue → /brain file ops
 ```
+
+On the Mac mini these run under **PM2** (`multi-tenant-portal-*`) alongside the
+brain file server and presence relay; they bridge Vercel → local OpenClaw gateway.
 
 ## Environment
 
