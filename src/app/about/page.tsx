@@ -5,10 +5,10 @@ import { getActiveProject } from "@/projects";
 export const dynamic = "force-dynamic";
 
 // ---------------------------------------------------------------------------
-// SOPA — deck-style "About" presentation. Value-agnostic services agency: paid
-// in crypto OR fiat (value is value), with 3 engagement/capture tiers. Gated to
-// the SOPA portal (project.about + slug). Content lives here because it's the
-// only deck for now; a second project would key its own deck by slug.
+// SOPA — deck-style "About" presentation. Services agency (dev + marketing)
+// with a hybrid model: paid service + participation by engagement level, across
+// 3 tiers. Gated to the SOPA portal (project.about + slug). Content lives here
+// because it's the only deck for now; a second project would key by slug.
 // ---------------------------------------------------------------------------
 
 type Tier = {
@@ -62,22 +62,14 @@ const ROLES: { role: string; scope: string }[] = [
   { role: "Business Development", scope: "Captação, indicações e novos projetos." },
 ];
 
-const PROJECTS: { name: string; state: string; note: string; tone: "warn" | "ok" | "info" }[] = [
-  { name: "SkateHive", state: "Restaurar", note: "Infra de runtime a estabilizar; alinhar board entre planejamento e execução.", tone: "warn" },
-  { name: "Gnars", state: "Destravar", note: "Execução de propostas atrasada; retomar a cadência social.", tone: "warn" },
-  { name: "Reelflip", state: "Converter", note: "Distribuição +468%, mas conversão fraca — foco em transformar alcance em resultado.", tone: "info" },
-  { name: "KeepKey", state: "Briefing", note: "Briefing inicial pendente.", tone: "info" },
-  { name: "Municipela", state: "Briefing", note: "Briefing inicial pendente.", tone: "info" },
-];
-
 const NEXT: string[] = [
   "Fechar os 3 tiers e o split (indicação ¼ · agência ¾).",
   "Constituir a LTDA e organizar a contabilidade.",
   "Atribuir os papéis — um dono por frente.",
-  "Rodar o briefing inicial de KeepKey e Municipela.",
+  "Definir o processo de entrada e de upgrade de tier de um projeto.",
 ];
 
-const TOTAL = 7;
+const TOTAL = 6;
 
 function Slide({
   n,
@@ -120,7 +112,7 @@ export default async function AboutPage() {
       <section className="flex min-h-full snap-start snap-always flex-col justify-center px-6 py-12 md:px-16">
         <div className="mx-auto w-full max-w-5xl">
           <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">
-            Apresentação · {new Date().getFullYear()}
+            Decisões estruturais · {new Date().getFullYear()}
           </span>
           <h1 className="mt-4 text-6xl font-black tracking-tight text-foreground md:text-8xl">
             SOPA
@@ -129,8 +121,8 @@ export default async function AboutPage() {
             Agência de dev + marketing operando entre portais.
           </p>
           <p className="mt-3 max-w-2xl text-balance text-base text-foreground-subtle md:text-lg">
-            Modelo híbrido: serviço pago + participação por envolvimento.{" "}
-            <span className="text-accent">Valor é valor</span> — crypto ou fiat.
+            Modelo híbrido: <span className="text-accent">serviço pago + participação</span> por
+            nível de envolvimento.
           </p>
           <p className="mt-10 inline-flex items-center gap-2 text-xs text-foreground-faint">
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
@@ -140,12 +132,12 @@ export default async function AboutPage() {
       </section>
 
       {/* 2 — O modelo */}
-      <Slide n={2} eyebrow="O modelo" title="Uma agência, não uma holding de tokens.">
+      <Slide n={2} eyebrow="O modelo" title="Serviço + participação + indicação.">
         <div className="grid gap-4 md:grid-cols-3">
           {[
             { k: "Serviço", v: "Dev e marketing entregues como serviço — escopo, time e cadência claros." },
             { k: "Participação", v: "Uma fatia por nível de envolvimento, alinhada ao resultado do projeto." },
-            { k: "Valor é valor", v: "Pagamento em crypto ou fiat. A SOPA não troca trabalho por token sem valor." },
+            { k: "Indicação", v: "Quem traz o projeto participa — ¼ de cada engajamento vai para a indicação." },
           ].map((c) => (
             <div key={c.k} className="rounded-xl border border-border bg-surface-elevated p-5">
               <p className="text-sm font-semibold text-accent">{c.k}</p>
@@ -229,37 +221,8 @@ export default async function AboutPage() {
         </div>
       </Slide>
 
-      {/* 6 — Status dos projetos */}
-      <Slide n={6} eyebrow="Carteira" title="Onde cada projeto está.">
-        <div className="space-y-3">
-          {PROJECTS.map((p) => (
-            <div
-              key={p.name}
-              className="flex flex-col gap-2 rounded-xl border border-border bg-surface-elevated p-4 sm:flex-row sm:items-center sm:gap-5"
-            >
-              <div className="flex items-center gap-3 sm:w-56 sm:shrink-0">
-                <span className="text-base font-semibold text-foreground">{p.name}</span>
-                <span
-                  className={
-                    "rounded-full px-2 py-0.5 text-[11px] font-semibold " +
-                    (p.tone === "warn"
-                      ? "bg-warning/15 text-warning"
-                      : p.tone === "ok"
-                        ? "bg-success/15 text-success"
-                        : "bg-accent-bg text-accent")
-                  }
-                >
-                  {p.state}
-                </span>
-              </div>
-              <p className="text-sm leading-relaxed text-foreground-muted">{p.note}</p>
-            </div>
-          ))}
-        </div>
-      </Slide>
-
-      {/* 7 — Próximos passos */}
-      <Slide n={7} eyebrow="Próximos passos" title="O que fechamos agora.">
+      {/* 6 — Próximos passos */}
+      <Slide n={6} eyebrow="Decisões a fechar" title="O que decidimos agora.">
         <ol className="space-y-3">
           {NEXT.map((step, i) => (
             <li
