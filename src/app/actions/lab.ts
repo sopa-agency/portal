@@ -42,7 +42,9 @@ export async function labGenerateText(topic: string, type: PostType): Promise<Te
   try {
     const project = await labGate();
     if (!topic.trim()) return { ok: false, error: "Give a topic first." };
-    const prompt = buildGenerateCaptionPrompt({ agentName: project.agent.displayName, topic, type });
+    const prompt =
+      buildGenerateCaptionPrompt({ agentName: project.agent.displayName, topic, type }) +
+      `\n\nThis is a fresh request — produce a genuinely DIFFERENT caption than before. Variation seed (diverge, don't mention it): ${Math.random().toString(36).slice(2, 10)}.`;
     const out = await callOpenClaw(prompt, project.agent.id, { project, timeoutMs: LAB_AI_TIMEOUT_MS });
     if (!out) return { ok: false, error: "Agent returned empty." };
     return { ok: true, text: out.trim() };
@@ -162,6 +164,8 @@ INSIGHT (internal — do not echo):
 """
 ${insight}
 """
+
+This is a brand-new request — IGNORE anything you generated before and produce a genuinely DIFFERENT post: a fresh hook, angle and idea. Variation seed (use it to diverge, do not mention it): ${Math.random().toString(36).slice(2, 10)}.
 
 Return ONLY the finished post text — no preamble, no quotes, no explanation.`;
     const out = await callOpenClaw(prompt, project.agent.id, { project, timeoutMs: LAB_AI_TIMEOUT_MS });
