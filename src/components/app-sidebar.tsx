@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
@@ -18,6 +18,8 @@ const NAV = [
   { href: "/kanban", label: "Kanban", icon: SquareKanban, requiresKanban: true },
   { href: "/treasury", label: "Treasury", icon: Landmark },
   { href: "/about", label: "About", icon: Presentation, requiresAbout: true },
+  { href: "/org-chart", label: "Org Chart", icon: Workflow, requiresOrgChart: true },
+  { href: "/portfolio", label: "Portfolio", icon: Briefcase, requiresPortfolio: true },
   { href: "/team", label: "Team", icon: UsersRound },
 ];
 
@@ -47,9 +49,11 @@ type AppSidebarProps = {
   postCreatorEnabled?: boolean;
   kanbanEnabled?: boolean;
   aboutEnabled?: boolean;
+  orgChartEnabled?: boolean;
+  portfolioEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -88,6 +92,8 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if ("requiresPostCreator" in item && item.requiresPostCreator && !postCreatorEnabled) return false;
     if ("requiresKanban" in item && item.requiresKanban && !kanbanEnabled) return false;
     if ("requiresAbout" in item && item.requiresAbout && !aboutEnabled) return false;
+    if ("requiresOrgChart" in item && item.requiresOrgChart && !orgChartEnabled) return false;
+    if ("requiresPortfolio" in item && item.requiresPortfolio && !portfolioEnabled) return false;
     return true;
   });
 

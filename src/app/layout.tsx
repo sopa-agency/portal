@@ -92,6 +92,8 @@ export default async function RootLayout({
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject}
                 aboutEnabled={!!project.about}
+                orgChartEnabled={!!project.orgChart}
+                portfolioEnabled={!!project.portfolio}
               />
               <ThemeToggle />
               <PageInfo />

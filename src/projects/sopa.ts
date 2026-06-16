@@ -56,6 +56,9 @@ const sopa: ProjectConfig = {
   // Deck-style presentation of the SOPA model (the agency, the engagement
   // tiers, the operating structure). Enables the /about route + nav item.
   about: true,
+  // Editable org-chart flowchart + portfolio (SOPA-only tools).
+  orgChart: true,
+  portfolio: true,
   treasury: {
     ethWallets: [],
     includeProjects: ["reelflip", "gnars", "skatehive"],

@@ -138,6 +138,16 @@ export type ProjectConfig = {
    */
   about?: boolean;
   /**
+   * When true, the Org Chart nav item + /org-chart route are enabled — an
+   * editable flowchart (SOPA-only). Absent = nav hidden + 404.
+   */
+  orgChart?: boolean;
+  /**
+   * When true, the Portfolio nav item + /portfolio route are enabled — an
+   * editable card portfolio (SOPA-only). Absent = nav hidden + 404.
+   */
+  portfolio?: boolean;
+  /**
    * Treasury wallets shown on /treasury — the SAME wallets/sources the
    * project's native app shows (skatehive.app/dao, gnars.com/treasury).
    * Omitted = nav item hidden and route 404s.

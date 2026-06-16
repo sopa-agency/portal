@@ -406,3 +406,20 @@ model BrainOpJob {
 
   @@index([status, createdAt])
 }
+
+// SOPA editable boards — backs both the org-chart flowchart (board="orgchart",
+// a tree via parentId) and the portfolio (board="portfolio", flat cards). One
+// row per card/node. Shared, team-editable; scoped by the `board` discriminator.
+model SopaBoard {
+  id        String   @id @default(cuid())
+  board     String   // "orgchart" | "portfolio"
+  parentId  String?  // org-chart tree edge; null = root (SOPA) or flat card
+  title     String
+  body      String?  @db.Text // free-form card details
+  meta      Json? // optional extras (links, tags, accent…)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([board, parentId])
+}
