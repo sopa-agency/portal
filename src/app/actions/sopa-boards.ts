@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getActiveProject } from "@/projects/index";
 
@@ -18,6 +19,7 @@ export type BoardCard = {
   parentId: string | null;
   title: string;
   body: string | null;
+  logoUrl: string | null;
   order: number;
 };
 
@@ -34,14 +36,20 @@ function toCard(r: {
   parentId: string | null;
   title: string;
   body: string | null;
+  meta: Prisma.JsonValue;
   order: number;
 }): BoardCard {
+  const meta =
+    r.meta && typeof r.meta === "object" && !Array.isArray(r.meta)
+      ? (r.meta as Record<string, unknown>)
+      : {};
   return {
     id: r.id,
     board: r.board,
     parentId: r.parentId,
     title: r.title,
     body: r.body,
+    logoUrl: typeof meta.logoUrl === "string" ? meta.logoUrl : null,
     order: r.order,
   };
 }
@@ -79,6 +87,7 @@ export async function createCard(input: {
   parentId?: string | null;
   title: string;
   body?: string;
+  logoUrl?: string;
 }): Promise<BoardCard> {
   await assertSopa();
   const title = input.title.trim() || "Sem título";
@@ -92,6 +101,7 @@ export async function createCard(input: {
       parentId: input.parentId ?? null,
       title,
       body: input.body?.trim() || null,
+      meta: input.logoUrl ? { logoUrl: input.logoUrl } : Prisma.JsonNull,
       order: siblings,
     },
   });
@@ -101,7 +111,7 @@ export async function createCard(input: {
 
 export async function updateCard(
   id: string,
-  patch: { title?: string; body?: string },
+  patch: { title?: string; body?: string; logoUrl?: string | null },
 ): Promise<BoardCard> {
   await assertSopa();
   const row = await prisma.sopaBoard.update({
@@ -109,6 +119,9 @@ export async function updateCard(
     data: {
       ...(patch.title !== undefined ? { title: patch.title.trim() || "Sem título" } : {}),
       ...(patch.body !== undefined ? { body: patch.body.trim() || null } : {}),
+      ...(patch.logoUrl !== undefined
+        ? { meta: patch.logoUrl ? { logoUrl: patch.logoUrl } : Prisma.JsonNull }
+        : {}),
     },
   });
   revalidatePath(row.board === "orgchart" ? "/org-chart" : "/portfolio");

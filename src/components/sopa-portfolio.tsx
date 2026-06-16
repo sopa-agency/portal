@@ -1,26 +1,37 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Plus, X, Trash2, Loader2 } from "lucide-react";
+import { useRef, useState, useTransition } from "react";
+import { Plus, X, Trash2, Loader2, ImagePlus } from "lucide-react";
 import {
   type BoardCard,
   createCard,
   updateCard,
   deleteCard,
 } from "@/app/actions/sopa-boards";
+import { uploadMediaDirectClient } from "@/lib/upload-media-client";
 
 export function SopaPortfolio({ initial }: { initial: BoardCard[] }) {
   const [cards, setCards] = useState<BoardCard[]>(initial);
   const [editing, setEditing] = useState<BoardCard | "new" | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function handleSave(id: string | null, title: string, body: string) {
+  function handleSave(
+    id: string | null,
+    title: string,
+    body: string,
+    logoUrl: string | null,
+  ) {
     startTransition(async () => {
       if (id) {
-        const updated = await updateCard(id, { title, body });
+        const updated = await updateCard(id, { title, body, logoUrl });
         setCards((prev) => prev.map((c) => (c.id === id ? updated : c)));
       } else {
-        const created = await createCard({ board: "portfolio", title, body });
+        const created = await createCard({
+          board: "portfolio",
+          title,
+          body,
+          logoUrl: logoUrl ?? undefined,
+        });
         setCards((prev) => [...prev, created]);
       }
       setEditing(null);
@@ -75,6 +86,14 @@ export function SopaPortfolio({ initial }: { initial: BoardCard[] }) {
               onClick={() => setEditing(c)}
               className="flex flex-col rounded-2xl border border-border bg-surface p-5 text-left shadow-sm transition hover:border-border-strong"
             >
+              {c.logoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={c.logoUrl}
+                  alt=""
+                  className="mb-3 h-12 w-12 rounded-lg border border-border bg-surface-elevated object-contain p-1"
+                />
+              )}
               <span className="text-base font-semibold text-foreground">{c.title}</span>
               {c.body && (
                 <span className="mt-2 line-clamp-4 text-sm leading-relaxed text-foreground-muted">
@@ -108,14 +127,30 @@ function PortfolioDialog({
 }: {
   card: BoardCard | null;
   onClose: () => void;
-  onSave: (id: string | null, title: string, body: string) => void;
+  onSave: (id: string | null, title: string, body: string, logoUrl: string | null) => void;
   onDelete: (id: string) => void;
   busy: boolean;
 }) {
   const [title, setTitle] = useState(card?.title ?? "");
   const [body, setBody] = useState(card?.body ?? "");
+  const [logoUrl, setLogoUrl] = useState<string | null>(card?.logoUrl ?? null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const canSave = title.trim().length > 0;
+
+  async function onPickLogo(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadErr(null);
+    setUploading(true);
+    const res = await uploadMediaDirectClient(file);
+    setUploading(false);
+    if (res.ok) setLogoUrl(res.url);
+    else setUploadErr(res.error);
+  }
 
   return (
     <div
@@ -139,6 +174,40 @@ function PortfolioDialog({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        <label className="mb-1 block text-xs font-medium text-foreground-muted">Logo</label>
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-elevated">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" />
+            ) : (
+              <ImagePlus className="h-5 w-5 text-foreground-faint" />
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <input ref={fileRef} type="file" accept="image/*" onChange={onPickLogo} className="hidden" />
+            <button
+              type="button"
+              disabled={uploading || busy}
+              onClick={() => fileRef.current?.click()}
+              className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+              {logoUrl ? "Trocar logo" : "Enviar logo"}
+            </button>
+            {logoUrl && (
+              <button
+                type="button"
+                onClick={() => setLogoUrl(null)}
+                className="w-fit text-[11px] text-foreground-muted hover:text-danger"
+              >
+                Remover
+              </button>
+            )}
+          </div>
+        </div>
+        {uploadErr && <p className="mb-3 text-xs text-danger">{uploadErr}</p>}
 
         <label className="mb-1 block text-xs font-medium text-foreground-muted">Título</label>
         <input
@@ -184,7 +253,7 @@ function PortfolioDialog({
           <button
             type="button"
             disabled={!canSave || busy}
-            onClick={() => onSave(card?.id ?? null, title, body)}
+            onClick={() => onSave(card?.id ?? null, title, body, logoUrl)}
             className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-40"
           >
             Salvar
