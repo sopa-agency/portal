@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { createPinataSignedUploadUrl } from "@/lib/social-publish";
 import { getActiveProject } from "@/projects/index";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,22 @@ export async function listBoard(board: BoardKind): Promise<BoardCard[]> {
   }
 
   return rows.map(toCard);
+}
+
+/** Signed-URL handshake for a direct browser→Pinata logo upload, gated to SOPA.
+ *  Mirrors signPostMediaUpload but without the Post Creator requirement (SOPA
+ *  has no Post Creator, so that action's authGate would reject it). */
+export async function signSopaLogoUpload(
+  filename: string,
+  sizeBytes: number,
+  mimeType: string,
+): Promise<{ ok: true; url: string; gateway: string } | { ok: false; error: string }> {
+  try {
+    await assertSopa();
+    return await createPinataSignedUploadUrl(filename, sizeBytes, mimeType);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function createCard(input: {
