@@ -361,25 +361,36 @@ function CardDialog({
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [team, setTeam] = useState<Record<string, string>>(() => {
-    const m: Record<string, string> = {};
-    card.team.forEach((t) => (m[t.role] = t.username));
-    return m;
+  // Team rows: the predefined ROLES always show (fixed label), plus any custom
+  // roles already on the card, plus any the user adds. `fixed` roles keep a
+  // static label; custom ones expose an editable role-name input + remove.
+  type Row = { role: string; username: string; fixed: boolean };
+  const [rows, setRows] = useState<Row[]>(() => {
+    const byRole = new Map(card.team.map((t) => [t.role, t.username]));
+    const fixed: Row[] = ROLES.map((r) => ({ role: r, username: byRole.get(r) ?? "", fixed: true }));
+    const custom: Row[] = card.team
+      .filter((t) => !ROLES.includes(t.role as (typeof ROLES)[number]))
+      .map((t) => ({ role: t.role, username: t.username, fixed: false }));
+    return [...fixed, ...custom];
   });
   const [confirmDel, setConfirmDel] = useState(false);
 
   const kind = nodeKind(card);
   const rosterByUser = new Map(roster.map((p) => [p.username.toLowerCase(), p]));
-  const teamArr: TeamMember[] = ROLES.map((r) => ({
-    role: r,
-    username: (team[r] ?? "").trim(),
-  })).filter((m) => m.username);
+  const teamArr: TeamMember[] = rows
+    .map((r) => ({ role: r.role.trim(), username: r.username.trim() }))
+    .filter((m) => m.role && m.username);
   const dirty =
     title !== card.title ||
     body !== (card.body ?? "") ||
     tier !== card.tier ||
     logoUrl !== card.logoUrl ||
     JSON.stringify(teamArr) !== JSON.stringify(card.team);
+
+  const setRow = (i: number, patch: Partial<Row>) =>
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addRole = () => setRows((prev) => [...prev, { role: "", username: "", fixed: false }]);
+  const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
 
   async function onPickLogo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -493,12 +504,21 @@ function CardDialog({
         <label className="mb-1.5 block text-xs font-medium text-foreground-muted">
           Time <span className="text-foreground-faint">(membros dos projetos)</span>
         </label>
-        <div className="mb-4 space-y-2">
-          {ROLES.map((role) => {
-            const selected = rosterByUser.get((team[role] ?? "").toLowerCase());
+        <div className="mb-2 space-y-2">
+          {rows.map((row, i) => {
+            const selected = rosterByUser.get(row.username.toLowerCase());
             return (
-              <div key={role} className="flex items-center gap-2">
-                <span className="w-40 shrink-0 text-[11px] text-foreground-subtle">{role}</span>
+              <div key={`${row.fixed ? "fixed" : "custom"}-${i}`} className="flex items-center gap-2">
+                {row.fixed ? (
+                  <span className="w-40 shrink-0 text-[11px] text-foreground-subtle">{row.role}</span>
+                ) : (
+                  <input
+                    value={row.role}
+                    onChange={(e) => setRow(i, { role: e.target.value })}
+                    placeholder="Papel"
+                    className="w-40 shrink-0 rounded-md border border-border bg-surface-elevated px-2 py-1 text-[11px] text-foreground focus:border-border-strong focus:outline-none"
+                  />
+                )}
                 {selected ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -510,8 +530,8 @@ function CardDialog({
                   <span className="h-5 w-5 shrink-0 rounded-full border border-dashed border-border" />
                 )}
                 <select
-                  value={team[role] ?? ""}
-                  onChange={(e) => setTeam((prev) => ({ ...prev, [role]: e.target.value }))}
+                  value={row.username}
+                  onChange={(e) => setRow(i, { username: e.target.value })}
                   className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
                 >
                   <option value="">—</option>
@@ -521,10 +541,27 @@ function CardDialog({
                     </option>
                   ))}
                 </select>
+                {!row.fixed && (
+                  <button
+                    type="button"
+                    onClick={() => removeRow(i)}
+                    aria-label="Remover papel"
+                    className="shrink-0 rounded-md p-1 text-foreground-faint hover:text-danger"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
+        <button
+          type="button"
+          onClick={addRole}
+          className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground-muted transition hover:border-accent-border hover:text-accent"
+        >
+          <Plus className="h-3.5 w-3.5" /> Adicionar papel
+        </button>
 
         <label className="mb-1 block text-xs font-medium text-foreground-muted">Detalhes</label>
         <textarea
