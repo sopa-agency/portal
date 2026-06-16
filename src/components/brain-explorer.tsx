@@ -9,9 +9,12 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  LayoutGrid,
+  List,
   Loader2,
   Lock,
   Pin,
+  RefreshCw,
   RotateCcw,
   Save,
   Trash2,
@@ -92,6 +95,40 @@ function formatDriveDate(iso: string): string {
   }
 }
 
+function formatSyncAgo(at: number): string {
+  const s = Math.round((Date.now() - at) / 1000);
+  if (s < 60) return "agora mesmo";
+  const m = Math.round(s / 60);
+  if (m < 60) return `há ${m}min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `há ${h}h`;
+  return `há ${Math.round(h / 24)}d`;
+}
+
+// Drive listings are cached in sessionStorage so reopening the tab (or drilling
+// back into a folder) is instant. The network is only hit on first sight of a
+// folder or when the user clicks Sync — best of both worlds.
+function driveCacheKey(projectName: string, folderId?: string): string {
+  return `drive-cache:${projectName}:${folderId ?? "root"}`;
+}
+function readDriveCache(key: string): { result: DriveListResult; at: number } | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as { result: DriveListResult; at: number }) : null;
+  } catch {
+    return null;
+  }
+}
+function writeDriveCache(key: string, result: DriveListResult): number {
+  const at = Date.now();
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ result, at }));
+  } catch {
+    /* quota / private mode — cache is best-effort */
+  }
+  return at;
+}
+
 // ---------------------------------------------------------------------------
 // DriveViewer component
 // ---------------------------------------------------------------------------
@@ -99,36 +136,64 @@ function formatDriveDate(iso: string): string {
 function DriveViewer({ projectName }: { projectName: string }) {
   const [listState, setListState] = useState<DriveListResult | null>(null);
   const [listLoading, setListLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<number | null>(null);
   const [listError, setListError] = useState("");
   const [selectedFile, setSelectedFile] = useState<DriveFile | null>(null);
   const [content, setContent] = useState<DriveFileContent | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState("");
+  const [view, setView] = useState<"grid" | "list">("grid");
   // Stack of folder IDs for drill-down navigation (v1: top-level + one level)
   const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>([]);
 
-  const fetchList = useCallback(async (folderId?: string) => {
-    setListLoading(true);
-    setListError("");
-    setSelectedFile(null);
-    setContent(null);
-    try {
-      const url = folderId
-        ? `/api/brain/drive/list?folderId=${encodeURIComponent(folderId)}`
-        : "/api/brain/drive/list";
-      const res = await fetch(url, { cache: "no-store" });
-      const data = (await res.json()) as DriveListResult;
-      setListState(data);
-    } catch (e) {
-      setListError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setListLoading(false);
-    }
-  }, []);
+  const fetchList = useCallback(
+    async (folderId?: string, opts?: { force?: boolean }) => {
+      setListError("");
+      setSelectedFile(null);
+      setContent(null);
+
+      // Serve from cache instantly unless the user asked to sync.
+      if (!opts?.force) {
+        const cached = readDriveCache(driveCacheKey(projectName, folderId));
+        if (cached) {
+          setListState(cached.result);
+          setLastSync(cached.at);
+          setListLoading(false);
+          return;
+        }
+      }
+
+      if (opts?.force) setSyncing(true);
+      else setListLoading(true);
+      try {
+        const url = folderId
+          ? `/api/brain/drive/list?folderId=${encodeURIComponent(folderId)}`
+          : "/api/brain/drive/list";
+        const res = await fetch(url, { cache: "no-store" });
+        const data = (await res.json()) as DriveListResult;
+        setListState(data);
+        if (data.ok) setLastSync(writeDriveCache(driveCacheKey(projectName, folderId), data));
+      } catch (e) {
+        setListError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setListLoading(false);
+        setSyncing(false);
+      }
+    },
+    [projectName],
+  );
 
   useEffect(() => {
     fetchList();
   }, [fetchList]);
+
+  const currentFolderId = folderStack.length ? folderStack[folderStack.length - 1].id : undefined;
+  // Link out to the live folder in Google Drive (current folder if drilled in).
+  const driveLink =
+    listState?.ok && listState.folderId
+      ? `https://drive.google.com/drive/folders/${listState.folderId}`
+      : null;
 
   async function openFile(file: DriveFile) {
     if (file.mimeType === DRIVE_FOLDER_MIME) {
@@ -308,86 +373,193 @@ function DriveViewer({ projectName }: { projectName: string }) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-      {/* File list */}
-      <div className="rounded-xl border border-border bg-surface p-3 lg:col-span-1">
-        {/* Breadcrumb navigation */}
-        {folderStack.length > 0 && (
-          <div className="mb-3 flex flex-wrap items-center gap-1 text-xs text-foreground-muted">
+    <div className="space-y-4">
+      {/* Toolbar — breadcrumb + view toggle + sync + open original */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-foreground-muted">
+          <button
+            type="button"
+            onClick={() => navigateTo(-1)}
+            className="rounded px-1 py-0.5 font-medium hover:bg-foreground/5 hover:text-foreground"
+            aria-label="Navigate to root Drive folder"
+          >
+            Drive
+          </button>
+          {folderStack.map((folder, idx) => (
+            <span key={folder.id} className="flex items-center gap-1">
+              <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />
+              {idx < folderStack.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={() => navigateTo(idx)}
+                  className="rounded px-1 py-0.5 hover:bg-foreground/5 hover:text-foreground"
+                  aria-label={`Navigate to ${folder.name}`}
+                >
+                  {folder.name}
+                </button>
+              ) : (
+                <span className="truncate font-medium text-foreground">{folder.name}</span>
+              )}
+            </span>
+          ))}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {lastSync && (
+            <span className="hidden text-[11px] text-foreground-faint sm:inline">
+              Sincronizado {formatSyncAgo(lastSync)}
+            </span>
+          )}
+          {/* Grid / list toggle */}
+          <div className="flex items-center rounded-lg border border-border p-0.5">
             <button
               type="button"
-              onClick={() => navigateTo(-1)}
-              className="rounded px-1 py-0.5 hover:bg-foreground/5 hover:text-foreground"
-              aria-label="Navigate to root Drive folder"
+              onClick={() => setView("grid")}
+              aria-label="Grid view"
+              aria-pressed={view === "grid"}
+              className={cn(
+                "rounded-md p-1.5 transition-colors",
+                view === "grid"
+                  ? "bg-accent-bg text-accent"
+                  : "text-foreground-muted hover:text-foreground",
+              )}
             >
-              Drive
+              <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
             </button>
-            {folderStack.map((folder, idx) => (
-              <span key={folder.id} className="flex items-center gap-1">
-                <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />
-                {idx < folderStack.length - 1 ? (
-                  <button
-                    type="button"
-                    onClick={() => navigateTo(idx)}
-                    className="rounded px-1 py-0.5 hover:bg-foreground/5 hover:text-foreground"
-                    aria-label={`Navigate to ${folder.name}`}
-                  >
-                    {folder.name}
-                  </button>
-                ) : (
-                  <span className="truncate font-medium text-foreground">{folder.name}</span>
-                )}
-              </span>
-            ))}
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              aria-label="List view"
+              aria-pressed={view === "list"}
+              className={cn(
+                "rounded-md p-1.5 transition-colors",
+                view === "list"
+                  ? "bg-accent-bg text-accent"
+                  : "text-foreground-muted hover:text-foreground",
+              )}
+            >
+              <List className="h-3.5 w-3.5" aria-hidden />
+            </button>
           </div>
-        )}
-
-        {listLoading ? (
-          <div className="flex items-center gap-2 py-4 text-sm text-foreground-muted">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…
-          </div>
-        ) : listError ? (
-          <p className="text-xs text-danger">{listError}</p>
-        ) : listState?.ok ? (
-          listState.files.length === 0 ? (
-            <p className="py-4 text-center text-xs text-foreground-faint">
-              This folder is empty.
-            </p>
-          ) : (
-            <div className="space-y-0.5">
-              {listState.files.map((f) => {
-                const isFolder = f.mimeType === DRIVE_FOLDER_MIME;
-                const active = selectedFile?.id === f.id;
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => openFile(f)}
-                    aria-label={`${isFolder ? "Open folder" : "Preview file"}: ${f.name}`}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors",
-                      active
-                        ? "bg-accent-bg font-medium text-accent"
-                        : "text-foreground-muted hover:bg-foreground/5 hover:text-foreground",
-                    )}
-                  >
-                    {driveFileIcon(f.mimeType)}
-                    <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                    {isFolder && (
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-foreground-faint" aria-hidden />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )
-        ) : listState && !listState.ok && listState.reason === "error" ? (
-          <p className="text-xs text-danger">{listState.error}</p>
-        ) : null}
+          <button
+            type="button"
+            onClick={() => fetchList(currentFolderId, { force: true })}
+            disabled={syncing}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+            aria-label="Sync from Google Drive"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} aria-hidden />
+            Sync
+          </button>
+          {driveLink && (
+            <a
+              href={driveLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20"
+              aria-label="Open this folder in Google Drive"
+            >
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden /> Abrir no Drive
+            </a>
+          )}
+        </div>
       </div>
 
-      {/* Content pane */}
-      <div className="rounded-xl border border-border bg-surface lg:col-span-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+        {/* File list */}
+        <div className="rounded-xl border border-border bg-surface p-3 lg:col-span-1">
+          {listLoading ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-foreground-muted">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…
+            </div>
+          ) : listError ? (
+            <p className="text-xs text-danger">{listError}</p>
+          ) : listState?.ok ? (
+            listState.files.length === 0 ? (
+              <p className="py-4 text-center text-xs text-foreground-faint">
+                This folder is empty.
+              </p>
+            ) : view === "grid" ? (
+              <div className="grid grid-cols-2 gap-2">
+                {listState.files.map((f) => {
+                  const isFolder = f.mimeType === DRIVE_FOLDER_MIME;
+                  const isImage = f.mimeType.startsWith("image/");
+                  const active = selectedFile?.id === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => openFile(f)}
+                      aria-label={`${isFolder ? "Open folder" : "Preview file"}: ${f.name}`}
+                      className={cn(
+                        "group flex flex-col items-center gap-1.5 rounded-lg border p-2 text-center transition-colors",
+                        active
+                          ? "border-accent-border bg-accent-bg"
+                          : "border-border hover:border-border-strong hover:bg-foreground/5",
+                      )}
+                    >
+                      <span className="flex h-16 w-full items-center justify-center overflow-hidden rounded-md bg-surface-elevated">
+                        {isImage ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={`/api/brain/drive/file?id=${encodeURIComponent(f.id)}&mode=raw`}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : isFolder ? (
+                          <Folder className="h-7 w-7 text-accent" aria-hidden />
+                        ) : (
+                          <FileText className="h-7 w-7 text-foreground-subtle" aria-hidden />
+                        )}
+                      </span>
+                      <span
+                        className={cn(
+                          "line-clamp-2 w-full text-[11px] leading-tight",
+                          active ? "font-medium text-accent" : "text-foreground-muted",
+                        )}
+                      >
+                        {f.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                {listState.files.map((f) => {
+                  const isFolder = f.mimeType === DRIVE_FOLDER_MIME;
+                  const active = selectedFile?.id === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => openFile(f)}
+                      aria-label={`${isFolder ? "Open folder" : "Preview file"}: ${f.name}`}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors",
+                        active
+                          ? "bg-accent-bg font-medium text-accent"
+                          : "text-foreground-muted hover:bg-foreground/5 hover:text-foreground",
+                      )}
+                    >
+                      {driveFileIcon(f.mimeType)}
+                      <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                      {isFolder && (
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-foreground-faint" aria-hidden />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          ) : listState && !listState.ok && listState.reason === "error" ? (
+            <p className="text-xs text-danger">{listState.error}</p>
+          ) : null}
+        </div>
+
+        {/* Content pane */}
+        <div className="rounded-xl border border-border bg-surface lg:col-span-3">
         {selectedFile && (
           <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
@@ -412,7 +584,8 @@ function DriveViewer({ projectName }: { projectName: string }) {
             </div>
           </div>
         )}
-        <div className="p-4">{renderContent()}</div>
+          <div className="p-4">{renderContent()}</div>
+        </div>
       </div>
     </div>
   );
