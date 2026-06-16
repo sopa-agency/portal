@@ -2,8 +2,14 @@
 
 import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ImagePlus, Loader2, X, Calendar, Send, FlaskConical, Clapperboard } from "lucide-react";
-import { signLabMediaUpload } from "@/app/actions/lab";
+import { ImagePlus, Loader2, X, Calendar, Send, FlaskConical, Clapperboard, Sparkles, Wand2 } from "lucide-react";
+import {
+  signLabMediaUpload,
+  labImproveText,
+  labGenerateText,
+  labGenerateVariants,
+} from "@/app/actions/lab";
+import type { PostType } from "@/app/actions/post-creator";
 import { IgPreview } from "@/components/post/ig-preview";
 import { aspectToClass, snapToFeedRatio, type UploadState } from "@/lib/post-aspect";
 
@@ -101,7 +107,45 @@ export function PostLab({ brand }: { brand: LabBrand }) {
   const [plan, setPlan] = useState<string | null>(null);
   const [studio, setStudio] = useState<null | "image" | "video">(null);
   const [igFit, setIgFit] = useState<"cover" | "contain">("cover");
+  const [aiBusy, setAiBusy] = useState<null | "improve" | "generate" | "variants">(null);
+  const [aiErr, setAiErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const postType: PostType =
+    media.length > 1 ? "CAROUSEL" : media.some((m) => m.isVideo) ? "REELS" : "IMAGE";
+
+  async function aiImprove() {
+    if (!editingText.trim()) return;
+    setAiErr(null);
+    setAiBusy("improve");
+    const r = await labImproveText(editingText, postType);
+    setAiBusy(null);
+    if (r.ok) setEditingText(r.text);
+    else setAiErr(r.error);
+  }
+  async function aiGenerate() {
+    const topic = editingText.trim() || baseText.trim();
+    if (!topic) return;
+    setAiErr(null);
+    setAiBusy("generate");
+    const r = await labGenerateText(topic, postType);
+    setAiBusy(null);
+    if (r.ok) setEditingText(r.text);
+    else setAiErr(r.error);
+  }
+  async function aiVariants() {
+    setAiErr(null);
+    setAiBusy("variants");
+    const nets = activeNetworks.map((n) => ({
+      id: n.id,
+      label: n.label,
+      rule: `${n.limit ? `máx ${n.limit} chars` : "sem limite"}; ${n.note}`,
+    }));
+    const r = await labGenerateVariants(baseText, nets);
+    setAiBusy(null);
+    if (r.ok) setOverrides((prev) => ({ ...prev, ...r.variants }));
+    else setAiErr(r.error);
+  }
 
   // Studio handoff — the real editor returns File[]; upload them into the lab.
   async function handleStudioUseInPost(files: File[], caption: string) {
@@ -250,6 +294,27 @@ export function PostLab({ brand }: { brand: LabBrand }) {
 
           {/* Text */}
           <div className="flex flex-col gap-1.5">
+            {/* Agentic toolbar — the real project agent (same prompts as the Post Creator). */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void aiGenerate()}
+                disabled={!!aiBusy}
+                className="inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-accent-bg px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+              >
+                {aiBusy === "generate" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                Gerar com IA
+              </button>
+              <button
+                type="button"
+                onClick={() => void aiImprove()}
+                disabled={!!aiBusy || !editingText.trim()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-50"
+              >
+                {aiBusy === "improve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                Improve with AI
+              </button>
+            </div>
             <textarea
               value={editingText}
               onChange={(e) => setEditingText(e.target.value)}
@@ -276,6 +341,19 @@ export function PostLab({ brand }: { brand: LabBrand }) {
                 Voltar pro texto base
               </button>
             )}
+            {/* Campaign-style: tailor the base message per channel in one go. */}
+            {activeNetworks.length > 1 && (
+              <button
+                type="button"
+                onClick={() => void aiVariants()}
+                disabled={!!aiBusy || !baseText.trim()}
+                className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-md border border-accent-border bg-accent-bg px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+              >
+                {aiBusy === "variants" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {mode === "campaign" ? "Gerar campanha (variações por rede)" : "Gerar variações por rede"}
+              </button>
+            )}
+            {aiErr && <p className="text-[11px] text-danger">{aiErr}</p>}
           </div>
 
           {/* Media */}
