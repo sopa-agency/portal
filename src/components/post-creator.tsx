@@ -232,9 +232,14 @@ function IgPreview({
   const [slideIndex, setSlideIndex] = useState(0);
   const mediaRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Reset the carousel to the first slide whenever the media set changes, using
+  // the render-time "adjust state on prop change" pattern instead of an effect
+  // (which would trigger a cascading re-render and trips react-hooks lint).
+  const [prevUploadCount, setPrevUploadCount] = useState(uploads.length);
+  if (prevUploadCount !== uploads.length) {
+    setPrevUploadCount(uploads.length);
     setSlideIndex(0);
-  }, [uploads.length]);
+  }
 
   const current = uploads[slideIndex];
   const collabLine =
@@ -451,7 +456,10 @@ function PostDialog({
   const [creatingCampaign, setCreatingCampaign] = useState(false);
   const [campaignError, setCampaignError] = useState<string | null>(null);
 
-  const now = Date.now();
+  // Snapshot "now" at mount via a lazy state initializer — calling Date.now()
+  // directly in render is an impure call (flagged by react-hooks lint) and a
+  // mount-time snapshot is plenty for a dialog's due-state check.
+  const [now] = useState(() => Date.now());
   const isDue = post.scheduledFor ? new Date(post.scheduledFor).getTime() <= now : false;
   const isManual = post.publishMode === "manual";
   const isPublished = post.status === "published";
