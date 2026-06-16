@@ -339,6 +339,10 @@ model ChatJob {
   status      String   @default("running") // running | done | error
   reply       String?  @db.Text
   error       String?
+  // Links to the AgentJob doing the work (queue transport). Lets the client's
+  // poll bridge to the worker's result even after the inline server function
+  // hits the Vercel 290s ceiling — heavy/code tasks finish on the Mac worker.
+  agentJobId  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

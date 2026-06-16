@@ -10,6 +10,18 @@ export const maxDuration = 300;
 
 const MESSAGE_MAX_LENGTH = 4000;
 
+// Heavy/code tasks (the agent reads a repo, edits code, builds, etc.) routinely
+// run for many minutes. They get a long worker budget; light chat stays snappy.
+// Triggered by an explicit `deep` flag OR a keyword heuristic on the message.
+const HEAVY_RE =
+  /\b(repo|repos|reposit[óo]rio|c[óo]digo|code|coding|pull request|\bPR\b|commit|deploy|build|refactor|refatora|implement|implementa|bug|arquivo|file|branch|merge|test[es]?|lint|analis[ae]|analyze|review)\b/i;
+const HEAVY_TIMEOUT_MS = 1_200_000; // 20 min — worker budget for deep tasks
+const LIGHT_TIMEOUT_MS = 590_000; // ~10 min for normal chat
+
+function isHeavyTask(message: string, deep: boolean): boolean {
+  return deep || HEAVY_RE.test(message);
+}
+
 function sseEncode(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
@@ -28,6 +40,29 @@ export async function GET(req: Request): Promise<Response> {
   if (!job || job.projectSlug !== project.slug) {
     return NextResponse.json({ ok: false, error: "Job not found." }, { status: 404 });
   }
+
+  // Bridge: if the ChatJob is still running but linked to a worker AgentJob,
+  // surface the worker's terminal state (and mirror it onto the ChatJob). This
+  // is how heavy tasks complete after the inline server function gave up.
+  if (job.status === "running" && job.agentJobId) {
+    const agentJob = await prisma.agentJob
+      .findUnique({ where: { id: job.agentJobId } })
+      .catch(() => null);
+    if (agentJob?.status === "done") {
+      await prisma.chatJob
+        .update({ where: { id: job.id }, data: { status: "done", reply: agentJob.result ?? "" } })
+        .catch(() => {});
+      return NextResponse.json({ ok: true, status: "done", reply: agentJob.result ?? "", error: null });
+    }
+    if (agentJob?.status === "error") {
+      const error = agentJob.error || "Agent job failed";
+      await prisma.chatJob
+        .update({ where: { id: job.id }, data: { status: "error", error } })
+        .catch(() => {});
+      return NextResponse.json({ ok: true, status: "error", reply: null, error });
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     status: job.status,
@@ -53,6 +88,7 @@ export async function POST(req: Request): Promise<Response> {
   let message = "";
   let context = "";
   let sessionId = "";
+  let deep = false;
   let history: { role: string; text: string }[] = [];
   try {
     const body = (await req.json()) as {
@@ -60,7 +96,9 @@ export async function POST(req: Request): Promise<Response> {
       context?: unknown;
       sessionId?: unknown;
       history?: unknown;
+      deep?: unknown;
     };
+    deep = body.deep === true;
     message = typeof body.message === "string" ? body.message.trim() : "";
     context = typeof body.context === "string" ? body.context.trim() : "";
     sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
@@ -141,13 +179,22 @@ export async function POST(req: Request): Promise<Response> {
           }
         }, 10_000);
 
+        const heavy = isHeavyTask(message, deep);
         try {
           if (job) send("job", { jobId: job.id });
-          send("status", { message: "pensando..." });
+          send("status", { message: heavy ? "trabalhando nisso (pode levar uns minutos)..." : "pensando..." });
           const reply = await callOpenClaw(prompt, project.agent.id, {
             project,
-            timeoutMs: 590_000,
+            timeoutMs: heavy ? HEAVY_TIMEOUT_MS : LIGHT_TIMEOUT_MS,
             sessionSuffix,
+            // Link the worker job to this ChatJob so the client poll can pick up
+            // the result even after this function hits the Vercel ceiling.
+            onJobId: job
+              ? (id) =>
+                  void prisma.chatJob
+                    .update({ where: { id: job.id }, data: { agentJobId: id } })
+                    .catch(() => {})
+              : undefined,
           });
           if (job) {
             await prisma.chatJob
@@ -160,12 +207,20 @@ export async function POST(req: Request): Promise<Response> {
             err instanceof Error && err.message
               ? err.message
               : "O agente não respondeu agora.";
-          if (job) {
-            await prisma.chatJob
-              .update({ where: { id: job.id }, data: { status: "error", error } })
-              .catch(() => {});
+          // Inline poll hit the serverless ceiling but the worker is still
+          // running — leave the ChatJob 'running' so the client keeps polling
+          // (it bridges to the AgentJob result). Only mark error on a real fail.
+          const stillRunning = /timed out waiting for the worker/i.test(error);
+          if (stillRunning) {
+            send("working", { message: "ainda trabalhando — acompanhe pelo chat" });
+          } else {
+            if (job) {
+              await prisma.chatJob
+                .update({ where: { id: job.id }, data: { status: "error", error } })
+                .catch(() => {});
+            }
+            send("error", { error });
           }
-          send("error", { error });
         } finally {
           clearInterval(heartbeat);
           if (clientConnected) {

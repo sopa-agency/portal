@@ -358,11 +358,15 @@ async function callViaQueue(
   prompt: string,
   agentId: string,
   timeoutMs: number,
+  onJobId?: (id: string) => void,
 ): Promise<string> {
   const { prisma } = await import("@/lib/prisma");
   const job = await prisma.agentJob.create({
     data: { agentSlug: agentId, prompt, timeoutMs },
   });
+  // Surface the AgentJob id so callers (the chat) can link it to a ChatJob and
+  // keep polling the worker's result past the serverless function ceiling.
+  onJobId?.(job.id);
   // Give the worker the job's own budget plus headroom for poll/claim latency,
   // but never exceed the serverless function ceiling.
   const deadline = Date.now() + Math.min(timeoutMs + 30_000, 290_000);
@@ -389,10 +393,15 @@ async function callViaQueue(
 export async function callOpenClaw(
   prompt: string,
   agentId: string,
-  opts: { timeoutMs?: number; project?: ProjectConfig; sessionSuffix?: string } = {},
+  opts: {
+    timeoutMs?: number;
+    project?: ProjectConfig;
+    sessionSuffix?: string;
+    onJobId?: (id: string) => void;
+  } = {},
 ): Promise<string> {
   if (shouldUseQueue()) {
-    return callViaQueue(prompt, agentId, opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS);
+    return callViaQueue(prompt, agentId, opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS, opts.onJobId);
   }
   const deviceId =
     (opts.project ? projectEnv(opts.project, "PORTAL_DEVICE_ID") : null) ??

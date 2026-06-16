@@ -63,7 +63,22 @@ function extractOutputText(payload) {
   return parts.join("").trim();
 }
 
-async function callAgent(input, agentId, timeoutMs) {
+// A long agent request (heavy/code tasks) can drop its connection mid-flight —
+// surfaces as a bare "fetch failed" / ECONNRESET, not an HTTP status. That's a
+// transport blip, not a real failure, so retry it once. We do NOT retry on a
+// real timeout (AbortError) or an HTTP error body — those are terminal.
+function isTransientFetchError(err) {
+  if (err?.name === "AbortError") return false;
+  const msg = String(err?.message ?? err);
+  const code = String(err?.cause?.code ?? "");
+  return (
+    /fetch failed|terminated|socket hang up|network|ECONNRESET|ECONNREFUSED|EPIPE|UND_ERR/i.test(
+      msg + " " + code,
+    )
+  );
+}
+
+async function callAgentOnce(input, agentId, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -85,6 +100,17 @@ async function callAgent(input, agentId, timeoutMs) {
     throw err;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function callAgent(input, agentId, timeoutMs) {
+  try {
+    return await callAgentOnce(input, agentId, timeoutMs);
+  } catch (err) {
+    if (!isTransientFetchError(err)) throw err;
+    console.warn(`[agent-worker] transient gateway error (${err?.message}); retrying once`);
+    await new Promise((r) => setTimeout(r, 2_000));
+    return await callAgentOnce(input, agentId, timeoutMs);
   }
 }
 
@@ -110,6 +136,14 @@ async function claimJob() {
 
 async function processJob(job) {
   console.log(`[agent-worker] running ${job.agentSlug} job ${job.id}`);
+  // Heartbeat: refresh lockedAt every 60s so a long heavy job (up to ~20min)
+  // isn't seen as a stale lock (STALE_LOCK_MS) and re-claimed/double-run while
+  // it's actively working. A truly dead worker stops refreshing → reclaimed.
+  const heartbeat = setInterval(() => {
+    prisma.agentJob
+      .updateMany({ where: { id: job.id, status: "running" }, data: { lockedAt: new Date() } })
+      .catch(() => {});
+  }, 60_000);
   try {
     const text = await callAgent(job.prompt, job.agentSlug, job.timeoutMs ?? 285_000);
     await prisma.agentJob.update({
@@ -123,6 +157,8 @@ async function processJob(job) {
     await prisma.agentJob
       .update({ where: { id: job.id }, data: { status: "error", error: msg.slice(0, 500) } })
       .catch(() => {});
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 

@@ -345,6 +345,7 @@ export function FloatingAgentChat({
   const [sessionId, setSessionId] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [draft, setDraft] = useState("");
+  const [deepMode, setDeepMode] = useState(false);
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string>("");
@@ -603,7 +604,7 @@ export function FloatingAgentChat({
       const res = await fetch(`/api/agent/chat?stream=1`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: text, context, sessionId, history: historyToSend }),
+        body: JSON.stringify({ message: text, context, sessionId, history: historyToSend, deep: deepMode }),
       });
 
       if (!res.ok || !res.body) {
@@ -635,7 +636,7 @@ export function FloatingAgentChat({
           jobIdRef.current = typeof data.jobId === "string" ? data.jobId : null;
           return;
         }
-        if (eventName === "status") {
+        if (eventName === "status" || eventName === "working") {
           setStatus(data.message || "trabalhando...");
           return;
         }
@@ -686,7 +687,7 @@ export function FloatingAgentChat({
       const jobToPoll = jobIdRef.current;
       if (jobToPoll) {
         setStatus("conexão caiu — o agente segue trabalhando, aguardando o resultado…");
-        const deadline = Date.now() + 12 * 60_000;
+        const deadline = Date.now() + (deepMode ? 20 : 12) * 60_000;
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 5000));
           try {
@@ -897,6 +898,20 @@ export function FloatingAgentChat({
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeepMode((v) => !v)}
+                  disabled={sending}
+                  title="Modo tarefa pesada/código — dá ao agente até 20 min (repo, build, refactor…)"
+                  aria-pressed={deepMode}
+                  className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+                    deepMode
+                      ? "border-accent-border bg-accent-bg text-accent"
+                      : "border-border bg-surface text-foreground-muted hover:border-border-strong hover:text-foreground"
+                  }`}
+                >
+                  🛠️ Deep
+                </button>
                 <button
                   type="button"
                   onClick={() => {
