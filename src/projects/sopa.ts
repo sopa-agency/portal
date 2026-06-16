@@ -61,7 +61,8 @@ const sopa: ProjectConfig = {
   orgChart: true,
   portfolio: true,
   treasury: {
-    ethWallets: [],
+    // SOPA's own multisig (Safe on Base).
+    ethWallets: [{ label: "SOPA Safe", address: "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2" }],
     includeProjects: ["reelflip", "gnars", "skatehive"],
   },
   switcher: { rank: 0 },
