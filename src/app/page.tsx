@@ -81,8 +81,9 @@ function SummaryBand({ tiles }: { tiles: BandTile[] }) {
 
 export default async function Home() {
   const project = await getActiveProject();
-  // Treasury-only portals (SOPA) hide "/" — land straight on the treasury.
-  if (project.hiddenRoutes?.includes("/")) redirect("/treasury");
+  // Portals that hide "/" (SOPA) land on their first real page: the About deck
+  // when enabled, otherwise the treasury.
+  if (project.hiddenRoutes?.includes("/")) redirect(project.about ? "/about" : "/treasury");
   const today = todayIsoDate();
   const briefingAgents = project.briefingAgents;
   // Instagram leads the socials pane (and the band) — it's the primary channel.
