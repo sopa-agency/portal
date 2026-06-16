@@ -217,15 +217,22 @@ export function PostLab({
   }
 
   // Studio handoff — the real editor returns File[]; upload them into the lab.
+  // Close the Studio first so the user is back in the composer watching the
+  // upload, then surface progress (uploading banner) + any failure.
   async function handleStudioUseInPost(files: File[], caption: string) {
-    setUploading(true);
-    for (const f of files) {
-      const r = await uploadLabMedia(f);
-      if (r.ok) setMedia((prev) => [...prev, r.media]);
-    }
-    setUploading(false);
-    if (caption.trim() && !baseText.trim()) setBaseText(caption.trim());
     setStudio(null);
+    setAiErr(null);
+    setUploading(true);
+    try {
+      for (const f of files) {
+        const r = await uploadLabMedia(f);
+        if (r.ok) setMedia((prev) => [...prev, r.media]);
+        else setAiErr(`Falha ao enviar a mídia do Studio: ${r.error}`);
+      }
+      if (caption.trim() && !baseText.trim()) setBaseText(caption.trim());
+    } finally {
+      setUploading(false);
+    }
   }
 
   // Map lab media → the IgPreview's UploadState shape.
@@ -602,6 +609,11 @@ export function PostLab({
                 {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
               </button>
             </div>
+            {uploading && (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-foreground-muted">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Enviando mídia…
+              </p>
+            )}
             {/* Real Studio editors (image + video) — same as the Post Creator. */}
             <div className="mt-2 flex flex-wrap gap-2">
               <button
@@ -779,7 +791,6 @@ function ChannelPreview({
 }) {
   const len = text.length;
   const over = network.limit > 0 && len > network.limit;
-  const firstImage = media.find((m) => !m.isVideo);
   const handle =
     network.id === "instagram"
       ? brand.instagramHandle
@@ -800,8 +811,9 @@ function ChannelPreview({
       </div>
 
       <div className="space-y-2 p-3">
-        {/* media */}
-        {(network.image === "media" || firstImage) && media.length > 0 && network.image !== "none" && (
+        {/* media — image OR video; the gate must not depend on there being a
+            still image, or video-only posts render no preview here. */}
+        {network.image !== "none" && media.length > 0 && (
           <div className="overflow-hidden rounded-lg border border-border">
             {media[0].isVideo ? (
               <video src={media[0].url} className="max-h-56 w-full object-cover" muted />
