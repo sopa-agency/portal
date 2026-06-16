@@ -148,16 +148,22 @@ export async function labGeneratePostFromInsight(insight: string, type: PostType
   try {
     const project = await labGate();
     if (!insight.trim()) return { ok: false, error: "Empty insight." };
-    const prompt = `You are the ${project.agent.displayName} content lead. Read your brand playbook (docs/playbook.md) for voice.
+    const prompt = `You are the ${project.agent.displayName} content lead. Read your brand playbook (docs/playbook.md) for voice and what you actually post about.
 
-Based on the AI insight below about our channels/audience, write ONE strong ${type} post that ACTS on it — double down on what's working or address what's flagged. Make it concrete and on-brand, not a summary of the insight.
+The analytics insight below is INTERNAL strategy data — it is NOT the post. Use it ONLY to decide the angle, format, and topic of a brand-NEW, original post. Then write that fresh post as your audience would read it in their feed.
 
-INSIGHT:
+Hard rules:
+- Output a real, ready-to-publish ${type} post about the brand's actual subject matter — NOT about analytics.
+- Do NOT repeat, repost, or reference any past post. Do NOT say things like "post more of X", "repost the reel", "let's do another carousel" — that's strategy talk, not a post.
+- Do NOT mention metrics, numbers, reach, the algorithm, or the insight itself. Never quote or summarize the insight.
+- If the insight says a format/theme works, CREATE NEW content in that format/theme on a fresh idea — don't describe the strategy.
+
+INSIGHT (internal — do not echo):
 """
 ${insight}
 """
 
-Return ONLY the post text — no preamble, no quotes.`;
+Return ONLY the finished post text — no preamble, no quotes, no explanation.`;
     const out = await callOpenClaw(prompt, project.agent.id, { project, timeoutMs: LAB_AI_TIMEOUT_MS });
     if (!out) return { ok: false, error: "Agent returned empty." };
     return { ok: true, text: out.trim() };
