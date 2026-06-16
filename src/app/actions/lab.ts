@@ -1,6 +1,14 @@
 "use server";
 
-import { createPinataSignedUploadUrl } from "@/lib/social-publish";
+import { cookies } from "next/headers";
+import {
+  createPinataSignedUploadUrl,
+  publishSnapToHive,
+  publishCastToFarcaster,
+  publishToBinanceSquare,
+  publishToDiscord,
+} from "@/lib/social-publish";
+import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { buildGenerateCaptionPrompt, buildImproveCaptionPrompt } from "@/lib/post-creator-prompts";
 import type { PostType } from "@/app/actions/post-creator";
@@ -157,6 +165,43 @@ Return ONLY the post text — no preamble, no quotes.`;
     const out = await callOpenClaw(prompt, project.agent.id, { project, timeoutMs: LAB_AI_TIMEOUT_MS });
     if (!out) return { ok: false, error: "Agent returned empty." };
     return { ok: true, text: out.trim() };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Publish a single channel's text NOW via the existing publish primitives.
+ *  Session-gated (it posts publicly). X is intent-only (handled client-side);
+ *  Hive Mag / email need the richer long-form/builder flow (not wired here). */
+export async function labPublishNow(
+  network: string,
+  text: string,
+): Promise<{ ok: true; url?: string } | { ok: false; error: string }> {
+  try {
+    const project = await labGate();
+    const cookieStore = await cookies();
+    const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+    if (!session) return { ok: false, error: "Unauthorized." };
+    if (!text.trim()) return { ok: false, error: "Empty text." };
+
+    let r;
+    switch (network) {
+      case "hive":
+        r = await publishSnapToHive(text, project);
+        break;
+      case "farcaster":
+        r = await publishCastToFarcaster(text, project);
+        break;
+      case "binance":
+        r = await publishToBinanceSquare(text, project);
+        break;
+      case "discord":
+        r = await publishToDiscord(text, project);
+        break;
+      default:
+        return { ok: false, error: `"${network}" não suporta publicar-agora aqui ainda.` };
+    }
+    return r.ok ? { ok: true, url: r.url } : { ok: false, error: r.error };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

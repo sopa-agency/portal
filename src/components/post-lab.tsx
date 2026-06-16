@@ -10,6 +10,7 @@ import {
   labGenerateText,
   labGenerateVariants,
   labGeneratePostFromInsight,
+  labPublishNow,
   type LabInsight,
 } from "@/app/actions/lab";
 import { Lightbulb } from "lucide-react";
@@ -262,13 +263,31 @@ export function PostLab({
       }
     }
 
-    const others = activeNetworks
-      .filter((n) => n.id !== "instagram")
-      .map((n) => {
-        const t = effectiveText(n.id).trim();
-        const over = overrides[n.id] !== undefined ? " (texto próprio)" : "";
-        return `• ${n.label}${over} — planejado: ${t.slice(0, 50)}${t.length > 50 ? "…" : ""}`;
-      });
+    // Other networks: publish NOW via the real primitives (or X intent). Scheduling
+    // for non-IG isn't wired yet; long-form channels go through their own flow.
+    const others: string[] = [];
+    for (const n of activeNetworks.filter((nn) => nn.id !== "instagram")) {
+      const t = effectiveText(n.id).trim();
+      if (!t) {
+        others.push(`• ${n.label}: sem texto — pulado`);
+        continue;
+      }
+      if (n.id === "x") {
+        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(t)}`, "_blank");
+        others.push("• X: intent aberto numa aba — publique lá");
+        continue;
+      }
+      if (scheduleWhen) {
+        others.push(`• ${n.label}: agendamento ainda não wired (só IG agenda) — publique agora`);
+        continue;
+      }
+      if (n.id === "hive_mag" || n.id === "email") {
+        others.push(`• ${n.label}: long-form pronto — publicação pelo fluxo próprio (próxima fatia)`);
+        continue;
+      }
+      const pr = await labPublishNow(n.id, t);
+      others.push(pr.ok ? `• ${n.label}: ✓ publicado${pr.url ? ` — ${pr.url}` : ""}` : `• ${n.label}: erro — ${pr.error}`);
+    }
 
     const kind = mode === "single" ? "Single post (cross-post)" : "Campanha (conjunto coordenado)";
     setPlan(
@@ -276,7 +295,6 @@ export function PostLab({
         `${kind} · Quando: ${when}`,
         igLine,
         ...others,
-        others.length ? "\n(redes não-IG: wiring real é a próxima fatia — IG já cria/agenda de verdade)" : "",
       ]
         .filter(Boolean)
         .join("\n"),
