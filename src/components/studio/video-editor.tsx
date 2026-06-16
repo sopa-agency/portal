@@ -1919,7 +1919,13 @@ export function VideoEditor({
         seek(clockRef.current.base - (e.shiftKey ? 1 : 0.1));
       } else if (e.key === "ArrowRight") {
         seek(clockRef.current.base + (e.shiftKey ? 1 : 0.1));
-      } else if (e.key.toLowerCase() === "s" && !e.metaKey && !e.ctrlKey) {
+      } else if (
+        (e.key.toLowerCase() === "s" || e.key.toLowerCase() === "c") &&
+        !e.metaKey &&
+        !e.ctrlKey
+      ) {
+        // S or C — both split (cut/trim) the active clip at the playhead. C is
+        // the CapCut-style cut shortcut; guard against Cmd/Ctrl so copy still works.
         splitAtPlayhead();
       }
     };
@@ -2948,7 +2954,7 @@ export function VideoEditor({
             type="button"
             onClick={splitAtPlayhead}
             disabled={clips.length === 0 || !!exporting}
-            title="Split clip at playhead (S)"
+            title="Split clip at playhead (S or C)"
             className="rounded-lg border border-border p-2 text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-40"
           >
             <Scissors className="h-4 w-4" />
@@ -3438,7 +3444,7 @@ export function VideoEditor({
                   recenter
                 </button>
                 <span className="text-foreground-faint">
-                  drag on the preview to reposition · S = split
+                  drag on the preview to reposition · S / C = split
                 </span>
                 <span className="tabular-nums text-foreground-faint">
                   trim {fmt(selClip.in)} → {fmt(selClip.out)}
