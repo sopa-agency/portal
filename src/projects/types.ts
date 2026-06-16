@@ -138,6 +138,12 @@ export type ProjectConfig = {
    */
   about?: boolean;
   /**
+   * When true, the Lab nav item + /lab route are enabled — an experimental
+   * unified post/campaign composer (compose once → live multi-network preview
+   * → schedule). Doesn't touch the production Post Creator / Campaign Creator.
+   */
+  lab?: boolean;
+  /**
    * When true, the Org Chart nav item + /org-chart route are enabled — an
    * editable flowchart (SOPA-only). Absent = nav hidden + 404.
    */

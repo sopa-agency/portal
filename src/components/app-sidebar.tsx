@@ -4,12 +4,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
   { href: "/post-creator", label: "Post Creator", icon: SquarePen, requiresPostCreator: true },
+  { href: "/lab", label: "Lab", icon: FlaskConical, requiresLab: true },
   { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles },
   { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone },
   { href: "/userbase", label: "Userbase", icon: Users },
@@ -51,9 +52,10 @@ type AppSidebarProps = {
   aboutEnabled?: boolean;
   orgChartEnabled?: boolean;
   portfolioEnabled?: boolean;
+  labEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, labEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -90,6 +92,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
   const nav = NAV.filter((item) => {
     if (hiddenRoutes?.includes(item.href)) return false;
     if ("requiresPostCreator" in item && item.requiresPostCreator && !postCreatorEnabled) return false;
+    if ("requiresLab" in item && item.requiresLab && !labEnabled) return false;
     if ("requiresKanban" in item && item.requiresKanban && !kanbanEnabled) return false;
     if ("requiresAbout" in item && item.requiresAbout && !aboutEnabled) return false;
     if ("requiresOrgChart" in item && item.requiresOrgChart && !orgChartEnabled) return false;

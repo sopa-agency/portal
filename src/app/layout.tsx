@@ -94,6 +94,7 @@ export default async function RootLayout({
                 aboutEnabled={!!project.about}
                 orgChartEnabled={!!project.orgChart}
                 portfolioEnabled={!!project.portfolio}
+                labEnabled={!!project.lab}
               />
               <ThemeToggle />
               <PageInfo />
