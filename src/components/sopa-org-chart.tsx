@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { Plus, X, Trash2, Check, Loader2 } from "lucide-react";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { Plus, X, Trash2, Check, Loader2, ImagePlus } from "lucide-react";
 import {
   type BoardCard,
   type TeamMember,
@@ -9,6 +9,7 @@ import {
   updateCard,
   deleteCard,
 } from "@/app/actions/sopa-boards";
+import { uploadSopaLogo } from "@/lib/sopa-logo-upload";
 
 // Engagement tiers + the roles defined for the agency. Stored on each node so a
 // project rectangle shows its tier of work and who's on each role.
@@ -49,7 +50,13 @@ const KIND_STYLE: Record<NodeKind, { wrap: string; title: string; badge: string 
 
 export type Person = { username: string; avatarUrl: string; profileUrl: string };
 
-type CardPatch = { title?: string; body?: string; tier?: string | null; team?: TeamMember[] };
+type CardPatch = {
+  title?: string;
+  body?: string;
+  tier?: string | null;
+  team?: TeamMember[];
+  logoUrl?: string | null;
+};
 
 type Node = BoardCard & { children: Node[] };
 
@@ -218,6 +225,14 @@ function TreeNode({
               {style.badge}
             </span>
           )}
+          {node.logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={node.logoUrl}
+              alt=""
+              className="mx-auto mb-1.5 h-9 w-9 rounded-lg border border-border bg-surface object-contain p-0.5"
+            />
+          )}
           <div className="flex items-center justify-center gap-2">
             <span className={`truncate text-sm font-semibold ${style.title}`}>{node.title}</span>
             {showTier && (
@@ -237,26 +252,18 @@ function TreeNode({
             </span>
           )}
           {node.team.length > 0 && (
-            <div className="mt-2 space-y-1.5 border-t border-border pt-2 text-left">
+            <div className="mt-2 flex items-center justify-center -space-x-1.5 border-t border-border pt-2.5">
               {node.team.map((m) => {
                 const person = rosterMap.get(m.username.toLowerCase());
                 return (
-                  <div key={m.role} className="flex items-center justify-between gap-2">
-                    <span className="shrink-0 text-[9px] uppercase tracking-wide text-foreground-faint">
-                      {m.role}
-                    </span>
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={person?.avatarUrl ?? `https://images.hive.blog/u/${m.username}/avatar`}
-                        alt=""
-                        className="h-4 w-4 shrink-0 rounded-full object-cover"
-                      />
-                      <span className="truncate text-[11px] font-medium text-foreground">
-                        {m.username}
-                      </span>
-                    </span>
-                  </div>
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={m.role}
+                    src={person?.avatarUrl ?? `https://images.hive.blog/u/${m.username}/avatar`}
+                    alt={m.username}
+                    title={`${m.role}: @${m.username}`}
+                    className="h-6 w-6 rounded-full border-2 border-surface-elevated object-cover"
+                  />
                 );
               })}
             </div>
@@ -350,6 +357,10 @@ function CardDialog({
   const [title, setTitle] = useState(card.title);
   const [body, setBody] = useState(card.body ?? "");
   const [tier, setTier] = useState<string | null>(card.tier);
+  const [logoUrl, setLogoUrl] = useState<string | null>(card.logoUrl);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [team, setTeam] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
     card.team.forEach((t) => (m[t.role] = t.username));
@@ -367,7 +378,20 @@ function CardDialog({
     title !== card.title ||
     body !== (card.body ?? "") ||
     tier !== card.tier ||
+    logoUrl !== card.logoUrl ||
     JSON.stringify(teamArr) !== JSON.stringify(card.team);
+
+  async function onPickLogo(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadErr(null);
+    setUploading(true);
+    const res = await uploadSopaLogo(file);
+    setUploading(false);
+    if (res.ok) setLogoUrl(res.url);
+    else setUploadErr(res.error);
+  }
 
   return (
     <div
@@ -389,6 +413,40 @@ function CardDialog({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        <label className="mb-1 block text-xs font-medium text-foreground-muted">Logo</label>
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-elevated">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" />
+            ) : (
+              <ImagePlus className="h-5 w-5 text-foreground-faint" />
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <input ref={fileRef} type="file" accept="image/*" onChange={onPickLogo} className="hidden" />
+            <button
+              type="button"
+              disabled={uploading || busy}
+              onClick={() => fileRef.current?.click()}
+              className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+              {logoUrl ? "Trocar logo" : "Enviar logo"}
+            </button>
+            {logoUrl && (
+              <button
+                type="button"
+                onClick={() => setLogoUrl(null)}
+                className="w-fit text-[11px] text-foreground-muted hover:text-danger"
+              >
+                Remover
+              </button>
+            )}
+          </div>
+        </div>
+        {uploadErr && <p className="mb-3 text-xs text-danger">{uploadErr}</p>}
 
         <label className="mb-1 block text-xs font-medium text-foreground-muted">Nome</label>
         <input
@@ -510,6 +568,7 @@ function CardDialog({
                 body,
                 tier: kind === "client" ? tier : null,
                 team: teamArr,
+                logoUrl,
               })
             }
             className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-40"
