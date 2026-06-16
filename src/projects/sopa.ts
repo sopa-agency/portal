@@ -19,6 +19,7 @@ const sopa: ProjectConfig = {
     "illithics",
     "humbertoperes",
     "r4topunk",
+    "nogenta",
   ],
   theme: {
     // Warm amber — the umbrella sits visually apart from every brand below it.

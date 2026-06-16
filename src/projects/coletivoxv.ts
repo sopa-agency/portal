@@ -18,6 +18,7 @@ const coletivoxv: ProjectConfig = {
     "illithics",
     "humbertoperes",
     "r4topunk",
+    "nogenta",
   ],
   theme: {
     accentLight: "#6d28d9",
