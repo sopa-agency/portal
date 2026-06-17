@@ -14,10 +14,12 @@ import {
   Pencil,
   Loader2,
   HardDrive,
+  Newspaper,
   Layers,
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
+import { listZineBlogImages, type ZineBlogImage } from "@/app/actions/zine-blog";
 
 // ---------------------------------------------------------------------------
 // Zine Studio — page-based editor for printable zines (Reelflip-family brands).
@@ -99,10 +101,12 @@ export function ZineStudio({
   const [pageSize, setPageSize] = useState<PageSizeId>("A5");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<"edit" | "preview">("edit");
-  const [assetTab, setAssetTab] = useState<"upload" | "drive">("upload");
+  const [assetTab, setAssetTab] = useState<"upload" | "drive" | "blog">("upload");
   const [uploading, setUploading] = useState(false);
   const [drive, setDrive] = useState<DriveFile[] | null>(null);
   const [driveErr, setDriveErr] = useState<string | null>(null);
+  const [blog, setBlog] = useState<ZineBlogImage[] | null>(null);
+  const [blogErr, setBlogErr] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -214,6 +218,16 @@ export function ZineStudio({
       }
     } catch (err) {
       setDriveErr(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function loadBlog() {
+    setBlogErr(null);
+    const r = await listZineBlogImages();
+    if (r.ok) setBlog(r.images);
+    else {
+      setBlog([]);
+      setBlogErr(r.error);
     }
   }
 
@@ -332,6 +346,7 @@ export function ZineStudio({
               <div className="flex items-center rounded-lg border border-border p-0.5 text-xs">
                 <button type="button" onClick={() => setAssetTab("upload")} className={tab(assetTab === "upload")}>Upload</button>
                 <button type="button" onClick={() => { setAssetTab("drive"); if (!drive) void loadDrive(); }} className={tab(assetTab === "drive")}><HardDrive className="h-3.5 w-3.5" /> Drive</button>
+                <button type="button" onClick={() => { setAssetTab("blog"); if (!blog) void loadBlog(); }} className={tab(assetTab === "blog")}><Newspaper className="h-3.5 w-3.5" /> Blog</button>
               </div>
               {assetTab === "upload" ? (
                 <div>
@@ -345,9 +360,9 @@ export function ZineStudio({
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
                     {uploading ? "Enviando…" : "Enviar imagens"}
                   </button>
-                  <p className="mt-2 text-[10px] text-foreground-faint">Imagem do SkateHive entra na próxima fatia (a fonte pronta hoje é vídeo).</p>
+                  <p className="mt-2 text-[10px] text-foreground-faint">Importe imagens dos posts do blog na aba <b>Blog</b> (SkateHive / Gnars).</p>
                 </div>
-              ) : (
+              ) : assetTab === "drive" ? (
                 <div>
                   {driveErr ? (
                     <p className="text-[11px] text-danger">{driveErr}</p>
@@ -367,6 +382,31 @@ export function ZineStudio({
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={`/api/brain/drive/file?id=${encodeURIComponent(f.id)}&mode=raw`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {blogErr ? (
+                    <p className="text-[11px] text-danger">{blogErr}</p>
+                  ) : blog === null ? (
+                    <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando posts…</p>
+                  ) : blog.length === 0 ? (
+                    <p className="text-[11px] text-foreground-faint">Nenhuma imagem encontrada nos posts do blog.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {blog.map((img, i) => (
+                        <button
+                          key={`${img.url}-${i}`}
+                          type="button"
+                          onClick={() => addImage(img.url)}
+                          className="aspect-square overflow-hidden rounded-md border border-border hover:border-accent-border"
+                          title={img.title}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={img.url} alt="" className="h-full w-full object-cover" loading="lazy" />
                         </button>
                       ))}
                     </div>
