@@ -167,10 +167,11 @@ export function ZineStudio({
   const [active, setActive] = useState(0);
   const [pageSize, setPageSize] = useState<PageSizeId>("A5");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [view, setView] = useState<"edit" | "preview">("edit");
+  const [view, setView] = useState<"edit" | "preview" | "print">("edit");
   const [grid, setGrid] = useState(false); // visual grid + snap-to-grid on drag/resize
   const [cropMarks, setCropMarks] = useState(true); // crop/fold helper marks on print
   const [filterId, setFilterId] = useState("color"); // overall B&W / duotone filter
+  const [printOpen, setPrintOpen] = useState(false); // mini-zine export summary modal
   const [assetTab, setAssetTab] = useState<"upload" | "drive" | "blog">("upload");
   const [uploading, setUploading] = useState(false);
   const [drive, setDrive] = useState<DriveFile[] | null>(null);
@@ -518,7 +519,18 @@ export function ZineStudio({
           </div>
           <select
             value={pageSize}
-            onChange={(e) => setPageSize(e.target.value as PageSizeId)}
+            onChange={(e) => {
+              const id = e.target.value as PageSizeId;
+              setPageSize(id);
+              // A mini-zine is always 8 pages — pad up when switching into it.
+              if (id === "mini8") {
+                setPages((prev) =>
+                  prev.length >= MINI8_PAGES
+                    ? prev
+                    : [...prev, ...Array.from({ length: MINI8_PAGES - prev.length }, () => blankPage())],
+                );
+              }
+            }}
             className="rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground"
           >
             {PAGE_SIZES.map((s) => (
@@ -529,8 +541,13 @@ export function ZineStudio({
             <button type="button" onClick={() => setView("edit")} className={tab(view === "edit")}>
               <Pencil className="h-3.5 w-3.5" /> Editar
             </button>
+            {isMini && (
+              <button type="button" onClick={() => { setSelectedId(null); setView("print"); }} className={tab(view === "print")}>
+                <Grid3x3 className="h-3.5 w-3.5" /> Layout
+              </button>
+            )}
             <button type="button" onClick={() => { setSelectedId(null); setView("preview"); }} className={tab(view === "preview")}>
-              <Eye className="h-3.5 w-3.5" /> Preview
+              <Eye className="h-3.5 w-3.5" /> {isMini ? "Livreto" : "Preview"}
             </button>
           </div>
           <button
@@ -600,7 +617,7 @@ export function ZineStudio({
           </div>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => (isMini ? setPrintOpen(true) : window.print())}
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90"
           >
             <Printer className="h-3.5 w-3.5" /> Imprimir / PDF
@@ -608,8 +625,19 @@ export function ZineStudio({
         </div>
       </div>
 
+      {isMini && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-[11px] font-medium text-accent">
+          <span className="font-bold">Mini-Zine</span>
+          {["8 páginas", "1 folha A4", "1 corte central", "dobra → livreto", "final ≈ A7 (74×105mm)"].map((s) => (
+            <span key={s} className="flex items-center gap-2 before:text-accent/50 before:content-['•']">{s}</span>
+          ))}
+        </div>
+      )}
+
       {view === "preview" ? (
         <FlipbookPreview pages={pages} filter={filterCss} />
+      ) : view === "print" ? (
+        <MiniZinePrintLayout pages={pages} cropMarks={cropMarks} filter={filterCss} />
       ) : (
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[150px_1fr_230px]">
         {/* Pages rail */}
@@ -628,7 +656,7 @@ export function ZineStudio({
 
         {/* Canvas */}
         <div
-          className={`relative flex min-h-0 items-center justify-center overflow-auto rounded-xl border bg-surface-elevated/40 p-4 transition-colors ${dragOver ? "border-accent ring-2 ring-accent/40" : "border-border"}`}
+          className={`relative flex min-h-0 items-center justify-center overflow-auto rounded-xl border bg-surface-elevated/40 transition-colors ${isMini ? "p-2" : "p-4"} ${dragOver ? "border-accent ring-2 ring-accent/40" : "border-border"}`}
           onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
           onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
           onDrop={onDropFiles}
@@ -638,12 +666,40 @@ export function ZineStudio({
               Solte a imagem para adicionar à página
             </div>
           )}
+          {/* Empty-state explainer (mini, nothing placed yet) */}
+          {isMini && pages.every((p) => p.elements.length === 0) && (
+            <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
+              <div className="rounded-2xl border border-dashed border-accent-border bg-surface/90 px-5 py-4 text-center backdrop-blur">
+                <p className="text-sm font-semibold text-foreground">Mini-Zine de 8 páginas</p>
+                <div className="mt-2 flex flex-col items-center gap-0.5 text-[11px] text-foreground-muted">
+                  <span>8 páginas</span>
+                  <span className="text-accent">↓</span>
+                  <span>1 folha A4</span>
+                  <span className="text-accent">↓</span>
+                  <span>1 corte central</span>
+                  <span className="text-accent">↓</span>
+                  <span>dobre</span>
+                  <span className="text-accent">↓</span>
+                  <span className="font-medium text-foreground">livreto pronto</span>
+                </div>
+                <p className="mt-3 text-[10px] text-foreground-faint">Arraste imagens ou use Upload / Drive / Blog. Pág 1 = capa.</p>
+              </div>
+            </div>
+          )}
           <div
             ref={canvasRef}
             onPointerDown={() => setSelectedId(null)}
             className="relative aspect-[1/1.414] max-h-full w-auto shadow-lg"
             style={{ height: "100%", backgroundColor: page?.bg ?? "#fff", containerType: "inline-size", filter: filterCss || undefined }}
           >
+            {/* Safe-area guide (mini, edit only) */}
+            {isMini && view === "edit" && (
+              <div
+                className="pointer-events-none absolute z-10 rounded-sm border border-dashed border-rose-400/50"
+                style={{ inset: "7%" }}
+                title="Área segura — evite texto importante fora dela"
+              />
+            )}
             {page?.elements
               .slice()
               .sort((a, b) => a.z - b.z)
@@ -771,6 +827,47 @@ export function ZineStudio({
       )}
 
       {/* Print-only layout — each page at its real size, page-break between. */}
+      {/* Mini-zine export summary */}
+      {printOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPrintOpen(false)}>
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-foreground">Resumo de impressão</h2>
+            <dl className="mt-3 space-y-1.5 text-sm">
+              {[
+                ["Formato", "Mini-Zine (8 páginas)"],
+                ["Páginas", String(pages.length)],
+                ["Folhas", "1 · A4 paisagem"],
+                ["Cortes necessários", "1 · central"],
+                ["Frente e verso", "Não — frente única"],
+                ["Filtro", filters.find((f) => f.id === filterId)?.label ?? "Cor"],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-4">
+                  <dt className="text-foreground-muted">{k}</dt>
+                  <dd className="font-medium text-foreground">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => { setPrintOpen(false); setTimeout(() => window.print(), 60); }}
+                className="flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90"
+              >
+                <Printer className="h-4 w-4" /> Imprimir / Salvar PDF
+              </button>
+              <button
+                type="button"
+                onClick={() => { setView("print"); setPrintOpen(false); }}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"
+              >
+                <Grid3x3 className="h-4 w-4" /> Ver layout de impressão
+              </button>
+              <p className="text-center text-[10px] text-foreground-faint">Exportar PNG por página chega numa próxima fatia.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="zine-print" style={{ filter: filterCss || undefined }}>
         {sizeMeta.kind === "mini8" ? (
           // One A4-landscape sheet, 8 pages imposed 4×2 (top row rotated 180°).
@@ -1078,6 +1175,60 @@ function MiniZineGuides() {
       <span style={{ position: "absolute", left: "50%", top: "calc(50% - 18px)", transform: "translateX(-50%)", fontSize: 10, color: "#e11d48", fontWeight: 700, letterSpacing: 1 }}>
         ✂ CORTAR
       </span>
+    </div>
+  );
+}
+
+// On-screen "Print Layout" for the mini-zine: the imposed A4-landscape sheet
+// exactly as it prints, with page-number badges, Cover/Back labels, fold lines,
+// the center cut, and fold-direction arrows. Read-only.
+function MiniZinePrintLayout({ pages, cropMarks, filter }: { pages: Page[]; cropMarks: boolean; filter?: string }) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-auto rounded-xl border border-border bg-surface-elevated/40 p-4">
+      <p className="max-w-2xl text-center text-xs text-foreground-muted">
+        Folha A4 paisagem · frente única. Dobre nas linhas tracejadas, corte a linha vermelha central e dobre em livreto — capa fica por fora.
+      </p>
+      <div className="relative aspect-[297/210] w-full max-w-5xl overflow-hidden rounded-md bg-white shadow-lg">
+        <div className="absolute inset-0 grid grid-cols-4 grid-rows-2">
+          {MINI8_ORDER.map((pageNum, cell) => {
+            const p = pages[pageNum - 1];
+            const label = miniPageLabel(pageNum);
+            return (
+              <div key={cell} className="relative overflow-hidden border border-black/10" style={{ containerType: "inline-size", backgroundColor: p?.bg ?? "#ffffff" }}>
+                {p && <PageFace page={p} filter={filter} />}
+                <span className="absolute left-1 top-1 z-10 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {pageNum}{label && <span className="text-accent">{label}</span>}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {cropMarks && <MiniLayoutGuides />}
+      </div>
+    </div>
+  );
+}
+
+// Fold/cut overlay for the on-screen Print Layout — dashed creases, the red
+// center cut, and arrows hinting the fold direction.
+function MiniLayoutGuides() {
+  const fold = "1px dashed rgba(0,0,0,0.45)";
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20">
+      {[25, 50, 75].map((x) => (
+        <span key={x} style={{ position: "absolute", top: 0, bottom: 0, left: `${x}%`, borderLeft: fold }} />
+      ))}
+      <span style={{ position: "absolute", left: 0, right: 0, top: "50%", borderTop: fold }} />
+      {/* center cut */}
+      <span style={{ position: "absolute", left: "25%", width: "50%", top: "50%", borderTop: "2px dashed #e11d48" }} />
+      <span style={{ position: "absolute", left: "50%", top: "calc(50% - 18px)", transform: "translateX(-50%)", fontSize: 11, fontWeight: 800, letterSpacing: 1, color: "#e11d48" }}>
+        ✂ CORTAR
+      </span>
+      {/* fold-direction hints on the vertical creases */}
+      {[25, 50, 75].map((x) => (
+        <span key={`a${x}`} style={{ position: "absolute", left: `${x}%`, top: 4, transform: "translateX(-50%)", fontSize: 11, color: "rgba(0,0,0,0.5)" }}>↔</span>
+      ))}
+      <span style={{ position: "absolute", left: 4, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: "rgba(0,0,0,0.5)" }}>↕</span>
     </div>
   );
 }
