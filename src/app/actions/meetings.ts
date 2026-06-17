@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getActiveProject } from "@/projects/index";
 import type { ProjectConfig } from "@/projects/types";
+import { meetingsCalendarId, meetingsTimeZone, upsertCalendarEvent, deleteCalendarEvent } from "@/lib/google-calendar";
 
 export type MeetingDTO = {
   id: string;
@@ -95,6 +96,30 @@ async function sendInvites(
   return { sent, error };
 }
 
+// Mirror the meeting onto the primary Google Calendar (if configured). Returns
+// the (new or existing) Google event id, or an error string — never throws so a
+// calendar hiccup can't block saving the meeting.
+async function pushToCalendar(
+  project: ProjectConfig,
+  m: { id: string; title: string; startsAt: Date; endsAt: Date; notes: string | null; weekly: boolean; googleEventId: string | null },
+): Promise<{ eventId?: string; error?: string }> {
+  const calId = meetingsCalendarId(project.agent.gatewayEnvPrefix);
+  if (!calId) return {}; // feature off until a calendar is configured
+  try {
+    const res = await upsertCalendarEvent(calId, m.googleEventId, {
+      summary: m.title,
+      description: m.notes,
+      startISO: m.startsAt.toISOString(),
+      endISO: m.endsAt.toISOString(),
+      weekly: m.weekly,
+      timeZone: meetingsTimeZone(project.agent.gatewayEnvPrefix),
+    });
+    return "error" in res ? { error: res.error } : { eventId: res.eventId };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function listMeetings(): Promise<{ ok: true; meetings: MeetingDTO[] } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
@@ -113,12 +138,12 @@ export async function createMeeting(input: {
   color?: string;
   weekly?: boolean;
   attendees?: string[];
-}): Promise<{ ok: true; meeting: MeetingDTO; invited?: number; inviteError?: string } | { ok: false; error: string }> {
+}): Promise<{ ok: true; meeting: MeetingDTO; invited?: number; inviteError?: string; calendarError?: string } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
   if (!input.title.trim()) return { ok: false, error: "Título obrigatório." };
   const attendees = (input.attendees ?? []).map((a) => a.trim().toLowerCase()).filter((a) => /@/.test(a));
-  const m = await prisma.meeting.create({
+  let m = await prisma.meeting.create({
     data: {
       projectSlug: g.project.slug,
       title: input.title.trim().slice(0, 200),
@@ -132,20 +157,22 @@ export async function createMeeting(input: {
     },
   });
   const inv = await sendInvites(g.project, m, attendees);
-  return { ok: true, meeting: toDTO(m), invited: inv.sent, inviteError: inv.error };
+  const cal = await pushToCalendar(g.project, m);
+  if (cal.eventId) m = await prisma.meeting.update({ where: { id: m.id }, data: { googleEventId: cal.eventId } });
+  return { ok: true, meeting: toDTO(m), invited: inv.sent, inviteError: inv.error, calendarError: cal.error };
 }
 
 export async function updateMeeting(
   id: string,
   patch: { title?: string; startsAt?: string; endsAt?: string; notes?: string | null; color?: string | null; weekly?: boolean; attendees?: string[] },
   resendInvites?: boolean,
-): Promise<{ ok: true; meeting: MeetingDTO; invited?: number; inviteError?: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; meeting: MeetingDTO; invited?: number; inviteError?: string; calendarError?: string } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
   const existing = await prisma.meeting.findUnique({ where: { id } });
   if (!existing || existing.projectSlug !== g.project.slug) return { ok: false, error: "Reunião não encontrada." };
   const attendees = patch.attendees?.map((a) => a.trim().toLowerCase()).filter((a) => /@/.test(a));
-  const m = await prisma.meeting.update({
+  let m = await prisma.meeting.update({
     where: { id },
     data: {
       ...(patch.title !== undefined ? { title: patch.title.trim().slice(0, 200) } : {}),
@@ -157,11 +184,13 @@ export async function updateMeeting(
       ...(attendees !== undefined ? { attendees } : {}),
     },
   });
+  const cal = await pushToCalendar(g.project, m);
+  if (cal.eventId && cal.eventId !== m.googleEventId) m = await prisma.meeting.update({ where: { id: m.id }, data: { googleEventId: cal.eventId } });
   if (resendInvites && m.attendees.length) {
     const inv = await sendInvites(g.project, m, m.attendees);
-    return { ok: true, meeting: toDTO(m), invited: inv.sent, inviteError: inv.error };
+    return { ok: true, meeting: toDTO(m), invited: inv.sent, inviteError: inv.error, calendarError: cal.error };
   }
-  return { ok: true, meeting: toDTO(m) };
+  return { ok: true, meeting: toDTO(m), calendarError: cal.error };
 }
 
 export async function deleteMeeting(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -169,6 +198,8 @@ export async function deleteMeeting(id: string): Promise<{ ok: true } | { ok: fa
   if (!g.ok) return g;
   const existing = await prisma.meeting.findUnique({ where: { id } });
   if (!existing || existing.projectSlug !== g.project.slug) return { ok: false, error: "Reunião não encontrada." };
+  const calId = meetingsCalendarId(g.project.agent.gatewayEnvPrefix);
+  if (existing.googleEventId && calId) await deleteCalendarEvent(calId, existing.googleEventId).catch(() => {});
   await prisma.meeting.delete({ where: { id } });
   return { ok: true };
 }
