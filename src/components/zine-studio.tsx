@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   ImagePlus,
   Type,
@@ -258,6 +258,7 @@ export function ZineStudio({
   function addText() {
     addElement({ kind: "text", x: 12, y: 12, w: 60, h: 0, text: "Texto", fontSize: 6, color: "#000000", align: "left", bold: false });
   }
+  const selectPage = useCallback((i: number) => { setActive(i); setSelectedId(null); }, []);
 
   // --- drag + resize ---------------------------------------------------------
   function onElPointerDown(e: React.PointerEvent, el: Element, mode: "move" | "resize") {
@@ -270,8 +271,14 @@ export function ZineStudio({
     const startY = e.clientY;
     const start = { x: el.x, y: el.y, w: el.w, h: el.h };
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    function onMove(ev: PointerEvent) {
-      // Snap to the grid step when the grid is on (hold Alt/⌥ to move freely).
+    // Coalesce pointer moves to one state update per animation frame — pointer
+    // events fire far faster than 60fps and each one re-renders the page.
+    let raf = 0;
+    let last: PointerEvent | null = null;
+    const apply = () => {
+      raf = 0;
+      const ev = last;
+      if (!ev) return;
       const snap = (v: number) => (grid && !ev.altKey ? Math.round(v / GRID) * GRID : v);
       const dxPct = ((ev.clientX - startX) / rect!.width) * 100;
       const dyPct = ((ev.clientY - startY) / rect!.height) * 100;
@@ -286,8 +293,13 @@ export function ZineStudio({
           ...(el.kind === "image" ? { h: Math.max(5, Math.min(100, snap(start.h + dyPct))) } : {}),
         });
       }
+    };
+    function onMove(ev: PointerEvent) {
+      last = ev;
+      if (!raf) raf = requestAnimationFrame(apply);
     }
     function onUp() {
+      if (raf) cancelAnimationFrame(raf);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     }
@@ -534,18 +546,7 @@ export function ZineStudio({
         {/* Pages rail */}
         <div className="flex min-h-0 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-surface p-2">
           {pages.map((p, i) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => { setActive(i); setSelectedId(null); }}
-              className={`relative aspect-[1/1.414] w-full overflow-hidden rounded-md border text-left ${i === active ? "border-accent ring-1 ring-accent" : "border-border"}`}
-              style={{ backgroundColor: p.bg }}
-            >
-              <span className="absolute left-1 top-1 z-10 rounded bg-black/60 px-1 text-[9px] font-bold text-white">{i + 1}</span>
-              {p.elements.map((el) => (
-                <ThumbEl key={el.id} el={el} />
-              ))}
-            </button>
+            <PageRailButton key={p.id} page={p} index={i} isActive={i === active} onSelect={selectPage} />
           ))}
           <button
             type="button"
@@ -825,6 +826,34 @@ function ElementView({
   );
 }
 
+// Memoized so a drag (which only mutates the active page) re-renders just that
+// page's thumbnail, not the whole rail.
+const PageRailButton = memo(function PageRailButton({
+  page,
+  index,
+  isActive,
+  onSelect,
+}: {
+  page: Page;
+  index: number;
+  isActive: boolean;
+  onSelect: (i: number) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(index)}
+      className={`relative aspect-[1/1.414] w-full overflow-hidden rounded-md border text-left ${isActive ? "border-accent ring-1 ring-accent" : "border-border"}`}
+      style={{ backgroundColor: page.bg }}
+    >
+      <span className="absolute left-1 top-1 z-10 rounded bg-black/60 px-1 text-[9px] font-bold text-white">{index + 1}</span>
+      {page.elements.map((el) => (
+        <ThumbEl key={el.id} el={el} />
+      ))}
+    </button>
+  );
+});
+
 function ThumbEl({ el }: { el: Element }) {
   const base: React.CSSProperties = {
     position: "absolute",
@@ -1002,11 +1031,25 @@ function FlipbookPreview({ pages }: { pages: Page[] }) {
     if (dir === "prev" && cur <= 0) return;
     setFlip({ dir, animate: false });
   };
+  // Commit the page change. Idempotent (the functional updaters no-op once flip
+  // is cleared) so the transitionend + the safety timeout can't double-advance.
   const onEnd = () => {
-    if (!flip) return;
-    setIdx((i) => (flip.dir === "next" ? i + 1 : i - 1));
-    setFlip(null);
+    setFlip((f) => {
+      if (!f) return null;
+      setIdx((i) => (f.dir === "next" ? i + 1 : i - 1));
+      return null;
+    });
   };
+
+  // Safety net: if transitionend never fires (interrupted paint, no layout
+  // change, etc.) commit anyway so the flipbook never gets stuck mid-turn.
+  useEffect(() => {
+    if (flip?.animate) {
+      const t = setTimeout(onEnd, 820);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flip]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1039,8 +1082,12 @@ function FlipbookPreview({ pages }: { pages: Page[] }) {
                 transformOrigin: "left center",
                 transform: `rotateY(${rot}deg)`,
                 transition: flip.animate ? "transform 0.7s cubic-bezier(0.4,0.1,0.3,1)" : "none",
+                willChange: "transform",
               }}
-              onTransitionEnd={onEnd}
+              onTransitionEnd={(e) => {
+                // ignore transitions bubbling up from page contents
+                if (e.target === e.currentTarget && e.propertyName === "transform") onEnd();
+              }}
             >
               <div className="absolute inset-0 overflow-hidden rounded-md" style={{ backfaceVisibility: "hidden" }}>
                 <PageFace page={pages[leaf]} />
