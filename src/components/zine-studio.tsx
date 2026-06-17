@@ -92,6 +92,7 @@ export function ZineStudio({
   const [uploading, setUploading] = useState(false);
   const [drive, setDrive] = useState<DriveFile[] | null>(null);
   const [driveErr, setDriveErr] = useState<string | null>(null);
+  const [driveStack, setDriveStack] = useState<string[]>([]); // Drive folder drill-in
   const [blog, setBlog] = useState<ZineBlogImage[] | null>(null);
   const [blogErr, setBlogErr] = useState<string | null>(null);
   const [blogAuthor, setBlogAuthor] = useState<string | null>(null); // null = project default feed
@@ -415,21 +416,35 @@ export function ZineStudio({
     setUploading(false);
   }
 
-  async function loadDrive() {
+  async function loadDrive(folderId?: string) {
     setDriveErr(null);
+    setDrive(null);
     try {
-      const res = await fetch("/api/brain/drive/list", { cache: "no-store" });
+      const res = await fetch(`/api/brain/drive/list${folderId ? `?folderId=${encodeURIComponent(folderId)}` : ""}`, { cache: "no-store" });
       const data = (await res.json()) as
         | { ok: true; files: DriveFile[] }
         | { ok: false; error?: string; reason?: string };
-      if (data.ok) setDrive(data.files.filter((f) => f.mimeType.startsWith("image/")));
+      // Keep folders (for drill-in) + images; drop other file types.
+      if (data.ok) setDrive(data.files.filter((f) => f.mimeType === "application/vnd.google-apps.folder" || f.mimeType.startsWith("image/")));
       else {
         setDrive([]);
         setDriveErr(data.error ?? data.reason ?? "Drive não conectado");
       }
     } catch (err) {
+      setDrive([]);
       setDriveErr(err instanceof Error ? err.message : String(err));
     }
+  }
+  function openDriveFolder(id: string) {
+    setDriveStack((prev) => [...prev, id]);
+    void loadDrive(id);
+  }
+  function driveBack() {
+    setDriveStack((prev) => {
+      const next = prev.slice(0, -1);
+      void loadDrive(next[next.length - 1]);
+      return next;
+    });
   }
 
   async function loadBlog(author: string | null) {
@@ -873,27 +888,45 @@ export function ZineStudio({
                   <p className="mt-2 text-[10px] text-foreground-faint">Importe imagens dos posts do blog na aba <b>Blog</b> (SkateHive / Gnars).</p>
                 </div>
               ) : assetTab === "drive" ? (
-                <div>
+                <div className="space-y-1.5">
+                  {driveStack.length > 0 && (
+                    <button type="button" onClick={driveBack} className="flex items-center gap-1 text-[11px] text-foreground-muted hover:text-accent">
+                      <ChevronLeft className="h-3.5 w-3.5" /> Voltar
+                    </button>
+                  )}
                   {driveErr ? (
                     <p className="text-[11px] text-danger">{driveErr}</p>
                   ) : drive === null ? (
                     <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…</p>
                   ) : drive.length === 0 ? (
-                    <p className="text-[11px] text-foreground-faint">Nenhuma imagem na raiz do Drive.</p>
+                    <p className="text-[11px] text-foreground-faint">Pasta vazia (sem imagens ou subpastas).</p>
                   ) : (
                     <div className="grid grid-cols-2 gap-1.5">
-                      {drive.map((f) => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => addImage(`/api/brain/drive/file?id=${encodeURIComponent(f.id)}&mode=raw`)}
-                          className="aspect-square overflow-hidden rounded-md border border-border hover:border-accent-border"
-                          title={f.name}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={`/api/brain/drive/file?id=${encodeURIComponent(f.id)}&mode=raw`} alt="" className="h-full w-full object-cover" loading="lazy" />
-                        </button>
-                      ))}
+                      {drive.map((f) =>
+                        f.mimeType === "application/vnd.google-apps.folder" ? (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => openDriveFolder(f.id)}
+                            className="flex aspect-square flex-col items-center justify-center gap-1 rounded-md border border-border p-1 text-center hover:border-accent-border hover:text-accent"
+                            title={f.name}
+                          >
+                            <FolderOpen className="h-6 w-6 text-foreground-muted" />
+                            <span className="line-clamp-2 text-[10px] text-foreground-muted">{f.name}</span>
+                          </button>
+                        ) : (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => addImage(`/api/brain/drive/file?id=${encodeURIComponent(f.id)}&mode=raw`)}
+                            className="aspect-square overflow-hidden rounded-md border border-border hover:border-accent-border"
+                            title={f.name}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/api/brain/drive/file?id=${encodeURIComponent(f.id)}&mode=raw`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                          </button>
+                        ),
+                      )}
                     </div>
                   )}
                 </div>
