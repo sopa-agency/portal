@@ -557,17 +557,15 @@ export function ZineStudio({
               ))}
             </select>
           )}
-          {/* Book mode: Edit/Preview. Mini-Zine has a single editable Layout. */}
-          {!isMini && (
-            <div className="flex items-center rounded-lg border border-border p-0.5">
-              <button type="button" onClick={() => setView("edit")} className={tab(view === "edit")}>
-                <Pencil className="h-3.5 w-3.5" /> Editar
-              </button>
-              <button type="button" onClick={() => { setSelectedId(null); setView("preview"); }} className={tab(view === "preview")}>
-                <Eye className="h-3.5 w-3.5" /> Preview
-              </button>
-            </div>
-          )}
+          {/* Editar = layout/canvas · Preview = folded booklet (both modes). */}
+          <div className="flex items-center rounded-lg border border-border p-0.5">
+            <button type="button" onClick={() => setView("edit")} className={tab(view === "edit")}>
+              <Pencil className="h-3.5 w-3.5" /> Editar
+            </button>
+            <button type="button" onClick={() => { setSelectedId(null); setView("preview"); }} className={tab(view === "preview")}>
+              <Eye className="h-3.5 w-3.5" /> {isMini ? "Livreto" : "Preview"}
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setGrid((g) => !g)}
@@ -663,7 +661,7 @@ export function ZineStudio({
         </div>
       )}
 
-      {!isMini && view === "preview" ? (
+      {view === "preview" ? (
         <FlipbookPreview pages={pages} filter={filterCss} />
       ) : (
       <div className={`grid min-h-0 flex-1 grid-cols-1 gap-3 ${isMini ? "lg:grid-cols-[1fr_240px]" : "lg:grid-cols-[150px_1fr_230px]"}`}>
