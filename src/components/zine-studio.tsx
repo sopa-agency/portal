@@ -72,6 +72,32 @@ const ZINE_FONTS: { label: string; value: string }[] = [
 type Page = { id: string; bg: string; elements: Element[] };
 type Draft = { id: string; name: string; savedAt: number; pageSize: PageSizeId; pages: Page[] };
 
+// Hue (deg) of a hex color — used to tint the duotone filter with the brand accent.
+function hexHue(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 90;
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (d === 0) return 0;
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h *= 60;
+  return h < 0 ? h + 360 : h;
+}
+
+// Overall print filters (apply to every page). 3 B&W looks + a brand-accent
+// duotone, done purely with CSS filters so screen + print + export all match.
+function buildFilters(accent: string): { id: string; label: string; css: string }[] {
+  const hr = Math.round(hexHue(accent) - 40); // sepia output sits ~40° → rotate to the accent
+  return [
+    { id: "color", label: "Cor", css: "" },
+    { id: "bw", label: "P&B", css: "grayscale(1)" },
+    { id: "bwhc", label: "P&B contraste", css: "grayscale(1) contrast(1.65) brightness(1.05)" },
+    { id: "xerox", label: "P&B xerox", css: "grayscale(1) contrast(4.5) brightness(1.25)" },
+    { id: "duo", label: "P&B + 1 cor", css: `grayscale(1) sepia(1) saturate(4.5) hue-rotate(${hr}deg) contrast(1.1)` },
+  ];
+}
+
 // Grid step in % of the page (20 cols/rows). Center (50%) and edges fall on it.
 const GRID = 5;
 
@@ -87,8 +113,15 @@ const PAGE_SIZES = [
 type PageSizeId = (typeof PAGE_SIZES)[number]["id"];
 
 // Mini-zine imposition: cell index (row-major, 4 cols × 2 rows) → 1-based page.
-// Top row (cells 0-3) prints rotated 180°. Front cover (1) lands bottom-right.
-const MINI8_ORDER = [5, 4, 3, 2, 6, 7, 8, 1] as const;
+// Per the chosen fold method: top row 8,1,2,3 · bottom row 7,6,5,4 · no rotation.
+const MINI8_ORDER = [8, 1, 2, 3, 7, 6, 5, 4] as const;
+const MINI8_PAGES = 8;
+// Label for a 1-based mini-zine page (cover / back cover / plain number).
+function miniPageLabel(n: number): string | null {
+  if (n === 1) return "Capa";
+  if (n === MINI8_PAGES) return "Contracapa";
+  return null;
+}
 
 function uid() {
   return `${Date.now().toString(36)}${Math.floor(performance.now()).toString(36)}${(globalThis.crypto?.getRandomValues?.(new Uint32Array(1))?.[0] ?? 0).toString(36)}`;
@@ -137,6 +170,7 @@ export function ZineStudio({
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [grid, setGrid] = useState(false); // visual grid + snap-to-grid on drag/resize
   const [cropMarks, setCropMarks] = useState(true); // crop/fold helper marks on print
+  const [filterId, setFilterId] = useState("color"); // overall B&W / duotone filter
   const [assetTab, setAssetTab] = useState<"upload" | "drive" | "blog">("upload");
   const [uploading, setUploading] = useState(false);
   const [drive, setDrive] = useState<DriveFile[] | null>(null);
@@ -252,8 +286,10 @@ export function ZineStudio({
     mutatePage((p) => ({ ...p, elements: [...p.elements, { ...el, id, z }] }));
     setSelectedId(id);
   }
-  function addImage(src: string) {
-    addElement({ kind: "image", x: 10, y: 10, w: 60, h: 40, src, fit: "cover" });
+  function addImage(src: string, at?: { x: number; y: number }) {
+    const x = at ? Math.max(0, Math.min(80, at.x)) : 10;
+    const y = at ? Math.max(0, Math.min(80, at.y)) : 10;
+    addElement({ kind: "image", x, y, w: 60, h: 40, src, fit: "cover" });
   }
   function addText() {
     addElement({ kind: "text", x: 12, y: 12, w: 60, h: 0, text: "Texto", fontSize: 6, color: "#000000", align: "left", bold: false });
@@ -315,6 +351,26 @@ export function ZineStudio({
     for (const f of files) {
       const r = await uploadZineImage(f);
       if (r.ok) addImage(r.url);
+    }
+    setUploading(false);
+  }
+
+  // Drag & drop image files straight onto the page (placed at the drop point).
+  const [dragOver, setDragOver] = useState(false);
+  async function onDropFiles(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    if (view !== "edit") return;
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    if (!files.length) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const at = rect
+      ? { x: ((e.clientX - rect.left) / rect.width) * 100 - 30, y: ((e.clientY - rect.top) / rect.height) * 100 - 20 }
+      : undefined;
+    setUploading(true);
+    for (const f of files) {
+      const r = await uploadZineImage(f);
+      if (r.ok) addImage(r.url, at);
     }
     setUploading(false);
   }
@@ -408,6 +464,9 @@ export function ZineStudio({
   }, [draftsOpen]);
 
   const sizeMeta = PAGE_SIZES.find((s) => s.id === pageSize)!;
+  const isMini = sizeMeta.kind === "mini8";
+  const filters = buildFilters(accent);
+  const filterCss = filters.find((f) => f.id === filterId)?.css ?? "";
 
   return (
     <div className="flex h-[calc(100dvh-3rem)] flex-col gap-3 md:h-[calc(100dvh-4rem)]">
@@ -425,6 +484,16 @@ export function ZineStudio({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={filterId}
+            onChange={(e) => setFilterId(e.target.value)}
+            title="Filtro geral (P&B / duotone) aplicado a toda a zine"
+            className="rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground"
+          >
+            {filters.map((f) => (
+              <option key={f.id} value={f.id}>{f.label}</option>
+            ))}
+          </select>
           <div className="flex items-center rounded-lg border border-border p-0.5">
             <button
               type="button"
@@ -540,13 +609,13 @@ export function ZineStudio({
       </div>
 
       {view === "preview" ? (
-        <FlipbookPreview pages={pages} />
+        <FlipbookPreview pages={pages} filter={filterCss} />
       ) : (
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[150px_1fr_230px]">
         {/* Pages rail */}
         <div className="flex min-h-0 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-surface p-2">
           {pages.map((p, i) => (
-            <PageRailButton key={p.id} page={p} index={i} isActive={i === active} onSelect={selectPage} />
+            <PageRailButton key={p.id} page={p} index={i} isActive={i === active} onSelect={selectPage} filter={filterCss} mini={isMini} />
           ))}
           <button
             type="button"
@@ -558,12 +627,22 @@ export function ZineStudio({
         </div>
 
         {/* Canvas */}
-        <div className="flex min-h-0 items-center justify-center overflow-auto rounded-xl border border-border bg-surface-elevated/40 p-4">
+        <div
+          className={`relative flex min-h-0 items-center justify-center overflow-auto rounded-xl border bg-surface-elevated/40 p-4 transition-colors ${dragOver ? "border-accent ring-2 ring-accent/40" : "border-border"}`}
+          onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+          onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+          onDrop={onDropFiles}
+        >
+          {dragOver && (
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl bg-accent-bg/60 text-sm font-semibold text-accent">
+              Solte a imagem para adicionar à página
+            </div>
+          )}
           <div
             ref={canvasRef}
             onPointerDown={() => setSelectedId(null)}
             className="relative aspect-[1/1.414] max-h-full w-auto shadow-lg"
-            style={{ height: "100%", backgroundColor: page?.bg ?? "#fff", containerType: "inline-size" }}
+            style={{ height: "100%", backgroundColor: page?.bg ?? "#fff", containerType: "inline-size", filter: filterCss || undefined }}
           >
             {page?.elements
               .slice()
@@ -692,7 +771,7 @@ export function ZineStudio({
       )}
 
       {/* Print-only layout — each page at its real size, page-break between. */}
-      <div className="zine-print">
+      <div className="zine-print" style={{ filter: filterCss || undefined }}>
         {sizeMeta.kind === "mini8" ? (
           // One A4-landscape sheet, 8 pages imposed 4×2 (top row rotated 180°).
           <div className="zine-print-mini">
@@ -703,7 +782,7 @@ export function ZineStudio({
                   <div
                     key={cell}
                     className="zine-mini-cell"
-                    style={{ backgroundColor: p?.bg ?? "#ffffff", containerType: "inline-size", transform: cell < 4 ? "rotate(180deg)" : undefined }}
+                    style={{ backgroundColor: p?.bg ?? "#ffffff", containerType: "inline-size" }}
                   >
                     {p?.elements
                       .slice()
@@ -833,23 +912,34 @@ const PageRailButton = memo(function PageRailButton({
   index,
   isActive,
   onSelect,
+  filter,
+  mini,
 }: {
   page: Page;
   index: number;
   isActive: boolean;
   onSelect: (i: number) => void;
+  filter?: string;
+  mini?: boolean;
 }) {
+  // Mini-zine: 1-based page number, with Cover/Back labels.
+  const label = mini ? miniPageLabel(index + 1) : null;
   return (
     <button
       type="button"
       onClick={() => onSelect(index)}
-      className={`relative aspect-[1/1.414] w-full overflow-hidden rounded-md border text-left ${isActive ? "border-accent ring-1 ring-accent" : "border-border"}`}
+      className={`group relative aspect-[1/1.414] w-full overflow-hidden rounded-md border text-left ${isActive ? "border-accent ring-1 ring-accent" : "border-border"}`}
       style={{ backgroundColor: page.bg }}
     >
-      <span className="absolute left-1 top-1 z-10 rounded bg-black/60 px-1 text-[9px] font-bold text-white">{index + 1}</span>
-      {page.elements.map((el) => (
-        <ThumbEl key={el.id} el={el} />
-      ))}
+      <span className="absolute left-1 top-1 z-10 flex items-center gap-1 rounded bg-black/65 px-1 text-[9px] font-bold text-white">
+        {index + 1}
+        {label && <span className="font-medium text-accent">{label}</span>}
+      </span>
+      <div className="absolute inset-0" style={{ filter: filter || undefined }}>
+        {page.elements.map((el) => (
+          <ThumbEl key={el.id} el={el} />
+        ))}
+      </div>
     </button>
   );
 });
@@ -993,9 +1083,9 @@ function MiniZineGuides() {
 }
 
 // A single zine page rendered read-only (used by the flipbook preview).
-function PageFace({ page }: { page: Page }) {
+function PageFace({ page, filter }: { page: Page; filter?: string }) {
   return (
-    <div className="relative h-full w-full overflow-hidden" style={{ backgroundColor: page.bg, containerType: "inline-size" }}>
+    <div className="relative h-full w-full overflow-hidden" style={{ backgroundColor: page.bg, containerType: "inline-size", filter: filter || undefined }}>
       {page.elements
         .slice()
         .sort((a, b) => a.z - b.z)
@@ -1008,7 +1098,7 @@ function PageFace({ page }: { page: Page }) {
 
 // Flipbook preview — turn through the zine like a real booklet (3D page flip,
 // arrow keys, click controls). Edit-only chrome is gone; this is the read view.
-function FlipbookPreview({ pages }: { pages: Page[] }) {
+function FlipbookPreview({ pages, filter }: { pages: Page[]; filter?: string }) {
   const [idx, setIdx] = useState(0);
   const [flip, setFlip] = useState<{ dir: "next" | "prev"; animate: boolean } | null>(null);
   const max = pages.length - 1;
@@ -1071,7 +1161,7 @@ function FlipbookPreview({ pages }: { pages: Page[] }) {
         <div className="relative aspect-[1/1.414] w-auto" style={{ height: "100%" }}>
           {/* page underneath the turning leaf */}
           <div className="absolute inset-0 overflow-hidden rounded-md shadow-xl">
-            <PageFace page={pages[beneath]} />
+            <PageFace page={pages[beneath]} filter={filter} />
           </div>
           {/* the turning leaf */}
           {flip && (
@@ -1090,7 +1180,7 @@ function FlipbookPreview({ pages }: { pages: Page[] }) {
               }}
             >
               <div className="absolute inset-0 overflow-hidden rounded-md" style={{ backfaceVisibility: "hidden" }}>
-                <PageFace page={pages[leaf]} />
+                <PageFace page={pages[leaf]} filter={filter} />
               </div>
               <div
                 className="absolute inset-0 overflow-hidden rounded-md"
