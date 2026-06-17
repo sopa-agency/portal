@@ -298,15 +298,35 @@ async function fetchFarcasterMetrics(
   }
 
   const userData = (await userRes.json()) as {
-    user: { fid: number; follower_count: number };
+    user: {
+      fid: number;
+      follower_count: number;
+      following_count?: number;
+      power_badge?: boolean;
+      score?: number;
+      experimental?: { neynar_user_score?: number };
+      verified_addresses?: { eth_addresses?: string[]; sol_addresses?: string[] };
+    };
   };
-  const { fid, follower_count } = userData.user;
+  const u = userData.user;
+  const { fid, follower_count } = u;
 
   const followersDelta7d = await computeDeltaAndMaybeSnapshot(
     project.slug,
     "farcaster",
     follower_count,
   );
+
+  // Account highlights pulled straight from the user object (no extra calls).
+  const score = u.score ?? u.experimental?.neynar_user_score;
+  const verifiedCount =
+    (u.verified_addresses?.eth_addresses?.length ?? 0) + (u.verified_addresses?.sol_addresses?.length ?? 0);
+  const highlights: HighlightItem[] = [
+    { label: "Seguindo", value: compact(u.following_count ?? 0) },
+    { label: "Power Badge", value: u.power_badge ? "✓ ativo" : "—" },
+  ];
+  if (score != null) highlights.push({ label: "Neynar score", value: score.toFixed(2) });
+  if (verifiedCount > 0) highlights.push({ label: "Endereços verif.", value: String(verifiedCount) });
 
   // Recent casts
   const feedRes = await withTimeout(
@@ -367,10 +387,20 @@ async function fetchFarcasterMetrics(
     });
   }
 
+  // Average engagement across the recent casts we already fetched.
+  if (posts.length > 0) {
+    const total = posts.reduce(
+      (s, p) => s + p.engagements.reduce((a, e) => a + (typeof e.value === "number" ? e.value : 0), 0),
+      0,
+    );
+    highlights.push({ label: "Engaj. médio", value: compact(Math.round(total / posts.length)), sub: "por cast" });
+  }
+
   return {
     ok: true,
     followers: follower_count,
     followersDelta7d,
+    highlights,
     posts,
     fetchedAt: new Date().toISOString(),
   };
@@ -524,6 +554,58 @@ async function fetchInstagramMetrics(
       }
     } catch {
       // non-follower breakdown is optional — skip silently
+    }
+
+    // Extra account metrics — total interactions + saves (7d WoW). Separate call
+    // so a pruned metric can't wipe the core highlights above.
+    try {
+      const extra = "total_interactions,saves";
+      const [eCurRes, ePrevRes] = await Promise.all([
+        withTimeout(fetch(`https://graph.facebook.com/v21.0/${igid}/insights?metric=${extra}&period=day&metric_type=total_value&since=${curSince}&until=${curUntil}&access_token=${token}`, { cache: "no-store" }), 8000),
+        withTimeout(fetch(`https://graph.facebook.com/v21.0/${igid}/insights?metric=${extra}&period=day&metric_type=total_value&since=${prevSince}&until=${prevUntil}&access_token=${token}`, { cache: "no-store" }), 8000),
+      ]);
+      const eCur = eCurRes.ok ? ((await eCurRes.json()) as InsightsResponse) : null;
+      const ePrev = ePrevRes.ok ? ((await ePrevRes.json()) as InsightsResponse) : null;
+      const ecMap = new Map((eCur?.data ?? []).map((d) => [d.name, d.total_value?.value ?? 0]));
+      const epMap = new Map((ePrev?.data ?? []).map((d) => [d.name, d.total_value?.value ?? 0]));
+      for (const { metric, label } of [
+        { metric: "total_interactions", label: "Interações 7d" },
+        { metric: "saves", label: "Salvos 7d" },
+      ]) {
+        if (!ecMap.has(metric)) continue;
+        const cur = ecMap.get(metric)!;
+        const prev = epMap.get(metric) ?? 0;
+        highlights = highlights ?? [];
+        highlights.push({ label, value: compact(cur), deltaPct: prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null });
+      }
+    } catch {
+      // extra metrics optional — skip silently
+    }
+
+    // Reach by format (reels vs feed vs stories), 7d — best-effort.
+    try {
+      const fRes = await withTimeout(
+        fetch(`https://graph.facebook.com/v21.0/${igid}/insights?metric=reach&period=day&metric_type=total_value&breakdown=media_product_type&since=${curSince}&until=${curUntil}&access_token=${token}`, { cache: "no-store" }),
+        8000,
+      );
+      if (fRes.ok) {
+        const fData = (await fRes.json()) as {
+          data: Array<{ total_value?: { breakdowns?: Array<{ results: Array<{ dimension_values: string[]; value: number }> }> } }>;
+        };
+        const results = fData.data?.[0]?.total_value?.breakdowns?.[0]?.results;
+        if (Array.isArray(results)) {
+          const fmt: Record<string, string> = { REELS: "Reach reels", FEED: "Reach feed", STORY: "Reach stories", CAROUSEL_CONTAINER: "Reach carrossel" };
+          for (const r of results) {
+            const lbl = fmt[r.dimension_values?.[0] ?? ""];
+            if (lbl && r.value > 0) {
+              highlights = highlights ?? [];
+              highlights.push({ label: lbl, value: compact(r.value) });
+            }
+          }
+        }
+      }
+    } catch {
+      // reach-by-format optional — skip silently
     }
   } catch {
     // insights scope/availability optional — skip silently, leave highlights undefined
@@ -734,6 +816,33 @@ async function fetchFacebookMetrics(project: ProjectConfig): Promise<ChannelMetr
     }
   } catch {
     // insights optional — skip silently
+  }
+
+  // Extra page metrics — new follows, page views, video views (7d). Separate
+  // call so a pruned metric can't wipe the core highlights above.
+  try {
+    const now2 = Math.floor(Date.now() / 1000);
+    const since2 = now2 - 7 * 86400;
+    const metrics2 = "page_fan_adds,page_views_total,page_video_views";
+    const r = await withTimeout(
+      fetch(`https://graph.facebook.com/v21.0/${page.id}/insights?metric=${metrics2}&period=day&since=${since2}&until=${now2}&access_token=${pageToken}`, { cache: "no-store" }),
+      8000,
+    );
+    if (r.ok) {
+      const j = (await r.json()) as { data: Array<{ name: string; values?: { value?: number }[] }> };
+      const m = new Map((j.data ?? []).map((d) => [d.name, (d.values ?? []).reduce((s, v) => s + (v.value ?? 0), 0)]));
+      for (const { metric, label } of [
+        { metric: "page_fan_adds", label: "Novos seg. 7d" },
+        { metric: "page_views_total", label: "Visitas 7d" },
+        { metric: "page_video_views", label: "Video views 7d" },
+      ]) {
+        if (!m.has(metric)) continue;
+        highlights = highlights ?? [];
+        highlights.push({ label, value: compact(m.get(metric)!) });
+      }
+    }
+  } catch {
+    // extra page metrics optional — skip silently
   }
 
   // Recent page posts with basic engagement counts.
