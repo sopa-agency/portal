@@ -13,6 +13,7 @@ const PUBLIC_PATHS = [
   "/api/auth/challenge",
   "/api/auth/login",
   "/api/auth/logout",
+  "/api/auth/github",
   // Unsubscribe links in newsletter emails land here without a session, and
   // the skatehive.app signup checkbox posts to subscribe cross-origin.
   "/api/newsletter/unsubscribe",

@@ -15,12 +15,24 @@ type LoginFormProps = {
   projectName: string;
   /** Active project logo path under /public */
   logo: string;
+  /** Whether GitHub OAuth is configured for this portal. */
+  githubEnabled?: boolean;
 };
 
-export function LoginForm({ projectName, logo }: LoginFormProps) {
+const GITHUB_ERRORS: Record<string, string> = {
+  github_unconfigured: "GitHub login não está configurado neste portal.",
+  github_state: "Sessão de login expirou. Tente de novo.",
+  github_token: "Não foi possível autenticar no GitHub.",
+  github_user: "Não foi possível ler seu perfil do GitHub.",
+  github_nomember: "Sua conta do GitHub não está vinculada a nenhum membro da equipe. Peça a um admin para cadastrar seu GitHub na aba Team.",
+  github_noaccess: "Sua conta não tem acesso a este portal.",
+};
+
+export function LoginForm({ projectName, logo, githubEnabled }: LoginFormProps) {
   const router = useRouter();
   const params = useSearchParams();
   const redirectTo = params.get("next") || "/";
+  const oauthError = params.get("error");
   const [username, setUsername] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
 
@@ -188,7 +200,28 @@ export function LoginForm({ projectName, logo }: LoginFormProps) {
             {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
             Connect with Hive Keychain
           </button>
+
+          {githubEnabled && (
+            <>
+              <div className="flex items-center gap-2 py-0.5 text-[10px] uppercase tracking-widest text-foreground-faint">
+                <span className="h-px flex-1 bg-border" /> ou <span className="h-px flex-1 bg-border" />
+              </div>
+              <a
+                href={`/api/auth/github/start?next=${encodeURIComponent(redirectTo)}`}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface-elevated px-4 py-2.5 text-sm font-medium text-foreground transition hover:border-border-strong"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden className="h-4 w-4 fill-current"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                Entrar com GitHub
+              </a>
+            </>
+          )}
         </div>
+
+        {oauthError && state.kind !== "error" && (
+          <p className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+            {GITHUB_ERRORS[oauthError] ?? "Falha no login."}
+          </p>
+        )}
 
         {state.kind === "connecting" && (
           <p className="mt-4 text-center text-xs text-foreground-muted">{state.msg}</p>

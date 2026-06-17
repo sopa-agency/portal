@@ -329,6 +329,21 @@ model TeamMemberContact {
   @@unique([projectSlug, username, label])
 }
 
+// External auth identity (OAuth) → team member (Hive username). Lets people sign
+// in with GitHub/Google and resolve to their portal membership/role.
+model AuthIdentity {
+  id         String   @id @default(cuid())
+  provider   String // "github" | "google"
+  providerId String // github login (lowercased) / google sub
+  username   String // mapped team member (Hive username)
+  email      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([provider, providerId])
+  @@index([username])
+}
+
 // Login activity per user (last seen + count), recorded on successful sign-in.
 // One row per username, regardless of which portal they logged into.
 model MemberActivity {
