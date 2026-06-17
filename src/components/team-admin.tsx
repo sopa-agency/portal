@@ -14,6 +14,19 @@ type Role = ManagedMember["role"];
 const ROLE_OPTS: Role[] = ["admin", "member", "viewer"];
 const ROLE_LABEL: Record<Role, string> = { admin: "Admin", member: "Membro", viewer: "Viewer" };
 
+function relativeSince(iso: string | null): string {
+  if (!iso) return "nunca entrou";
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "agora";
+  if (m < 60) return `há ${m}min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `há ${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `há ${d}d`;
+  return new Date(iso).toLocaleDateString("pt-BR");
+}
+
 export function TeamAdmin({
   initial,
   viewerGlobal,
@@ -93,7 +106,10 @@ export function TeamAdmin({
           <div key={m.username} className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`https://images.hive.blog/u/${m.username}/avatar`} alt="" className="h-7 w-7 shrink-0 rounded-full border border-border object-cover" />
-            <span className="min-w-0 flex-1 truncate text-sm text-foreground">@{m.username}</span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm text-foreground">@{m.username}</span>
+              <span className="text-[10px] text-foreground-faint">visto {relativeSince(m.lastLoginAt)}</span>
+            </span>
             {m.global && (
               <span className="rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
                 Admin global

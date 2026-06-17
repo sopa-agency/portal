@@ -5,10 +5,11 @@ import {
   SESSION_COOKIE,
   SESSION_COOKIE_DOMAIN,
   SESSION_MAX_AGE,
-  isAllowed,
   signSession,
   verifyChallenge,
 } from "@/lib/auth";
+import { getAccess } from "@/lib/team-access";
+import { prisma } from "@/lib/prisma";
 import { getActiveProject } from "@/projects/index";
 
 export const runtime = "nodejs";
@@ -32,9 +33,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "username and signature required" }, { status: 400 });
   }
 
-  if (!isAllowed(username, project)) {
+  // DB-backed authorization (falls back to the static allowlist for unseeded
+  // projects) — so members added via the admin UI can sign in.
+  const access = await getAccess(username, project);
+  if (!access.allowed) {
     return NextResponse.json(
-      { error: `@${username} is not on the ${project.name} portal allowlist. Ask an admin to add you.` },
+      { error: `@${username} não tem acesso ao portal ${project.name}. Peça a um admin para te adicionar.` },
       { status: 403 },
     );
   }
@@ -84,6 +88,18 @@ export async function POST(req: NextRequest) {
       },
       { status: 401 },
     );
+  }
+
+  // Record login activity (last seen + count) — best-effort, never blocks login.
+  try {
+    const now = new Date();
+    await prisma.memberActivity.upsert({
+      where: { username },
+      update: { lastLoginAt: now, lastLoginProject: project.slug, loginCount: { increment: 1 } },
+      create: { username, lastLoginAt: now, lastLoginProject: project.slug, loginCount: 1 },
+    });
+  } catch {
+    /* tracking is non-critical */
   }
 
   // Issue session

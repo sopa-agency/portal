@@ -50,7 +50,6 @@ const sopa: ProjectConfig = {
     "/userbase",
     "/brain",
     "/analytics",
-    "/team",
   ],
   // No wallets of its own — the page shows the combined view of everything
   // the org operates (empty own group is filtered out).

@@ -6,7 +6,7 @@ import { SESSION_COOKIE, GLOBAL_ALLOWLIST } from "@/lib/auth";
 import { getActiveProject } from "@/projects/index";
 import { authorize, getRoles, ensureSeeded, ROLES, GLOBAL_SLUG, type Role } from "@/lib/team-access";
 
-export type ManagedMember = { username: string; role: Role; global: boolean };
+export type ManagedMember = { username: string; role: Role; global: boolean; lastLoginAt: string | null };
 
 const clean = (u: string) => u.trim().toLowerCase().replace(/^@/, "").replace(/[^a-z0-9._-]/g, "");
 
@@ -36,8 +36,12 @@ export async function listTeamMembers(): Promise<
     .catch(() => [] as { username: string }[]);
   const usernames = [...new Set([...g.project.allowlist.map((u) => u.toLowerCase()), ...dbRows.map((r) => r.username)])];
   const roleMap = await getRoles(g.project, usernames);
+  const activity = await prisma.memberActivity
+    .findMany({ where: { username: { in: usernames } }, select: { username: true, lastLoginAt: true } })
+    .catch(() => [] as { username: string; lastLoginAt: Date }[]);
+  const lastSeen = new Map(activity.map((a) => [a.username, a.lastLoginAt.toISOString()]));
   const members = usernames
-    .map((u) => ({ username: u, role: roleMap.get(u)?.role ?? "member", global: !!roleMap.get(u)?.global }))
+    .map((u) => ({ username: u, role: roleMap.get(u)?.role ?? "member", global: !!roleMap.get(u)?.global, lastLoginAt: lastSeen.get(u) ?? null }))
     .sort((a, b) => {
       const rank = (m: ManagedMember) => (m.global ? 0 : m.role === "admin" ? 1 : m.role === "member" ? 2 : 3);
       return rank(a) - rank(b) || a.username.localeCompare(b.username);

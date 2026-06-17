@@ -329,6 +329,16 @@ model TeamMemberContact {
   @@unique([projectSlug, username, label])
 }
 
+// Login activity per user (last seen + count), recorded on successful sign-in.
+// One row per username, regardless of which portal they logged into.
+model MemberActivity {
+  username         String   @id
+  lastLoginAt      DateTime
+  lastLoginProject String?
+  loginCount       Int      @default(0)
+  updatedAt        DateTime @updatedAt
+}
+
 // Team membership + role per portal. projectSlug "*" = a GLOBAL admin (access to
 // every portal). role ∈ "admin" | "member" | "viewer". This is the DB source of
 // truth for access/roles; the static project.allowlist is a seed/fallback.
