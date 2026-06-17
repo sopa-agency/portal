@@ -20,6 +20,7 @@ import {
   Redo2,
   Save,
   FolderOpen,
+  Grid3x3,
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
@@ -67,6 +68,9 @@ const ZINE_FONTS: { label: string; value: string }[] = [
 ];
 type Page = { id: string; bg: string; elements: Element[] };
 type Draft = { id: string; name: string; savedAt: number; pageSize: PageSizeId; pages: Page[] };
+
+// Grid step in % of the page (20 cols/rows). Center (50%) and edges fall on it.
+const GRID = 5;
 
 const PAGE_SIZES = [
   { id: "A6", label: "A6 (mini)", css: "A6" },
@@ -120,6 +124,7 @@ export function ZineStudio({
   const [pageSize, setPageSize] = useState<PageSizeId>("A5");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<"edit" | "preview">("edit");
+  const [grid, setGrid] = useState(false); // visual grid + snap-to-grid on drag/resize
   const [assetTab, setAssetTab] = useState<"upload" | "drive" | "blog">("upload");
   const [uploading, setUploading] = useState(false);
   const [drive, setDrive] = useState<DriveFile[] | null>(null);
@@ -254,17 +259,19 @@ export function ZineStudio({
     const start = { x: el.x, y: el.y, w: el.w, h: el.h };
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     function onMove(ev: PointerEvent) {
+      // Snap to the grid step when the grid is on (hold Alt/⌥ to move freely).
+      const snap = (v: number) => (grid && !ev.altKey ? Math.round(v / GRID) * GRID : v);
       const dxPct = ((ev.clientX - startX) / rect!.width) * 100;
       const dyPct = ((ev.clientY - startY) / rect!.height) * 100;
       if (mode === "move") {
         updateEl(el.id, {
-          x: Math.max(0, Math.min(100 - 2, start.x + dxPct)),
-          y: Math.max(0, Math.min(100 - 2, start.y + dyPct)),
+          x: Math.max(0, Math.min(100 - 2, snap(start.x + dxPct))),
+          y: Math.max(0, Math.min(100 - 2, snap(start.y + dyPct))),
         });
       } else {
         updateEl(el.id, {
-          w: Math.max(5, Math.min(100, start.w + dxPct)),
-          ...(el.kind === "image" ? { h: Math.max(5, Math.min(100, start.h + dyPct)) } : {}),
+          w: Math.max(5, Math.min(100, snap(start.w + dxPct))),
+          ...(el.kind === "image" ? { h: Math.max(5, Math.min(100, snap(start.h + dyPct))) } : {}),
         });
       }
     }
@@ -429,6 +436,15 @@ export function ZineStudio({
               <Eye className="h-3.5 w-3.5" /> Preview
             </button>
           </div>
+          <button
+            type="button"
+            onClick={() => setGrid((g) => !g)}
+            title="Grade + encaixe (segure Alt para mover livre)"
+            aria-pressed={grid}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${grid ? "border-accent bg-accent-bg text-accent" : "border-border bg-surface-elevated text-foreground-muted hover:border-border-strong hover:text-foreground"}`}
+          >
+            <Grid3x3 className="h-3.5 w-3.5" /> Grade
+          </button>
           <div className="relative" ref={draftsRef}>
             <button
               type="button"
@@ -534,6 +550,19 @@ export function ZineStudio({
                   editable={view === "edit"}
                 />
               ))}
+            {/* Grid + center guides (edit only; never printed) */}
+            {grid && view === "edit" && (
+              <div
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  backgroundImage:
+                    `repeating-linear-gradient(to right, rgba(127,127,127,0.22) 0 1px, transparent 1px ${GRID}%), repeating-linear-gradient(to bottom, rgba(127,127,127,0.22) 0 1px, transparent 1px ${GRID}%)`,
+                }}
+              >
+                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-accent/40" />
+                <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-accent/40" />
+              </div>
+            )}
           </div>
         </div>
 
