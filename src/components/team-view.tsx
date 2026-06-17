@@ -37,6 +37,10 @@ type TeamMember = {
   profileUrl: string;
   contacts: TeamContact[];
   messageOptions: TeamMessageOption[];
+  /** Cross-portal admin (GLOBAL_ALLOWLIST) — has access to every portal. */
+  global?: boolean;
+  /** Portals this member can access (allowlist membership + global). */
+  portals?: { slug: string; name: string }[];
 };
 
 type TeamViewProps = {
@@ -210,8 +214,9 @@ function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: T
           />
         )}
       </span>
-      <span className="text-center text-xs font-medium text-foreground-muted group-hover:text-foreground tabular-nums">
+      <span className="flex items-center gap-1 text-center text-xs font-medium text-foreground-muted group-hover:text-foreground tabular-nums">
         @{member.username}
+        {member.global && <span title="Admin global — acessa todos os portais" className="rounded-full bg-accent-bg px-1 text-[8px] font-bold uppercase text-accent">G</span>}
       </span>
     </button>
   );
@@ -515,9 +520,17 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
   const [editingContact, setEditingContact] = useState<{ label: string; value: string } | null>(
     null,
   );
-  const contacts = [
+  // Full setup: Hive (always), then EVERY contact platform — set ones with their
+  // value, unset ones flagged `missing` so the whole setup is visible at a glance.
+  const byLabel = new Map(current.contacts.map((c) => [c.label, c]));
+  const known = new Set<string>(["Hive", ...CONTACT_PLATFORMS]);
+  const contacts: { label: string; value: string; url?: string; missing?: boolean }[] = [
     { label: "Hive", value: `@${current.username}`, url: current.profileUrl },
-    ...current.contacts,
+    ...CONTACT_PLATFORMS.map((label) => {
+      const c = byLabel.get(label);
+      return c ? { label, value: c.value, url: c.url } : { label, value: "", missing: true };
+    }),
+    ...current.contacts.filter((c) => !known.has(c.label)).map((c) => ({ label: c.label, value: c.value, url: c.url })),
   ];
 
   useEffect(() => {
@@ -552,10 +565,25 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
               className="h-16 w-16 rounded-full border border-border object-cover"
             />
             <div>
-              <h3 id={titleId} className="text-lg font-semibold text-foreground tabular-nums">
+              <h3 id={titleId} className="flex items-center gap-2 text-lg font-semibold text-foreground tabular-nums">
                 @{member.username}
+                {member.global && (
+                  <span className="rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                    Admin global
+                  </span>
+                )}
               </h3>
-              <p className="text-sm text-foreground-muted">Known team contacts</p>
+              <p className="text-sm text-foreground-muted">Setup do usuário</p>
+              {member.portals && member.portals.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Acesso:</span>
+                  {member.portals.map((p) => (
+                    <span key={p.slug} className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] text-foreground-muted">
+                      {p.name}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <button
@@ -584,22 +612,28 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
                   {contact.label}
                 </span>
                 <span className="flex min-w-0 items-center gap-1.5 truncate text-sm text-foreground-muted tabular-nums">
-                  {contact.label === "Discord" && <DiscordUserChip userId={contact.value} />}
-                  {ghRowLogin && (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={githubAvatarUrl(ghRowLogin, 40)}
-                      alt=""
-                      width={18}
-                      height={18}
-                      className="h-[18px] w-[18px] shrink-0 rounded-full border border-border object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                      }}
-                    />
+                  {contact.missing ? (
+                    <span className="italic text-foreground-faint">não configurado</span>
+                  ) : (
+                    <>
+                      {contact.label === "Discord" && <DiscordUserChip userId={contact.value} />}
+                      {ghRowLogin && (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={githubAvatarUrl(ghRowLogin, 40)}
+                          alt=""
+                          width={18}
+                          height={18}
+                          className="h-[18px] w-[18px] shrink-0 rounded-full border border-border object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = "none";
+                          }}
+                        />
+                      )}
+                      {contact.value}
+                      {contact.url && <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />}
+                    </>
                   )}
-                  {contact.value}
-                  {contact.url && <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />}
                 </span>
               </>
             );
