@@ -338,7 +338,6 @@ async function fetchFarcasterMetrics(
 async function fetchInstagramMetrics(
   project: ProjectConfig,
 ): Promise<ChannelMetrics> {
-  const prefix = project.agent.gatewayEnvPrefix;
   // Identity credentials: never fall back across brands (see brand-env.ts).
   const token = brandEnv(project, "INSTAGRAM_ACCESS_TOKEN");
   const igid = brandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID");

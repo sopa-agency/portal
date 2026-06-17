@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
 import { listZineBlogImages, ZINE_BLOG_AUTHORS, type ZineBlogImage } from "@/app/actions/zine-blog";
+import { ZINE_FONTS, GRID, SNAP_TH, PAGE_SIZES, MINI8_ORDER, MINI8_PAGES, miniPageLabel, buildFilters, uid, blankPage, type Element, type Page, type Draft, type PageSizeId } from "@/components/zine/lib";
 
 // ---------------------------------------------------------------------------
 // Zine Studio — page-based editor for printable zines (Reelflip-family brands).
@@ -40,102 +41,6 @@ import { listZineBlogImages, ZINE_BLOG_AUTHORS, type ZineBlogImage } from "@/app
 // Imposition (saddle-stitch printer spreads) is the next slice — v1 prints in
 // reading order at the chosen page size.
 // ---------------------------------------------------------------------------
-
-type ElKind = "image" | "text";
-type Element = {
-  id: string;
-  kind: ElKind;
-  x: number; // % of page width
-  y: number; // % of page height
-  w: number; // % of page width
-  h: number; // % of page height (image only; text is auto)
-  z: number;
-  src?: string;
-  fit?: "cover" | "contain";
-  text?: string;
-  fontSize?: number; // in cqw (% of page width) so it scales on screen + print
-  color?: string;
-  align?: "left" | "center" | "right";
-  bold?: boolean;
-  font?: string; // CSS font-family; "" = page default sans
-  rotation?: number; // degrees, around the element's center
-};
-
-// Every studio/brand font (all registered as @font-face in globals.css) plus
-// readable system stacks. Empty value = inherit the page's default sans.
-const ZINE_FONTS: { label: string; value: string }[] = [
-  { label: "Sans (padrão)", value: "" },
-  { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
-  { label: "Mono", value: "'Courier New', ui-monospace, monospace" },
-  { label: "Joystix — SkateHive", value: "Joystix" },
-  { label: "Ken Pixel — Gnars", value: "'Ken Pixel'" },
-  { label: "Bazinga — Reelflip", value: "Bazinga" },
-  { label: "TOOM — Reelflip", value: "TOOM" },
-  { label: "MADE GoodTime", value: "'MADE GoodTime Grotesk'" },
-];
-type Page = { id: string; bg: string; elements: Element[] };
-type Draft = { id: string; name: string; savedAt: number; pageSize: PageSizeId; pages: Page[] };
-
-// Hue (deg) of a hex color — used to tint the duotone filter with the brand accent.
-function hexHue(hex: string): number {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return 90;
-  const n = parseInt(m[1], 16);
-  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-  if (d === 0) return 0;
-  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  h *= 60;
-  return h < 0 ? h + 360 : h;
-}
-
-// Overall print filters (apply to every page). 3 B&W looks + a brand-accent
-// duotone, done purely with CSS filters so screen + print + export all match.
-function buildFilters(accent: string): { id: string; label: string; css: string }[] {
-  const hr = Math.round(hexHue(accent) - 40); // sepia output sits ~40° → rotate to the accent
-  return [
-    { id: "color", label: "Cor", css: "" },
-    { id: "bw", label: "P&B", css: "grayscale(1)" },
-    { id: "bwhc", label: "P&B contraste", css: "grayscale(1) contrast(1.65) brightness(1.05)" },
-    { id: "xerox", label: "P&B xerox", css: "grayscale(1) contrast(4.5) brightness(1.25)" },
-    { id: "duo", label: "P&B + 1 cor", css: `grayscale(1) sepia(1) saturate(4.5) hue-rotate(${hr}deg) contrast(1.1)` },
-  ];
-}
-
-// Fine grid step in % of the page (40 cols/rows). Center + edges fall on it.
-const GRID = 2.5;
-// Smart-snap threshold (% of page) for Canva-style alignment to edges/centers.
-const SNAP_TH = 1.1;
-
-// Zine formats. "loose" = one page per sheet (saddle-stitch / single pages).
-// "mini8" = the classic 8-page mini-zine: edit 8 pages, print one A4 landscape
-// sheet imposed 4×2 (top row rotated 180°), fold + one center cut → a booklet.
-const PAGE_SIZES = [
-  { id: "A6", label: "A6 (página solta)", css: "A6 portrait", kind: "loose" },
-  { id: "A5", label: "A5 (página solta)", css: "A5 portrait", kind: "loose" },
-  { id: "A4", label: "A4 (página solta)", css: "A4 portrait", kind: "loose" },
-  { id: "mini8", label: "Mini-zine 8p · 1 folha A4", css: "A4 landscape", kind: "mini8" },
-] as const;
-type PageSizeId = (typeof PAGE_SIZES)[number]["id"];
-
-// Mini-zine imposition: cell index (row-major, 4 cols × 2 rows) → 1-based page.
-// Per the chosen fold method: top row 8,1,2,3 · bottom row 7,6,5,4 · no rotation.
-const MINI8_ORDER = [8, 1, 2, 3, 7, 6, 5, 4] as const;
-const MINI8_PAGES = 8;
-// Label for a 1-based mini-zine page (cover / back cover / plain number).
-function miniPageLabel(n: number): string | null {
-  if (n === 1) return "Capa";
-  if (n === MINI8_PAGES) return "Contracapa";
-  return null;
-}
-
-function uid() {
-  return `${Date.now().toString(36)}${Math.floor(performance.now()).toString(36)}${(globalThis.crypto?.getRandomValues?.(new Uint32Array(1))?.[0] ?? 0).toString(36)}`;
-}
-
-function blankPage(): Page {
-  return { id: uid(), bg: "#ffffff", elements: [] };
-}
 
 async function uploadZineImage(
   file: File,
@@ -1516,7 +1421,6 @@ function FlipbookPreview({ pages, filter }: { pages: Page[]; filter?: string }) 
       const t = setTimeout(onEnd, 820);
       return () => clearTimeout(t);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flip]);
 
   useEffect(() => {

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Search, Mail, Copy, Check, Pencil, Loader2, AtSign, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, Copy, Check, Pencil, Loader2, AtSign, ArrowUp, ArrowDown } from "lucide-react";
 import {
   listUserbaseUsersPage,
   setUserbaseInstagram,
