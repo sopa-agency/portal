@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
-import { listZineBlogImages, type ZineBlogImage } from "@/app/actions/zine-blog";
+import { listZineBlogImages, ZINE_BLOG_AUTHORS, type ZineBlogImage } from "@/app/actions/zine-blog";
 
 // ---------------------------------------------------------------------------
 // Zine Studio — page-based editor for printable zines (Reelflip-family brands).
@@ -186,6 +186,7 @@ export function ZineStudio({
   const [driveErr, setDriveErr] = useState<string | null>(null);
   const [blog, setBlog] = useState<ZineBlogImage[] | null>(null);
   const [blogErr, setBlogErr] = useState<string | null>(null);
+  const [blogAuthor, setBlogAuthor] = useState<string | null>(null); // null = project default feed
   const [hydrated, setHydrated] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null); // active mini-zine panel (layout editing)
@@ -472,9 +473,11 @@ export function ZineStudio({
     }
   }
 
-  async function loadBlog() {
+  async function loadBlog(author: string | null) {
     setBlogErr(null);
-    const r = await listZineBlogImages();
+    setBlog(null);
+    setBlogAuthor(author);
+    const r = await listZineBlogImages(author ?? undefined);
     if (r.ok) setBlog(r.images);
     else {
       setBlog([]);
@@ -884,7 +887,7 @@ export function ZineStudio({
               <div className="flex items-center rounded-lg border border-border p-0.5 text-xs">
                 <button type="button" onClick={() => setAssetTab("upload")} className={tab(assetTab === "upload")}>Upload</button>
                 <button type="button" onClick={() => { setAssetTab("drive"); if (!drive) void loadDrive(); }} className={tab(assetTab === "drive")}><HardDrive className="h-3.5 w-3.5" /> Drive</button>
-                <button type="button" onClick={() => { setAssetTab("blog"); if (!blog) void loadBlog(); }} className={tab(assetTab === "blog")}><Newspaper className="h-3.5 w-3.5" /> Blog</button>
+                <button type="button" onClick={() => { setAssetTab("blog"); if (!blog) void loadBlog(blogAuthor); }} className={tab(assetTab === "blog")}><Newspaper className="h-3.5 w-3.5" /> Blog</button>
               </div>
               {assetTab === "upload" ? (
                 <div>
@@ -927,6 +930,13 @@ export function ZineStudio({
                 </div>
               ) : (
                 <div>
+                  {/* author filter */}
+                  <div className="mb-2 flex flex-wrap gap-1">
+                    <button type="button" onClick={() => void loadBlog(null)} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${blogAuthor === null ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>Feed</button>
+                    {ZINE_BLOG_AUTHORS.map((a) => (
+                      <button key={a} type="button" onClick={() => void loadBlog(a)} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${blogAuthor === a ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>@{a}</button>
+                    ))}
+                  </div>
                   {blogErr ? (
                     <p className="text-[11px] text-danger">{blogErr}</p>
                   ) : blog === null ? (

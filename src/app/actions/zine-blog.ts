@@ -99,15 +99,26 @@ async function fetchHive(tagOrAccount: { tag?: string; account?: string }): Prom
   return out;
 }
 
-export async function listZineBlogImages(): Promise<
-  { ok: true; images: ZineBlogImage[]; source: string } | { ok: false; error: string }
-> {
+/** Hive authors selectable in the Zine blog image filter. */
+export const ZINE_BLOG_AUTHORS = ["xvlad", "nogenta", "web-gnar", "gnars", "coletivoxv", "reelflip"] as const;
+
+export async function listZineBlogImages(
+  author?: string,
+): Promise<{ ok: true; images: ZineBlogImage[]; source: string } | { ok: false; error: string }> {
   try {
     const project = await getActiveProject();
     if (!project.zineStudio) return { ok: false, error: "Zine Studio not enabled." };
     const cookieStore = await cookies();
     const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
     if (!session) return { ok: false, error: "Unauthorized." };
+
+    // Explicit author filter → that account's Hive posts (Gnars also posts to
+    // Paragraph, but the author filter is about Hive blog authors).
+    if (author) {
+      const clean = author.toLowerCase().replace(/[^a-z0-9.-]/g, "");
+      const images = await fetchHive({ account: clean });
+      return { ok: true, images: images.slice(0, 60), source: `@${clean}` };
+    }
 
     const paragraphHandle = PARAGRAPH_BLOGS[project.slug];
     if (paragraphHandle) {
