@@ -74,6 +74,7 @@ const skatehive: ProjectConfig = {
   hive: {
     account: "skatehive",
     community: "hive-173115",
+    communityStats: true, // home Hive status = SkateHive community stats, not @skatehive
     frontend: "https://skatehive.app",
     magBeneficiaries: [
       { account: "skatehive", weight: 500 }, // 5% — platform

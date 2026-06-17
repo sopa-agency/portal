@@ -135,45 +135,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 // Hive
 // ---------------------------------------------------------------------------
 
-async function fetchHiveMetrics(
-  account: string,
-  project: ProjectConfig,
-): Promise<ChannelMetrics> {
-  const { Client } = await import("@hiveio/dhive");
-  const client = new Client(HIVE_NODES);
+type RawHivePost = {
+  title?: string;
+  permlink?: string;
+  author?: string;
+  created?: string;
+  children?: number;
+  stats?: { total_votes?: number };
+  active_votes?: unknown[];
+  pending_payout_value?: string;
+  payout?: number;
+  json_metadata?: string;
+};
 
-  // Followers
-  const followData = (await withTimeout(
-    client.call("condenser_api", "get_follow_count", [account]),
-    8000,
-  )) as { follower_count: number };
-  const followers: number = followData.follower_count;
-
-  // Follower delta + snapshot
-  const followersDelta7d = await computeDeltaAndMaybeSnapshot(
-    project.slug,
-    "hive",
-    followers,
-  );
-
-  // Recent posts
-  const rawPosts = (await withTimeout(
-    client.call("bridge", "get_account_posts", { sort: "posts", account, limit: 5 }),
-    8000,
-  )) as Array<{
-    title?: string;
-    permlink?: string;
-    author?: string;
-    created?: string;
-    children?: number;
-    stats?: { total_votes?: number };
-    active_votes?: unknown[];
-    pending_payout_value?: string;
-    payout?: number;
-    json_metadata?: string;
-  }>;
-
-  const posts: PostMetric[] = (rawPosts ?? []).map((p) => {
+function mapHivePosts(rawPosts: RawHivePost[] | undefined, fallbackAuthor: string, project: ProjectConfig): PostMetric[] {
+  return (rawPosts ?? []).map((p) => {
     const payout =
       (p.payout ?? 0) > 0
         ? p.payout!
@@ -182,7 +158,7 @@ async function fetchHiveMetrics(
     const comments = p.children ?? 0;
     // Link via the project's official frontend (skatehive.app for the
     // SkateHive/Gnars/Reelflip portals), not the universal peakd fallback.
-    const url = buildPostUrl(p.author ?? account, p.permlink ?? "", project.hive.frontend);
+    const url = buildPostUrl(p.author ?? fallbackAuthor, p.permlink ?? "", project.hive.frontend);
 
     // Best-effort thumbnail from json_metadata
     let thumbnail: string | undefined;
@@ -209,12 +185,81 @@ async function fetchHiveMetrics(
       ],
     };
   });
+}
+
+// Community stats (bridge.get_community) — the "Hive status" for portals whose
+// presence is the COMMUNITY (e.g. SkateHive) rather than a single @account.
+async function fetchHiveCommunityMetrics(
+  client: { call(api: string, method: string, params: unknown): Promise<unknown> },
+  community: string,
+  project: ProjectConfig,
+): Promise<ChannelMetrics> {
+  const c = (await withTimeout(
+    client.call("bridge", "get_community", { name: community, observer: "" }),
+    8000,
+  )) as { subscribers?: number; num_authors?: number; num_pending?: number; sum_pending?: number };
+
+  const subscribers = c.subscribers ?? 0;
+  const followersDelta7d = await computeDeltaAndMaybeSnapshot(project.slug, "hive", subscribers);
+
+  const highlights: HighlightItem[] = [
+    { label: "Autores ativos", value: String(c.num_authors ?? 0) },
+    { label: "Posts pendentes", value: String(c.num_pending ?? 0) },
+    { label: "Recompensas pendentes", value: `$${Math.round(c.sum_pending ?? 0)}`, sub: "HBD" },
+  ];
+
+  const rawPosts = (await withTimeout(
+    client.call("bridge", "get_ranked_posts", { sort: "created", tag: community, limit: 5, observer: "" }),
+    8000,
+  )) as RawHivePost[];
+
+  return {
+    ok: true,
+    followers: subscribers,
+    followersDelta7d,
+    highlights,
+    posts: mapHivePosts(rawPosts, project.hive.account, project),
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+async function fetchHiveMetrics(
+  account: string,
+  project: ProjectConfig,
+): Promise<ChannelMetrics> {
+  const { Client } = await import("@hiveio/dhive");
+  const client = new Client(HIVE_NODES);
+
+  // SkateHive-style portals surface COMMUNITY stats instead of @account followers.
+  if (project.hive.communityStats && project.hive.community) {
+    return fetchHiveCommunityMetrics(client, project.hive.community, project);
+  }
+
+  // Followers
+  const followData = (await withTimeout(
+    client.call("condenser_api", "get_follow_count", [account]),
+    8000,
+  )) as { follower_count: number };
+  const followers: number = followData.follower_count;
+
+  // Follower delta + snapshot
+  const followersDelta7d = await computeDeltaAndMaybeSnapshot(
+    project.slug,
+    "hive",
+    followers,
+  );
+
+  // Recent posts
+  const rawPosts = (await withTimeout(
+    client.call("bridge", "get_account_posts", { sort: "posts", account, limit: 5 }),
+    8000,
+  )) as RawHivePost[];
 
   return {
     ok: true,
     followers,
     followersDelta7d,
-    posts,
+    posts: mapHivePosts(rawPosts, account, project),
     fetchedAt: new Date().toISOString(),
   };
 }

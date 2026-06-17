@@ -78,6 +78,10 @@ export type ProjectConfig = {
     account: string;
     /** Community tag, e.g. "hive-173115" */
     community: string;
+    /** When true, the home Hive status reflects COMMUNITY stats (subscribers,
+     *  authors, pending posts/rewards from bridge.get_community) instead of the
+     *  posting account's @profile followers. */
+    communityStats?: boolean;
     /** Hive web frontend base URL for this project, e.g. "https://skatehive.app".
      *  When absent, universal frontends (peakd.com) are used instead. */
     frontend?: string;
