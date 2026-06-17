@@ -23,6 +23,12 @@ export const ALLOWED_USERS = [
 export type AllowedUser = (typeof ALLOWED_USERS)[number];
 
 // ---------------------------------------------------------------------------
+// Global allowlist — users allowed into EVERY portal regardless of a project's
+// own allowlist (cross-portal admins / operators).
+// ---------------------------------------------------------------------------
+export const GLOBAL_ALLOWLIST: readonly string[] = ["beaglexv"];
+
+// ---------------------------------------------------------------------------
 // Cookie names — unified across all tenants now that it's one app.
 // ---------------------------------------------------------------------------
 export const SESSION_COOKIE = "portal_session";
@@ -56,8 +62,10 @@ const CHALLENGE_DURATION_SECONDS = 60 * 5; // 5 minutes
  * it falls back to the hardcoded SkateHive ALLOWED_USERS.
  */
 export function isAllowed(username: string, project?: ProjectConfig): boolean {
+  const u = username.toLowerCase();
+  if (GLOBAL_ALLOWLIST.includes(u)) return true; // cross-portal admins
   const list = project ? project.allowlist : (ALLOWED_USERS as readonly string[]);
-  return list.includes(username.toLowerCase());
+  return list.includes(u);
 }
 
 // ---------------------------------------------------------------------------
