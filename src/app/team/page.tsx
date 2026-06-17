@@ -4,37 +4,21 @@ import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { TeamView } from "@/components/team-view";
 import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
-import {
-  getTeamMessageOptions,
-  mergeContacts,
-  resolveCrossPortalContacts,
-} from "@/lib/team-messaging";
-import { prisma } from "@/lib/prisma";
+import { getTeamMessageOptions } from "@/lib/team-messaging";
+import { getTeamRoster } from "@/lib/team-roster";
 
 export default async function TeamPage() {
   const project = await getActiveProject();
 
-  // Coworker-edited contacts override the static teamContacts config. Rows are
-  // fetched across ALL portals for these members so a contact entered in one
-  // portal (email, socials) carries over here — the current portal still wins.
-  const contactRows = await prisma.teamMemberContact.findMany({
-    where: { username: { in: project.allowlist } },
-  });
-  const rowsByUser = resolveCrossPortalContacts(contactRows, project.slug);
-
-  const members = project.allowlist.map((username) => {
-    const contacts = mergeContacts(
-      project.teamContacts?.[username] ?? [],
-      rowsByUser.get(username) ?? [],
-    );
-    return {
-      username,
-      avatarUrl: `https://images.hive.blog/u/${username}/avatar`,
-      profileUrl: `${project.hive.frontend ?? "https://peakd.com"}/@${username}`,
-      contacts,
-      messageOptions: getTeamMessageOptions(project, username, { contacts }),
-    };
-  });
+  // Single centralized team registry (allowlist + cross-portal contacts).
+  const roster = await getTeamRoster(project);
+  const members = roster.map(({ username, avatarUrl, profileUrl, contacts }) => ({
+    username,
+    avatarUrl,
+    profileUrl,
+    contacts,
+    messageOptions: getTeamMessageOptions(project, username, { contacts }),
+  }));
 
   const connections = getPortalConnections(project);
 
