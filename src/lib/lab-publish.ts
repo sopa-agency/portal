@@ -64,9 +64,30 @@ async function publishHiveMag(text: string, project: ProjectConfig): Promise<Pub
 async function publishEmailBlast(text: string, project: ProjectConfig): Promise<PublishResult> {
   const { resolveBlastRecipients, blastFooterHtml } = await import("@/lib/newsletter");
   const { sendProjectEmail } = await import("@/lib/email");
+  const { parseEmail, renderEmail } = await import("@/lib/campaign-email");
 
   const recipients = await resolveBlastRecipients();
   if (recipients.length === 0) return { ok: false, error: "No subscribed recipients." };
+
+  // Rich email built in the visual builder (serialized EmailDocument) → render it.
+  const parsed = parseEmail(text);
+  if (parsed.kind === "document") {
+    const subject = (parsed.document.subject || project.name).replace(/^subject:\s*/i, "").trim().slice(0, 140) || project.name;
+    let sent = 0;
+    const failed: string[] = [];
+    for (const r of recipients) {
+      const rendered = renderEmail(parsed.document);
+      const footer = blastFooterHtml(project, r.email);
+      const html = rendered.includes("</body>") ? rendered.replace("</body>", `${footer}</body>`) : rendered + footer;
+      const res = await sendProjectEmail(project, { to: r.email, subject, html, text: subject });
+      if (res.ok) sent++;
+      else failed.push(r.email);
+      await new Promise((res2) => setTimeout(res2, 150));
+    }
+    return sent > 0
+      ? { ok: true, ref: `${sent} enviado(s)${failed.length ? `, ${failed.length} falha(s)` : ""}` }
+      : { ok: false, error: "All sends failed." };
+  }
 
   const lines = text.split("\n");
   const firstIdx = lines.findIndex((l) => l.trim());

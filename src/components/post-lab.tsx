@@ -18,6 +18,8 @@ import {
 import { Lightbulb } from "lucide-react";
 import { type PostType, type CalendarExtra, createDraft, scheduleDraft } from "@/app/actions/post-creator";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
+import { CampaignEmailBuilderDialog } from "@/components/campaign-email-builder-dialog";
+import { createEmptyEmail, serializeEmail, renderEmail, parseEmail, type EmailDocument, type EmailBrand } from "@/lib/campaign-email";
 import { IgPreview } from "@/components/post/ig-preview";
 import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
 import { aspectToClass, snapToFeedRatio, type UploadState } from "@/lib/post-aspect";
@@ -146,6 +148,8 @@ export function PostLab({
   const [media, setMedia] = useState<Media[]>([]);
   const [mediaOverrides, setMediaOverrides] = useState<Record<string, Media[]>>({}); // per-channel media
   const [mediaTarget, setMediaTarget] = useState<string>("all"); // where the next upload lands: "all" | network id
+  const [emailContent, setEmailContent] = useState(""); // serialized EmailDocument from the visual builder
+  const [emailBuilderOpen, setEmailBuilderOpen] = useState(false);
   const [enabled, setEnabled] = useState<Record<string, boolean>>({ instagram: true, hive: true, farcaster: true });
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<string>("base"); // "base" | network id
@@ -244,6 +248,16 @@ export function PostLab({
   const effectiveMedia = (id: string) => mediaOverrides[id] ?? media;
   const mediaToUploads = (ms: Media[]): UploadState[] => ms.map((m) => ({ url: m.url, previewUrl: m.url, isVideo: m.isVideo }));
 
+  // Visual email builder (the Email channel): an EmailDocument serialized into
+  // emailContent; publish renders it via parseEmail/renderEmail in lab-publish.
+  const emailBrand: EmailBrand = { name: brand.projectName, url: brand.hiveFrontend ?? "https://skatehive.app", accent: brand.accent, accentDark: brand.accent };
+  const parsedEmail = parseEmail(emailContent);
+  const emailBuilderDoc: EmailDocument = parsedEmail.kind === "document" ? parsedEmail.document : createEmptyEmail(emailBrand);
+  const openEmailBuilder = () => {
+    if (parsedEmail.kind !== "document") setEmailContent(serializeEmail(createEmptyEmail(emailBrand)));
+    setEmailBuilderOpen(true);
+  };
+
   const igAspectClass = aspectToClass(
     effectiveMedia("instagram").some((m) => m.isVideo) ? "9:16" : snapToFeedRatio(1),
   );
@@ -331,7 +345,9 @@ export function PostLab({
     const others: string[] = [];
     for (const n of activeNetworks.filter((nn) => nn.id !== "instagram")) {
       const t = effectiveText(n.id).trim();
-      if (!t) {
+      // Email: a visual-builder document (if built) is the content; else text.
+      const hasEmailDoc = n.id === "email" && emailContent.trim().length > 0;
+      if (!t && !hasEmailDoc) {
         others.push(`• ${n.label}: sem texto — pulado`);
         continue;
       }
@@ -344,7 +360,7 @@ export function PostLab({
         }
         continue;
       }
-      const body = appendMedia(n, t, effectiveMedia(n.id));
+      const body = hasEmailDoc ? emailContent : appendMedia(n, t, effectiveMedia(n.id));
       if (scheduleWhen) {
         const sr = await labSchedulePost(n.id, body, new Date(scheduleWhen).toISOString());
         others.push(sr.ok ? `• ${n.label}: ✓ agendado (${when})` : `• ${n.label}: erro ao agendar — ${sr.error}`);
@@ -745,6 +761,29 @@ export function PostLab({
                       />
                     </div>
                   </div>
+                ) : n.id === "email" ? (
+                  <div key={n.id} className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+                    <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: `${n.color}1a` }}>
+                      <span className="flex items-center gap-2 text-xs font-bold" style={{ color: n.color }}>
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: n.color }} />
+                        {n.label}
+                      </span>
+                      <button type="button" onClick={openEmailBuilder} className="inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/20">
+                        <Wand2 className="h-3 w-3" /> {parsedEmail.kind === "document" ? "Editar email" : "Montar email"}
+                      </button>
+                    </div>
+                    <div className="p-3">
+                      {parsedEmail.kind === "document" ? (
+                        <iframe
+                          title="Preview do email"
+                          srcDoc={renderEmail(parsedEmail.document)}
+                          className="h-80 w-full rounded-lg border border-border bg-white"
+                        />
+                      ) : (
+                        <p className="py-8 text-center text-xs text-foreground-faint">Monte o email no editor visual (blocos, imagens, botões).</p>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <ChannelPreview
                     key={n.id}
@@ -796,6 +835,15 @@ export function PostLab({
             )}
           </div>
         </div>
+      )}
+
+      {emailBuilderOpen && (
+        <CampaignEmailBuilderDialog
+          initialDocument={emailBuilderDoc}
+          emailBrand={emailBrand}
+          onSave={(doc) => setEmailContent(serializeEmail(doc))}
+          onClose={() => setEmailBuilderOpen(false)}
+        />
       )}
     </div>
   );
