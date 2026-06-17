@@ -98,3 +98,72 @@ export function uid() {
 export function blankPage(): Page {
   return { id: uid(), bg: "#ffffff", elements: [] };
 }
+
+// --- Defensive restore --------------------------------------------------------
+// localStorage may hold autosaves/drafts from an OLDER schema (e.g. a page whose
+// `elements` isn't an array). Coerce unknown JSON into valid Page[]/Draft[],
+// dropping anything malformed, so a stale draft never crashes the editor with
+// "x.map is not a function".
+function num(v: unknown, d: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : d;
+}
+
+export function sanitizeElement(raw: unknown): Element | null {
+  if (!raw || typeof raw !== "object") return null;
+  const e = raw as Record<string, unknown>;
+  return {
+    id: typeof e.id === "string" && e.id ? e.id : uid(),
+    kind: e.kind === "text" ? "text" : "image",
+    x: num(e.x, 10),
+    y: num(e.y, 10),
+    w: num(e.w, 60),
+    h: num(e.h, 40),
+    z: num(e.z, 0),
+    ...(typeof e.src === "string" ? { src: e.src } : {}),
+    ...(e.fit === "contain" || e.fit === "cover" ? { fit: e.fit } : {}),
+    ...(typeof e.text === "string" ? { text: e.text } : {}),
+    ...(typeof e.fontSize === "number" ? { fontSize: e.fontSize } : {}),
+    ...(typeof e.color === "string" ? { color: e.color } : {}),
+    ...(e.align === "left" || e.align === "center" || e.align === "right" ? { align: e.align } : {}),
+    ...(typeof e.bold === "boolean" ? { bold: e.bold } : {}),
+    ...(typeof e.font === "string" ? { font: e.font } : {}),
+    ...(typeof e.rotation === "number" ? { rotation: e.rotation } : {}),
+  };
+}
+
+export function sanitizePages(raw: unknown): Page[] | null {
+  if (!Array.isArray(raw)) return null;
+  const pages: Page[] = [];
+  for (const p of raw) {
+    if (!p || typeof p !== "object") continue;
+    const pg = p as Record<string, unknown>;
+    const elements = Array.isArray(pg.elements)
+      ? pg.elements.map(sanitizeElement).filter((x): x is Element => x !== null)
+      : [];
+    pages.push({
+      id: typeof pg.id === "string" && pg.id ? pg.id : uid(),
+      bg: typeof pg.bg === "string" ? pg.bg : "#ffffff",
+      elements,
+    });
+  }
+  return pages.length ? pages : null;
+}
+
+export function sanitizeDrafts(raw: unknown): Draft[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Draft[] = [];
+  for (const d of raw) {
+    if (!d || typeof d !== "object") continue;
+    const dr = d as Record<string, unknown>;
+    const pages = sanitizePages(dr.pages);
+    if (!pages) continue;
+    out.push({
+      id: typeof dr.id === "string" && dr.id ? dr.id : uid(),
+      name: typeof dr.name === "string" ? dr.name : "Zine",
+      savedAt: typeof dr.savedAt === "number" ? dr.savedAt : 0,
+      pageSize: (typeof dr.pageSize === "string" ? dr.pageSize : "A5") as PageSizeId,
+      pages,
+    });
+  }
+  return out;
+}

@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
 import { listZineBlogImages, ZINE_BLOG_AUTHORS, type ZineBlogImage } from "@/app/actions/zine-blog";
-import { ZINE_FONTS, GRID, SNAP_TH, PAGE_SIZES, MINI8_ORDER, MINI8_PAGES, miniPageLabel, buildFilters, uid, blankPage, type Element, type Page, type Draft, type PageSizeId } from "@/components/zine/lib";
+import { ZINE_FONTS, GRID, SNAP_TH, PAGE_SIZES, MINI8_ORDER, MINI8_PAGES, miniPageLabel, buildFilters, uid, blankPage, sanitizePages, sanitizeDrafts, type Element, type Page, type Draft, type PageSizeId } from "@/components/zine/lib";
 
 // ---------------------------------------------------------------------------
 // Zine Studio — page-based editor for printable zines (Reelflip-family brands).
@@ -180,8 +180,9 @@ export function ZineStudio({
     try {
       const raw = localStorage.getItem(storeKey);
       if (raw) {
-        const saved = JSON.parse(raw) as { pages: Page[]; pageSize: PageSizeId };
-        if (Array.isArray(saved.pages) && saved.pages.length) { fromHistory.current = true; setPages(saved.pages); }
+        const saved = JSON.parse(raw) as { pages?: unknown; pageSize?: PageSizeId };
+        const safe = sanitizePages(saved.pages);
+        if (safe) { fromHistory.current = true; setPages(safe); }
         if (saved.pageSize) setPageSize(saved.pageSize);
       }
     } catch {
@@ -469,7 +470,7 @@ export function ZineStudio({
   useEffect(() => {
     try {
       const raw = localStorage.getItem(draftsKey);
-      if (raw) setDrafts(JSON.parse(raw) as Draft[]);
+      if (raw) setDrafts(sanitizeDrafts(JSON.parse(raw)));
     } catch {
       /* ignore */
     }
@@ -495,15 +496,16 @@ export function ZineStudio({
   }
   function loadDraft(d: Draft) {
     // Replace the working doc + reset undo history to this baseline.
+    const safe = sanitizePages(d.pages) ?? [blankPage()];
     past.current = [];
     future.current = [];
     fromHistory.current = true;
-    lastCommitted.current = d.pages;
+    lastCommitted.current = safe;
     syncHist();
     setActive(0);
     setSelectedId(null);
     setPageSize(d.pageSize);
-    setPages(structuredClone(d.pages));
+    setPages(structuredClone(safe));
     setDraftsOpen(false);
   }
   function deleteDraft(id: string) {
