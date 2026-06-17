@@ -716,7 +716,7 @@ function PublishRow({
   const [errors, setErrors] = useState<Partial<Record<Platform, string>>>({});
   const [notes, setNotes] = useState<Partial<Record<Platform, string>>>({});
   const [running, setRunning] = useState(false);
-  const [schedulingPlatform, setSchedulingPlatform] = useState<SchedulablePlatform | null>(null);
+  const [schedulingPlatforms, setSchedulingPlatforms] = useState<SchedulablePlatform[]>([]);
   const [scheduleValue, setScheduleValue] = useState<string>("");
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
@@ -753,31 +753,36 @@ function PublishRow({
     steps.x !== "idle" ||
     steps.binance !== "idle" ||
     !!scheduled.hive ||
-    !!scheduled.farcaster;
+    !!scheduled.farcaster ||
+    !!scheduled.binance;
 
   const openScheduler = (p: SchedulablePlatform) => {
     const existing = scheduled[p];
     const seed = existing ? new Date(existing) : new Date(Date.now() + 60 * 60 * 1000);
-    setSchedulingPlatform(p);
+    setSchedulingPlatforms([p]);
     setScheduleValue(toDatetimeLocalValue(seed));
     setScheduleError(null);
   };
 
   const submitSchedule = async () => {
-    if (!schedulingPlatform || !scheduleValue) return;
+    if (schedulingPlatforms.length === 0 || !scheduleValue) return;
     const when = new Date(scheduleValue);
     if (Number.isNaN(when.getTime())) {
       setScheduleError("Invalid date");
       return;
     }
     setScheduleSubmitting(true);
-    const result = await onSchedule(schedulingPlatform, when.toISOString());
-    setScheduleSubmitting(false);
-    if (!result.ok) {
-      setScheduleError(result.error ?? "Failed to schedule");
-      return;
+    const whenISO = when.toISOString();
+    for (const platform of schedulingPlatforms) {
+      const result = await onSchedule(platform, whenISO);
+      if (!result.ok) {
+        setScheduleSubmitting(false);
+        setScheduleError(result.error ?? `Failed to schedule ${platform}`);
+        return;
+      }
     }
-    setSchedulingPlatform(null);
+    setScheduleSubmitting(false);
+    setSchedulingPlatforms([]);
     setScheduleError(null);
   };
 
@@ -864,7 +869,7 @@ function PublishRow({
         <p className="mt-2 text-[11px] text-foreground-subtle">
           Posts to Hive, Farcaster and Binance automatically, then opens X with the tweet pre-filled.
         </p>
-        {schedulingPlatform && (
+        {schedulingPlatforms.length > 0 && (
           <div className="mt-3 rounded-xl border border-border bg-surface/50 p-3">
             <div className="flex flex-wrap items-end gap-3">
               <div className="min-w-0 flex-1">
@@ -872,20 +877,35 @@ function PublishRow({
                   Schedule publish to
                 </label>
                 <div className="mt-1 flex flex-wrap gap-2">
-                  {(["hive", "farcaster"] as const).map((p) => (
+                  {(["hive", "farcaster", "binance"] as const).map((p) => (
                     <button
                       key={p}
                       type="button"
-                      onClick={() => setSchedulingPlatform(p)}
+                      onClick={() =>
+                        setSchedulingPlatforms((prev) =>
+                          prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
+                        )
+                      }
                       className={`rounded-md border px-2.5 py-1 text-[11px] font-medium ${
-                        schedulingPlatform === p
+                        schedulingPlatforms.includes(p)
                           ? "border-accent-border bg-accent-bg text-accent"
                           : "border-border bg-foreground/5 text-foreground-muted hover:bg-foreground/10"
                       }`}
                     >
-                      {p === "hive" ? "Hive" : "Farcaster"}
+                      {p === "hive" ? "Hive" : p === "farcaster" ? "Farcaster" : "Binance"}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => setSchedulingPlatforms(["hive", "farcaster", "binance"])}
+                    className={`rounded-md border px-2.5 py-1 text-[11px] font-medium ${
+                      schedulingPlatforms.length === 3
+                        ? "border-accent-border bg-accent-bg text-accent"
+                        : "border-border bg-foreground/5 text-foreground-muted hover:bg-foreground/10"
+                    }`}
+                  >
+                    All
+                  </button>
                 </div>
                 <input
                   type="datetime-local"
@@ -899,7 +919,7 @@ function PublishRow({
                 <button
                   type="button"
                   onClick={submitSchedule}
-                  disabled={scheduleSubmitting || !scheduleValue}
+                  disabled={scheduleSubmitting || !scheduleValue || schedulingPlatforms.length === 0}
                   className="rounded-md border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
                 >
                   {scheduleSubmitting ? "Saving…" : "Schedule"}
@@ -907,7 +927,7 @@ function PublishRow({
                 <button
                   type="button"
                   onClick={() => {
-                    setSchedulingPlatform(null);
+                    setSchedulingPlatforms([]);
                     setScheduleError(null);
                   }}
                   className="rounded-md border border-border bg-foreground/5 px-3 py-1.5 text-xs text-foreground-muted hover:bg-foreground/10"
@@ -963,9 +983,12 @@ function PublishRow({
           platform="binance"
           status={steps.binance}
           rec={published.binance}
+          scheduledAt={scheduled.binance}
           error={errors.binance}
           onRetry={() => runPlatform("binance")}
           onAction={() => runPlatform("binance")}
+          onSchedule={() => openScheduler("binance")}
+          onCancelSchedule={() => cancelSchedule("binance")}
           actionLabel="Post on Binance"
           blocked={blockedFor("binance")}
           blockedReason={reasonFor("binance")}
@@ -983,12 +1006,12 @@ function PublishRow({
           blockedReason={reasonFor("x")}
         />
       </div>
-      {schedulingPlatform && (
+      {schedulingPlatforms.length > 0 && (
         <div className="mt-3 rounded-xl border border-border bg-surface/50 p-3">
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-0 flex-1">
               <label className="block text-[11px] uppercase tracking-[0.18em] text-foreground-subtle">
-                Schedule {schedulingPlatform === "hive" ? "Hive" : "Farcaster"} publish
+                Schedule publish
               </label>
               <input
                 type="datetime-local"
@@ -1002,7 +1025,7 @@ function PublishRow({
               <button
                 type="button"
                 onClick={submitSchedule}
-                disabled={scheduleSubmitting || !scheduleValue}
+                disabled={scheduleSubmitting || !scheduleValue || schedulingPlatforms.length === 0}
                 className="rounded-md border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
               >
                 {scheduleSubmitting ? "Saving…" : "Schedule"}
@@ -1010,7 +1033,7 @@ function PublishRow({
               <button
                 type="button"
                 onClick={() => {
-                  setSchedulingPlatform(null);
+                  setSchedulingPlatforms([]);
                   setScheduleError(null);
                 }}
                 className="rounded-md border border-border bg-foreground/5 px-3 py-1.5 text-xs text-foreground-muted hover:bg-foreground/10"
