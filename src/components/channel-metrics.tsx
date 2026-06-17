@@ -21,8 +21,20 @@ import {
   Activity,
   ImageIcon,
   Film,
+  Megaphone,
 } from "lucide-react";
 import type { ChannelMetrics } from "@/lib/social-metrics";
+
+// Meta Business Suite target for boosting/promoting a post. Facebook permalinks
+// open the post itself inside Business Suite (admin view has "Boost post");
+// Instagram (and anything else) opens Business Suite's published-posts list,
+// where the post can be selected and boosted.
+function metaSuiteBoostUrl(url?: string): string {
+  if (url && /(^|\.)facebook\.com/.test(url)) {
+    return url.replace(/^https?:\/\/(www\.|web\.|m\.|business\.)?facebook\.com/, "https://business.facebook.com");
+  }
+  return "https://business.facebook.com/latest/posts/published_posts";
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -405,6 +417,19 @@ function RecentPosts({
                         </span>
                       ))}
                     </div>
+                  )}
+
+                  {/* Boost / promote in Meta Business Suite (IG + FB only) */}
+                  {post.url && /(facebook|instagram)\.com/.test(post.url) && (
+                    <a
+                      href={metaSuiteBoostUrl(post.url)}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Abrir no Meta Business Suite para impulsionar"
+                      className="mt-2 inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
+                    >
+                      <Megaphone className="h-3 w-3" /> Promover
+                    </a>
                   )}
                 </div>
               </div>
