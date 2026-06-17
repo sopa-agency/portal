@@ -43,3 +43,4 @@ next-env.d.ts
 
 # Service-account keys (local only)
 .secrets/
+.design-ref/
