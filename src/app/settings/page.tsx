@@ -3,7 +3,9 @@ export const dynamic = "force-dynamic";
 import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { ConnectionsView } from "@/components/team-view";
+import { TeamAdmin } from "@/components/team-admin";
 import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
+import { listTeamMembers } from "@/app/actions/team-admin";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -17,13 +19,20 @@ export default async function SettingsPage() {
     discordRow.detail = live.detail;
   }
 
+  // Team & roles — admins only.
+  const team = await listTeamMembers().catch(() => null);
+  const showAdmin = team?.ok && team.viewerRole === "admin";
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <PageHeader
         eyebrow={project.name}
         title="Settings"
-        description="Portal connections and configuration."
+        description="Portal connections, team & roles."
       />
+      {showAdmin && team?.ok ? (
+        <TeamAdmin initial={team.members} viewerGlobal={team.viewerGlobal} projectName={project.name} />
+      ) : null}
       <ConnectionsView
         projectName={project.name}
         connections={connections}

@@ -16,18 +16,30 @@ export type Access = { allowed: boolean; role: Role | null; global: boolean };
 
 const asRole = (r: string): Role => (ROLES.includes(r as Role) ? (r as Role) : "member");
 
-/** Effective access for a username on a project: DB first, config fallback. */
+/**
+ * Effective access for a username on a project.
+ * - A global admin row (projectSlug "*") or code GLOBAL_ALLOWLIST → global admin.
+ * - A per-project DB row → that role.
+ * - Otherwise: if the project has ANY DB rows it is SEEDED → DB is authoritative,
+ *   so a non-member is denied (this is what makes "remove" effective). If the
+ *   project has NO rows yet it is unseeded → fall back to the static allowlist.
+ * DB errors fall back to config (count 0 → unseeded), so a DB outage can't lock
+ * everyone out.
+ */
 export async function getAccess(username: string, project: ProjectConfig): Promise<Access> {
   const u = username.toLowerCase();
-  const rows = await prisma.teamMember
-    .findMany({ where: { username: u, projectSlug: { in: [GLOBAL_SLUG, project.slug] } } })
-    .catch(() => [] as { projectSlug: string; role: string }[]);
+  const [rows, projectCount] = await Promise.all([
+    prisma.teamMember
+      .findMany({ where: { username: u, projectSlug: { in: [GLOBAL_SLUG, project.slug] } } })
+      .catch(() => [] as { projectSlug: string; role: string }[]),
+    prisma.teamMember.count({ where: { projectSlug: project.slug } }).catch(() => 0),
+  ]);
   if (rows.some((r) => r.projectSlug === GLOBAL_SLUG)) return { allowed: true, role: "admin", global: true };
+  if (GLOBAL_ALLOWLIST.includes(u)) return { allowed: true, role: "admin", global: true };
   const projRow = rows.find((r) => r.projectSlug === project.slug);
   if (projRow) return { allowed: true, role: asRole(projRow.role), global: false };
-  // Fallback to static config (pre-seed).
-  if (GLOBAL_ALLOWLIST.includes(u)) return { allowed: true, role: "admin", global: true };
-  if (isAllowed(u, project)) return { allowed: true, role: "member", global: false };
+  if (projectCount > 0) return { allowed: false, role: null, global: false }; // seeded → DB authoritative
+  if (isAllowed(u, project)) return { allowed: true, role: "member", global: false }; // unseeded → config
   return { allowed: false, role: null, global: false };
 }
 
@@ -56,6 +68,25 @@ export async function authorize(
   if (!s) return null;
   const a = await getAccess(s.username, project);
   return a.allowed ? { username: s.username, role: a.role!, global: a.global } : null;
+}
+
+/**
+ * Seed a project's TeamMember rows from the static allowlist on first write, so
+ * flipping the project to "DB authoritative" never locks out existing config
+ * members. No-op once the project has any rows. Also seeds the global-admin rows.
+ */
+export async function ensureSeeded(project: ProjectConfig): Promise<void> {
+  const count = await prisma.teamMember.count({ where: { projectSlug: project.slug } });
+  if (count === 0) {
+    await prisma.teamMember.createMany({
+      data: project.allowlist.map((u) => ({ projectSlug: project.slug, username: u.toLowerCase(), role: "member" })),
+      skipDuplicates: true,
+    });
+  }
+  await prisma.teamMember.createMany({
+    data: GLOBAL_ALLOWLIST.map((u) => ({ projectSlug: GLOBAL_SLUG, username: u.toLowerCase(), role: "admin" })),
+    skipDuplicates: true,
+  });
 }
 
 /** Effective roles for a set of usernames on a project (for the roster/UI). */
