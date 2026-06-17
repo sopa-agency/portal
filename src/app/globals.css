@@ -172,6 +172,14 @@ body {
   src: url("/studio/fonts/MADE-GoodTime-Grotesk.otf") format("opentype");
   font-weight: 400;
 }
+/* SkateHive brand display font (spot template in the Studio). */
+@font-face {
+  font-family: "Joystix";
+  src: url("/studio/fonts/joystix.woff2") format("woff2"),
+    url("/studio/fonts/joystix.otf") format("opentype");
+  font-weight: 400;
+  font-display: swap;
+}
 
 :root {
   --card: var(--surface-elevated);

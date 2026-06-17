@@ -157,6 +157,8 @@ function CapaLayer({ card, assets }: { card: Extract<Card, { tipo: "capa" }>; as
 // emoji (Satori has no emoji font loaded). Renders in both the live canvas and
 // the server Satori export from the same component.
 const SPOT_LIME = "#a3e635";
+// SkateHive's brand display font (loaded in globals.css + Satori loadFonts).
+const SPOT_DISPLAY_FONT = "Joystix";
 function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
   return (
     <>
@@ -169,13 +171,13 @@ function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
         }}
       />
 
-      {/* top banner */}
+      {/* top banner — Joystix (SkateHive's brand pixel font) */}
       <div style={{ position: "absolute", left: 48, top: 60, display: "flex", transform: "rotate(-2.5deg)" }}>
         <div
           style={{
             display: "flex", alignItems: "center", backgroundColor: SPOT_LIME, color: "#0a0a0a",
-            padding: "12px 30px", border: "5px solid #000", borderRadius: 6,
-            fontFamily: FONT_TITLE, fontSize: 64, letterSpacing: -1,
+            padding: "16px 28px", border: "5px solid #000", borderRadius: 6,
+            fontFamily: SPOT_DISPLAY_FONT, fontSize: 38,
           }}
         >
           SKATE SPOT FOUND!
@@ -186,22 +188,22 @@ function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
       <div style={{ position: "absolute", left: 60, right: 60, bottom: 84, display: "flex", flexDirection: "column" }}>
         <div
           style={{
-            display: "flex", fontFamily: FONT_TITLE, fontSize: 122, lineHeight: 0.95, color: "#ffffff",
-            letterSpacing: -2, textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
+            display: "flex", fontFamily: SPOT_DISPLAY_FONT, fontSize: 78, lineHeight: 1.1, color: "#ffffff",
+            textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
           }}
         >
           {(card.spotName || "Spot sem nome").toUpperCase()}
         </div>
         {card.spotLocation ? (
-          <div style={{ display: "flex", alignItems: "center", marginTop: 22 }}>
+          <div style={{ display: "flex", alignItems: "center", marginTop: 26 }}>
             <div style={{ display: "flex", width: 26, height: 26, marginRight: 14, borderRadius: 999, border: `6px solid ${SPOT_LIME}` }} />
-            <div style={{ display: "flex", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 44, color: SPOT_LIME }}>
+            <div style={{ display: "flex", fontFamily: "Inter", fontWeight: 700, fontSize: 44, color: SPOT_LIME }}>
               {card.spotLocation}
             </div>
           </div>
         ) : null}
         {card.spotAuthor ? (
-          <div style={{ display: "flex", marginTop: 16, fontFamily: FONT_DISPLAY, fontSize: 34, color: "rgba(255,255,255,0.82)" }}>
+          <div style={{ display: "flex", marginTop: 16, fontFamily: "Inter", fontWeight: 400, fontSize: 34, color: "rgba(255,255,255,0.82)" }}>
             found by @{card.spotAuthor}
           </div>
         ) : null}

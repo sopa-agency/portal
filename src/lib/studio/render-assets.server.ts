@@ -13,11 +13,12 @@ export async function loadFonts(): Promise<FontSpec[]> {
   if (_fonts) return _fonts;
   const brand = (file: string) => readFile(path.join(root, "public", "studio", "fonts", file));
   const node = (p: string) => readFile(path.join(root, "node_modules", p));
-  const [toomReg, toomBold, bazinga, made, inter400, inter600, inter700] = await Promise.all([
+  const [toomReg, toomBold, bazinga, made, joystix, inter400, inter600, inter700] = await Promise.all([
     brand("TOOM-Regular.otf"),
     brand("TOOM-Bold-Italic.otf"),
     brand("Bazinga-Regular.otf"),
     brand("MADE-GoodTime-Grotesk.otf"),
+    brand("joystix.otf"), // SkateHive brand display font (spot template)
     node("@fontsource/inter/files/inter-latin-400-normal.woff"),
     node("@fontsource/inter/files/inter-latin-600-normal.woff"),
     node("@fontsource/inter/files/inter-latin-700-normal.woff"),
@@ -28,6 +29,8 @@ export async function loadFonts(): Promise<FontSpec[]> {
     { name: "TOOM", data: toomBold, weight: 700, style: "normal" },
     { name: "Bazinga", data: bazinga, weight: 400, style: "normal" },
     { name: "MADE GoodTime Grotesk", data: made, weight: 400, style: "normal" },
+    // Joystix: SkateHive's signature pixel/arcade font (per skatehive3.0).
+    { name: "Joystix", data: joystix, weight: 400, style: "normal" },
     // Inter = fallback de glifos (não é mais papel da marca)
     { name: "Inter", data: inter400, weight: 400, style: "normal" },
     { name: "Inter", data: inter600, weight: 600, style: "normal" },
