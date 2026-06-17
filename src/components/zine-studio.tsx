@@ -58,6 +58,7 @@ type Element = {
   align?: "left" | "center" | "right";
   bold?: boolean;
   font?: string; // CSS font-family; "" = page default sans
+  rotation?: number; // degrees, around the element's center
 };
 
 // Every studio/brand font (all registered as @font-face in globals.css) plus
@@ -176,6 +177,7 @@ export function ZineStudio({
   const [grid, setGrid] = useState(false); // visual grid + snap-to-grid on drag/resize
   const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] }); // live snap guides
   const [cropMarks, setCropMarks] = useState(true); // crop/fold helper marks on print
+  const [fixOrient, setFixOrient] = useState(false); // mini: rotate top row 180° so it folds upright
   const [filterId, setFilterId] = useState("color"); // overall B&W / duotone filter
   const [printOpen, setPrintOpen] = useState(false); // mini-zine export summary modal
   const [assetTab, setAssetTab] = useState<"upload" | "drive" | "blog">("upload");
@@ -651,6 +653,17 @@ export function ZineStudio({
           >
             <Scissors className="h-3.5 w-3.5" /> Marcas
           </button>
+          {isMini && (
+            <button
+              type="button"
+              onClick={() => setFixOrient((v) => !v)}
+              title="Corrigir orientação: gira a fileira de cima 180° na impressão para dobrar em pé"
+              aria-pressed={fixOrient}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${fixOrient ? "border-accent bg-accent-bg text-accent" : "border-border bg-surface-elevated text-foreground-muted hover:border-border-strong hover:text-foreground"}`}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Orientação
+            </button>
+          )}
           <div className="relative" ref={draftsRef}>
             <button
               type="button"
@@ -745,6 +758,7 @@ export function ZineStudio({
             selectedId={selectedId}
             cropMarks={cropMarks}
             filter={filterCss}
+            fixOrient={fixOrient}
             guides={guides}
             panelRef={panelRef}
             dragOver={dragOver}
@@ -996,7 +1010,7 @@ export function ZineStudio({
                   <div
                     key={cell}
                     className="zine-mini-cell"
-                    style={{ backgroundColor: p?.bg ?? "#ffffff", containerType: "inline-size" }}
+                    style={{ backgroundColor: p?.bg ?? "#ffffff", containerType: "inline-size", transform: fixOrient && cell < 4 ? "rotate(180deg)" : undefined }}
                   >
                     {p?.elements
                       .slice()
@@ -1079,6 +1093,7 @@ function ElementView({
     top: `${el.y}%`,
     width: `${el.w}%`,
     zIndex: el.z,
+    transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
   };
   return (
     <div
@@ -1165,6 +1180,7 @@ function ThumbEl({ el }: { el: Element }) {
     top: `${el.y}%`,
     width: `${el.w}%`,
     zIndex: el.z,
+    transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
   };
   if (el.kind === "image")
     // eslint-disable-next-line @next/next/no-img-element
@@ -1240,6 +1256,28 @@ function Inspector({
         </div>
       )}
 
+      {/* rotation — any element */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-foreground-muted">
+          <span className="flex items-center gap-1"><RotateCcw className="h-3 w-3" /> Girar</span>
+          <span className="tabular-nums">{Math.round(((el.rotation ?? 0) % 360 + 360) % 360)}°</span>
+        </div>
+        <input
+          type="range"
+          min={-180}
+          max={180}
+          step={1}
+          value={el.rotation ?? 0}
+          onChange={(e) => onChange({ rotation: Number(e.target.value) })}
+          className="w-full"
+        />
+        <div className="flex gap-1">
+          <button type="button" onClick={() => onChange({ rotation: (el.rotation ?? 0) - 90 })} className="flex-1 rounded border border-border py-0.5 text-foreground-muted hover:text-foreground">−90°</button>
+          <button type="button" onClick={() => onChange({ rotation: 0 })} className="flex-1 rounded border border-border py-0.5 text-foreground-muted hover:text-foreground">0°</button>
+          <button type="button" onClick={() => onChange({ rotation: (el.rotation ?? 0) + 90 })} className="flex-1 rounded border border-border py-0.5 text-foreground-muted hover:text-foreground">+90°</button>
+        </div>
+      </div>
+
       <button type="button" onClick={onFront} className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border py-1.5 text-foreground-muted hover:border-border-strong hover:text-foreground">
         <Layers className="h-3.5 w-3.5" /> Trazer pra frente
       </button>
@@ -1300,7 +1338,7 @@ function MiniZineGuides() {
 // Each panel is its own canvas; click to select, then drag/resize/add elements.
 // Orientation arrows mark the top of each page; fold/cut guides + page labels too.
 function MiniLayoutCanvas({
-  pages, active, selectedId, cropMarks, filter, guides, panelRef, dragOver,
+  pages, active, selectedId, cropMarks, filter, fixOrient, guides, panelRef, dragOver,
   onSetDragOver, onDropFiles, onSelectPage, onElPointerDown, onChangeText,
 }: {
   pages: Page[];
@@ -1308,6 +1346,7 @@ function MiniLayoutCanvas({
   selectedId: string | null;
   cropMarks: boolean;
   filter?: string;
+  fixOrient: boolean;
   guides: { x: number[]; y: number[] };
   panelRef: React.RefObject<HTMLDivElement | null>;
   dragOver: boolean;
@@ -1369,8 +1408,14 @@ function MiniLayoutCanvas({
                 <span className="pointer-events-none absolute left-1 top-1 z-30 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {pageNum}{label && <span className="text-accent">{label}</span>}
                 </span>
-                {/* orientation arrow — marks the top of this page on the sheet */}
-                <span className="pointer-events-none absolute left-1/2 top-0.5 z-30 -translate-x-1/2 text-sm font-bold text-accent/70" title="topo da página">↑</span>
+                {/* orientation arrow — top of the page; flips for the top row
+                    when "Orientação" is on (those panels print rotated 180°). */}
+                <span
+                  className="pointer-events-none absolute left-1/2 top-0.5 z-30 -translate-x-1/2 text-sm font-bold text-accent/70"
+                  title={fixOrient && cell < 4 ? "imprime girado 180° (dobra em pé)" : "topo da página"}
+                >
+                  {fixOrient && cell < 4 ? "↓" : "↑"}
+                </span>
               </div>
             );
           })}
