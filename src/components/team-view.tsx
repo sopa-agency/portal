@@ -19,6 +19,7 @@ import {
   Check,
   Plus,
   Phone,
+  Trash2,
 } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ConnectionSetupDialog } from "@/components/connection-setup-dialog";
@@ -27,9 +28,12 @@ import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
 import type { TeamMessageOption } from "@/lib/team-messaging";
 import { resolveDiscordUser, sendTeamMessage, updateTeamMemberContact } from "@/app/actions/team";
+import { setMemberRole, removeMember } from "@/app/actions/team-admin";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
 
 // ── Types ──────────────────────────────────────────────────────────────────
+
+type Role = "admin" | "member" | "viewer";
 
 type TeamMember = {
   username: string;
@@ -41,12 +45,38 @@ type TeamMember = {
   global?: boolean;
   /** Portals this member can access (allowlist membership + global). */
   portals?: { slug: string; name: string }[];
+  /** Effective role on this portal. */
+  role?: Role;
+  /** Last login (ISO) or null. */
+  lastLoginAt?: string | null;
 };
 
 type TeamViewProps = {
   projectName: string;
   members: TeamMember[];
+  /** Viewer is an admin of this portal → can change roles / remove from the dialog. */
+  canManage?: boolean;
 };
+
+const ROLE_LABEL: Record<Role, string> = { admin: "Admin", member: "Membro", viewer: "Viewer" };
+const ROLE_BADGE: Record<Role, string> = {
+  admin: "border-accent-border bg-accent-bg text-accent",
+  member: "border-border bg-foreground/5 text-foreground-muted",
+  viewer: "border-border bg-foreground/5 text-foreground-faint",
+};
+
+function relativeSince(iso: string | null | undefined): string {
+  if (!iso) return "nunca entrou";
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "agora";
+  if (m < 60) return `há ${m}min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `há ${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `há ${d}d`;
+  return new Date(iso).toLocaleDateString("pt-BR");
+}
 
 type ConnectionsViewProps = {
   projectName: string;
@@ -224,7 +254,13 @@ function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: T
       </span>
       <span className="flex items-center gap-1 text-center text-xs font-medium text-foreground-muted group-hover:text-foreground tabular-nums">
         @{member.username}
-        {member.global && <span title="Admin global — acessa todos os portais" className="rounded-full bg-accent-bg px-1 text-[8px] font-bold uppercase text-accent">G</span>}
+        {member.global ? (
+          <span title="Admin global — acessa todos os portais" className="rounded-full bg-accent-bg px-1 text-[8px] font-bold uppercase text-accent">G</span>
+        ) : member.role === "admin" ? (
+          <span title="Admin do portal" className="rounded-full bg-accent-bg px-1 text-[8px] font-bold uppercase text-accent">A</span>
+        ) : member.role === "viewer" ? (
+          <span title="Viewer (só leitura)" className="rounded-full bg-foreground/10 px-1 text-[8px] font-bold uppercase text-foreground-faint">V</span>
+        ) : null}
       </span>
     </button>
   );
@@ -520,8 +556,20 @@ function ContactsEditor({
   );
 }
 
-function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => void }) {
+function MemberModal({ member, canManage, onClose }: { member: TeamMember; canManage?: boolean; onClose: () => void }) {
   const titleId = useId();
+  const router = useRouter();
+  const [mgrBusy, setMgrBusy] = useState(false);
+  const [mgrErr, setMgrErr] = useState<string | null>(null);
+  async function manage(fn: () => Promise<{ ok: boolean; error?: string }>, close?: boolean) {
+    setMgrBusy(true);
+    setMgrErr(null);
+    const r = await fn();
+    setMgrBusy(false);
+    if (!r.ok) setMgrErr(r.error ?? "Falhou.");
+    else if (close) onClose();
+    else router.refresh();
+  }
   // Local copy so contact edits reflect immediately (server re-render catches
   // up via router.refresh()).
   const [current, setCurrent] = useState(member);
@@ -575,13 +623,17 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
             <div>
               <h3 id={titleId} className="flex items-center gap-2 text-lg font-semibold text-foreground tabular-nums">
                 @{member.username}
-                {member.global && (
+                {member.global ? (
                   <span className="rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
                     Admin global
                   </span>
-                )}
+                ) : member.role ? (
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ROLE_BADGE[member.role]}`}>
+                    {ROLE_LABEL[member.role]}
+                  </span>
+                ) : null}
               </h3>
-              <p className="text-sm text-foreground-muted">Setup do usuário</p>
+              <p className="text-sm text-foreground-muted">Setup do usuário · visto {relativeSince(member.lastLoginAt)}</p>
               {member.portals && member.portals.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">
                   <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Acesso:</span>
@@ -603,6 +655,32 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
             <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
+
+        {/* Admin controls — change role / remove from this portal */}
+        {canManage && !member.global && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3">
+            <span className="text-xs font-medium text-foreground-muted">Cargo neste portal:</span>
+            <select
+              defaultValue={member.role ?? "member"}
+              disabled={mgrBusy}
+              onChange={(e) => manage(() => setMemberRole(member.username, e.target.value as Role))}
+              className="rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground disabled:opacity-50"
+            >
+              {(["admin", "member", "viewer"] as Role[]).map((r) => (
+                <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={mgrBusy}
+              onClick={() => manage(() => removeMember(member.username), true)}
+              className="ml-auto flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-foreground-muted hover:border-danger/50 hover:text-danger disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Remover do portal
+            </button>
+            {mgrErr && <p className="w-full text-[11px] text-danger">{mgrErr}</p>}
+          </div>
+        )}
 
         <div className="mt-5 space-y-2">
           {contacts.map((contact) => {
@@ -794,7 +872,7 @@ function ConnectionCard({
 
 // ── Main export ────────────────────────────────────────────────────────────
 
-export function TeamView({ projectName, members }: TeamViewProps) {
+export function TeamView({ projectName, members, canManage }: TeamViewProps) {
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
 
   return (
@@ -816,7 +894,7 @@ export function TeamView({ projectName, members }: TeamViewProps) {
       </section>
 
       {selectedMember && (
-        <MemberModal member={selectedMember} onClose={() => setSelectedMember(null)} />
+        <MemberModal member={selectedMember} canManage={canManage} onClose={() => setSelectedMember(null)} />
       )}
     </div>
   );
