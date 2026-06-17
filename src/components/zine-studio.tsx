@@ -77,7 +77,10 @@ export function ZineStudio({
   const [pages, setPages] = useState<Page[]>([blankPage()]);
   const [active, setActive] = useState(0);
   const [pageSize, setPageSize] = useState<PageSizeId>("A5");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // Compat shim: single-select callers keep working; selectedId = primary.
+  const setSelectedId = (id: string | null) => setSelectedIds(id ? [id] : []);
+  const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
   const [view, setView] = useState<"edit" | "preview" | "print">("edit");
   const [grid, setGrid] = useState(false); // visual grid + snap-to-grid on drag/resize
   const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] }); // live snap guides
@@ -161,10 +164,15 @@ export function ZineStudio({
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "z" || e.key === "Z")) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
       else if (mod && (e.key === "y" || e.key === "Y")) { e.preventDefault(); redo(); }
+      else if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.length) {
+        e.preventDefault();
+        setPages((prev) => prev.map((p) => ({ ...p, elements: p.elements.filter((el) => !selectedIds.includes(el.id)) })));
+        setSelectedIds([]);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
+  }, [undo, redo, selectedIds]);
 
   // Load persisted state once.
   useEffect(() => {
@@ -265,10 +273,22 @@ export function ZineStudio({
   function onElPointerDown(e: React.PointerEvent, el: Element, mode: "move" | "resize") {
     if (!isMini && view !== "edit") return;
     e.stopPropagation();
-    setSelectedId(el.id);
+    // Shift-click toggles the element in/out of the multi-selection (no drag).
+    if (e.shiftKey && mode === "move") {
+      setSelectedIds((prev) => (prev.includes(el.id) ? prev.filter((i) => i !== el.id) : [...prev, el.id]));
+      return;
+    }
+    // Click an unselected element → select only it; an already-selected one
+    // keeps the current (possibly multi) selection so they drag together.
+    const multi = selectedIds.length > 1 && selectedIds.includes(el.id);
+    if (!multi) setSelectedIds([el.id]);
     // Make the element's page active (aligns snap guides + inspector context).
     const elPageIdx = pages.findIndex((p) => p.elements.some((x) => x.id === el.id));
     if (elPageIdx >= 0 && elPageIdx !== active) setActive(elPageIdx);
+    // For a multi-drag, capture every selected element's start position.
+    const multiStart = multi
+      ? new Map(pages.flatMap((p) => p.elements).filter((x) => selectedIds.includes(x.id)).map((x) => [x.id, { x: x.x, y: x.y }]))
+      : null;
     // The dragged element's own canvas (a mini-zine panel, or the book canvas):
     // coordinates are measured relative to it so any panel is editable.
     const canvas = (e.currentTarget as HTMLElement).closest("[data-zine-canvas]") as HTMLElement | null;
@@ -311,7 +331,16 @@ export function ZineStudio({
       const dyPct = (((ev.clientY - startY) / rect!.height) * 100) * flipSign;
       const gx: number[] = [];
       const gy: number[] = [];
-      if (mode === "move") {
+      if (mode === "move" && multiStart) {
+        // Multi-drag: translate every selected element by the same delta (no snap).
+        setPages((prev) => prev.map((p) => ({
+          ...p,
+          elements: p.elements.map((e2) => {
+            const s = multiStart.get(e2.id);
+            return s ? { ...e2, x: Math.max(0, Math.min(100 - 2, s.x + dxPct)), y: Math.max(0, Math.min(100 - 2, s.y + dyPct)) } : e2;
+          }),
+        })));
+      } else if (mode === "move") {
         let X = Math.max(0, Math.min(100 - 2, start.x + dxPct));
         let Y = Math.max(0, Math.min(100 - 2, start.y + dyPct));
         if (!free) {
@@ -686,7 +715,7 @@ export function ZineStudio({
           <MiniLayoutCanvas
             pages={pages}
             active={active}
-            selectedId={selectedId}
+            selectedIds={selectedIds}
             cropMarks={cropMarks}
             filter={filterCss}
             fixOrient={fixOrient}
@@ -752,7 +781,7 @@ export function ZineStudio({
                 <ElementView
                   key={el.id}
                   el={el}
-                  selected={view === "edit" && el.id === selectedId}
+                  selected={view === "edit" && selectedIds.includes(el.id)}
                   onPointerDown={(e) => onElPointerDown(e, el, "move")}
                   onResize={(e) => onElPointerDown(e, el, "resize")}
                   onChangeText={(t) => updateEl(el.id, { text: t })}
@@ -803,7 +832,19 @@ export function ZineStudio({
             <IconBtn title="Recomeçar zine (apagar tudo)" onClick={resetZine}><RotateCcw className="h-3.5 w-3.5" /></IconBtn>
           </div>
 
-          {selected ? (
+          {selectedIds.length > 1 ? (
+            <div className="space-y-2 rounded-lg border border-accent-border bg-accent-bg p-3 text-xs">
+              <p className="font-semibold text-accent">{selectedIds.length} elementos selecionados</p>
+              <p className="text-foreground-muted">Arraste qualquer um para mover todos. Shift+clique adiciona/remove.</p>
+              <button
+                type="button"
+                onClick={() => { setPages((prev) => prev.map((p) => ({ ...p, elements: p.elements.filter((el) => !selectedIds.includes(el.id)) }))); setSelectedIds([]); }}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5 text-foreground-muted hover:text-danger"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Excluir selecionados
+              </button>
+            </div>
+          ) : selected ? (
             <Inspector
               el={selected}
               onChange={(patch) => updateEl(selected.id, patch)}
@@ -1277,12 +1318,12 @@ function MiniZineGuides() {
 // Each panel is its own canvas; click to select, then drag/resize/add elements.
 // Orientation arrows mark the top of each page; fold/cut guides + page labels too.
 function MiniLayoutCanvas({
-  pages, active, selectedId, cropMarks, filter, fixOrient, guides, dragOver,
+  pages, active, selectedIds, cropMarks, filter, fixOrient, guides, dragOver,
   onSetDragOver, onDropFiles, onSelectPage, onElPointerDown, onChangeText,
 }: {
   pages: Page[];
   active: number;
-  selectedId: string | null;
+  selectedIds: string[];
   cropMarks: boolean;
   filter?: string;
   fixOrient: boolean;
@@ -1340,7 +1381,7 @@ function MiniLayoutCanvas({
                       <ElementView
                         key={el.id}
                         el={el}
-                        selected={el.id === selectedId}
+                        selected={selectedIds.includes(el.id)}
                         editable
                         onPointerDown={(e) => onElPointerDown(e, el, "move")}
                         onResize={(e) => onElPointerDown(e, el, "resize")}
