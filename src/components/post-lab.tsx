@@ -144,6 +144,8 @@ export function PostLab({
   const [submitting, setSubmitting] = useState(false);
   const [baseText, setBaseText] = useState("");
   const [media, setMedia] = useState<Media[]>([]);
+  const [mediaOverrides, setMediaOverrides] = useState<Record<string, Media[]>>({}); // per-channel media
+  const [mediaTarget, setMediaTarget] = useState<string>("all"); // where the next upload lands: "all" | network id
   const [enabled, setEnabled] = useState<Record<string, boolean>>({ instagram: true, hive: true, farcaster: true });
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<string>("base"); // "base" | network id
@@ -159,8 +161,10 @@ export function PostLab({
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Instagram post type is driven by Instagram's effective media.
+  const igMedia = mediaOverrides.instagram ?? media;
   const postType: PostType =
-    media.length > 1 ? "CAROUSEL" : media.some((m) => m.isVideo) ? "REELS" : "IMAGE";
+    igMedia.length > 1 ? "CAROUSEL" : igMedia.some((m) => m.isVideo) ? "REELS" : "IMAGE";
 
   async function aiImprove() {
     if (!editingText.trim()) return;
@@ -235,14 +239,13 @@ export function PostLab({
     }
   }
 
-  // Map lab media → the IgPreview's UploadState shape.
-  const igUploads: UploadState[] = media.map((m) => ({
-    url: m.url,
-    previewUrl: m.url,
-    isVideo: m.isVideo,
-  }));
+  // Per-channel media: a network can override the shared `media` with its own
+  // set. effectiveMedia(id) = the channel's override, else the shared media.
+  const effectiveMedia = (id: string) => mediaOverrides[id] ?? media;
+  const mediaToUploads = (ms: Media[]): UploadState[] => ms.map((m) => ({ url: m.url, previewUrl: m.url, isVideo: m.isVideo }));
+
   const igAspectClass = aspectToClass(
-    media.some((m) => m.isVideo) ? "9:16" : snapToFeedRatio(1),
+    effectiveMedia("instagram").some((m) => m.isVideo) ? "9:16" : snapToFeedRatio(1),
   );
 
   const availableNetworks = useMemo(
@@ -261,16 +264,33 @@ export function PostLab({
     else setOverrides((p) => ({ ...p, [editing]: value }));
   }
 
+  // Add a media item to the shared set ("all") or a single channel's override.
+  function pushMedia(target: string, m: Media) {
+    if (target === "all") setMedia((prev) => [...prev, m]);
+    else setMediaOverrides((prev) => ({ ...prev, [target]: [...(prev[target] ?? media), m] }));
+  }
+  function removeMedia(target: string, idx: number) {
+    if (target === "all") setMedia((prev) => prev.filter((_, i) => i !== idx));
+    else setMediaOverrides((prev) => ({ ...prev, [target]: (prev[target] ?? media).filter((_, i) => i !== idx) }));
+  }
+  // Open the file picker, routing the upload to `target` ("all" | channel id).
+  function pickFilesFor(target: string) {
+    setMediaTarget(target);
+    fileRef.current?.click();
+  }
+
   async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (!files.length) return;
+    const target = mediaTarget;
     setUploading(true);
     for (const f of files) {
       const r = await uploadLabMedia(f);
-      if (r.ok) setMedia((prev) => [...prev, r.media]);
+      if (r.ok) pushMedia(target, r.media);
     }
     setUploading(false);
+    setMediaTarget("all");
   }
 
   async function submit() {
@@ -283,14 +303,15 @@ export function PostLab({
     // (their real wiring is the next slice).
     let igLine = "";
     if (enabled.instagram) {
-      if (media.length === 0) {
+      const igm = effectiveMedia("instagram");
+      if (igm.length === 0) {
         igLine = "• Instagram: precisa de mídia — pulado";
       } else {
         const r = await createDraft({
           type: postType,
           caption: effectiveText("instagram"),
-          mediaUrls: media.map((m) => m.url),
-          aspectRatio: media.some((m) => m.isVideo) ? "9:16" : "1:1",
+          mediaUrls: igm.map((m) => m.url),
+          aspectRatio: igm.some((m) => m.isVideo) ? "9:16" : "1:1",
           coverUrl: postType === "REELS" ? coverUrl : null,
           thumbOffsetMs: postType === "REELS" ? thumbOffsetMs : null,
         });
@@ -323,7 +344,7 @@ export function PostLab({
         }
         continue;
       }
-      const body = appendMedia(n, t, media);
+      const body = appendMedia(n, t, effectiveMedia(n.id));
       if (scheduleWhen) {
         const sr = await labSchedulePost(n.id, body, new Date(scheduleWhen).toISOString());
         others.push(sr.ok ? `• ${n.label}: ✓ agendado (${when})` : `• ${n.label}: erro ao agendar — ${sr.error}`);
@@ -695,8 +716,8 @@ export function PostLab({
                     <IgPreview
                       handle={brand.instagramHandle}
                       caption={effectiveText(n.id)}
-                      uploads={igUploads}
-                      type={igUploads.length > 1 ? "CAROUSEL" : igUploads.some((u) => u.isVideo) ? "REELS" : "IMAGE"}
+                      uploads={mediaToUploads(effectiveMedia("instagram"))}
+                      type={postType}
                       aspectClass={igAspectClass}
                       collaborators={[]}
                       userTags={[]}
@@ -706,9 +727,38 @@ export function PostLab({
                       fit={igFit}
                       onToggleFit={() => setIgFit((f) => (f === "cover" ? "contain" : "cover"))}
                     />
+                    <div className="w-full space-y-2">
+                      <MediaBar
+                        media={effectiveMedia("instagram")}
+                        overridden={!!mediaOverrides.instagram}
+                        uploading={uploading}
+                        onAddHere={() => pickFilesFor("instagram")}
+                        onAddAll={() => pickFilesFor("all")}
+                        onRemove={(i) => removeMedia(mediaOverrides.instagram ? "instagram" : "all", i)}
+                      />
+                      <textarea
+                        value={effectiveText("instagram")}
+                        onChange={(e) => setOverrides((p) => ({ ...p, instagram: e.target.value }))}
+                        rows={3}
+                        placeholder="Legenda do Instagram…"
+                        className="w-full resize-none rounded-lg border border-border bg-surface-elevated p-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
+                      />
+                    </div>
                   </div>
                 ) : (
-                  <ChannelPreview key={n.id} network={n} text={effectiveText(n.id)} media={media} brand={brand} />
+                  <ChannelPreview
+                    key={n.id}
+                    network={n}
+                    text={effectiveText(n.id)}
+                    media={effectiveMedia(n.id)}
+                    overridden={!!mediaOverrides[n.id]}
+                    uploading={uploading}
+                    brand={brand}
+                    onChangeText={(t) => setOverrides((p) => ({ ...p, [n.id]: t }))}
+                    onAddHere={() => pickFilesFor(n.id)}
+                    onAddAll={() => pickFilesFor("all")}
+                    onRemove={(i) => removeMedia(mediaOverrides[n.id] ? n.id : "all", i)}
+                  />
                 ),
               )}
             </div>
@@ -778,27 +828,84 @@ function EditTab({
   );
 }
 
+// Per-channel media strip: thumbnails (with remove) + "esta rede" / "todas"
+// add buttons. `overridden` marks that this channel has its own media set.
+function MediaBar({
+  media,
+  overridden,
+  uploading,
+  onAddHere,
+  onAddAll,
+  onRemove,
+}: {
+  media: Media[];
+  overridden: boolean;
+  uploading: boolean;
+  onAddHere: () => void;
+  onAddAll: () => void;
+  onRemove: (i: number) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {media.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {media.map((m, i) => (
+            <div key={m.url + i} className="relative h-12 w-12 overflow-hidden rounded-md border border-border bg-surface-elevated">
+              {m.isVideo ? (
+                <video src={m.url} className="h-full w-full object-cover" muted />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={m.url} alt="" className="h-full w-full object-cover" />
+              )}
+              <button type="button" onClick={() => onRemove(i)} className="absolute right-0 top-0 rounded-bl bg-black/60 px-1 text-[10px] text-white" aria-label="Remover">×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+        <button type="button" disabled={uploading} onClick={onAddHere} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-foreground-muted hover:border-accent-border hover:text-accent disabled:opacity-50">
+          {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImagePlus className="h-3 w-3" />} Imagem (esta rede)
+        </button>
+        <button type="button" disabled={uploading} onClick={onAddAll} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-foreground-muted hover:border-accent-border hover:text-accent disabled:opacity-50">
+          <ImagePlus className="h-3 w-3" /> + todas
+        </button>
+        {overridden && <span className="text-foreground-faint">mídia própria</span>}
+      </div>
+    </div>
+  );
+}
+
 function ChannelPreview({
   network,
   text,
   media,
+  overridden,
+  uploading,
   brand,
+  onChangeText,
+  onAddHere,
+  onAddAll,
+  onRemove,
 }: {
   network: Network;
   text: string;
   media: Media[];
+  overridden: boolean;
+  uploading: boolean;
   brand: LabBrand;
+  onChangeText: (t: string) => void;
+  onAddHere: () => void;
+  onAddAll: () => void;
+  onRemove: (i: number) => void;
 }) {
   const len = text.length;
   const over = network.limit > 0 && len > network.limit;
   const handle =
-    network.id === "instagram"
-      ? brand.instagramHandle
-      : network.id === "hive" || network.id === "hive_mag"
-        ? `@${brand.hiveAccount}`
-        : network.id === "farcaster"
-          ? `/${brand.farcasterChannel}`
-          : `@${brand.hiveAccount}`;
+    network.id === "hive" || network.id === "hive_mag"
+      ? `@${brand.hiveAccount}`
+      : network.id === "farcaster"
+        ? `/${brand.farcasterChannel}`
+        : `@${brand.hiveAccount}`;
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
@@ -811,8 +918,7 @@ function ChannelPreview({
       </div>
 
       <div className="space-y-2 p-3">
-        {/* media — image OR video; the gate must not depend on there being a
-            still image, or video-only posts render no preview here. */}
+        {/* media preview (image OR video) */}
         {network.image !== "none" && media.length > 0 && (
           <div className="overflow-hidden rounded-lg border border-border">
             {media[0].isVideo ? (
@@ -824,12 +930,19 @@ function ChannelPreview({
           </div>
         )}
 
-        {/* text */}
-        {text.trim() ? (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{text}</p>
-        ) : (
-          <p className="text-sm italic text-foreground-faint">Sem texto ainda…</p>
+        {/* per-channel media controls */}
+        {network.image !== "none" && (
+          <MediaBar media={media} overridden={overridden} uploading={uploading} onAddHere={onAddHere} onAddAll={onAddAll} onRemove={onRemove} />
         )}
+
+        {/* editable text — edit this channel's variation directly */}
+        <textarea
+          value={text}
+          onChange={(e) => onChangeText(e.target.value)}
+          rows={4}
+          placeholder="Texto desta rede…"
+          className="w-full resize-none rounded-lg border border-border bg-surface-elevated p-2 text-sm leading-relaxed text-foreground focus:border-border-strong focus:outline-none"
+        />
 
         {/* footer: char count + image rule */}
         <div className="flex items-center justify-between border-t border-border pt-2 text-[10px]">
