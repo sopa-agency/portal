@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2, CalendarClock } from "lucide-react";
 import { createMeeting, updateMeeting, deleteMeeting, type MeetingDTO } from "@/app/actions/meetings";
+import { addSharedCalendar, deleteSharedCalendar, getAvailability, type SharedCalendarDTO, type BusyBlock } from "@/app/actions/shared-calendars";
 
 // Weekly meetings calendar (SOPA "Reuniões"). A Google-Calendar-style week grid:
 // click an empty slot to create, click an event to edit/delete. "weekly" events
@@ -55,15 +56,56 @@ function occurrenceInWeek(m: MeetingDTO, weekStart: Date): Occurrence | null {
   return null;
 }
 
-export function MeetingsCalendar({ initialMeetings, accent }: { initialMeetings: MeetingDTO[]; accent: string }) {
+export function MeetingsCalendar({ initialMeetings, initialCalendars, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; accent: string }) {
   const [meetings, setMeetings] = useState<MeetingDTO[]>(initialMeetings);
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
   const [editor, setEditor] = useState<null | { id: string | null; title: string; start: string; end: string; notes: string; color: string; weekly: boolean }>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Shared-calendar availability overlay.
+  const [calendars, setCalendars] = useState<SharedCalendarDTO[]>(initialCalendars);
+  const [showAvail, setShowAvail] = useState(true);
+  const [busy, setBusy] = useState<BusyBlock[]>([]);
+  const [availBusy, setAvailBusy] = useState(false);
+  const [calPanel, setCalPanel] = useState(false);
+  const [newCal, setNewCal] = useState({ name: "", icsUrl: "" });
+
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const today = new Date();
+
+  // Refetch busy blocks when the week or the calendar set changes.
+  useEffect(() => {
+    if (!showAvail || calendars.length === 0) { setBusy([]); return; }
+    let cancelled = false;
+    setAvailBusy(true);
+    getAvailability(weekStart.toISOString()).then((r) => {
+      if (cancelled) return;
+      setBusy(r.ok ? r.busy : []);
+      setAvailBusy(false);
+    });
+    return () => { cancelled = true; };
+  }, [weekStart, calendars, showAvail]);
+
+  async function addCal() {
+    if (!newCal.name.trim() || !newCal.icsUrl.trim()) return;
+    const color = COLORS[calendars.length % COLORS.length];
+    const r = await addSharedCalendar({ name: newCal.name, icsUrl: newCal.icsUrl, color });
+    if (r.ok) { setCalendars((p) => [...p, r.calendar]); setNewCal({ name: "", icsUrl: "" }); }
+    else setErr(r.error);
+  }
+  async function removeCal(id: string) {
+    const r = await deleteSharedCalendar(id);
+    if (r.ok) setCalendars((p) => p.filter((c) => c.id !== id));
+  }
+  const busyByDay = useMemo(() => {
+    const m: Record<number, BusyBlock[]> = {};
+    for (const b of busy) {
+      const di = new Date(b.start).getDay();
+      (m[di] ??= []).push(b);
+    }
+    return m;
+  }, [busy]);
 
   const occurrences = useMemo(
     () => meetings.map((m) => occurrenceInWeek(m, weekStart)).filter((o): o is Occurrence => o !== null),
@@ -134,6 +176,32 @@ export function MeetingsCalendar({ initialMeetings, accent }: { initialMeetings:
             <span className="w-32 text-center text-xs font-medium text-foreground">{weekLabel}</span>
             <button type="button" onClick={() => setWeekStart((w) => addDays(w, 7))} aria-label="Próxima semana" className="px-2 py-1.5 text-foreground-muted hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
           </div>
+          <div className="relative">
+            <button type="button" onClick={() => setCalPanel((o) => !o)} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"><CalendarClock className="h-3.5 w-3.5" /> Disponibilidade{calendars.length ? ` (${calendars.length})` : ""}{availBusy && <Loader2 className="h-3 w-3 animate-spin" />}</button>
+            {calPanel && (
+              <div className="absolute right-0 top-[calc(100%+0.35rem)] z-50 w-80 rounded-xl border border-border bg-surface-elevated p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">Calendários da equipe</span>
+                  <label className="flex items-center gap-1 text-[10px] text-foreground-muted"><input type="checkbox" checked={showAvail} onChange={(e) => setShowAvail(e.target.checked)} /> mostrar</label>
+                </div>
+                <div className="space-y-1.5">
+                  {calendars.map((c) => (
+                    <div key={c.id} className="flex items-center gap-2 text-xs">
+                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: c.color ?? accent }} />
+                      <span className="min-w-0 flex-1 truncate text-foreground">{c.name}</span>
+                      <button type="button" onClick={() => removeCal(c.id)} className="text-foreground-faint hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ))}
+                  {calendars.length === 0 && <p className="text-[11px] text-foreground-faint">Cole o link iCal (Google Calendar → “Endereço secreto no formato iCal”).</p>}
+                </div>
+                <div className="mt-2 space-y-1.5 border-t border-border pt-2">
+                  <input value={newCal.name} onChange={(e) => setNewCal({ ...newCal, name: e.target.value })} placeholder="Nome (pessoa)" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
+                  <input value={newCal.icsUrl} onChange={(e) => setNewCal({ ...newCal, icsUrl: e.target.value })} placeholder="https://…/basic.ics" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
+                  <button type="button" onClick={addCal} className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90">Adicionar calendário</button>
+                </div>
+              </div>
+            )}
+          </div>
           <button type="button" onClick={() => openNew(today, Math.max(DAY_START, Math.min(DAY_END - 1, today.getHours())))} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90"><Plus className="h-3.5 w-3.5" /> Nova reunião</button>
         </div>
       </div>
@@ -175,6 +243,24 @@ export function MeetingsCalendar({ initialMeetings, accent }: { initialMeetings:
                   className="border-b border-border/50 transition-colors hover:bg-accent-bg/40"
                 />
               ))}
+              {/* availability (busy) blocks behind meetings — no titles, just busy */}
+              {showAvail && (busyByDay[di] ?? []).map((b, bi) => {
+                const s = new Date(b.start);
+                const e = new Date(b.end);
+                const top = ((s.getHours() + s.getMinutes() / 60) - DAY_START) * HOUR_H;
+                const height = Math.max(14, ((e.getTime() - s.getTime()) / 3600000) * HOUR_H);
+                const c = b.color ?? accent;
+                return (
+                  <div
+                    key={`busy-${bi}`}
+                    title={`${b.name} · ocupado`}
+                    style={{ top: Math.max(0, top), height, backgroundColor: `${c}1f`, borderColor: `${c}66` }}
+                    className="pointer-events-none absolute inset-x-1 z-0 overflow-hidden rounded-md border border-dashed px-1 text-[9px] text-foreground-faint"
+                  >
+                    {b.name}
+                  </div>
+                );
+              })}
               {/* events for this day */}
               {occurrences.filter((o) => o.dayIndex === di).map((o) => {
                 const top = ((o.start.getHours() + o.start.getMinutes() / 60) - DAY_START) * HOUR_H;
@@ -186,7 +272,7 @@ export function MeetingsCalendar({ initialMeetings, accent }: { initialMeetings:
                     type="button"
                     onClick={(e) => { e.stopPropagation(); openEdit(o.meeting); }}
                     style={{ top: Math.max(0, top), height, backgroundColor: `${c}22`, borderColor: c }}
-                    className="absolute inset-x-1 overflow-hidden rounded-md border-l-2 px-1.5 py-0.5 text-left hover:brightness-110"
+                    className="absolute inset-x-1 z-10 overflow-hidden rounded-md border-l-2 px-1.5 py-0.5 text-left hover:brightness-110"
                   >
                     <div className="flex items-center gap-1 truncate text-[11px] font-semibold text-foreground">
                       {o.meeting.weekly && <Repeat className="h-2.5 w-2.5 shrink-0 text-foreground-subtle" />}

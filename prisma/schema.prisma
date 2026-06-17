@@ -459,9 +459,24 @@ model Meeting {
   notes       String?  @db.Text
   color       String? // accent hex for the event block
   weekly      Boolean  @default(false)
+  attendees   String[] @default([]) // emails invited to the meeting
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([projectSlug, startsAt])
+}
+
+// A team member's calendar feed (iCal/ICS URL) for availability overlay.
+model SharedCalendar {
+  id          String   @id @default(cuid())
+  projectSlug String
+  name        String
+  icsUrl      String   @db.Text
+  color       String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug])
 }
