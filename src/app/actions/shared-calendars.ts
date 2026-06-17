@@ -6,11 +6,16 @@ import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getActiveProject } from "@/projects/index";
 import { queryFreeBusy, appCalendarEmail } from "@/lib/google-calendar";
+import { getTeamEmails } from "@/lib/team-roster";
 
 const isUrl = (s: string) => /^https?:\/\//i.test(s);
+// Stable per-member colors for the availability overlay (assigned by roster order).
+const TEAM_COLORS = ["#a3e635", "#38bdf8", "#f472b6", "#fbbf24", "#c084fc", "#34d399", "#fb923c", "#22d3ee"];
 
 export type SharedCalendarDTO = { id: string; name: string; icsUrl: string; color: string | null };
 export type BusyBlock = { calendarId: string; name: string; color: string | null; start: string; end: string };
+// Per-team-member availability status, so the panel can show who's connected.
+export type TeamAvail = { username: string; email: string; status: "ok" | "notShared" | "error"; detail?: string; color: string };
 
 async function gate() {
   const project = await getActiveProject();
@@ -64,9 +69,11 @@ export async function deleteSharedCalendar(id: string): Promise<{ ok: true } | {
 }
 
 // Busy blocks (no event titles — availability only) for the visible week.
+// Loads the team roster automatically (free/busy of each member's email) plus
+// any manually-added shared calendars.
 export async function getAvailability(
   weekStartIso: string,
-): Promise<{ ok: true; busy: BusyBlock[]; errors: string[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; busy: BusyBlock[]; errors: string[]; team: TeamAvail[] } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
   const weekStart = new Date(weekStartIso);
@@ -76,13 +83,34 @@ export async function getAvailability(
   const busy: BusyBlock[] = [];
   const errors: string[] = [];
 
-  // Google-calendar ids (shared with the app SA) → one real-time free/busy call.
+  // Team roster emails (auto) get a stable color by roster order.
+  const roster = await getTeamEmails(g.project);
+  const colorOf = new Map<string, string>();
+  roster.forEach((r, i) => colorOf.set(r.email, TEAM_COLORS[i % TEAM_COLORS.length]));
+  const team: TeamAvail[] = [];
+
+  // Google-calendar ids (shared with the app SA) → one real-time free/busy call:
+  // team member emails + manually-added Google calendars.
   const googleCals = cals.filter((c) => !isUrl(c.icsUrl));
-  if (googleCals.length) {
-    const fb = await queryFreeBusy(googleCals.map((c) => c.icsUrl), weekStart, weekEnd);
+  const googleIds = [...new Set([...roster.map((r) => r.email), ...googleCals.map((c) => c.icsUrl)])];
+  if (googleIds.length) {
+    const fb = await queryFreeBusy(googleIds, weekStart, weekEnd);
     if ("error" in fb) {
       errors.push(fb.error);
+      for (const r of roster) team.push({ username: r.username, email: r.email, status: "error", detail: fb.error, color: colorOf.get(r.email)! });
     } else {
+      for (const r of roster) {
+        const color = colorOf.get(r.email)!;
+        const reason = fb.errors[r.email];
+        for (const b of fb.busy[r.email] ?? []) busy.push({ calendarId: `team:${r.username}`, name: r.username, color, start: b.start, end: b.end });
+        team.push({
+          username: r.username,
+          email: r.email,
+          status: reason ? (/notFound|not found/i.test(reason) ? "notShared" : "error") : "ok",
+          detail: reason,
+          color,
+        });
+      }
       for (const cal of googleCals) {
         for (const b of fb.busy[cal.icsUrl] ?? []) busy.push({ calendarId: cal.id, name: cal.name, color: cal.color, start: b.start, end: b.end });
         if (fb.errors[cal.icsUrl]) errors.push(`${cal.name}: ${fb.errors[cal.icsUrl]}`);
@@ -127,5 +155,5 @@ export async function getAvailability(
       }
     }),
   );
-  return { ok: true, busy, errors };
+  return { ok: true, busy, errors, team };
 }

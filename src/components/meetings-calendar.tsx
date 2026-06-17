@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2, CalendarClock } from "lucide-react";
 import { createMeeting, updateMeeting, deleteMeeting, type MeetingDTO } from "@/app/actions/meetings";
-import { addSharedCalendar, deleteSharedCalendar, getAvailability, getCalendarConnectInfo, type SharedCalendarDTO, type BusyBlock } from "@/app/actions/shared-calendars";
+import { addSharedCalendar, deleteSharedCalendar, getAvailability, getCalendarConnectInfo, type SharedCalendarDTO, type BusyBlock, type TeamAvail } from "@/app/actions/shared-calendars";
+
+type RosterMember = { username: string; email: string | null; avatarUrl: string };
 
 // Weekly meetings calendar (SOPA "Reuniões"). A Google-Calendar-style week grid:
 // click an empty slot to create, click an event to edit/delete. "weekly" events
@@ -56,7 +58,10 @@ function occurrenceInWeek(m: MeetingDTO, weekStart: Date): Occurrence | null {
   return null;
 }
 
-export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; teamEmails: string[]; accent: string }) {
+export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; teamRoster: RosterMember[]; accent: string }) {
+  // Roster members that have an email — usable as invitees.
+  const invitable = useMemo(() => teamRoster.filter((m): m is RosterMember & { email: string } => !!m.email), [teamRoster]);
+  const teamEmails = useMemo(() => invitable.map((m) => m.email), [invitable]);
   const [meetings, setMeetings] = useState<MeetingDTO[]>(initialMeetings);
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
   const [editor, setEditor] = useState<null | { id: string | null; title: string; start: string; end: string; notes: string; color: string; weekly: boolean; attendees: string[] }>(null);
@@ -73,6 +78,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails
   const [calPanel, setCalPanel] = useState(false);
   const [newCal, setNewCal] = useState({ name: "", icsUrl: "" });
   const [serviceEmail, setServiceEmail] = useState<string | null>(null);
+  const [teamAvail, setTeamAvail] = useState<TeamAvail[]>([]);
 
   // The SA email teammates share their calendar with (loaded when panel opens).
   useEffect(() => {
@@ -83,14 +89,16 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const today = new Date();
 
-  // Refetch busy blocks when the week or the calendar set changes.
+  // Refetch availability (team roster auto-loads server-side + manual calendars)
+  // when the week, the manual calendar set, or the show toggle changes.
   useEffect(() => {
-    if (!showAvail || calendars.length === 0) { setBusy([]); return; }
+    if (!showAvail) { setBusy([]); return; }
     let cancelled = false;
     setAvailBusy(true);
     getAvailability(weekStart.toISOString()).then((r) => {
       if (cancelled) return;
       setBusy(r.ok ? r.busy : []);
+      setTeamAvail(r.ok ? r.team : []);
       setAvailBusy(false);
     });
     return () => { cancelled = true; };
@@ -159,14 +167,21 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails
     const common = { title: editor.title, startsAt, endsAt, notes: editor.notes, color: editor.color, weekly: editor.weekly, attendees: editor.attendees };
     if (editor.id) {
       const r = await updateMeeting(editor.id, common, true);
-      if (r.ok) { setMeetings((prev) => prev.map((m) => (m.id === r.meeting.id ? r.meeting : m))); setEditor(null); if (r.inviteError) setToast(`Convites: ${r.inviteError}`); }
-      else setErr(r.error);
+      if (r.ok) {
+        setMeetings((prev) => prev.map((m) => (m.id === r.meeting.id ? r.meeting : m)));
+        setEditor(null);
+        const notes = [r.inviteError && `convites: ${r.inviteError}`, r.calendarError && `Google: ${r.calendarError}`].filter(Boolean);
+        if (notes.length) setToast(notes.join(" · "));
+      } else setErr(r.error);
     } else {
       const r = await createMeeting(common);
       if (r.ok) {
         setMeetings((prev) => [...prev, r.meeting]);
         setEditor(null);
-        if (editor.attendees.length) setToast(r.inviteError ? `Reunião criada · convites falharam (${r.inviteError})` : `Reunião criada · ${r.invited ?? 0} convite(s) enviado(s).`);
+        const parts: string[] = ["Reunião criada"];
+        if (editor.attendees.length) parts.push(r.inviteError ? `convites falharam (${r.inviteError})` : `${r.invited ?? 0} convite(s) enviado(s)`);
+        if (r.calendarError) parts.push(`Google: ${r.calendarError}`);
+        if (parts.length > 1) setToast(parts.join(" · "));
       } else setErr(r.error);
     }
     setSaving(false);
@@ -198,35 +213,61 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails
             <button type="button" onClick={() => setWeekStart((w) => addDays(w, 7))} aria-label="Próxima semana" className="px-2 py-1.5 text-foreground-muted hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
           </div>
           <div className="relative">
-            <button type="button" onClick={() => setCalPanel((o) => !o)} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"><CalendarClock className="h-3.5 w-3.5" /> Disponibilidade{calendars.length ? ` (${calendars.length})` : ""}{availBusy && <Loader2 className="h-3 w-3 animate-spin" />}</button>
+            <button type="button" onClick={() => setCalPanel((o) => !o)} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"><CalendarClock className="h-3.5 w-3.5" /> Disponibilidade{(() => { const n = teamAvail.filter((t) => t.status === "ok").length + calendars.length; return n ? ` (${n})` : ""; })()}{availBusy && <Loader2 className="h-3 w-3 animate-spin" />}</button>
             {calPanel && (
               <div className="absolute right-0 top-[calc(100%+0.35rem)] z-50 w-80 rounded-xl border border-border bg-surface-elevated p-3 shadow-lg">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-foreground">Calendários da equipe</span>
+                  <span className="text-xs font-semibold text-foreground">Disponibilidade da equipe</span>
                   <label className="flex items-center gap-1 text-[10px] text-foreground-muted"><input type="checkbox" checked={showAvail} onChange={(e) => setShowAvail(e.target.checked)} /> mostrar</label>
                 </div>
-                <div className="space-y-1.5">
-                  {calendars.map((c) => (
-                    <div key={c.id} className="flex items-center gap-2 text-xs">
-                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: c.color ?? accent }} />
-                      <span className="min-w-0 flex-1 truncate text-foreground">{c.name}</span>
-                      <button type="button" onClick={() => removeCal(c.id)} className="text-foreground-faint hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
-                    </div>
-                  ))}
-                  {calendars.length === 0 && <p className="text-[11px] text-foreground-faint">Adicione o email do Google Calendar (tempo real) ou um link iCal.</p>}
-                </div>
+
+                {/* Team members (auto-loaded from the central roster) */}
+                {invitable.length > 0 && (
+                  <div className="mb-2 max-h-44 space-y-1 overflow-auto">
+                    {invitable.map((m) => {
+                      const st = teamAvail.find((t) => t.username === m.username);
+                      const dot = st?.color ?? accent;
+                      const label = !st ? (availBusy ? "verificando…" : "—") : st.status === "ok" ? "conectado" : st.status === "notShared" ? "não compartilhou" : "erro";
+                      const labelClass = st?.status === "ok" ? "text-success" : st?.status === "notShared" ? "text-foreground-faint" : st?.status === "error" ? "text-warning" : "text-foreground-faint";
+                      return (
+                        <div key={m.username} className="flex items-center gap-2 text-xs" title={st?.detail ?? m.email}>
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: st?.status === "ok" ? dot : "transparent", border: st?.status === "ok" ? undefined : `1.5px solid ${dot}` }} />
+                          <span className="min-w-0 flex-1 truncate text-foreground">{m.username}</span>
+                          <span className={`shrink-0 text-[10px] ${labelClass}`}>{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {invitable.length === 0 && <p className="mb-2 text-[11px] text-foreground-faint">Nenhum membro com email. Cadastre o email da galera na aba <span className="text-foreground-muted">Team</span> que eles aparecem aqui.</p>}
+
+                {/* Manually-added extra calendars (people outside the team / iCal feeds) */}
+                {calendars.length > 0 && (
+                  <div className="space-y-1.5 border-t border-border pt-2">
+                    <span className="text-[10px] uppercase tracking-wide text-foreground-subtle">Extras</span>
+                    {calendars.map((c) => (
+                      <div key={c.id} className="flex items-center gap-2 text-xs">
+                        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: c.color ?? accent }} />
+                        <span className="min-w-0 flex-1 truncate text-foreground">{c.name}</span>
+                        <button type="button" onClick={() => removeCal(c.id)} className="text-foreground-faint hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {serviceEmail ? (
                   <div className="mt-2 rounded-md border border-border bg-surface p-2 text-[10px] text-foreground-muted">
-                    <span className="text-foreground-subtle">Tempo real:</span> no Google Calendar, compartilhe “Ver disponibilidade” com:
+                    Pra um membro aparecer como <span className="text-success">conectado</span>, ele compartilha “Ver disponibilidade” do Google Calendar dele com:
                     <button type="button" onClick={() => navigator.clipboard?.writeText(serviceEmail)} title="Copiar" className="mt-1 block w-full truncate rounded bg-surface-elevated px-1.5 py-1 text-left font-mono text-[10px] text-accent hover:underline">{serviceEmail}</button>
-                    depois cole aqui o email do calendário dessa pessoa.
                   </div>
                 ) : null}
-                <div className="mt-2 space-y-1.5 border-t border-border pt-2">
-                  <input value={newCal.name} onChange={(e) => setNewCal({ ...newCal, name: e.target.value })} placeholder="Nome (pessoa)" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
-                  <input value={newCal.icsUrl} onChange={(e) => setNewCal({ ...newCal, icsUrl: e.target.value })} placeholder="email@gmail.com ou https://…/basic.ics" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
-                  <button type="button" onClick={addCal} className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90">Adicionar calendário</button>
-                </div>
+                <details className="mt-2 border-t border-border pt-2">
+                  <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-foreground-subtle">+ Calendário extra (fora da equipe / iCal)</summary>
+                  <div className="mt-1.5 space-y-1.5">
+                    <input value={newCal.name} onChange={(e) => setNewCal({ ...newCal, name: e.target.value })} placeholder="Nome (pessoa)" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
+                    <input value={newCal.icsUrl} onChange={(e) => setNewCal({ ...newCal, icsUrl: e.target.value })} placeholder="email@gmail.com ou https://…/basic.ics" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
+                    <button type="button" onClick={addCal} className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90">Adicionar calendário</button>
+                  </div>
+                </details>
               </div>
             )}
           </div>
@@ -360,12 +401,17 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails
             {/* Attendees — invites go out on save */}
             <div className="space-y-1.5">
               <span className="text-xs text-foreground-muted">Convidados (recebem convite por email)</span>
-              {teamEmails.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {teamEmails.map((em) => (
-                    <button key={em} type="button" onClick={() => toggleAttendee(em)} className={`rounded-full border px-2 py-0.5 text-[10px] ${editor.attendees.includes(em.toLowerCase()) ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>{em}</button>
+              {invitable.length > 0 ? (
+                <div className="flex max-h-28 flex-wrap gap-1 overflow-auto">
+                  {invitable.map((m) => (
+                    <button key={m.username} type="button" onClick={() => toggleAttendee(m.email)} title={m.email} className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${editor.attendees.includes(m.email) ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
+                      <img src={m.avatarUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+                      {m.username}
+                    </button>
                   ))}
                 </div>
+              ) : (
+                <p className="text-[10px] text-foreground-faint">Sem emails de equipe ainda — cadastre na aba Team, ou digite abaixo.</p>
               )}
               {editor.attendees.filter((a) => !teamEmails.some((t) => t.toLowerCase() === a)).length > 0 && (
                 <div className="flex flex-wrap gap-1">
