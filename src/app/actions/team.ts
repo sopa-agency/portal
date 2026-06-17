@@ -13,6 +13,7 @@ import {
   CONTACT_PLATFORMS,
   getTeamMessageOptions,
   mergeContacts,
+  resolveCrossPortalContacts,
   type ContactPlatform,
   type TeamMessageChannel,
   type TeamMessageOption,
@@ -29,10 +30,13 @@ async function loadMemberContacts(
   project: ProjectConfig,
   username: string,
 ): Promise<TeamContact[]> {
+  // Fetch this member's rows across ALL portals so contacts entered elsewhere
+  // (email, socials) fall back in here — the current portal still takes priority.
   const rows = await prisma.teamMemberContact.findMany({
-    where: { projectSlug: project.slug, username },
+    where: { username },
   });
-  return mergeContacts(project.teamContacts?.[username] ?? [], rows);
+  const overrides = resolveCrossPortalContacts(rows, project.slug).get(username) ?? [];
+  return mergeContacts(project.teamContacts?.[username] ?? [], overrides);
 }
 
 export type UpdateTeamMemberContactResult =

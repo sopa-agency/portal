@@ -4,22 +4,23 @@ import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { TeamView } from "@/components/team-view";
 import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
-import { getTeamMessageOptions, mergeContacts } from "@/lib/team-messaging";
+import {
+  getTeamMessageOptions,
+  mergeContacts,
+  resolveCrossPortalContacts,
+} from "@/lib/team-messaging";
 import { prisma } from "@/lib/prisma";
 
 export default async function TeamPage() {
   const project = await getActiveProject();
 
-  // Coworker-edited contacts override the static teamContacts config.
+  // Coworker-edited contacts override the static teamContacts config. Rows are
+  // fetched across ALL portals for these members so a contact entered in one
+  // portal (email, socials) carries over here — the current portal still wins.
   const contactRows = await prisma.teamMemberContact.findMany({
-    where: { projectSlug: project.slug },
+    where: { username: { in: project.allowlist } },
   });
-  const rowsByUser = new Map<string, { label: string; value: string }[]>();
-  for (const row of contactRows) {
-    const list = rowsByUser.get(row.username) ?? [];
-    list.push({ label: row.label, value: row.value });
-    rowsByUser.set(row.username, list);
-  }
+  const rowsByUser = resolveCrossPortalContacts(contactRows, project.slug);
 
   const members = project.allowlist.map((username) => {
     const contacts = mergeContacts(
