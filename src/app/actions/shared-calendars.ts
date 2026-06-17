@@ -5,6 +5,9 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { getActiveProject } from "@/projects/index";
+import { queryFreeBusy, appCalendarEmail } from "@/lib/google-calendar";
+
+const isUrl = (s: string) => /^https?:\/\//i.test(s);
 
 export type SharedCalendarDTO = { id: string; name: string; icsUrl: string; color: string | null };
 export type BusyBlock = { calendarId: string; name: string; color: string | null; start: string; end: string };
@@ -32,13 +35,23 @@ export async function addSharedCalendar(input: { name: string; icsUrl: string; c
 > {
   const g = await gate();
   if (!g.ok) return g;
-  const url = input.icsUrl.trim().replace(/^webcal:/i, "https:");
-  if (!/^https?:\/\//i.test(url)) return { ok: false, error: "Link inválido — use a URL iCal/ICS (https)." };
+  // Accept either an iCal/ICS URL or a Google Calendar id (an email shared with
+  // the app service account → real-time free/busy).
+  const val = input.icsUrl.trim().replace(/^webcal:/i, "https:");
+  const looksGoogleId = /@/.test(val) || /calendar\.google\.com/i.test(val);
+  if (!isUrl(val) && !looksGoogleId) return { ok: false, error: "Use o link iCal (https) ou o email do Google Calendar." };
   if (!input.name.trim()) return { ok: false, error: "Dê um nome (pessoa/calendário)." };
   const row = await prisma.sharedCalendar.create({
-    data: { projectSlug: g.project.slug, name: input.name.trim().slice(0, 80), icsUrl: url, color: input.color || null, createdBy: g.username },
+    data: { projectSlug: g.project.slug, name: input.name.trim().slice(0, 80), icsUrl: val, color: input.color || null, createdBy: g.username },
   });
   return { ok: true, calendar: { id: row.id, name: row.name, icsUrl: row.icsUrl, color: row.color } };
+}
+
+/** The service-account email teammates share their calendar (free/busy) with. */
+export async function getCalendarConnectInfo(): Promise<{ ok: true; serviceEmail: string | null } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  return { ok: true, serviceEmail: appCalendarEmail() };
 }
 
 export async function deleteSharedCalendar(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -62,8 +75,25 @@ export async function getAvailability(
 
   const busy: BusyBlock[] = [];
   const errors: string[] = [];
+
+  // Google-calendar ids (shared with the app SA) → one real-time free/busy call.
+  const googleCals = cals.filter((c) => !isUrl(c.icsUrl));
+  if (googleCals.length) {
+    const fb = await queryFreeBusy(googleCals.map((c) => c.icsUrl), weekStart, weekEnd);
+    if ("error" in fb) {
+      errors.push(fb.error);
+    } else {
+      for (const cal of googleCals) {
+        for (const b of fb.busy[cal.icsUrl] ?? []) busy.push({ calendarId: cal.id, name: cal.name, color: cal.color, start: b.start, end: b.end });
+        if (fb.errors[cal.icsUrl]) errors.push(`${cal.name}: ${fb.errors[cal.icsUrl]}`);
+      }
+    }
+  }
+
+  // iCal/ICS feeds (the rest).
+  const icsCals = cals.filter((c) => isUrl(c.icsUrl));
   await Promise.all(
-    cals.map(async (cal) => {
+    icsCals.map(async (cal) => {
       try {
         const res = await fetch(cal.icsUrl, { signal: AbortSignal.timeout(8000), cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2, CalendarClock } from "lucide-react";
 import { createMeeting, updateMeeting, deleteMeeting, type MeetingDTO } from "@/app/actions/meetings";
-import { addSharedCalendar, deleteSharedCalendar, getAvailability, type SharedCalendarDTO, type BusyBlock } from "@/app/actions/shared-calendars";
+import { addSharedCalendar, deleteSharedCalendar, getAvailability, getCalendarConnectInfo, type SharedCalendarDTO, type BusyBlock } from "@/app/actions/shared-calendars";
 
 // Weekly meetings calendar (SOPA "Reuniões"). A Google-Calendar-style week grid:
 // click an empty slot to create, click an event to edit/delete. "weekly" events
@@ -72,6 +72,13 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails
   const [availBusy, setAvailBusy] = useState(false);
   const [calPanel, setCalPanel] = useState(false);
   const [newCal, setNewCal] = useState({ name: "", icsUrl: "" });
+  const [serviceEmail, setServiceEmail] = useState<string | null>(null);
+
+  // The SA email teammates share their calendar with (loaded when panel opens).
+  useEffect(() => {
+    if (!calPanel || serviceEmail !== null) return;
+    getCalendarConnectInfo().then((r) => setServiceEmail(r.ok ? (r.serviceEmail ?? "") : ""));
+  }, [calPanel, serviceEmail]);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const today = new Date();
@@ -206,11 +213,18 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails
                       <button type="button" onClick={() => removeCal(c.id)} className="text-foreground-faint hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
                     </div>
                   ))}
-                  {calendars.length === 0 && <p className="text-[11px] text-foreground-faint">Cole o link iCal (Google Calendar → “Endereço secreto no formato iCal”).</p>}
+                  {calendars.length === 0 && <p className="text-[11px] text-foreground-faint">Adicione o email do Google Calendar (tempo real) ou um link iCal.</p>}
                 </div>
+                {serviceEmail ? (
+                  <div className="mt-2 rounded-md border border-border bg-surface p-2 text-[10px] text-foreground-muted">
+                    <span className="text-foreground-subtle">Tempo real:</span> no Google Calendar, compartilhe “Ver disponibilidade” com:
+                    <button type="button" onClick={() => navigator.clipboard?.writeText(serviceEmail)} title="Copiar" className="mt-1 block w-full truncate rounded bg-surface-elevated px-1.5 py-1 text-left font-mono text-[10px] text-accent hover:underline">{serviceEmail}</button>
+                    depois cole aqui o email do calendário dessa pessoa.
+                  </div>
+                ) : null}
                 <div className="mt-2 space-y-1.5 border-t border-border pt-2">
                   <input value={newCal.name} onChange={(e) => setNewCal({ ...newCal, name: e.target.value })} placeholder="Nome (pessoa)" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
-                  <input value={newCal.icsUrl} onChange={(e) => setNewCal({ ...newCal, icsUrl: e.target.value })} placeholder="https://…/basic.ics" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
+                  <input value={newCal.icsUrl} onChange={(e) => setNewCal({ ...newCal, icsUrl: e.target.value })} placeholder="email@gmail.com ou https://…/basic.ics" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
                   <button type="button" onClick={addCal} className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90">Adicionar calendário</button>
                 </div>
               </div>
