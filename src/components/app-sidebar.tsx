@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
@@ -21,6 +21,7 @@ const NAV = [
   { href: "/about", label: "About", icon: Presentation, requiresAbout: true },
   { href: "/treasury", label: "Treasury", icon: Landmark },
   { href: "/org-chart", label: "Org Chart", icon: Workflow, requiresOrgChart: true },
+  { href: "/reunioes", label: "Reuniões", icon: CalendarDays, requiresMeetings: true },
   { href: "/portfolio", label: "Portfolio", icon: Briefcase, requiresPortfolio: true },
   { href: "/team", label: "Team", icon: UsersRound },
 ];
@@ -53,11 +54,12 @@ type AppSidebarProps = {
   aboutEnabled?: boolean;
   orgChartEnabled?: boolean;
   portfolioEnabled?: boolean;
+  meetingsEnabled?: boolean;
   labEnabled?: boolean;
   zineEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, labEnabled, zineEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, labEnabled, zineEnabled, meetingsEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -100,6 +102,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if ("requiresAbout" in item && item.requiresAbout && !aboutEnabled) return false;
     if ("requiresOrgChart" in item && item.requiresOrgChart && !orgChartEnabled) return false;
     if ("requiresPortfolio" in item && item.requiresPortfolio && !portfolioEnabled) return false;
+    if ("requiresMeetings" in item && item.requiresMeetings && !meetingsEnabled) return false;
     return true;
   });
 

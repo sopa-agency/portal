@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
  * Routes that escape the default max-w-6xl reading column and use the full
  * width of the main area (board-style pages).
  */
-const FULL_BLEED_ROUTES = ["/kanban", "/about", "/org-chart", "/lab", "/zine"];
+const FULL_BLEED_ROUTES = ["/kanban", "/about", "/org-chart", "/lab", "/zine", "/reunioes"];
 
 /**
  * Routes that use the wide dashboard canvas (the Split Desk home design caps

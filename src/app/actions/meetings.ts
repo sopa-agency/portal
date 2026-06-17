@@ -1,0 +1,104 @@
+"use server";
+
+import { cookies } from "next/headers";
+import { prisma } from "@/lib/prisma";
+import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { getActiveProject } from "@/projects/index";
+
+export type MeetingDTO = {
+  id: string;
+  title: string;
+  startsAt: string; // ISO
+  endsAt: string; // ISO
+  notes: string | null;
+  color: string | null;
+  weekly: boolean;
+};
+
+async function gate() {
+  const project = await getActiveProject();
+  if (!project.meetings) return { ok: false as const, error: "Reuniões não habilitadas." };
+  const cookieStore = await cookies();
+  const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+  if (!session) return { ok: false as const, error: "Unauthorized." };
+  return { ok: true as const, project, username: session.username };
+}
+
+const toDTO = (m: {
+  id: string; title: string; startsAt: Date; endsAt: Date; notes: string | null; color: string | null; weekly: boolean;
+}): MeetingDTO => ({
+  id: m.id,
+  title: m.title,
+  startsAt: m.startsAt.toISOString(),
+  endsAt: m.endsAt.toISOString(),
+  notes: m.notes,
+  color: m.color,
+  weekly: m.weekly,
+});
+
+export async function listMeetings(): Promise<{ ok: true; meetings: MeetingDTO[] } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const rows = await prisma.meeting.findMany({
+    where: { projectSlug: g.project.slug },
+    orderBy: { startsAt: "asc" },
+  });
+  return { ok: true, meetings: rows.map(toDTO) };
+}
+
+export async function createMeeting(input: {
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  notes?: string;
+  color?: string;
+  weekly?: boolean;
+}): Promise<{ ok: true; meeting: MeetingDTO } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  if (!input.title.trim()) return { ok: false, error: "Título obrigatório." };
+  const m = await prisma.meeting.create({
+    data: {
+      projectSlug: g.project.slug,
+      title: input.title.trim().slice(0, 200),
+      startsAt: new Date(input.startsAt),
+      endsAt: new Date(input.endsAt),
+      notes: input.notes?.trim() || null,
+      color: input.color || null,
+      weekly: !!input.weekly,
+      createdBy: g.username,
+    },
+  });
+  return { ok: true, meeting: toDTO(m) };
+}
+
+export async function updateMeeting(
+  id: string,
+  patch: { title?: string; startsAt?: string; endsAt?: string; notes?: string | null; color?: string | null; weekly?: boolean },
+): Promise<{ ok: true; meeting: MeetingDTO } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const existing = await prisma.meeting.findUnique({ where: { id } });
+  if (!existing || existing.projectSlug !== g.project.slug) return { ok: false, error: "Reunião não encontrada." };
+  const m = await prisma.meeting.update({
+    where: { id },
+    data: {
+      ...(patch.title !== undefined ? { title: patch.title.trim().slice(0, 200) } : {}),
+      ...(patch.startsAt !== undefined ? { startsAt: new Date(patch.startsAt) } : {}),
+      ...(patch.endsAt !== undefined ? { endsAt: new Date(patch.endsAt) } : {}),
+      ...(patch.notes !== undefined ? { notes: patch.notes?.trim() || null } : {}),
+      ...(patch.color !== undefined ? { color: patch.color || null } : {}),
+      ...(patch.weekly !== undefined ? { weekly: patch.weekly } : {}),
+    },
+  });
+  return { ok: true, meeting: toDTO(m) };
+}
+
+export async function deleteMeeting(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const existing = await prisma.meeting.findUnique({ where: { id } });
+  if (!existing || existing.projectSlug !== g.project.slug) return { ok: false, error: "Reunião não encontrada." };
+  await prisma.meeting.delete({ where: { id } });
+  return { ok: true };
+}

@@ -160,6 +160,11 @@ export type ProjectConfig = {
    */
   portfolio?: boolean;
   /**
+   * When true, the Reuniões nav item + /reunioes route are enabled — a weekly
+   * meetings calendar (SOPA-only). Absent = nav hidden + 404.
+   */
+  meetings?: boolean;
+  /**
    * Treasury wallets shown on /treasury — the SAME wallets/sources the
    * project's native app shows (skatehive.app/dao, gnars.com/treasury).
    * Omitted = nav item hidden and route 404s.
