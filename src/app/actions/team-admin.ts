@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE, GLOBAL_ALLOWLIST } from "@/lib/auth";
-import { getActiveProject } from "@/projects/index";
+import { getActiveProject, getAllProjects, getProject } from "@/projects/index";
 import { authorize, getRoles, ensureSeeded, ROLES, GLOBAL_SLUG, type Role } from "@/lib/team-access";
 
 export type ManagedMember = { username: string; role: Role; global: boolean; lastLoginAt: string | null };
@@ -76,6 +76,78 @@ export async function removeMember(username: string): Promise<{ ok: true } | { o
   if (GLOBAL_ALLOWLIST.includes(u)) return { ok: false, error: "Admins globais são removidos pela alternância de admin global." };
   await ensureSeeded(g.project);
   await prisma.teamMember.deleteMany({ where: { projectSlug: g.project.slug, username: u } });
+  return { ok: true };
+}
+
+// ── Cross-portal access management (global admins — e.g. from the SOPA panel) ──
+
+async function globalGate() {
+  const g = await viewerGate();
+  if (!g.ok) return g;
+  if (!g.who.global) return { ok: false as const, error: "Apenas admins globais gerenciam acesso entre portais." };
+  return g;
+}
+
+export type PortalAccess = {
+  slug: string;
+  name: string;
+  members: { username: string; role: Role; global: boolean }[];
+};
+
+/** Access map across every portal (members + roles). Global admins only. */
+export async function listAllPortalAccess(): Promise<{ ok: true; portals: PortalAccess[] } | { ok: false; error: string }> {
+  const g = await globalGate();
+  if (!g.ok) return g;
+  const portals: PortalAccess[] = [];
+  for (const p of getAllProjects()) {
+    const dbRows = await prisma.teamMember.findMany({ where: { projectSlug: p.slug } }).catch(() => [] as { username: string }[]);
+    const usernames = [...new Set([...p.allowlist.map((u) => u.toLowerCase()), ...dbRows.map((r) => r.username)])];
+    const roleMap = await getRoles(p, usernames);
+    const members = usernames
+      .map((u) => ({ username: u, role: roleMap.get(u)?.role ?? ("member" as Role), global: !!roleMap.get(u)?.global }))
+      .sort((a, b) => {
+        const rank = (m: { global: boolean; role: Role }) => (m.global ? 0 : m.role === "admin" ? 1 : m.role === "member" ? 2 : 3);
+        return rank(a) - rank(b) || a.username.localeCompare(b.username);
+      });
+    portals.push({ slug: p.slug, name: p.name, members });
+  }
+  return { ok: true, portals };
+}
+
+function resolvePortal(slug: string): { ok: true; project: ReturnType<typeof getProject> } | { ok: false; error: string } {
+  const project = getProject(slug);
+  if (project.slug !== slug) return { ok: false, error: "Portal inválido." };
+  return { ok: true, project };
+}
+
+/** Grant/set a user's role on ANY portal. Global admins only. */
+export async function setPortalAccess(projectSlug: string, username: string, role: Role): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await globalGate();
+  if (!g.ok) return g;
+  if (!ROLES.includes(role)) return { ok: false, error: "Cargo inválido." };
+  const r = resolvePortal(projectSlug);
+  if (!r.ok) return r;
+  const u = clean(username);
+  if (!u) return { ok: false, error: "Usuário inválido." };
+  await ensureSeeded(r.project);
+  await prisma.teamMember.upsert({
+    where: { projectSlug_username: { projectSlug, username: u } },
+    update: { role },
+    create: { projectSlug, username: u, role, addedBy: g.who.username },
+  });
+  return { ok: true };
+}
+
+/** Revoke a user's access to a portal. Global admins only. */
+export async function removePortalAccess(projectSlug: string, username: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await globalGate();
+  if (!g.ok) return g;
+  const r = resolvePortal(projectSlug);
+  if (!r.ok) return r;
+  const u = clean(username);
+  if (GLOBAL_ALLOWLIST.includes(u)) return { ok: false, error: "Admin global fixo no código." };
+  await ensureSeeded(r.project);
+  await prisma.teamMember.deleteMany({ where: { projectSlug, username: u } });
   return { ok: true };
 }
 

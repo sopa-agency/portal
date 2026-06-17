@@ -4,8 +4,9 @@ import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { ConnectionsView } from "@/components/team-view";
 import { TeamAdmin } from "@/components/team-admin";
+import { PortalAccessManager } from "@/components/portal-access-manager";
 import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
-import { listTeamMembers } from "@/app/actions/team-admin";
+import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -22,6 +23,8 @@ export default async function SettingsPage() {
   // Team & roles — admins only.
   const team = await listTeamMembers().catch(() => null);
   const showAdmin = team?.ok && team.viewerRole === "admin";
+  // Cross-portal access — global admins only (e.g. the SOPA admin hub).
+  const portalAccess = team?.ok && team.viewerGlobal ? await listAllPortalAccess().catch(() => null) : null;
 
   return (
     <div className="space-y-10">
@@ -33,6 +36,7 @@ export default async function SettingsPage() {
       {showAdmin && team?.ok ? (
         <TeamAdmin initial={team.members} viewerGlobal={team.viewerGlobal} projectName={project.name} />
       ) : null}
+      {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
       <ConnectionsView
         projectName={project.name}
         connections={connections}
