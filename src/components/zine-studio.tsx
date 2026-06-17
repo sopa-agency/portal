@@ -24,6 +24,8 @@ import {
   FolderOpen,
   Grid3x3,
   Scissors,
+  Eraser,
+  RotateCcw,
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
@@ -296,6 +298,18 @@ export function ZineStudio({
     addElement({ kind: "text", x: 12, y: 12, w: 60, h: 0, text: "Texto", fontSize: 6, color: "#000000", align: "left", bold: false });
   }
   const selectPage = useCallback((i: number) => { setActive(i); setSelectedId(null); }, []);
+  function clearPage() {
+    if (!page?.elements.length) return;
+    if (typeof window !== "undefined" && !window.confirm("Limpar todos os elementos desta página?")) return;
+    mutatePage((p) => ({ ...p, elements: [] }));
+    setSelectedId(null);
+  }
+  function resetZine() {
+    if (typeof window !== "undefined" && !window.confirm("Recomeçar a zine do zero? Isto apaga todas as páginas. (Rascunhos salvos não são afetados.)")) return;
+    setPages(isMini ? Array.from({ length: MINI8_PAGES }, () => blankPage()) : [blankPage()]);
+    setActive(0);
+    setSelectedId(null);
+  }
 
   // --- drag + resize ---------------------------------------------------------
   function onElPointerDown(e: React.PointerEvent, el: Element, mode: "move" | "resize") {
@@ -739,6 +753,9 @@ export function ZineStudio({
             <IconBtn title="Mover página ↑" disabled={active === 0} onClick={() => { setPages((prev) => { const n = [...prev]; [n[active - 1], n[active]] = [n[active], n[active - 1]]; return n; }); setActive(active - 1); }}><ChevronUp className="h-3.5 w-3.5" /></IconBtn>
             <IconBtn title="Mover página ↓" disabled={active >= pages.length - 1} onClick={() => { setPages((prev) => { const n = [...prev]; [n[active + 1], n[active]] = [n[active], n[active + 1]]; return n; }); setActive(active + 1); }}><ChevronDown className="h-3.5 w-3.5" /></IconBtn>
             <IconBtn title="Excluir página" disabled={pages.length <= 1} onClick={() => { setPages((prev) => prev.filter((_, i) => i !== active)); setActive(Math.max(0, active - 1)); }}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+            <span className="mx-0.5 w-px self-stretch bg-border" />
+            <IconBtn title="Limpar página (remover elementos)" disabled={!page?.elements.length} onClick={clearPage}><Eraser className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn title="Recomeçar zine (apagar tudo)" onClick={resetZine}><RotateCcw className="h-3.5 w-3.5" /></IconBtn>
           </div>
 
           {selected ? (
