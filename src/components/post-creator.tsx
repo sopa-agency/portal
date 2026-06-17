@@ -52,6 +52,7 @@ import {
   type CalendarExtra,
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
+import { CAPTION_MAX, COMMENT_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, type ViewTab, type StepId } from "@/components/post-creator-lib";
 import { IgPreview } from "@/components/post/ig-preview";
 import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
 import {
@@ -81,9 +82,6 @@ const StudioVideoEditor = dynamic(
   () => import("@/components/studio/video-editor").then((m) => m.VideoEditor),
   { ssr: false },
 );
-
-const CAPTION_MAX = 2200;
-const COMMENT_MAX = 2200;
 
 /**
  * Direct browser→Pinata upload: ask the server for a short-lived signed URL,
@@ -115,45 +113,6 @@ async function uploadMediaDirect(
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
-const POST_TYPES: { value: PostType; label: string; hint: string }[] = [
-  { value: "IMAGE", label: "Single Image", hint: "1 image" },
-  { value: "CAROUSEL", label: "Carousel", hint: "2–10 photos or videos" },
-  { value: "REELS", label: "Reel", hint: "1 video" },
-];
-
-type ViewTab = "create" | "studio" | "drafts" | "calendar";
-
-// Step IDs — used to compute the visible sequence
-type StepId =
-  | "type"
-  | "media"
-  | "format"
-  | "caption"
-  | "firstComment"
-  | "tags"
-  | "collaborators"
-  | "more"
-  | "review";
-
-// ---------------------------------------------------------------------------
-// datetime-local helpers
-// ---------------------------------------------------------------------------
-
-function toDatetimeLocalValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function formatLocalDatetime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -1564,15 +1523,6 @@ function TagUsernameInput({
 // ---------------------------------------------------------------------------
 
 /** Compute the ordered list of steps to show, given the current post type. */
-function computeSteps(postType: PostType): StepId[] {
-  // "format" applies to every type — for REELS it's the preview-crop control.
-  const steps: StepId[] = ["type", "media", "format"];
-  steps.push("caption", "firstComment");
-  if (postType === "IMAGE") steps.push("tags");
-  steps.push("collaborators", "more", "review");
-  return steps;
-}
-
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
