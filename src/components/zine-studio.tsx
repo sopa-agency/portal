@@ -48,7 +48,21 @@ type Element = {
   color?: string;
   align?: "left" | "center" | "right";
   bold?: boolean;
+  font?: string; // CSS font-family; "" = page default sans
 };
+
+// Every studio/brand font (all registered as @font-face in globals.css) plus
+// readable system stacks. Empty value = inherit the page's default sans.
+const ZINE_FONTS: { label: string; value: string }[] = [
+  { label: "Sans (padrão)", value: "" },
+  { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Mono", value: "'Courier New', ui-monospace, monospace" },
+  { label: "Joystix — SkateHive", value: "Joystix" },
+  { label: "Ken Pixel — Gnars", value: "'Ken Pixel'" },
+  { label: "Bazinga — Reelflip", value: "Bazinga" },
+  { label: "TOOM — Reelflip", value: "TOOM" },
+  { label: "MADE GoodTime", value: "'MADE GoodTime Grotesk'" },
+];
 type Page = { id: string; bg: string; elements: Element[] };
 
 const PAGE_SIZES = [
@@ -587,11 +601,11 @@ function ElementView({
           onChange={(e) => onChangeText?.(e.target.value)}
           onPointerDown={(e) => e.stopPropagation()}
           className="w-full resize-none border-none bg-transparent outline-none"
-          style={{ fontSize: `${el.fontSize}cqw`, color: el.color, textAlign: el.align, fontWeight: el.bold ? 700 : 400, lineHeight: 1.25 }}
+          style={{ fontFamily: el.font || undefined, fontSize: `${el.fontSize}cqw`, color: el.color, textAlign: el.align, fontWeight: el.bold ? 700 : 400, lineHeight: 1.25 }}
           rows={2}
         />
       ) : (
-        <p className="whitespace-pre-wrap" style={{ fontSize: `${el.fontSize}cqw`, color: el.color, textAlign: el.align, fontWeight: el.bold ? 700 : 400, lineHeight: 1.25 }}>
+        <p className="whitespace-pre-wrap" style={{ fontFamily: el.font || undefined, fontSize: `${el.fontSize}cqw`, color: el.color, textAlign: el.align, fontWeight: el.bold ? 700 : 400, lineHeight: 1.25 }}>
           {el.text}
         </p>
       )}
@@ -623,7 +637,7 @@ function ThumbEl({ el }: { el: Element }) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={el.src} alt="" style={{ ...base, height: `${el.h}%`, objectFit: el.fit ?? "cover" }} />;
   return (
-    <span style={{ ...base, fontSize: `${(el.fontSize ?? 6) * 0.9}px`, color: el.color, fontWeight: el.bold ? 700 : 400, overflow: "hidden" }}>
+    <span style={{ ...base, fontFamily: el.font || undefined, fontSize: `${(el.fontSize ?? 6) * 0.9}px`, color: el.color, fontWeight: el.bold ? 700 : 400, overflow: "hidden" }}>
       {el.text}
     </span>
   );
@@ -654,6 +668,18 @@ function Inspector({
         <>
           <label className="block text-foreground-muted">Texto
             <textarea value={el.text} onChange={(e) => onChange({ text: e.target.value })} rows={3} className="mt-1 w-full resize-none rounded-md border border-border bg-surface-elevated p-2 text-foreground focus:border-border-strong focus:outline-none" />
+          </label>
+          <label className="block text-foreground-muted">Fonte
+            <select
+              value={el.font ?? ""}
+              onChange={(e) => onChange({ font: e.target.value })}
+              className="mt-1 w-full rounded-md border border-border bg-surface-elevated p-1.5 text-foreground focus:border-border-strong focus:outline-none"
+              style={{ fontFamily: el.font || undefined }}
+            >
+              {ZINE_FONTS.map((f) => (
+                <option key={f.label} value={f.value} style={{ fontFamily: f.value || undefined }}>{f.label}</option>
+              ))}
+            </select>
           </label>
           <label className="flex items-center justify-between text-foreground-muted">Tamanho
             <input type="range" min={2} max={18} step={0.5} value={el.fontSize ?? 6} onChange={(e) => onChange({ fontSize: Number(e.target.value) })} />

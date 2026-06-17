@@ -180,6 +180,13 @@ body {
   font-weight: 400;
   font-display: swap;
 }
+/* Gnars brand display font (from gnars.com's OG template). */
+@font-face {
+  font-family: "Ken Pixel";
+  src: url("/og-assets/kenpixel.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
 
 :root {
   --card: var(--surface-elevated);
