@@ -101,8 +101,10 @@ function buildFilters(accent: string): { id: string; label: string; css: string 
   ];
 }
 
-// Grid step in % of the page (20 cols/rows). Center (50%) and edges fall on it.
-const GRID = 5;
+// Fine grid step in % of the page (40 cols/rows). Center + edges fall on it.
+const GRID = 2.5;
+// Smart-snap threshold (% of page) for Canva-style alignment to edges/centers.
+const SNAP_TH = 1.1;
 
 // Zine formats. "loose" = one page per sheet (saddle-stitch / single pages).
 // "mini8" = the classic 8-page mini-zine: edit 8 pages, print one A4 landscape
@@ -172,6 +174,7 @@ export function ZineStudio({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<"edit" | "preview" | "print">("edit");
   const [grid, setGrid] = useState(false); // visual grid + snap-to-grid on drag/resize
+  const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] }); // live snap guides
   const [cropMarks, setCropMarks] = useState(true); // crop/fold helper marks on print
   const [filterId, setFilterId] = useState("color"); // overall B&W / duotone filter
   const [printOpen, setPrintOpen] = useState(false); // mini-zine export summary modal
@@ -349,23 +352,56 @@ export function ZineStudio({
     // events fire far faster than 60fps and each one re-renders the page.
     let raf = 0;
     let last: PointerEvent | null = null;
+    // Canva-style smart snapping: align the dragged element's edges/centers to
+    // the page (0/50/100%) and to other elements, showing magenta guides. Grid
+    // snap is a secondary fallback when the grid is on. Hold Alt to move freely.
+    const others = page.elements.filter((e) => e.id !== el.id);
+    const yPointsOf = (e: Element): number[] => (e.kind === "image" ? [e.y, e.y + e.h / 2, e.y + e.h] : [e.y]);
+    const TARGET_X = [0, 50, 100, ...others.flatMap((o) => [o.x, o.x + o.w / 2, o.x + o.w])];
+    const TARGET_Y = [0, 50, 100, ...others.flatMap(yPointsOf)];
+    // best snap delta for a set of moving points against targets
+    const bestSnap = (movPts: number[], targets: number[]) => {
+      let best: { d: number; t: number } | null = null;
+      for (const p of movPts) for (const t of targets) {
+        const d = t - p;
+        if (Math.abs(d) <= SNAP_TH && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, t };
+      }
+      return best;
+    };
     const apply = () => {
       raf = 0;
       const ev = last;
       if (!ev) return;
-      const snap = (v: number) => (grid && !ev.altKey ? Math.round(v / GRID) * GRID : v);
+      const free = ev.altKey;
       const dxPct = ((ev.clientX - startX) / rect!.width) * 100;
       const dyPct = ((ev.clientY - startY) / rect!.height) * 100;
+      const gx: number[] = [];
+      const gy: number[] = [];
       if (mode === "move") {
-        updateEl(el.id, {
-          x: Math.max(0, Math.min(100 - 2, snap(start.x + dxPct))),
-          y: Math.max(0, Math.min(100 - 2, snap(start.y + dyPct))),
-        });
+        let X = Math.max(0, Math.min(100 - 2, start.x + dxPct));
+        let Y = Math.max(0, Math.min(100 - 2, start.y + dyPct));
+        if (!free) {
+          const bx = bestSnap([X, X + start.w / 2, X + start.w], TARGET_X);
+          if (bx) { X += bx.d; gx.push(bx.t); } else if (grid) X = Math.round(X / GRID) * GRID;
+          const movY = el.kind === "image" ? [Y, Y + start.h / 2, Y + start.h] : [Y];
+          const by = bestSnap(movY, TARGET_Y);
+          if (by) { Y += by.d; gy.push(by.t); } else if (grid) Y = Math.round(Y / GRID) * GRID;
+        }
+        setGuides({ x: gx, y: gy });
+        updateEl(el.id, { x: X, y: Y });
       } else {
-        updateEl(el.id, {
-          w: Math.max(5, Math.min(100, snap(start.w + dxPct))),
-          ...(el.kind === "image" ? { h: Math.max(5, Math.min(100, snap(start.h + dyPct))) } : {}),
-        });
+        let W = Math.max(5, Math.min(100, start.w + dxPct));
+        let H = el.kind === "image" ? Math.max(5, Math.min(100, start.h + dyPct)) : start.h;
+        if (!free) {
+          const bx = bestSnap([start.x + W], TARGET_X);
+          if (bx) { W += bx.d; gx.push(bx.t); } else if (grid) W = Math.round(W / GRID) * GRID;
+          if (el.kind === "image") {
+            const by = bestSnap([start.y + H], TARGET_Y);
+            if (by) { H += by.d; gy.push(by.t); } else if (grid) H = Math.round(H / GRID) * GRID;
+          }
+        }
+        setGuides({ x: gx, y: gy });
+        updateEl(el.id, { w: W, ...(el.kind === "image" ? { h: H } : {}) });
       }
     };
     function onMove(ev: PointerEvent) {
@@ -374,6 +410,7 @@ export function ZineStudio({
     }
     function onUp() {
       if (raf) cancelAnimationFrame(raf);
+      setGuides({ x: [], y: [] });
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     }
@@ -759,17 +796,25 @@ export function ZineStudio({
                   editable={view === "edit"}
                 />
               ))}
-            {/* Grid + center guides (edit only; never printed) */}
+            {/* Fine grid (edit only; never printed) */}
             {grid && view === "edit" && (
               <div
                 className="pointer-events-none absolute inset-0"
                 style={{
                   backgroundImage:
-                    `repeating-linear-gradient(to right, rgba(127,127,127,0.22) 0 1px, transparent 1px ${GRID}%), repeating-linear-gradient(to bottom, rgba(127,127,127,0.22) 0 1px, transparent 1px ${GRID}%)`,
+                    `repeating-linear-gradient(to right, rgba(127,127,127,0.13) 0 1px, transparent 1px ${GRID}%), repeating-linear-gradient(to bottom, rgba(127,127,127,0.13) 0 1px, transparent 1px ${GRID}%)`,
                 }}
-              >
-                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-accent/40" />
-                <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-accent/40" />
+              />
+            )}
+            {/* Live smart-snap guides (magenta, Canva-style) */}
+            {view === "edit" && (guides.x.length > 0 || guides.y.length > 0) && (
+              <div className="pointer-events-none absolute inset-0 z-20">
+                {guides.x.map((x, i) => (
+                  <span key={`gx${i}`} style={{ position: "absolute", top: 0, bottom: 0, left: `${x}%`, width: 1, background: "#ff2d95" }} />
+                ))}
+                {guides.y.map((y, i) => (
+                  <span key={`gy${i}`} style={{ position: "absolute", left: 0, right: 0, top: `${y}%`, height: 1, background: "#ff2d95" }} />
+                ))}
               </div>
             )}
           </div>
