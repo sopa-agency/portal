@@ -26,6 +26,7 @@ import {
   Scissors,
   Eraser,
   RotateCcw,
+  BookOpen,
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
@@ -183,6 +184,11 @@ export function ZineStudio({
   const [hydrated, setHydrated] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Remember the last Book (loose) page size so toggling Book↔Mini-Zine restores it.
+  const lastLoose = useRef<PageSizeId>("A5");
+  useEffect(() => {
+    if (pageSize !== "mini8") lastLoose.current = pageSize;
+  }, [pageSize]);
 
   // ---- undo / redo history ----
   // Debounced checkpoint so drags + bursts of edits coalesce into one step.
@@ -308,6 +314,23 @@ export function ZineStudio({
     if (typeof window !== "undefined" && !window.confirm("Recomeçar a zine do zero? Isto apaga todas as páginas. (Rascunhos salvos não são afetados.)")) return;
     setPages(isMini ? Array.from({ length: MINI8_PAGES }, () => blankPage()) : [blankPage()]);
     setActive(0);
+    setSelectedId(null);
+  }
+  // Mode tabs: Book (loose pages) vs Mini-Zine (8-page imposed sheet).
+  function selectBookMode() {
+    if (pageSize !== "mini8") return;
+    setPageSize(lastLoose.current);
+    setView((v) => (v === "print" ? "edit" : v)); // Layout view is mini-only
+    setSelectedId(null);
+  }
+  function selectMiniMode() {
+    if (pageSize === "mini8") return;
+    setPageSize("mini8");
+    setPages((prev) =>
+      prev.length >= MINI8_PAGES
+        ? prev
+        : [...prev, ...Array.from({ length: MINI8_PAGES - prev.length }, () => blankPage())],
+    );
     setSelectedId(null);
   }
 
@@ -487,15 +510,30 @@ export function ZineStudio({
     <div className="flex h-[calc(100dvh-3rem)] flex-col gap-3 md:h-[calc(100dvh-4rem)]">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <BookMark accent={accent} />
           <div>
             <h1 className="text-lg font-bold text-foreground">Zine Studio</h1>
-            <p className="text-[11px] text-foreground-faint">
-              {sizeMeta.kind === "mini8"
-                ? `${projectName} · mini-zine 8p — pág 1 = capa, 8 = contracapa · imprime 1 folha A4, dobra + 1 corte`
-                : `${projectName} · zine imprimível`}
-            </p>
+            <p className="text-[11px] text-foreground-faint">{projectName}</p>
+          </div>
+          {/* MODE TABS — Book vs Mini-Zine; the rest of the UI adapts to this. */}
+          <div className="ml-1 flex items-center rounded-xl border border-border bg-surface-elevated p-0.5">
+            <button
+              type="button"
+              onClick={selectBookMode}
+              aria-pressed={!isMini}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!isMini ? "bg-accent text-accent-foreground" : "text-foreground-muted hover:text-foreground"}`}
+            >
+              <BookOpen className="h-3.5 w-3.5" /> Livro
+            </button>
+            <button
+              type="button"
+              onClick={selectMiniMode}
+              aria-pressed={isMini}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${isMini ? "bg-accent text-accent-foreground" : "text-foreground-muted hover:text-foreground"}`}
+            >
+              <Scissors className="h-3.5 w-3.5" /> Mini-Zine
+            </button>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -531,26 +569,19 @@ export function ZineStudio({
               <Redo2 className="h-3.5 w-3.5" />
             </button>
           </div>
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              const id = e.target.value as PageSizeId;
-              setPageSize(id);
-              // A mini-zine is always 8 pages — pad up when switching into it.
-              if (id === "mini8") {
-                setPages((prev) =>
-                  prev.length >= MINI8_PAGES
-                    ? prev
-                    : [...prev, ...Array.from({ length: MINI8_PAGES - prev.length }, () => blankPage())],
-                );
-              }
-            }}
-            className="rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground"
-          >
-            {PAGE_SIZES.map((s) => (
-              <option key={s.id} value={s.id}>{s.label}</option>
-            ))}
-          </select>
+          {/* Book mode: page size (A6/A5/A4). Hidden in Mini-Zine (always A4-imposed). */}
+          {!isMini && (
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(e.target.value as PageSizeId)}
+              title="Tamanho da página"
+              className="rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground"
+            >
+              {PAGE_SIZES.filter((s) => s.kind === "loose").map((s) => (
+                <option key={s.id} value={s.id}>{s.id}</option>
+              ))}
+            </select>
+          )}
           <div className="flex items-center rounded-lg border border-border p-0.5">
             <button type="button" onClick={() => setView("edit")} className={tab(view === "edit")}>
               <Pencil className="h-3.5 w-3.5" /> Editar
