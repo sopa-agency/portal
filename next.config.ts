@@ -1,8 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Native addon (Studio's SVG→PNG renderer) — must stay external to the bundle.
-  serverExternalPackages: ["@resvg/resvg-js"],
+  // Packages that must NOT be bundled/transformed by Turbopack:
+  // - @resvg/resvg-js: native addon (Studio's SVG→PNG renderer).
+  // - node-ical: pulls in temporal-polyfill, whose heavy BigInt use breaks when
+  //   the bundler transforms it ("h.BigInt is not a function" at build-time page
+  //   data collection for /reunioes). Externalizing makes Node require() it at
+  //   runtime, where BigInt is a global and works.
+  serverExternalPackages: ["@resvg/resvg-js", "node-ical"],
   // The render route reads brand fonts/assets from disk at runtime; file
   // tracing can't see those dynamic paths, so include them explicitly or the
   // Vercel function 500s with ENOENT.
