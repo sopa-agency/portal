@@ -6,7 +6,8 @@ import { CardArtwork } from "@/components/studio/card-artwork";
 import { ZCard } from "@/lib/studio/schema";
 import { CARD_W, CARD_H } from "@/lib/studio/tokens";
 import { loadFonts, loadAssets, resolveImg } from "@/lib/studio/render-assets.server";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 
 export const runtime = "nodejs";

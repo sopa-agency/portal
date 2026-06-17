@@ -2,7 +2,8 @@
 
 import { cookies } from "next/headers";
 import { createPinataSignedUploadUrl } from "@/lib/social-publish";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 import { publishLabChannel } from "@/lib/lab-publish";
 import { prisma } from "@/lib/prisma";
 import { callOpenClaw } from "@/lib/openclaw-gateway";

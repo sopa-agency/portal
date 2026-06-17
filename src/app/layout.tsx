@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ContentShell } from "@/components/content-shell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PageInfo } from "@/components/page-info";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getAccess } from "@/lib/team-access";
 import { getActiveProject, getSwitcherProjects } from "@/projects/index";
 import { FloatingAgentChat } from "@/components/floating-agent-chat";
 import { PresenceProvider } from "@/components/presence";
@@ -37,7 +39,23 @@ export default async function RootLayout({
 }>) {
   const project = await getActiveProject();
   const cookieStore = await cookies();
-  const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+  // Authorization point (middleware only authenticates). Three states:
+  //   authed + access  → full app
+  //   authed, NO access → "no access to this portal" screen (no content leak)
+  //   not authed        → render children (the /login page)
+  const authed = await verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value);
+  const access = authed ? await getAccess(authed.username, project) : null;
+  const session = access?.allowed ? authed : null;
+  // The /login route always renders (so users can sign in / switch accounts).
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const isLoginRoute = pathname === "/login";
+  // Authorization. Redirect (not conditional render) so an unauthorized page's
+  // Server Components never execute into the RSC payload. Middleware already
+  // bounces the fully-unauthenticated; this also covers authenticated-without-
+  // access-to-this-portal.
+  if (!session && !isLoginRoute) {
+    redirect(`/login?next=${encodeURIComponent(pathname || "/")}`);
+  }
 
   // Build per-project accent CSS-var overrides that layer on top of the base
   // token system without breaking light/dark mode. Only the accent family is
@@ -115,7 +133,8 @@ export default async function RootLayout({
             </div>
             </PresenceProvider>
           ) : (
-            // Unauthenticated — middleware allows /login through; render bare.
+            // Only reached on the public /login route (the guard above redirects
+            // every other unauthorized request before this renders).
             children
           )}
         </ThemeProvider>

@@ -9,7 +9,8 @@ import { prisma } from "@/lib/prisma";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { feedbackScope, feedbackPromptBlock } from "@/lib/insight-feedback";
 import { getActiveProject } from "@/projects/index";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 import {
   getProjectSocialInsightsContext,
   getProjectSocialMetricsContext,

@@ -3,7 +3,8 @@
 import ical from "node-ical";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { queryFreeBusy, appCalendarEmail } from "@/lib/google-calendar";
 import { getTeamEmails } from "@/lib/team-roster";

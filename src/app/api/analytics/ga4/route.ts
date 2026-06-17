@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { getActiveProject } from "@/projects";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 import { fetchGa4 } from "@/lib/google-analytics";
 
 export const runtime = "nodejs";

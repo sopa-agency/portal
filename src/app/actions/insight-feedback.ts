@@ -1,7 +1,8 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import {

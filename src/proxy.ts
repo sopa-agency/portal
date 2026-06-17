@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
-import { resolveProjectSlug, getProject } from "@/projects/index";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { resolveProjectSlug } from "@/projects/index";
 
 export const config = {
   // Run on everything except static assets and Next internals.
@@ -44,6 +44,9 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   const slug = resolveProjectSlug(host);
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-portal-project", slug);
+  // Pathname so the root layout can tell the public /login route apart when
+  // deciding whether to render the page or an access screen.
+  requestHeaders.set("x-pathname", pathname);
 
   // Public homepage hosts: "/" serves the landing page (no session gate; the
   // cookie is stripped so even logged-in teammates get the visitor view) and
@@ -82,10 +85,11 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
     return withProject();
   }
 
-  // 3. Verify session against the active project's allowlist.
+  // 3. AUTHENTICATE only (edge-safe, no DB): a valid signed session passes here.
+  //    Per-project AUTHORIZATION (membership + role, DB-backed) is enforced
+  //    server-side in the layout/actions via @/lib/team-access.
   const token = req.cookies.get(SESSION_COOKIE)?.value;
-  const project = getProject(slug);
-  const session = await verifySession(token, project);
+  const session = await verifySessionToken(token);
   if (session) return withProject();
 
   // 4. Not authenticated — redirect to /login.

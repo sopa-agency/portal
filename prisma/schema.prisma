@@ -329,6 +329,22 @@ model TeamMemberContact {
   @@unique([projectSlug, username, label])
 }
 
+// Team membership + role per portal. projectSlug "*" = a GLOBAL admin (access to
+// every portal). role ∈ "admin" | "member" | "viewer". This is the DB source of
+// truth for access/roles; the static project.allowlist is a seed/fallback.
+model TeamMember {
+  id          String   @id @default(cuid())
+  projectSlug String // "*" = global (all portals)
+  username    String
+  role        String   @default("member")
+  addedBy     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectSlug, username])
+  @@index([username])
+}
+
 // Async chat jobs — the floating chat's big-task safety net. The route keeps
 // working after the SSE connection drops and stores the reply here; the
 // client polls until done. Rows are short-lived working state.

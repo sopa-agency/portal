@@ -2,7 +2,8 @@
 
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import type { ProjectConfig } from "@/projects/types";
 import { meetingsCalendarId, meetingsTimeZone, upsertCalendarEvent, deleteCalendarEvent } from "@/lib/google-calendar";

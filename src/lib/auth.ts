@@ -97,11 +97,23 @@ export async function verifySession(
   token: string | undefined,
   project?: ProjectConfig,
 ): Promise<SessionPayload | null> {
+  const s = await verifySessionToken(token);
+  if (!s) return null;
+  if (!isAllowed(s.username, project)) return null;
+  return s;
+}
+
+/**
+ * Authentication only — verifies the session JWT and returns the username, WITHOUT
+ * any allowlist/role authorization. Edge-safe (no DB): used by the proxy/middleware
+ * to gate authentication, while authorization (membership + role) is enforced in a
+ * node-runtime guard (see @/lib/team-access) on top of this.
+ */
+export async function verifySessionToken(token: string | undefined): Promise<SessionPayload | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
     if (typeof payload.username !== "string") return null;
-    if (!isAllowed(payload.username, project)) return null;
     return { username: payload.username };
   } catch {
     return null;

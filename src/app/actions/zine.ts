@@ -2,7 +2,8 @@
 
 import { cookies } from "next/headers";
 import { createPinataSignedUploadUrl } from "@/lib/social-publish";
-import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 
 // Signed-URL handshake for Zine Studio asset uploads, gated by the zineStudio
