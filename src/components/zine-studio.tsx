@@ -274,6 +274,9 @@ export function ZineStudio({
     const canvas = (e.currentTarget as HTMLElement).closest("[data-zine-canvas]") as HTMLElement | null;
     const rect = (canvas ?? canvasRef.current)?.getBoundingClientRect();
     if (!rect) return;
+    // Panels shown in folded (180°) orientation: invert the drag so moving the
+    // pointer matches what the user sees on screen.
+    const flipSign = canvas?.dataset.zineFlip === "1" ? -1 : 1;
     const startX = e.clientX;
     const startY = e.clientY;
     const start = { x: el.x, y: el.y, w: el.w, h: el.h };
@@ -304,8 +307,8 @@ export function ZineStudio({
       const ev = last;
       if (!ev) return;
       const free = ev.altKey;
-      const dxPct = ((ev.clientX - startX) / rect!.width) * 100;
-      const dyPct = ((ev.clientY - startY) / rect!.height) * 100;
+      const dxPct = (((ev.clientX - startX) / rect!.width) * 100) * flipSign;
+      const dyPct = (((ev.clientY - startY) / rect!.height) * 100) * flipSign;
       const gx: number[] = [];
       const gy: number[] = [];
       if (mode === "move") {
@@ -1324,11 +1327,14 @@ function MiniLayoutCanvas({
               <div
                 key={cell}
                 data-zine-canvas
+                data-zine-flip={flipped ? "1" : undefined}
                 onPointerDown={() => onSelectPage(pageIdx)}
                 className={`relative overflow-hidden ${isActiveCell ? "z-10 ring-2 ring-inset ring-accent" : "border border-black/10"}`}
                 style={{ containerType: "inline-size", backgroundColor: p?.bg ?? "#ffffff" }}
               >
-                <div className="absolute inset-0" style={{ filter: filter || undefined }}>
+                {/* Folded orientation: top-row content shows rotated 180° on
+                    screen too, so the layout matches the printed sheet. */}
+                <div className="absolute inset-0" style={{ filter: filter || undefined, transform: flipped ? "rotate(180deg)" : undefined }}>
                   {p?.elements
                     .slice()
                     .sort((a, b) => a.z - b.z)
