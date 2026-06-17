@@ -9,6 +9,8 @@ import {
   Trash2,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Printer,
   Eye,
   Pencil,
@@ -502,6 +504,9 @@ export function ZineStudio({
         </div>
       </div>
 
+      {view === "preview" ? (
+        <FlipbookPreview pages={pages} />
+      ) : (
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[150px_1fr_230px]">
         {/* Pages rail */}
         <div className="flex min-h-0 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-surface p-2">
@@ -660,6 +665,7 @@ export function ZineStudio({
           )}
         </div>
       </div>
+      )}
 
       {/* Print-only layout — each page at its real size, page-break between. */}
       <div className="zine-print">
@@ -859,5 +865,120 @@ function BookMark({ accent }: { accent: string }) {
     <span className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ backgroundColor: `${accent}22`, color: accent }}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
     </span>
+  );
+}
+
+// A single zine page rendered read-only (used by the flipbook preview).
+function PageFace({ page }: { page: Page }) {
+  return (
+    <div className="relative h-full w-full overflow-hidden" style={{ backgroundColor: page.bg, containerType: "inline-size" }}>
+      {page.elements
+        .slice()
+        .sort((a, b) => a.z - b.z)
+        .map((el) => (
+          <ElementView key={el.id} el={el} selected={false} editable={false} />
+        ))}
+    </div>
+  );
+}
+
+// Flipbook preview — turn through the zine like a real booklet (3D page flip,
+// arrow keys, click controls). Edit-only chrome is gone; this is the read view.
+function FlipbookPreview({ pages }: { pages: Page[] }) {
+  const [idx, setIdx] = useState(0);
+  const [flip, setFlip] = useState<{ dir: "next" | "prev"; animate: boolean } | null>(null);
+  const max = pages.length - 1;
+  const cur = Math.min(idx, max);
+
+  // Mount the leaf at its start angle, then flip to the target on the next
+  // frame so the CSS transition actually runs.
+  useEffect(() => {
+    if (flip && !flip.animate) {
+      const r = requestAnimationFrame(() =>
+        requestAnimationFrame(() => setFlip((f) => (f ? { ...f, animate: true } : f))),
+      );
+      return () => cancelAnimationFrame(r);
+    }
+  }, [flip]);
+
+  const go = (dir: "next" | "prev") => {
+    if (flip) return;
+    if (dir === "next" && cur >= max) return;
+    if (dir === "prev" && cur <= 0) return;
+    setFlip({ dir, animate: false });
+  };
+  const onEnd = () => {
+    if (!flip) return;
+    setIdx((i) => (flip.dir === "next" ? i + 1 : i - 1));
+    setFlip(null);
+  };
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (flip) return;
+      if (e.key === "ArrowRight" && cur < max) setFlip({ dir: "next", animate: false });
+      else if (e.key === "ArrowLeft" && cur > 0) setFlip({ dir: "prev", animate: false });
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [flip, cur, max]);
+
+  const beneath = flip ? (flip.dir === "next" ? cur + 1 : cur) : cur;
+  const leaf = flip?.dir === "prev" ? cur - 1 : cur;
+  const rot = !flip ? 0 : flip.animate ? (flip.dir === "prev" ? 0 : -180) : flip.dir === "prev" ? -180 : 0;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border border-border bg-surface-elevated/40 p-4">
+      <div className="relative flex min-h-0 w-full flex-1 items-center justify-center" style={{ perspective: 2200 }}>
+        <div className="relative aspect-[1/1.414] w-auto" style={{ height: "100%" }}>
+          {/* page underneath the turning leaf */}
+          <div className="absolute inset-0 overflow-hidden rounded-md shadow-xl">
+            <PageFace page={pages[beneath]} />
+          </div>
+          {/* the turning leaf */}
+          {flip && (
+            <div
+              className="absolute inset-0 rounded-md shadow-2xl"
+              style={{
+                transformStyle: "preserve-3d",
+                transformOrigin: "left center",
+                transform: `rotateY(${rot}deg)`,
+                transition: flip.animate ? "transform 0.7s cubic-bezier(0.4,0.1,0.3,1)" : "none",
+              }}
+              onTransitionEnd={onEnd}
+            >
+              <div className="absolute inset-0 overflow-hidden rounded-md" style={{ backfaceVisibility: "hidden" }}>
+                <PageFace page={pages[leaf]} />
+              </div>
+              <div
+                className="absolute inset-0 overflow-hidden rounded-md"
+                style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)", backgroundColor: pages[leaf]?.bg ?? "#fff" }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => go("prev")}
+          disabled={cur <= 0 || !!flip}
+          aria-label="Página anterior"
+          className="rounded-full border border-border bg-surface p-2 text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-30"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="text-xs tabular-nums text-foreground-muted">{cur + 1} / {pages.length}</span>
+        <button
+          type="button"
+          onClick={() => go("next")}
+          disabled={cur >= max || !!flip}
+          aria-label="Próxima página"
+          className="rounded-full border border-border bg-surface p-2 text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-30"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
   );
 }
