@@ -18,6 +18,8 @@ import {
   Layers,
   Undo2,
   Redo2,
+  Save,
+  FolderOpen,
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
@@ -64,6 +66,7 @@ const ZINE_FONTS: { label: string; value: string }[] = [
   { label: "MADE GoodTime", value: "'MADE GoodTime Grotesk'" },
 ];
 type Page = { id: string; bg: string; elements: Element[] };
+type Draft = { id: string; name: string; savedAt: number; pageSize: PageSizeId; pages: Page[] };
 
 const PAGE_SIZES = [
   { id: "A6", label: "A6 (mini)", css: "A6" },
@@ -312,6 +315,67 @@ export function ZineStudio({
     }
   }
 
+  // ---- named drafts (localStorage, per project) ----
+  const draftsKey = `zine-drafts:${projectSlug}`;
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const draftsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(draftsKey);
+      if (raw) setDrafts(JSON.parse(raw) as Draft[]);
+    } catch {
+      /* ignore */
+    }
+  }, [draftsKey]);
+
+  const persistDrafts = useCallback(
+    (next: Draft[]) => {
+      setDrafts(next);
+      try {
+        localStorage.setItem(draftsKey, JSON.stringify(next));
+      } catch {
+        /* quota — drafts are URL-based JSON so this is unlikely */
+      }
+    },
+    [draftsKey],
+  );
+
+  function saveDraft() {
+    const name = draftName.trim() || `Zine ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`;
+    const draft: Draft = { id: uid(), name, savedAt: Date.now(), pageSize, pages: structuredClone(pages) };
+    persistDrafts([draft, ...drafts].slice(0, 50));
+    setDraftName("");
+  }
+  function loadDraft(d: Draft) {
+    // Replace the working doc + reset undo history to this baseline.
+    past.current = [];
+    future.current = [];
+    fromHistory.current = true;
+    lastCommitted.current = d.pages;
+    syncHist();
+    setActive(0);
+    setSelectedId(null);
+    setPageSize(d.pageSize);
+    setPages(structuredClone(d.pages));
+    setDraftsOpen(false);
+  }
+  function deleteDraft(id: string) {
+    persistDrafts(drafts.filter((d) => d.id !== id));
+  }
+
+  // close the drafts dropdown on outside click
+  useEffect(() => {
+    if (!draftsOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (draftsRef.current && !draftsRef.current.contains(e.target as Node)) setDraftsOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [draftsOpen]);
+
   const sizeMeta = PAGE_SIZES.find((s) => s.id === pageSize)!;
 
   return (
@@ -364,6 +428,53 @@ export function ZineStudio({
             <button type="button" onClick={() => { setSelectedId(null); setView("preview"); }} className={tab(view === "preview")}>
               <Eye className="h-3.5 w-3.5" /> Preview
             </button>
+          </div>
+          <div className="relative" ref={draftsRef}>
+            <button
+              type="button"
+              onClick={() => setDraftsOpen((o) => !o)}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"
+            >
+              <FolderOpen className="h-3.5 w-3.5" /> Rascunhos{drafts.length ? ` (${drafts.length})` : ""}
+            </button>
+            {draftsOpen && (
+              <div className="absolute right-0 top-[calc(100%+0.35rem)] z-50 w-72 rounded-xl border border-border bg-surface-elevated p-2 shadow-lg">
+                <div className="flex gap-1.5">
+                  <input
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveDraft(); }}
+                    placeholder="Nome do rascunho…"
+                    className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={saveDraft}
+                    title="Salvar rascunho atual"
+                    className="flex items-center gap-1 rounded-md bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90"
+                  >
+                    <Save className="h-3.5 w-3.5" /> Salvar
+                  </button>
+                </div>
+                <div className="mt-2 max-h-72 overflow-y-auto">
+                  {drafts.length === 0 ? (
+                    <p className="px-1 py-3 text-center text-[11px] text-foreground-faint">Nenhum rascunho salvo.</p>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {drafts.map((d) => (
+                        <li key={d.id} className="group flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-foreground/5">
+                          <button type="button" onClick={() => loadDraft(d)} className="min-w-0 flex-1 text-left">
+                            <span className="block truncate text-xs text-foreground">{d.name}</span>
+                            <span className="block text-[10px] text-foreground-faint">{d.pages.length} pág · {new Date(d.savedAt).toLocaleDateString()}</span>
+                          </button>
+                          <button type="button" onClick={() => deleteDraft(d.id)} aria-label="Excluir rascunho" className="shrink-0 rounded p-1 text-foreground-faint hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           <button
             type="button"
