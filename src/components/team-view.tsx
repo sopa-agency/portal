@@ -46,6 +46,10 @@ type TeamMember = {
 type TeamViewProps = {
   projectName: string;
   members: TeamMember[];
+};
+
+type ConnectionsViewProps = {
+  projectName: string;
   connections: PortalConnection[];
   /** Project env prefix (e.g. "KEEPKEY") — interpolated into setup tutorials. */
   envPrefix: string;
@@ -743,35 +747,18 @@ function ConnectionRow({
 
 // ── Main export ────────────────────────────────────────────────────────────
 
-export function TeamView({ projectName, members, connections, envPrefix }: TeamViewProps) {
+export function TeamView({ projectName, members }: TeamViewProps) {
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
-  const [setupConnection, setSetupConnection] = useState<PortalConnection | null>(null);
-
-  // Reorder: put non-na, non-manual first for scannability
-  const sorted = [...connections].sort((a, b) => {
-    const order: Record<ConnectionStatus, number> = {
-      missing: 0,
-      warning: 1,
-      connected: 2,
-      manual: 3,
-      na: 4,
-    };
-    return order[a.status] - order[b.status];
-  });
 
   return (
-    <div className="space-y-12">
-      {/* ── Team ──────────────────────────────────────────────────────────── */}
+    <div className="space-y-8">
       <section aria-labelledby="team-heading">
         <div className="mb-4 flex items-baseline gap-3">
-          <h2
-            id="team-heading"
-            className="text-lg font-semibold tracking-tight text-foreground"
-          >
+          <h2 id="team-heading" className="text-lg font-semibold tracking-tight text-foreground">
             Team
           </h2>
           <span className="text-xs tabular-nums text-foreground-faint">
-            {members.length} {members.length === 1 ? "member" : "members"}
+            {members.length} {members.length === 1 ? "member" : "members"} · {projectName}
           </span>
         </div>
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
@@ -781,27 +768,36 @@ export function TeamView({ projectName, members, connections, envPrefix }: TeamV
         </div>
       </section>
 
-      {/* ── Linked networks ───────────────────────────────────────────────── */}
-      <section aria-labelledby="networks-heading">
-        <div className="mb-4 flex items-baseline gap-3">
-          <h2
-            id="networks-heading"
-            className="text-lg font-semibold tracking-tight text-foreground"
-          >
-            Linked networks
-          </h2>
-          <span className="text-xs text-foreground-faint">{projectName}</span>
-        </div>
-        <div className="space-y-2">
-          {sorted.map((c) => (
-            <ConnectionRow key={c.network} connection={c} onOpen={() => setSetupConnection(c)} />
-          ))}
-        </div>
-      </section>
-
       {selectedMember && (
         <MemberModal member={selectedMember} onClose={() => setSelectedMember(null)} />
       )}
+    </div>
+  );
+}
+
+// Linked-network connection status + setup guides — lives in Settings now.
+export function ConnectionsView({ projectName, connections, envPrefix }: ConnectionsViewProps) {
+  const [setupConnection, setSetupConnection] = useState<PortalConnection | null>(null);
+
+  // Reorder: put non-na, non-manual first for scannability
+  const sorted = [...connections].sort((a, b) => {
+    const order: Record<ConnectionStatus, number> = { missing: 0, warning: 1, connected: 2, manual: 3, na: 4 };
+    return order[a.status] - order[b.status];
+  });
+
+  return (
+    <section aria-labelledby="networks-heading">
+      <div className="mb-4 flex items-baseline gap-3">
+        <h2 id="networks-heading" className="text-lg font-semibold tracking-tight text-foreground">
+          Linked networks
+        </h2>
+        <span className="text-xs text-foreground-faint">{projectName}</span>
+      </div>
+      <div className="space-y-2">
+        {sorted.map((c) => (
+          <ConnectionRow key={c.network} connection={c} onOpen={() => setSetupConnection(c)} />
+        ))}
+      </div>
       {setupConnection && (
         <ConnectionSetupDialog
           connection={setupConnection}
@@ -809,6 +805,6 @@ export function TeamView({ projectName, members, connections, envPrefix }: TeamV
           onClose={() => setSetupConnection(null)}
         />
       )}
-    </div>
+    </section>
   );
 }

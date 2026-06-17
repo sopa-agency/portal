@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
@@ -24,6 +24,7 @@ const NAV = [
   { href: "/reunioes", label: "Reuniões", icon: CalendarDays, requiresMeetings: true },
   { href: "/portfolio", label: "Portfolio", icon: Briefcase, requiresPortfolio: true },
   { href: "/team", label: "Team", icon: UsersRound },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 function isActive(pathname: string, href: string): boolean {
