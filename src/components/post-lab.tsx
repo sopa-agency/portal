@@ -735,7 +735,7 @@ export function PostLab({
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
             {studio === "image" ? (
-              <StudioEditor onUseInPost={handleStudioUseInPost} />
+              <StudioEditor onUseInPost={handleStudioUseInPost} spotMode={activeSlug === "skatehive"} />
             ) : (
               <StudioVideoEditor
                 onUseInPost={handleStudioUseInPost}

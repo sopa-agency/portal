@@ -1583,12 +1583,15 @@ export function PostCreator({
   cardStyles = [],
   brandName = "",
   brandAccent = "#a3e635",
+  spotStudio = false,
 }: {
   agentName: string;
   igHandle: string;
   cardStyles?: ("holo" | "pixel" | "gold" | "bounty")[];
   brandName?: string;
   brandAccent?: string;
+  /** SkateHive: the design Studio defaults to the "Skate Spot Found!" template. */
+  spotStudio?: boolean;
 }) {
   // ── View state ──────────────────────────────────────────────────────────
   const [viewTab, setViewTab] = useState<ViewTab>("create");
@@ -3451,7 +3454,7 @@ export function PostCreator({
           </div>
           <div className="min-h-0 flex-1">
             {studioMode === "design" ? (
-              <StudioEditor onUseInPost={handleUseInPost} />
+              <StudioEditor onUseInPost={handleUseInPost} spotMode={spotStudio} />
             ) : (
               <StudioVideoEditor
                 onUseInPost={handleUseInPost}

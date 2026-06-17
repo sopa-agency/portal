@@ -55,6 +55,8 @@ export function CardArtwork({ card, assets }: { card: Card; assets: Assets }) {
 
       {card.tipo === "capa" ? (
         <CapaLayer card={card} assets={assets} />
+      ) : card.tipo === "spot" ? (
+        <SpotLayer card={card} />
       ) : (
         <>
           <Pill
@@ -144,6 +146,65 @@ function CapaLayer({ card, assets }: { card: Extract<Card, { tipo: "capa" }>; as
       {/* número estilo código de barras (Figma 27:520): 10px, centrado, encostado nas barras */}
       <div style={{ position: "absolute", left: 22, top: 1288, width: 198, height: 18, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_GROTESK, fontSize: 10, fontWeight: 400, color: "#000" }}>
         000000TÁCURIOSOCOMOQUÊ?000
+      </div>
+    </>
+  );
+}
+
+// Portal addition: SkateHive "Skate Spot Found!" overlay. Brand colors (lime on
+// black) are intentional and theme-independent — this renders to a flat PNG, not
+// to themed UI. Satori-safe: flexbox + absolute + inline styles, brand fonts, no
+// emoji (Satori has no emoji font loaded). Renders in both the live canvas and
+// the server Satori export from the same component.
+const SPOT_LIME = "#a3e635";
+function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
+  return (
+    <>
+      {/* bottom scrim so the text stays legible over any photo */}
+      <div
+        style={{
+          position: "absolute", left: 0, right: 0, bottom: 0, height: 720, display: "flex",
+          backgroundImage:
+            "linear-gradient(to top, rgba(0,0,0,0.94) 0%, rgba(0,0,0,0.78) 30%, rgba(0,0,0,0.32) 62%, rgba(0,0,0,0) 100%)",
+        }}
+      />
+
+      {/* top banner */}
+      <div style={{ position: "absolute", left: 48, top: 60, display: "flex", transform: "rotate(-2.5deg)" }}>
+        <div
+          style={{
+            display: "flex", alignItems: "center", backgroundColor: SPOT_LIME, color: "#0a0a0a",
+            padding: "12px 30px", border: "5px solid #000", borderRadius: 6,
+            fontFamily: FONT_TITLE, fontSize: 64, letterSpacing: -1,
+          }}
+        >
+          SKATE SPOT FOUND!
+        </div>
+      </div>
+
+      {/* spot name + location + author, anchored bottom-left */}
+      <div style={{ position: "absolute", left: 60, right: 60, bottom: 84, display: "flex", flexDirection: "column" }}>
+        <div
+          style={{
+            display: "flex", fontFamily: FONT_TITLE, fontSize: 122, lineHeight: 0.95, color: "#ffffff",
+            letterSpacing: -2, textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
+          }}
+        >
+          {(card.spotName || "Spot sem nome").toUpperCase()}
+        </div>
+        {card.spotLocation ? (
+          <div style={{ display: "flex", alignItems: "center", marginTop: 22 }}>
+            <div style={{ display: "flex", width: 26, height: 26, marginRight: 14, borderRadius: 999, border: `6px solid ${SPOT_LIME}` }} />
+            <div style={{ display: "flex", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 44, color: SPOT_LIME }}>
+              {card.spotLocation}
+            </div>
+          </div>
+        ) : null}
+        {card.spotAuthor ? (
+          <div style={{ display: "flex", marginTop: 16, fontFamily: FONT_DISPLAY, fontSize: 34, color: "rgba(255,255,255,0.82)" }}>
+            found by @{card.spotAuthor}
+          </div>
+        ) : null}
       </div>
     </>
   );

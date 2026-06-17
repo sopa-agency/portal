@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   Plus, Copy, Trash2, Download, Upload, FileJson, ChevronLeft, ChevronRight,
   ZoomIn, ZoomOut, RotateCcw, ArrowUp, ArrowDown, Image as ImageIcon, Loader2, Crop, Check,
-  Heart, MessageCircle, Send, Bookmark, MoreVertical, Undo2, Redo2, Pipette,
+  Heart, MessageCircle, Send, Bookmark, MoreVertical, Undo2, Redo2, Pipette, MapPin,
 } from "lucide-react";
 
 import { Button } from "@/components/studio/ui/button";
@@ -33,6 +33,7 @@ import { type ImgFit, type ImgNat, DEFAULT_FIT, MIN_SCALE, MAX_SCALE, clampFit, 
 import { parseScript, newId, normalizeDoc } from "@/lib/studio/parse-script";
 import { SEED_DOC } from "@/lib/studio/seed";
 import { ZCarousel, type Card, type Carousel } from "@/lib/studio/schema";
+import { listSkateSpots, type SkateSpot } from "@/app/actions/skate-spots";
 
 const STORAGE_KEY = "reelflip-studio:doc:v1";
 const RENDER_CONCURRENCY = 3; // renders Satori em paralelo no export .zip
@@ -63,7 +64,14 @@ function newCard(tipo: Card["tipo"]): Card {
   if (tipo === "capa") return { tipo: "capa", imagem: null, titulo: "TÍTULO", ...base, subtitulo: "gancho da capa", blocos: [] };
   if (tipo === "fundo")
     return { tipo: "fundo", bgColor: "#ffffff", ...base, subtitulo: "CONTEXTO…", blocos: [{ id: newId(), texto: "Texto de contexto / explicação.", x: 73, y: 740, w: 934, fontSize: 30 }] };
+  if (tipo === "spot")
+    return { tipo: "spot", imagem: null, spotName: "", spotLocation: "", spotAuthor: "", ...base, blocos: [] };
   return { tipo: "conteudo", imagem: null, ...base, subtitulo: "NOVA CHAMADA…", blocos: [{ id: newId(), texto: "Texto do card.", x: 90, y: 950, w: 900, fontSize: 30 }] };
+}
+
+// Seed doc for SkateHive spot mode: one blank "Skate Spot Found!" card.
+function makeSpotSeed(): Carousel {
+  return { meta: { handle: "skatehive", local: "", legenda: "" }, cards: [newCard("spot")] };
 }
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -73,10 +81,16 @@ type Rect = { x: number; y: number; w: number; h: number };
 // (the Post Creator wizard). Standalone behavior is unchanged when absent.
 export function Editor({
   onUseInPost,
+  spotMode = false,
 }: {
   onUseInPost?: (files: File[], caption: string, aspectHint?: number) => Promise<void>;
+  /** SkateHive "Skate Spot Found!" mode: seeds a spot card + spot-map picker
+   *  instead of the default reelflip card template. */
+  spotMode?: boolean;
 } = {}) {
-  const [doc, setDoc] = useState<Carousel>(() => structuredClone(SEED_DOC));
+  const storageKey = spotMode ? "skatehive-spot-studio:doc:v1" : STORAGE_KEY;
+  const filePrefix = spotMode ? "skatespot" : "reelflip";
+  const [doc, setDoc] = useState<Carousel>(() => (spotMode ? makeSpotSeed() : structuredClone(SEED_DOC)));
   const [active, setActive] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [scale, setScale] = useState(0.42);
@@ -86,6 +100,13 @@ export function Editor({
   const [busy, setBusy] = useState<null | "one" | "zip">(null);
   const [framing, setFraming] = useState(false); // modo "enquadrar imagem" (pan/zoom do fundo)
   const [grabbing, setGrabbing] = useState(false); // feedback de cursor durante o pan da imagem
+  // SkateHive spot map picker (spotMode only)
+  const [spotsOpen, setSpotsOpen] = useState(false);
+  const [spots, setSpots] = useState<SkateSpot[] | null>(null);
+  const [spotsErr, setSpotsErr] = useState<string | null>(null);
+  const [spotsPage, setSpotsPage] = useState(1);
+  const [spotsHasMore, setSpotsHasMore] = useState(false);
+  const [spotsBusy, setSpotsBusy] = useState(false);
 
   const innerRef = useRef<HTMLDivElement>(null);
   const fileImg = useRef<HTMLInputElement>(null);
@@ -163,6 +184,39 @@ export function Editor({
       im.src = src;
     };
     r.readAsDataURL(file);
+  };
+
+  // ---- SkateHive spot map ----
+  const loadSpots = useCallback(async (page: number) => {
+    setSpotsBusy(true);
+    setSpotsErr(null);
+    const r = await listSkateSpots(page);
+    if (r.ok) {
+      setSpots((prev) => (page === 1 ? r.spots : [...(prev ?? []), ...r.spots]));
+      setSpotsHasMore(r.hasMore);
+      setSpotsPage(page);
+    } else setSpotsErr(r.error);
+    setSpotsBusy(false);
+  }, []);
+  const openSpots = () => {
+    setSpotsOpen(true);
+    if (!spots) void loadSpots(1);
+  };
+  // Fill the active card from a picked spot (measure natural dims so the
+  // framing/zoom works just like an uploaded photo).
+  const pickSpot = (spot: SkateSpot) => {
+    const apply = (w: number | null, h: number | null) =>
+      patchActive((c) => ({
+        ...c, tipo: "spot", imagem: spot.photo, imgW: w, imgH: h, imgFit: DEFAULT_FIT,
+        spotName: spot.name, spotLocation: spot.location, spotAuthor: spot.author,
+      }) as Card);
+    if (spot.photo) {
+      const im = new window.Image();
+      im.onload = () => apply(im.naturalWidth, im.naturalHeight);
+      im.onerror = () => apply(null, null);
+      im.src = spot.photo;
+    } else apply(null, null);
+    setSpotsOpen(false);
   };
 
   const addBloco = () =>
@@ -315,7 +369,7 @@ export function Editor({
     if (typeof window === "undefined") return;
     const t = setTimeout(() => {
       try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(doc));
+        window.localStorage.setItem(storageKey, JSON.stringify(doc));
       } catch {
         // QuotaExceeded: imagens data-URI estouram o limite do navegador → autosave best-effort.
         if (!quotaWarned.current) {
@@ -325,13 +379,13 @@ export function Editor({
       }
     }, 600);
     return () => clearTimeout(t);
-  }, [doc]);
+  }, [doc, storageKey]);
 
   // restaura do localStorage 1x no mount (pós-hidratação → sem mismatch). Zod migra docs antigos.
   useEffect(() => {
     if (typeof window === "undefined") return;
     let raw: string | null = null;
-    try { raw = window.localStorage.getItem(STORAGE_KEY); } catch { return; }
+    try { raw = window.localStorage.getItem(storageKey); } catch { return; }
     if (!raw) return;
     try {
       // Portal adaptation: docs salvos no app standalone usam /posts/… — no
@@ -341,7 +395,7 @@ export function Editor({
       if (!parsed.success || !parsed.data.cards.length) return;
       replaceDoc(normalizeDoc(parsed.data));
     } catch { /* ignora restauro corrompido — segue com o seed */ }
-  }, [replaceDoc]);
+  }, [replaceDoc, storageKey]);
 
   // ---- enquadramento da imagem de fundo (pan + zoom, estilo Figma) ----
   // o fn recebe (fit, nat) — nat = dimensões naturais da foto, derivadas do card aqui dentro
@@ -521,7 +575,7 @@ export function Editor({
     setBusy("one");
     try {
       const blob = await renderPng(card);
-      downloadBlob(blob, `reelflip_${String(active + 1).padStart(2, "0")}.png`);
+      downloadBlob(blob, `${filePrefix}_${String(active + 1).padStart(2, "0")}.png`);
       toast.success("Card exportado");
     } catch (e) { toast.error("Falha ao exportar o card.", { description: "Tente novamente." }); console.error(e); }
     finally { setBusy(null); }
@@ -538,7 +592,7 @@ export function Editor({
         while (next < cards.length) {
           const i = next++;
           const blob = await renderPng(cards[i]);
-          files[i] = new File([blob], `reelflip_${String(i + 1).padStart(2, "0")}.png`, { type: "image/png" });
+          files[i] = new File([blob], `${filePrefix}_${String(i + 1).padStart(2, "0")}.png`, { type: "image/png" });
           done++;
           toast.loading(`Renderizando ${done}/${cards.length}…`, { id: tid });
         }
@@ -565,13 +619,13 @@ export function Editor({
         while (next < cards.length) {
           const i = next++;
           const blob = await renderPng(cards[i]);
-          zip.file(`reelflip_${String(i + 1).padStart(2, "0")}.png`, blob);
+          zip.file(`${filePrefix}_${String(i + 1).padStart(2, "0")}.png`, blob);
           done++;
           toast.loading(`Renderizando ${done}/${cards.length}…`, { id: tid }); // 1 toast atualizado, sem spam
         }
       };
       await Promise.all(Array.from({ length: Math.min(RENDER_CONCURRENCY, cards.length) }, worker));
-      downloadBlob(await zip.generateAsync({ type: "blob" }), "reelflip_carrossel.zip");
+      downloadBlob(await zip.generateAsync({ type: "blob" }), `${filePrefix}_carrossel.zip`);
       toast.success("Zip pronto", { id: tid });
     } catch (e) { toast.error("Falha ao exportar o .zip.", { id: tid, description: "Tente novamente." }); console.error(e); }
     finally { setBusy(null); }
@@ -587,11 +641,20 @@ export function Editor({
       {/* ESQUERDA */}
       <aside className="flex w-[280px] shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar">
         <div className="p-3">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Carrossel</h2>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{spotMode ? "Spots" : "Carrossel"}</h2>
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="secondary" onClick={() => addCard("conteudo")}><Plus className="size-3.5" />Conteúdo</Button>
-            <Button size="sm" variant="secondary" onClick={() => addCard("fundo")}><Plus className="size-3.5" />Fundo</Button>
-            <Button size="sm" variant="secondary" onClick={() => addCard("capa")}><Plus className="size-3.5" />Capa</Button>
+            {spotMode ? (
+              <>
+                <Button size="sm" onClick={openSpots}><MapPin className="size-3.5" />Escolher do mapa</Button>
+                <Button size="sm" variant="secondary" onClick={() => addCard("spot")}><Plus className="size-3.5" />Card</Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" variant="secondary" onClick={() => addCard("conteudo")}><Plus className="size-3.5" />Conteúdo</Button>
+                <Button size="sm" variant="secondary" onClick={() => addCard("fundo")}><Plus className="size-3.5" />Fundo</Button>
+                <Button size="sm" variant="secondary" onClick={() => addCard("capa")}><Plus className="size-3.5" />Capa</Button>
+              </>
+            )}
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-3">
@@ -616,9 +679,9 @@ export function Editor({
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className={`w-fit rounded px-1.5 py-0.5 text-[10px] uppercase ${i === active ? "bg-selection/20 text-foreground" : "bg-muted text-muted-foreground"}`}>
-                      {c.tipo === "capa" ? "capa" : c.tipo === "fundo" ? "fundo" : i + 1}
+                      {c.tipo === "capa" ? "capa" : c.tipo === "fundo" ? "fundo" : c.tipo === "spot" ? "spot" : i + 1}
                     </span>
-                    <span className="truncate">{(c.subtitulo || (c.tipo === "capa" ? c.titulo : "") || "sem título").slice(0, 22)}</span>
+                    <span className="truncate">{(c.subtitulo || (c.tipo === "capa" ? c.titulo : c.tipo === "spot" ? c.spotName : "") || "sem título").slice(0, 22)}</span>
                   </div>
                 </button>
                 {/* ações irmãs (não aninhadas no botão selecionável) */}
@@ -698,8 +761,8 @@ export function Editor({
         {/* mockup do feed (chrome FIXO — não exporta) */}
         <div className="overflow-hidden rounded-[28px] bg-white shadow-2xl" style={{ width: CARD_W * scale }}>
           <div className="flex items-center gap-3 px-4 py-3">
-            <div className="size-9 rounded-full" style={{ background: COLORS.blue }} />
-            <div className="leading-tight"><div className="text-sm font-semibold text-neutral-900">reelflip</div><div className="text-[11px] text-neutral-500">São Paulo, Brasil</div></div>
+            <div className="size-9 rounded-full" style={{ background: spotMode ? "#a3e635" : COLORS.blue }} />
+            <div className="leading-tight"><div className="text-sm font-semibold text-neutral-900">{spotMode ? "skatehive" : "reelflip"}</div><div className="text-[11px] text-neutral-500">{spotMode ? "skate spots" : "São Paulo, Brasil"}</div></div>
             <MoreVertical className="ml-auto size-5 text-neutral-800" />
           </div>
           <div className="relative" style={{ width: CARD_W * scale, height: CARD_H * scale }}>
@@ -786,15 +849,19 @@ export function Editor({
         <div ref={inspectorRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-2 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Card</h2>
-            <Label className="text-muted-foreground">Tipo</Label>
-            <Select value={card.tipo} onValueChange={(v) => { commitFraming(); setType(v as Card["tipo"]); }}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="conteudo">Conteúdo (foto)</SelectItem>
-                <SelectItem value="fundo">Fundo (cor sólida)</SelectItem>
-                <SelectItem value="capa">Capa</SelectItem>
-              </SelectContent>
-            </Select>
+            {!spotMode && (
+              <>
+                <Label className="text-muted-foreground">Tipo</Label>
+                <Select value={card.tipo} onValueChange={(v) => { commitFraming(); setType(v as Card["tipo"]); }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="conteudo">Conteúdo (foto)</SelectItem>
+                    <SelectItem value="fundo">Fundo (cor sólida)</SelectItem>
+                    <SelectItem value="capa">Capa</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            )}
 
             {card.tipo === "fundo" ? (
               <>
@@ -825,7 +892,10 @@ export function Editor({
               </>
             ) : (
               <>
-                <Label className="text-muted-foreground">Imagem de fundo</Label>
+                {card.tipo === "spot" && (
+                  <Button size="sm" onClick={openSpots}><MapPin className="size-3.5" />Escolher spot do mapa</Button>
+                )}
+                <Label className="text-muted-foreground">{card.tipo === "spot" ? "Foto do spot" : "Imagem de fundo"}</Label>
                 <Button size="sm" variant="secondary" onClick={() => fileImg.current?.click()}><ImageIcon className="size-3.5" />{cardImg ? "Trocar imagem" : "Escolher imagem"}</Button>
                 <input ref={fileImg} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && onImage(e.target.files[0])} />
                 {cardImg && (
@@ -856,10 +926,31 @@ export function Editor({
               </>
             )}
 
-            <Label className="text-muted-foreground">{card.tipo === "capa" ? "Subtítulo / gancho" : "Sub-Título (pill creme)"}</Label>
-            <Textarea value={card.subtitulo} onChange={(e) => patchActive((c) => ({ ...c, subtitulo: e.target.value }) as Card)} rows={2} />
+            {card.tipo === "spot" && (
+              <>
+                <Label className="text-muted-foreground">Nome do spot</Label>
+                <Input value={card.spotName} onChange={(e) => patchActive((c) => ({ ...c, spotName: e.target.value }) as Card)} placeholder="Waxed Three Stair" />
+                <Label className="text-muted-foreground">Localização</Label>
+                <Input value={card.spotLocation} onChange={(e) => patchActive((c) => ({ ...c, spotLocation: e.target.value }) as Card)} placeholder="Minneapolis, MN" />
+                <Label className="text-muted-foreground">Crédito (autor)</Label>
+                <Input value={card.spotAuthor} onChange={(e) => patchActive((c) => ({ ...c, spotAuthor: e.target.value }) as Card)} placeholder="web-gnar" />
+              </>
+            )}
 
-            {card.tipo !== "capa" && (
+            {card.tipo !== "capa" && card.tipo !== "spot" && (
+              <>
+                <Label className="text-muted-foreground">Sub-Título (pill creme)</Label>
+                <Textarea value={card.subtitulo} onChange={(e) => patchActive((c) => ({ ...c, subtitulo: e.target.value }) as Card)} rows={2} />
+              </>
+            )}
+            {card.tipo === "capa" && (
+              <>
+                <Label className="text-muted-foreground">Subtítulo / gancho</Label>
+                <Textarea value={card.subtitulo} onChange={(e) => patchActive((c) => ({ ...c, subtitulo: e.target.value }) as Card)} rows={2} />
+              </>
+            )}
+
+            {card.tipo !== "capa" && card.tipo !== "spot" && (
               <>
                 <div className="mt-2 flex items-center justify-between">
                   <h3 className="text-sm font-medium">Chat boxes</h3>
@@ -881,7 +972,9 @@ export function Editor({
               </>
             )}
 
-            <Button size="sm" variant="ghost" className="mt-1 justify-start text-muted-foreground" onClick={() => patchActive(resetLayout)}><RotateCcw className="size-3.5" />Resetar posições</Button>
+            {card.tipo !== "spot" && (
+              <Button size="sm" variant="ghost" className="mt-1 justify-start text-muted-foreground" onClick={() => patchActive(resetLayout)}><RotateCcw className="size-3.5" />Resetar posições</Button>
+            )}
 
             <Separator className="my-2" />
             <Label className="text-muted-foreground">Legenda</Label>
@@ -899,6 +992,49 @@ export function Editor({
             <Button variant="secondary" onClick={() => setImportOpen(false)}>Cancelar</Button>
             <Button onClick={doImport}>Importar</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* SkateHive spot map picker */}
+      <Dialog open={spotsOpen} onOpenChange={setSpotsOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>Escolher spot do mapa SkateHive</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground">Spots enviados pela comunidade. Clique p/ preencher o card (foto + nome + local + crédito).</p>
+          {spotsErr ? (
+            <p className="text-sm text-danger">{spotsErr}</p>
+          ) : spots === null ? (
+            <p className="flex items-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Carregando spots…</p>
+          ) : spots.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Nenhum spot encontrado.</p>
+          ) : (
+            <div className="max-h-[60vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {spots.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => pickSpot(s)}
+                    className="group overflow-hidden rounded-lg border border-border text-left transition-colors hover:border-selection"
+                  >
+                    <div className="aspect-square overflow-hidden bg-muted">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={s.photo ?? ""} alt="" className="size-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
+                    </div>
+                    <div className="p-2">
+                      <div className="truncate text-xs font-semibold text-foreground">{s.name || "Spot sem nome"}</div>
+                      <div className="truncate text-[10px] text-muted-foreground">{s.location || `@${s.author}`}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {spotsHasMore && (
+                <Button size="sm" variant="secondary" className="mt-3 w-full" disabled={spotsBusy} onClick={() => void loadSpots(spotsPage + 1)}>
+                  {spotsBusy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  Carregar mais
+                </Button>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

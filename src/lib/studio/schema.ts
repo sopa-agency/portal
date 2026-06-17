@@ -54,11 +54,25 @@ export const ZFundo = z.object({
   ...base,
 });
 
-export const ZCard = z.discriminatedUnion("tipo", [ZCapa, ZConteudo, ZFundo]);
+// Portal addition (not in upstream reelflip-studio): the "Skate Spot Found!"
+// template for the SkateHive brand — a spot photo + a fixed branded overlay
+// (header banner, spot name, location, author), filled from the SkateHive spot
+// map. Additive variant; reelflip cards (capa/conteudo/fundo) are unaffected.
+export const ZSpot = z.object({
+  tipo: z.literal("spot"),
+  imagem: z.string().nullable().default(null),
+  spotName: z.string().default(""),
+  spotLocation: z.string().default(""),
+  spotAuthor: z.string().default(""),
+  ...base,
+});
+
+export const ZCard = z.discriminatedUnion("tipo", [ZCapa, ZConteudo, ZFundo, ZSpot]);
 export type Card = z.infer<typeof ZCard>;
 export type Capa = z.infer<typeof ZCapa>;
 export type Conteudo = z.infer<typeof ZConteudo>;
 export type Fundo = z.infer<typeof ZFundo>;
+export type Spot = z.infer<typeof ZSpot>;
 
 export const ZMeta = z
   .object({
