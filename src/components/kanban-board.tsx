@@ -912,6 +912,7 @@ export function KanbanBoard() {
   const [detailItem, setDetailItem] = useState<KanbanItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase); empty = all
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -1226,6 +1227,24 @@ export function KanbanBoard() {
 
   const { title, url, columns, truncated } = board;
 
+  // People to filter by: assignable collaborators ∪ anyone already assigned.
+  const people = (() => {
+    const map = new Map<string, { login: string; avatarUrl: string }>();
+    for (const m of board.assignable ?? []) map.set(m.login.toLowerCase(), { login: m.login, avatarUrl: m.avatarUrl });
+    for (const c of columns) for (const it of c.items) for (const a of it.assignees) {
+      if (!map.has(a.login.toLowerCase())) map.set(a.login.toLowerCase(), { login: a.login, avatarUrl: a.avatarUrl });
+    }
+    return [...map.values()].sort((a, b) => a.login.localeCompare(b.login));
+  })();
+  const togglePerson = (login: string) => {
+    const k = login.toLowerCase();
+    setPersonFilter((prev) => (prev.includes(k) ? prev.filter((p) => p !== k) : [...prev, k]));
+  };
+  // Filtered view (real board data stays intact for drag/drop, which is by id).
+  const displayColumns = personFilter.length === 0
+    ? columns
+    : columns.map((c) => ({ ...c, items: c.items.filter((it) => it.assignees.some((a) => personFilter.includes(a.login.toLowerCase()))) }));
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       {/* Meta bar */}
@@ -1247,6 +1266,41 @@ export function KanbanBoard() {
         </a>
       </div>
 
+      {/* Filter by person */}
+      {people.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setPersonFilter([])}
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${personFilter.length === 0 ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
+          >
+            Todos
+          </button>
+          {people.map((p) => {
+            const on = personFilter.includes(p.login.toLowerCase());
+            return (
+              <button
+                key={p.login}
+                type="button"
+                onClick={() => togglePerson(p.login)}
+                title={`@${p.login}`}
+                aria-pressed={on}
+                className={`flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] transition ${on ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.avatarUrl} alt="" width={20} height={20} className="h-5 w-5 rounded-full object-cover" />
+                {p.login}
+              </button>
+            );
+          })}
+          {personFilter.length > 0 && (
+            <span className="text-[10px] text-foreground-faint">
+              {displayColumns.reduce((n, c) => n + c.items.length, 0)} cartões
+            </span>
+          )}
+        </div>
+      )}
+
       {toast && (
         <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
           {toast}
@@ -1263,7 +1317,7 @@ export function KanbanBoard() {
       >
         <div className="min-h-0 flex-1 overflow-x-auto pb-2">
           <div className="flex h-full min-h-64 gap-4">
-            {columns.map((col) => (
+            {displayColumns.map((col) => (
               <ColumnView
                 key={col.name}
                 column={col}
