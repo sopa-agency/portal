@@ -186,6 +186,7 @@ export function ZineStudio({
   const [blogErr, setBlogErr] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null); // active mini-zine panel (layout editing)
   const fileRef = useRef<HTMLInputElement>(null);
   // Remember the last Book (loose) page size so toggling Book↔Mini-Zine restores it.
   const lastLoose = useRef<PageSizeId>("A5");
@@ -323,12 +324,13 @@ export function ZineStudio({
   function selectBookMode() {
     if (pageSize !== "mini8") return;
     setPageSize(lastLoose.current);
-    setView((v) => (v === "print" ? "edit" : v)); // Layout view is mini-only
+    setView("edit");
     setSelectedId(null);
   }
   function selectMiniMode() {
     if (pageSize === "mini8") return;
     setPageSize("mini8");
+    setView("edit");
     setPages((prev) =>
       prev.length >= MINI8_PAGES
         ? prev
@@ -339,10 +341,11 @@ export function ZineStudio({
 
   // --- drag + resize ---------------------------------------------------------
   function onElPointerDown(e: React.PointerEvent, el: Element, mode: "move" | "resize") {
-    if (view !== "edit") return;
+    if (!isMini && view !== "edit") return;
     e.stopPropagation();
     setSelectedId(el.id);
-    const rect = canvasRef.current?.getBoundingClientRect();
+    // In Mini-Zine layout each panel is its own canvas; fall back to the panel.
+    const rect = (panelRef.current ?? canvasRef.current)?.getBoundingClientRect();
     if (!rect) return;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -435,10 +438,10 @@ export function ZineStudio({
   async function onDropFiles(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    if (view !== "edit") return;
+    if (!isMini && view !== "edit") return;
     const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
     if (!files.length) return;
-    const rect = canvasRef.current?.getBoundingClientRect();
+    const rect = (panelRef.current ?? canvasRef.current)?.getBoundingClientRect();
     const at = rect
       ? { x: ((e.clientX - rect.left) / rect.width) * 100 - 30, y: ((e.clientY - rect.top) / rect.height) * 100 - 20 }
       : undefined;
@@ -619,19 +622,17 @@ export function ZineStudio({
               ))}
             </select>
           )}
-          <div className="flex items-center rounded-lg border border-border p-0.5">
-            <button type="button" onClick={() => setView("edit")} className={tab(view === "edit")}>
-              <Pencil className="h-3.5 w-3.5" /> Editar
-            </button>
-            {isMini && (
-              <button type="button" onClick={() => { setSelectedId(null); setView("print"); }} className={tab(view === "print")}>
-                <Grid3x3 className="h-3.5 w-3.5" /> Layout
+          {/* Book mode: Edit/Preview. Mini-Zine has a single editable Layout. */}
+          {!isMini && (
+            <div className="flex items-center rounded-lg border border-border p-0.5">
+              <button type="button" onClick={() => setView("edit")} className={tab(view === "edit")}>
+                <Pencil className="h-3.5 w-3.5" /> Editar
               </button>
-            )}
-            <button type="button" onClick={() => { setSelectedId(null); setView("preview"); }} className={tab(view === "preview")}>
-              <Eye className="h-3.5 w-3.5" /> {isMini ? "Livreto" : "Preview"}
-            </button>
-          </div>
+              <button type="button" onClick={() => { setSelectedId(null); setView("preview"); }} className={tab(view === "preview")}>
+                <Eye className="h-3.5 w-3.5" /> Preview
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setGrid((g) => !g)}
@@ -716,13 +717,12 @@ export function ZineStudio({
         </div>
       )}
 
-      {view === "preview" ? (
+      {!isMini && view === "preview" ? (
         <FlipbookPreview pages={pages} filter={filterCss} />
-      ) : view === "print" ? (
-        <MiniZinePrintLayout pages={pages} cropMarks={cropMarks} filter={filterCss} />
       ) : (
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[150px_1fr_230px]">
-        {/* Pages rail */}
+      <div className={`grid min-h-0 flex-1 grid-cols-1 gap-3 ${isMini ? "lg:grid-cols-[1fr_240px]" : "lg:grid-cols-[150px_1fr_230px]"}`}>
+        {/* Pages rail (Book mode — Mini-Zine uses the panels themselves) */}
+        {!isMini && (
         <div className="flex min-h-0 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-surface p-2">
           {pages.map((p, i) => (
             <PageRailButton key={p.id} page={p} index={i} isActive={i === active} onSelect={selectPage} filter={filterCss} mini={isMini} />
@@ -735,8 +735,26 @@ export function ZineStudio({
             <Plus className="h-5 w-5" />
           </button>
         </div>
+        )}
 
-        {/* Canvas */}
+        {/* Canvas — Book: single page · Mini-Zine: editable imposed sheet */}
+        {isMini ? (
+          <MiniLayoutCanvas
+            pages={pages}
+            active={active}
+            selectedId={selectedId}
+            cropMarks={cropMarks}
+            filter={filterCss}
+            guides={guides}
+            panelRef={panelRef}
+            dragOver={dragOver}
+            onSetDragOver={setDragOver}
+            onDropFiles={onDropFiles}
+            onSelectPage={(i) => { setActive(i); setSelectedId(null); }}
+            onElPointerDown={onElPointerDown}
+            onChangeText={(id, t) => updateEl(id, { text: t })}
+          />
+        ) : (
         <div
           className={`relative flex min-h-0 items-center justify-center overflow-auto rounded-xl border bg-surface-elevated/40 transition-colors ${isMini ? "p-2" : "p-4"} ${dragOver ? "border-accent ring-2 ring-accent/40" : "border-border"}`}
           onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
@@ -819,16 +837,22 @@ export function ZineStudio({
             )}
           </div>
         </div>
+        )}
 
         {/* Inspector / assets */}
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-surface p-3">
           {/* page actions */}
           <div className="flex flex-wrap gap-1.5">
             <IconBtn title="Adicionar texto" onClick={addText}><Type className="h-3.5 w-3.5" /></IconBtn>
-            <IconBtn title="Duplicar página" onClick={() => { const c: Page = { ...page, id: uid(), elements: page.elements.map((e) => ({ ...e, id: uid() })) }; setPages((prev) => [...prev.slice(0, active + 1), c, ...prev.slice(active + 1)]); setActive(active + 1); }}><Copy className="h-3.5 w-3.5" /></IconBtn>
-            <IconBtn title="Mover página ↑" disabled={active === 0} onClick={() => { setPages((prev) => { const n = [...prev]; [n[active - 1], n[active]] = [n[active], n[active - 1]]; return n; }); setActive(active - 1); }}><ChevronUp className="h-3.5 w-3.5" /></IconBtn>
-            <IconBtn title="Mover página ↓" disabled={active >= pages.length - 1} onClick={() => { setPages((prev) => { const n = [...prev]; [n[active + 1], n[active]] = [n[active], n[active + 1]]; return n; }); setActive(active + 1); }}><ChevronDown className="h-3.5 w-3.5" /></IconBtn>
-            <IconBtn title="Excluir página" disabled={pages.length <= 1} onClick={() => { setPages((prev) => prev.filter((_, i) => i !== active)); setActive(Math.max(0, active - 1)); }}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+            {/* Page add/dup/move/delete — Book only (Mini-Zine is a fixed 8 pages). */}
+            {!isMini && (
+              <>
+                <IconBtn title="Duplicar página" onClick={() => { const c: Page = { ...page, id: uid(), elements: page.elements.map((e) => ({ ...e, id: uid() })) }; setPages((prev) => [...prev.slice(0, active + 1), c, ...prev.slice(active + 1)]); setActive(active + 1); }}><Copy className="h-3.5 w-3.5" /></IconBtn>
+                <IconBtn title="Mover página ↑" disabled={active === 0} onClick={() => { setPages((prev) => { const n = [...prev]; [n[active - 1], n[active]] = [n[active], n[active - 1]]; return n; }); setActive(active - 1); }}><ChevronUp className="h-3.5 w-3.5" /></IconBtn>
+                <IconBtn title="Mover página ↓" disabled={active >= pages.length - 1} onClick={() => { setPages((prev) => { const n = [...prev]; [n[active + 1], n[active]] = [n[active], n[active + 1]]; return n; }); setActive(active + 1); }}><ChevronDown className="h-3.5 w-3.5" /></IconBtn>
+                <IconBtn title="Excluir página" disabled={pages.length <= 1} onClick={() => { setPages((prev) => prev.filter((_, i) => i !== active)); setActive(Math.max(0, active - 1)); }}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+              </>
+            )}
             <span className="mx-0.5 w-px self-stretch bg-border" />
             <IconBtn title="Limpar página (remover elementos)" disabled={!page?.elements.length} onClick={clearPage}><Eraser className="h-3.5 w-3.5" /></IconBtn>
             <IconBtn title="Recomeçar zine (apagar tudo)" onClick={resetZine}><RotateCcw className="h-3.5 w-3.5" /></IconBtn>
@@ -950,10 +974,10 @@ export function ZineStudio({
               </button>
               <button
                 type="button"
-                onClick={() => { setView("print"); setPrintOpen(false); }}
+                onClick={() => setPrintOpen(false)}
                 className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"
               >
-                <Grid3x3 className="h-4 w-4" /> Ver layout de impressão
+                Voltar a editar
               </button>
               <p className="text-center text-[10px] text-foreground-faint">Exportar PNG por página chega numa próxima fatia.</p>
             </div>
@@ -1272,26 +1296,81 @@ function MiniZineGuides() {
   );
 }
 
-// On-screen "Print Layout" for the mini-zine: the imposed A4-landscape sheet
-// exactly as it prints, with page-number badges, Cover/Back labels, fold lines,
-// the center cut, and fold-direction arrows. Read-only.
-function MiniZinePrintLayout({ pages, cropMarks, filter }: { pages: Page[]; cropMarks: boolean; filter?: string }) {
+// The Mini-Zine's single mode: the imposed A4-landscape sheet, EDITABLE in place.
+// Each panel is its own canvas; click to select, then drag/resize/add elements.
+// Orientation arrows mark the top of each page; fold/cut guides + page labels too.
+function MiniLayoutCanvas({
+  pages, active, selectedId, cropMarks, filter, guides, panelRef, dragOver,
+  onSetDragOver, onDropFiles, onSelectPage, onElPointerDown, onChangeText,
+}: {
+  pages: Page[];
+  active: number;
+  selectedId: string | null;
+  cropMarks: boolean;
+  filter?: string;
+  guides: { x: number[]; y: number[] };
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  dragOver: boolean;
+  onSetDragOver: (v: boolean) => void;
+  onDropFiles: (e: React.DragEvent) => void;
+  onSelectPage: (i: number) => void;
+  onElPointerDown: (e: React.PointerEvent, el: Element, mode: "move" | "resize") => void;
+  onChangeText: (id: string, t: string) => void;
+}) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-auto rounded-xl border border-border bg-surface-elevated/40 p-4">
-      <p className="max-w-2xl text-center text-xs text-foreground-muted">
-        Folha A4 paisagem · frente única. Dobre nas linhas tracejadas, corte a linha vermelha central e dobre em livreto — capa fica por fora.
+    <div
+      className={`relative flex min-h-0 flex-col items-center gap-2 overflow-auto rounded-xl border bg-surface-elevated/40 p-3 transition-colors ${dragOver ? "border-accent ring-2 ring-accent/40" : "border-border"}`}
+      onDragOver={(e) => { e.preventDefault(); if (!dragOver) onSetDragOver(true); }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) onSetDragOver(false); }}
+      onDrop={onDropFiles}
+    >
+      <p className="text-center text-[11px] text-foreground-muted">
+        Folha A4 imposta · edite cada painel direto aqui. As setas indicam o topo de cada página · clique num painel para selecioná-lo.
       </p>
       <div className="relative aspect-[297/210] w-full max-w-5xl overflow-hidden rounded-md bg-white shadow-lg">
         <div className="absolute inset-0 grid grid-cols-4 grid-rows-2">
           {MINI8_ORDER.map((pageNum, cell) => {
-            const p = pages[pageNum - 1];
+            const pageIdx = pageNum - 1;
+            const p = pages[pageIdx];
+            const isActiveCell = pageIdx === active;
             const label = miniPageLabel(pageNum);
             return (
-              <div key={cell} className="relative overflow-hidden border border-black/10" style={{ containerType: "inline-size", backgroundColor: p?.bg ?? "#ffffff" }}>
-                {p && <PageFace page={p} filter={filter} />}
-                <span className="absolute left-1 top-1 z-10 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              <div
+                key={cell}
+                ref={isActiveCell ? panelRef : undefined}
+                onPointerDown={() => onSelectPage(pageIdx)}
+                className={`relative overflow-hidden ${isActiveCell ? "z-10 ring-2 ring-inset ring-accent" : "border border-black/10"}`}
+                style={{ containerType: "inline-size", backgroundColor: p?.bg ?? "#ffffff" }}
+              >
+                <div className="absolute inset-0" style={{ filter: filter || undefined }}>
+                  {p?.elements
+                    .slice()
+                    .sort((a, b) => a.z - b.z)
+                    .map((el) => (
+                      <ElementView
+                        key={el.id}
+                        el={el}
+                        selected={isActiveCell && el.id === selectedId}
+                        editable={isActiveCell}
+                        onPointerDown={isActiveCell ? (e) => onElPointerDown(e, el, "move") : undefined}
+                        onResize={isActiveCell ? (e) => onElPointerDown(e, el, "resize") : undefined}
+                        onChangeText={(t) => onChangeText(el.id, t)}
+                      />
+                    ))}
+                </div>
+                {/* live snap guides on the active panel */}
+                {isActiveCell && (guides.x.length > 0 || guides.y.length > 0) && (
+                  <div className="pointer-events-none absolute inset-0 z-20">
+                    {guides.x.map((x, i) => <span key={`x${i}`} style={{ position: "absolute", top: 0, bottom: 0, left: `${x}%`, width: 1, background: "#ff2d95" }} />)}
+                    {guides.y.map((y, i) => <span key={`y${i}`} style={{ position: "absolute", left: 0, right: 0, top: `${y}%`, height: 1, background: "#ff2d95" }} />)}
+                  </div>
+                )}
+                {/* page badge */}
+                <span className="pointer-events-none absolute left-1 top-1 z-30 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {pageNum}{label && <span className="text-accent">{label}</span>}
                 </span>
+                {/* orientation arrow — marks the top of this page on the sheet */}
+                <span className="pointer-events-none absolute left-1/2 top-0.5 z-30 -translate-x-1/2 text-sm font-bold text-accent/70" title="topo da página">↑</span>
               </div>
             );
           })}
