@@ -23,6 +23,7 @@ import {
   Save,
   FolderOpen,
   Grid3x3,
+  Scissors,
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
@@ -74,12 +75,20 @@ type Draft = { id: string; name: string; savedAt: number; pageSize: PageSizeId; 
 // Grid step in % of the page (20 cols/rows). Center (50%) and edges fall on it.
 const GRID = 5;
 
+// Zine formats. "loose" = one page per sheet (saddle-stitch / single pages).
+// "mini8" = the classic 8-page mini-zine: edit 8 pages, print one A4 landscape
+// sheet imposed 4×2 (top row rotated 180°), fold + one center cut → a booklet.
 const PAGE_SIZES = [
-  { id: "A6", label: "A6 (mini)", css: "A6" },
-  { id: "A5", label: "A5 (zine)", css: "A5" },
-  { id: "A4", label: "A4", css: "A4" },
+  { id: "A6", label: "A6 (página solta)", css: "A6 portrait", kind: "loose" },
+  { id: "A5", label: "A5 (página solta)", css: "A5 portrait", kind: "loose" },
+  { id: "A4", label: "A4 (página solta)", css: "A4 portrait", kind: "loose" },
+  { id: "mini8", label: "Mini-zine 8p · 1 folha A4", css: "A4 landscape", kind: "mini8" },
 ] as const;
 type PageSizeId = (typeof PAGE_SIZES)[number]["id"];
+
+// Mini-zine imposition: cell index (row-major, 4 cols × 2 rows) → 1-based page.
+// Top row (cells 0-3) prints rotated 180°. Front cover (1) lands bottom-right.
+const MINI8_ORDER = [5, 4, 3, 2, 6, 7, 8, 1] as const;
 
 function uid() {
   return `${Date.now().toString(36)}${Math.floor(performance.now()).toString(36)}${(globalThis.crypto?.getRandomValues?.(new Uint32Array(1))?.[0] ?? 0).toString(36)}`;
@@ -127,6 +136,7 @@ export function ZineStudio({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [grid, setGrid] = useState(false); // visual grid + snap-to-grid on drag/resize
+  const [cropMarks, setCropMarks] = useState(true); // crop/fold helper marks on print
   const [assetTab, setAssetTab] = useState<"upload" | "drive" | "blog">("upload");
   const [uploading, setUploading] = useState(false);
   const [drive, setDrive] = useState<DriveFile[] | null>(null);
@@ -395,7 +405,11 @@ export function ZineStudio({
           <BookMark accent={accent} />
           <div>
             <h1 className="text-lg font-bold text-foreground">Zine Studio</h1>
-            <p className="text-[11px] text-foreground-faint">{projectName} · zine imprimível</p>
+            <p className="text-[11px] text-foreground-faint">
+              {sizeMeta.kind === "mini8"
+                ? `${projectName} · mini-zine 8p — pág 1 = capa, 8 = contracapa · imprime 1 folha A4, dobra + 1 corte`
+                : `${projectName} · zine imprimível`}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -446,6 +460,15 @@ export function ZineStudio({
             className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${grid ? "border-accent bg-accent-bg text-accent" : "border-border bg-surface-elevated text-foreground-muted hover:border-border-strong hover:text-foreground"}`}
           >
             <Grid3x3 className="h-3.5 w-3.5" /> Grade
+          </button>
+          <button
+            type="button"
+            onClick={() => setCropMarks((m) => !m)}
+            title="Marcas de corte/dobra na impressão"
+            aria-pressed={cropMarks}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${cropMarks ? "border-accent bg-accent-bg text-accent" : "border-border bg-surface-elevated text-foreground-muted hover:border-border-strong hover:text-foreground"}`}
+          >
+            <Scissors className="h-3.5 w-3.5" /> Marcas
           </button>
           <div className="relative" ref={draftsRef}>
             <button
@@ -669,16 +692,41 @@ export function ZineStudio({
 
       {/* Print-only layout — each page at its real size, page-break between. */}
       <div className="zine-print">
-        {pages.map((p) => (
-          <div key={p.id} className="zine-print-page" style={{ backgroundColor: p.bg, containerType: "inline-size" }}>
-            {p.elements
-              .slice()
-              .sort((a, b) => a.z - b.z)
-              .map((el) => (
-                <ElementView key={el.id} el={el} selected={false} editable={false} />
-              ))}
+        {sizeMeta.kind === "mini8" ? (
+          // One A4-landscape sheet, 8 pages imposed 4×2 (top row rotated 180°).
+          <div className="zine-print-mini">
+            <div className="zine-mini-grid">
+              {MINI8_ORDER.map((pageNum, cell) => {
+                const p = pages[pageNum - 1];
+                return (
+                  <div
+                    key={cell}
+                    className="zine-mini-cell"
+                    style={{ backgroundColor: p?.bg ?? "#ffffff", containerType: "inline-size", transform: cell < 4 ? "rotate(180deg)" : undefined }}
+                  >
+                    {p?.elements
+                      .slice()
+                      .sort((a, b) => a.z - b.z)
+                      .map((el) => <ElementView key={el.id} el={el} selected={false} editable={false} />)}
+                  </div>
+                );
+              })}
+            </div>
+            {cropMarks && <MiniZineGuides />}
           </div>
-        ))}
+        ) : (
+          pages.map((p) => (
+            <div key={p.id} className="zine-print-page" style={{ backgroundColor: p.bg, containerType: "inline-size" }}>
+              {p.elements
+                .slice()
+                .sort((a, b) => a.z - b.z)
+                .map((el) => (
+                  <ElementView key={el.id} el={el} selected={false} editable={false} />
+                ))}
+              {cropMarks && <CornerMarks />}
+            </div>
+          ))
+        )}
       </div>
 
       <style>{`
@@ -687,11 +735,17 @@ export function ZineStudio({
           body * { visibility: hidden; }
           .zine-print, .zine-print * { visibility: visible; }
           .zine-print { position: absolute; inset: 0; display: block; }
-          @page { size: ${sizeMeta.css} portrait; margin: 0; }
+          @page { size: ${sizeMeta.css}; margin: 0; }
           .zine-print-page {
             position: relative; width: 100%; height: 100vh;
             page-break-after: always; overflow: hidden;
           }
+          .zine-print-mini { position: relative; width: 100%; height: 100vh; overflow: hidden; }
+          .zine-mini-grid {
+            position: absolute; inset: 0; display: grid;
+            grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr);
+          }
+          .zine-mini-cell { position: relative; overflow: hidden; }
         }
       `}</style>
     </div>
@@ -865,6 +919,47 @@ function BookMark({ accent }: { accent: string }) {
     <span className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ backgroundColor: `${accent}22`, color: accent }}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
     </span>
+  );
+}
+
+// Corner trim/registration marks for a printed loose page (helper for cutting).
+function CornerMarks() {
+  const L = 22; // tick length (px)
+  const corners: { v: "top" | "bottom"; h: "left" | "right" }[] = [
+    { v: "top", h: "left" }, { v: "top", h: "right" },
+    { v: "bottom", h: "left" }, { v: "bottom", h: "right" },
+  ];
+  return (
+    <div className="pointer-events-none absolute inset-0" style={{ zIndex: 9999 }}>
+      {corners.map((c, i) => (
+        <span key={i}>
+          <span style={{ position: "absolute", [c.v]: 0, [c.h]: 0, width: 1, height: L, background: "#000" }} />
+          <span style={{ position: "absolute", [c.v]: 0, [c.h]: 0, width: L, height: 1, background: "#000" }} />
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Fold + cut guides for the 8-page mini-zine sheet. Gray dashed = valley/mountain
+// folds (4 cols, 2 rows); red dashed center segment = the single cut.
+function MiniZineGuides() {
+  const fold = "1px dashed rgba(0,0,0,0.45)";
+  return (
+    <div className="pointer-events-none absolute inset-0" style={{ zIndex: 9999 }}>
+      {/* vertical fold lines at 25 / 50 / 75 % */}
+      {[25, 50, 75].map((x) => (
+        <span key={x} style={{ position: "absolute", top: 0, bottom: 0, left: `${x}%`, borderLeft: fold }} />
+      ))}
+      {/* horizontal fold line at 50% (only the outer quarters fold here) */}
+      <span style={{ position: "absolute", left: 0, top: "50%", width: "25%", borderTop: fold }} />
+      <span style={{ position: "absolute", right: 0, top: "50%", width: "25%", borderTop: fold }} />
+      {/* the cut: center horizontal segment across the middle two panels */}
+      <span style={{ position: "absolute", left: "25%", width: "50%", top: "50%", borderTop: "2px dashed #e11d48" }} />
+      <span style={{ position: "absolute", left: "50%", top: "calc(50% - 18px)", transform: "translateX(-50%)", fontSize: 10, color: "#e11d48", fontWeight: 700, letterSpacing: 1 }}>
+        ✂ CORTAR
+      </span>
+    </div>
   );
 }
 
