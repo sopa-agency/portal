@@ -94,7 +94,6 @@ export function ZineStudio({
   const [blogAuthor, setBlogAuthor] = useState<string | null>(null); // null = project default feed
   const [hydrated, setHydrated] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null); // active mini-zine panel (layout editing)
   const fileRef = useRef<HTMLInputElement>(null);
   // Remember the last Book (loose) page size so toggling Book↔Mini-Zine restores it.
   const lastLoose = useRef<PageSizeId>("A5");
@@ -193,13 +192,28 @@ export function ZineStudio({
   }, [pages, pageSize, hydrated, storeKey]);
 
   const page = pages[active] ?? pages[0];
-  const selected = page?.elements.find((e) => e.id === selectedId) ?? null;
+  // Selection is global (the mini-zine edits 8 panels at once), so resolve the
+  // selected element across all pages, not just the active one.
+  const selected = pages.flatMap((p) => p.elements).find((e) => e.id === selectedId) ?? null;
 
   function mutatePage(fn: (p: Page) => Page) {
     setPages((prev) => prev.map((p, i) => (i === active ? fn(p) : p)));
   }
+  // Update / delete by element id across every page (ids are globally unique),
+  // so dragging or editing any panel's element works regardless of which page
+  // is "active".
   function updateEl(id: string, patch: Partial<Element>) {
-    mutatePage((p) => ({ ...p, elements: p.elements.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
+    setPages((prev) => prev.map((p) => ({ ...p, elements: p.elements.map((e) => (e.id === id ? { ...e, ...patch } : e)) })));
+  }
+  function deleteEl(id: string) {
+    setPages((prev) => prev.map((p) => ({ ...p, elements: p.elements.filter((e) => e.id !== id) })));
+  }
+  function bringToFront(id: string) {
+    setPages((prev) => prev.map((p) => {
+      if (!p.elements.some((e) => e.id === id)) return p;
+      const top = Math.max(0, ...p.elements.map((e) => e.z)) + 1;
+      return { ...p, elements: p.elements.map((e) => (e.id === id ? { ...e, z: top } : e)) };
+    }));
   }
   function addElement(el: Omit<Element, "id" | "z">) {
     const z = Math.max(0, ...page.elements.map((e) => e.z)) + 1;
@@ -252,8 +266,13 @@ export function ZineStudio({
     if (!isMini && view !== "edit") return;
     e.stopPropagation();
     setSelectedId(el.id);
-    // In Mini-Zine layout each panel is its own canvas; fall back to the panel.
-    const rect = (panelRef.current ?? canvasRef.current)?.getBoundingClientRect();
+    // Make the element's page active (aligns snap guides + inspector context).
+    const elPageIdx = pages.findIndex((p) => p.elements.some((x) => x.id === el.id));
+    if (elPageIdx >= 0 && elPageIdx !== active) setActive(elPageIdx);
+    // The dragged element's own canvas (a mini-zine panel, or the book canvas):
+    // coordinates are measured relative to it so any panel is editable.
+    const canvas = (e.currentTarget as HTMLElement).closest("[data-zine-canvas]") as HTMLElement | null;
+    const rect = (canvas ?? canvasRef.current)?.getBoundingClientRect();
     if (!rect) return;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -266,7 +285,8 @@ export function ZineStudio({
     // Canva-style smart snapping: align the dragged element's edges/centers to
     // the page (0/50/100%) and to other elements, showing magenta guides. Grid
     // snap is a secondary fallback when the grid is on. Hold Alt to move freely.
-    const others = page.elements.filter((e) => e.id !== el.id);
+    const ownPage = pages.find((p) => p.elements.some((e) => e.id === el.id)) ?? page;
+    const others = ownPage.elements.filter((e) => e.id !== el.id);
     const yPointsOf = (e: Element): number[] => (e.kind === "image" ? [e.y, e.y + e.h / 2, e.y + e.h] : [e.y]);
     const TARGET_X = [0, 50, 100, ...others.flatMap((o) => [o.x, o.x + o.w / 2, o.x + o.w])];
     const TARGET_Y = [0, 50, 100, ...others.flatMap(yPointsOf)];
@@ -349,7 +369,9 @@ export function ZineStudio({
     if (!isMini && view !== "edit") return;
     const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
     if (!files.length) return;
-    const rect = (panelRef.current ?? canvasRef.current)?.getBoundingClientRect();
+    // Drop onto the specific panel under the cursor (mini-zine) or the canvas.
+    const canvasEl = (e.target as HTMLElement).closest("[data-zine-canvas]") as HTMLElement | null;
+    const rect = (canvasEl ?? canvasRef.current)?.getBoundingClientRect();
     const at = rect
       ? { x: ((e.clientX - rect.left) / rect.width) * 100 - 30, y: ((e.clientY - rect.top) / rect.height) * 100 - 20 }
       : undefined;
@@ -668,7 +690,6 @@ export function ZineStudio({
             filter={filterCss}
             fixOrient={fixOrient}
             guides={guides}
-            panelRef={panelRef}
             dragOver={dragOver}
             onSetDragOver={setDragOver}
             onDropFiles={onDropFiles}
@@ -710,6 +731,7 @@ export function ZineStudio({
           )}
           <div
             ref={canvasRef}
+            data-zine-canvas
             onPointerDown={() => setSelectedId(null)}
             className="relative aspect-[1/1.414] max-h-full w-auto shadow-lg"
             style={{ height: "100%", backgroundColor: page?.bg ?? "#fff", containerType: "inline-size", filter: filterCss || undefined }}
@@ -784,8 +806,8 @@ export function ZineStudio({
             <Inspector
               el={selected}
               onChange={(patch) => updateEl(selected.id, patch)}
-              onDelete={() => { mutatePage((p) => ({ ...p, elements: p.elements.filter((e) => e.id !== selected.id) })); setSelectedId(null); }}
-              onFront={() => updateEl(selected.id, { z: Math.max(0, ...page.elements.map((e) => e.z)) + 1 })}
+              onDelete={() => { deleteEl(selected.id); setSelectedId(null); }}
+              onFront={() => bringToFront(selected.id)}
             />
           ) : (
             <>
@@ -1022,11 +1044,12 @@ function ElementView({
       ) : editable && selected ? (
         <textarea
           value={el.text}
-          onChange={(e) => onChangeText?.(e.target.value)}
+          ref={(ta) => { if (ta) { ta.style.height = "0px"; ta.style.height = `${ta.scrollHeight}px`; } }}
+          onChange={(e) => { e.target.style.height = "0px"; e.target.style.height = `${e.target.scrollHeight}px`; onChangeText?.(e.target.value); }}
           onPointerDown={(e) => e.stopPropagation()}
-          className="w-full resize-none border-none bg-transparent outline-none"
+          rows={1}
+          className="w-full resize-none overflow-hidden border-none bg-transparent outline-none"
           style={{ fontFamily: el.font || undefined, fontSize: `${el.fontSize}cqw`, color: el.color, textAlign: el.align, fontWeight: el.bold ? 700 : 400, lineHeight: 1.25 }}
-          rows={2}
         />
       ) : (
         <p className="whitespace-pre-wrap" style={{ fontFamily: el.font || undefined, fontSize: `${el.fontSize}cqw`, color: el.color, textAlign: el.align, fontWeight: el.bold ? 700 : 400, lineHeight: 1.25 }}>
@@ -1253,7 +1276,7 @@ function MiniZineGuides() {
 // Each panel is its own canvas; click to select, then drag/resize/add elements.
 // Orientation arrows mark the top of each page; fold/cut guides + page labels too.
 function MiniLayoutCanvas({
-  pages, active, selectedId, cropMarks, filter, fixOrient, guides, panelRef, dragOver,
+  pages, active, selectedId, cropMarks, filter, fixOrient, guides, dragOver,
   onSetDragOver, onDropFiles, onSelectPage, onElPointerDown, onChangeText,
 }: {
   pages: Page[];
@@ -1263,7 +1286,6 @@ function MiniLayoutCanvas({
   filter?: string;
   fixOrient: boolean;
   guides: { x: number[]; y: number[] };
-  panelRef: React.RefObject<HTMLDivElement | null>;
   dragOver: boolean;
   onSetDragOver: (v: boolean) => void;
   onDropFiles: (e: React.DragEvent) => void;
@@ -1271,27 +1293,37 @@ function MiniLayoutCanvas({
   onElPointerDown: (e: React.PointerEvent, el: Element, mode: "move" | "resize") => void;
   onChangeText: (id: string, t: string) => void;
 }) {
+  const [zoom, setZoom] = useState(1);
   return (
     <div
-      className={`relative flex min-h-0 flex-col items-center gap-2 overflow-auto rounded-xl border bg-surface-elevated/40 p-3 transition-colors ${dragOver ? "border-accent ring-2 ring-accent/40" : "border-border"}`}
+      className={`relative flex min-h-0 flex-col items-stretch gap-2 rounded-xl border bg-surface-elevated/40 p-3 transition-colors ${dragOver ? "border-accent ring-2 ring-accent/40" : "border-border"}`}
       onDragOver={(e) => { e.preventDefault(); if (!dragOver) onSetDragOver(true); }}
       onDragLeave={(e) => { if (e.currentTarget === e.target) onSetDragOver(false); }}
       onDrop={onDropFiles}
     >
-      <p className="text-center text-[11px] text-foreground-muted">
-        Folha A4 imposta · edite cada painel direto aqui. As setas indicam o topo de cada página · clique num painel para selecioná-lo.
-      </p>
-      <div className="relative aspect-[297/210] w-full max-w-5xl overflow-hidden rounded-md bg-white shadow-lg">
+      <div className="flex items-center gap-2">
+        <p className="flex-1 text-[11px] text-foreground-muted">
+          Folha A4 imposta · edite qualquer painel direto aqui. As setas marcam o topo de cada página.
+        </p>
+        <div className="flex shrink-0 items-center rounded-lg border border-border bg-surface-elevated p-0.5 text-xs">
+          <button type="button" onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))} className="rounded px-2 py-0.5 text-foreground-muted hover:text-foreground" aria-label="Menos zoom">−</button>
+          <button type="button" onClick={() => setZoom(1)} className="w-12 text-center tabular-nums text-foreground-muted hover:text-foreground">{Math.round(zoom * 100)}%</button>
+          <button type="button" onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))} className="rounded px-2 py-0.5 text-foreground-muted hover:text-foreground" aria-label="Mais zoom">+</button>
+        </div>
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-auto">
+      <div className="relative mx-auto aspect-[297/210] w-full max-w-5xl overflow-hidden rounded-md bg-white shadow-lg" style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}>
         <div className="absolute inset-0 grid grid-cols-4 grid-rows-2">
           {MINI8_ORDER.map((pageNum, cell) => {
             const pageIdx = pageNum - 1;
             const p = pages[pageIdx];
             const isActiveCell = pageIdx === active;
             const label = miniPageLabel(pageNum);
+            const flipped = fixOrient && cell < 4;
             return (
               <div
                 key={cell}
-                ref={isActiveCell ? panelRef : undefined}
+                data-zine-canvas
                 onPointerDown={() => onSelectPage(pageIdx)}
                 className={`relative overflow-hidden ${isActiveCell ? "z-10 ring-2 ring-inset ring-accent" : "border border-black/10"}`}
                 style={{ containerType: "inline-size", backgroundColor: p?.bg ?? "#ffffff" }}
@@ -1304,10 +1336,10 @@ function MiniLayoutCanvas({
                       <ElementView
                         key={el.id}
                         el={el}
-                        selected={isActiveCell && el.id === selectedId}
-                        editable={isActiveCell}
-                        onPointerDown={isActiveCell ? (e) => onElPointerDown(e, el, "move") : undefined}
-                        onResize={isActiveCell ? (e) => onElPointerDown(e, el, "resize") : undefined}
+                        selected={el.id === selectedId}
+                        editable
+                        onPointerDown={(e) => onElPointerDown(e, el, "move")}
+                        onResize={(e) => onElPointerDown(e, el, "resize")}
                         onChangeText={(t) => onChangeText(el.id, t)}
                       />
                     ))}
@@ -1323,19 +1355,20 @@ function MiniLayoutCanvas({
                 <span className="pointer-events-none absolute left-1 top-1 z-30 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {pageNum}{label && <span className="text-accent">{label}</span>}
                 </span>
-                {/* orientation arrow — top of the page; flips for the top row
-                    when "Orientação" is on (those panels print rotated 180°). */}
+                {/* orientation arrow chip — high-contrast so it's easy to see; flips
+                    for the top row when "Orientação" is on (prints rotated 180°). */}
                 <span
-                  className="pointer-events-none absolute left-1/2 top-0.5 z-30 -translate-x-1/2 text-sm font-bold text-accent/70"
-                  title={fixOrient && cell < 4 ? "imprime girado 180° (dobra em pé)" : "topo da página"}
+                  className="pointer-events-none absolute left-1/2 top-1 z-30 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-foreground shadow"
+                  title={flipped ? "imprime girado 180° (dobra em pé)" : "topo da página"}
                 >
-                  {fixOrient && cell < 4 ? "↓" : "↑"}
+                  {flipped ? "↓" : "↑"}
                 </span>
               </div>
             );
           })}
         </div>
         {cropMarks && <MiniLayoutGuides />}
+      </div>
       </div>
     </div>
   );
@@ -1382,117 +1415,75 @@ function PageFace({ page, filter }: { page: Page; filter?: string }) {
 // Flipbook preview — turn through the zine like a real booklet (3D page flip,
 // arrow keys, click controls). Edit-only chrome is gone; this is the read view.
 function FlipbookPreview({ pages, filter }: { pages: Page[]; filter?: string }) {
-  const [idx, setIdx] = useState(0);
-  const [flip, setFlip] = useState<{ dir: "next" | "prev"; animate: boolean } | null>(null);
-  const max = pages.length - 1;
-  const cur = Math.min(idx, max);
+  // Reading spreads, like an open magazine: cover alone (right), then 2-up
+  // facing pages, back cover alone (left). null = blank half.
+  const spreads: [number | null, number | null][] = [[null, 0]];
+  for (let i = 1; i < pages.length; i += 2) spreads.push([i, i + 1 < pages.length ? i + 1 : null]);
 
-  // Mount the leaf at its start angle, then flip to the target on the next
-  // frame so the CSS transition actually runs.
-  useEffect(() => {
-    if (flip && !flip.animate) {
-      const r = requestAnimationFrame(() =>
-        requestAnimationFrame(() => setFlip((f) => (f ? { ...f, animate: true } : f))),
-      );
-      return () => cancelAnimationFrame(r);
-    }
-  }, [flip]);
+  const [si, setSi] = useState(0);
+  const [dir, setDir] = useState<"next" | "prev">("next");
+  const max = spreads.length - 1;
+  const cur = Math.min(si, max);
 
-  const go = (dir: "next" | "prev") => {
-    if (flip) return;
-    if (dir === "next" && cur >= max) return;
-    if (dir === "prev" && cur <= 0) return;
-    setFlip({ dir, animate: false });
+  const go = (d: "next" | "prev") => {
+    if (d === "next" && cur < max) { setDir("next"); setSi(cur + 1); }
+    else if (d === "prev" && cur > 0) { setDir("prev"); setSi(cur - 1); }
   };
-  // Commit the page change. Idempotent (the functional updaters no-op once flip
-  // is cleared) so the transitionend + the safety timeout can't double-advance.
-  const onEnd = () => {
-    setFlip((f) => {
-      if (!f) return null;
-      setIdx((i) => (f.dir === "next" ? i + 1 : i - 1));
-      return null;
-    });
-  };
-
-  // Safety net: if transitionend never fires (interrupted paint, no layout
-  // change, etc.) commit anyway so the flipbook never gets stuck mid-turn.
-  useEffect(() => {
-    if (flip?.animate) {
-      const t = setTimeout(onEnd, 820);
-      return () => clearTimeout(t);
-    }
-  }, [flip]);
-
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (flip) return;
-      if (e.key === "ArrowRight" && cur < max) setFlip({ dir: "next", animate: false });
-      else if (e.key === "ArrowLeft" && cur > 0) setFlip({ dir: "prev", animate: false });
+      if (e.key === "ArrowRight") go("next");
+      else if (e.key === "ArrowLeft") go("prev");
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [flip, cur, max]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cur, max]);
 
-  const beneath = flip ? (flip.dir === "next" ? cur + 1 : cur) : cur;
-  const leaf = flip?.dir === "prev" ? cur - 1 : cur;
-  const rot = !flip ? 0 : flip.animate ? (flip.dir === "prev" ? 0 : -180) : flip.dir === "prev" ? -180 : 0;
+  const [left, right] = spreads[cur];
+  const label = left === null ? "Capa" : right === null ? "Contracapa" : `${left + 1}–${right + 1}`;
+
+  // Plain render fn (not a component) so it isn't remounted each render.
+  const renderHalf = (idx: number | null, side: "l" | "r") => (
+    <div
+      className={`relative h-full overflow-hidden bg-white shadow-xl ${side === "l" ? "rounded-l-md" : "rounded-r-md"}`}
+      style={{ aspectRatio: "1 / 1.414", visibility: idx === null ? "hidden" : undefined }}
+    >
+      {idx !== null && <PageFace page={pages[idx]} filter={filter} />}
+      {/* gutter shadow toward the spine */}
+      <div
+        className="pointer-events-none absolute inset-y-0 w-8"
+        style={side === "l"
+          ? { right: 0, backgroundImage: "linear-gradient(to left, rgba(0,0,0,0.18), transparent)" }
+          : { left: 0, backgroundImage: "linear-gradient(to right, rgba(0,0,0,0.18), transparent)" }}
+      />
+    </div>
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border border-border bg-surface-elevated/40 p-4">
-      <div className="relative flex min-h-0 w-full flex-1 items-center justify-center" style={{ perspective: 2200 }}>
-        <div className="relative aspect-[1/1.414] w-auto" style={{ height: "100%" }}>
-          {/* page underneath the turning leaf */}
-          <div className="absolute inset-0 overflow-hidden rounded-md shadow-xl">
-            <PageFace page={pages[beneath]} filter={filter} />
-          </div>
-          {/* the turning leaf */}
-          {flip && (
-            <div
-              className="absolute inset-0 rounded-md shadow-2xl"
-              style={{
-                transformStyle: "preserve-3d",
-                transformOrigin: "left center",
-                transform: `rotateY(${rot}deg)`,
-                transition: flip.animate ? "transform 0.7s cubic-bezier(0.4,0.1,0.3,1)" : "none",
-                willChange: "transform",
-              }}
-              onTransitionEnd={(e) => {
-                // ignore transitions bubbling up from page contents
-                if (e.target === e.currentTarget && e.propertyName === "transform") onEnd();
-              }}
-            >
-              <div className="absolute inset-0 overflow-hidden rounded-md" style={{ backfaceVisibility: "hidden" }}>
-                <PageFace page={pages[leaf]} filter={filter} />
-              </div>
-              <div
-                className="absolute inset-0 overflow-hidden rounded-md"
-                style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)", backgroundColor: pages[leaf]?.bg ?? "#fff" }}
-              />
-            </div>
-          )}
+      <div className="relative flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
+        {/* key={cur} → remount per spread so the CSS fade/slide-in runs cleanly
+            (no 3D leaf, no backface = no flicker) */}
+        <div key={cur} className={`flex h-full ${dir === "next" ? "zine-spread-next" : "zine-spread-prev"}`}>
+          {renderHalf(left, "l")}
+          {renderHalf(right, "r")}
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => go("prev")}
-          disabled={cur <= 0 || !!flip}
-          aria-label="Página anterior"
-          className="rounded-full border border-border bg-surface p-2 text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-30"
-        >
+        <button type="button" onClick={() => go("prev")} disabled={cur <= 0} aria-label="Anterior" className="rounded-full border border-border bg-surface p-2 text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-30">
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <span className="text-xs tabular-nums text-foreground-muted">{cur + 1} / {pages.length}</span>
-        <button
-          type="button"
-          onClick={() => go("next")}
-          disabled={cur >= max || !!flip}
-          aria-label="Próxima página"
-          className="rounded-full border border-border bg-surface p-2 text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-30"
-        >
+        <span className="text-xs tabular-nums text-foreground-muted">{label}</span>
+        <button type="button" onClick={() => go("next")} disabled={cur >= max} aria-label="Próxima" className="rounded-full border border-border bg-surface p-2 text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-30">
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
+      <style>{`
+        @keyframes zineSpreadNext { from { opacity: 0; transform: translateX(7%) } to { opacity: 1; transform: none } }
+        @keyframes zineSpreadPrev { from { opacity: 0; transform: translateX(-7%) } to { opacity: 1; transform: none } }
+        .zine-spread-next { animation: zineSpreadNext 0.28s ease-out }
+        .zine-spread-prev { animation: zineSpreadPrev 0.28s ease-out }
+      `}</style>
     </div>
   );
 }
