@@ -56,12 +56,14 @@ function occurrenceInWeek(m: MeetingDTO, weekStart: Date): Occurrence | null {
   return null;
 }
 
-export function MeetingsCalendar({ initialMeetings, initialCalendars, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; accent: string }) {
+export function MeetingsCalendar({ initialMeetings, initialCalendars, teamEmails, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; teamEmails: string[]; accent: string }) {
   const [meetings, setMeetings] = useState<MeetingDTO[]>(initialMeetings);
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
-  const [editor, setEditor] = useState<null | { id: string | null; title: string; start: string; end: string; notes: string; color: string; weekly: boolean }>(null);
+  const [editor, setEditor] = useState<null | { id: string | null; title: string; start: string; end: string; notes: string; color: string; weekly: boolean; attendees: string[] }>(null);
+  const [emailInput, setEmailInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Shared-calendar availability overlay.
   const [calendars, setCalendars] = useState<SharedCalendarDTO[]>(initialCalendars);
@@ -117,10 +119,12 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, accent }: 
     start.setHours(hour, 0, 0, 0);
     const end = new Date(start.getTime() + 60 * 60000);
     setErr(null);
-    setEditor({ id: null, title: "", start: toLocalInput(start), end: toLocalInput(end), notes: "", color: accent, weekly: true });
+    setEditor({ id: null, title: "", start: toLocalInput(start), end: toLocalInput(end), notes: "", color: accent, weekly: true, attendees: [] });
+    setEmailInput("");
   }
   function openEdit(m: MeetingDTO) {
     setErr(null);
+    setEmailInput("");
     setEditor({
       id: m.id,
       title: m.title,
@@ -129,7 +133,13 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, accent }: 
       notes: m.notes ?? "",
       color: m.color ?? accent,
       weekly: m.weekly,
+      attendees: m.attendees ?? [],
     });
+  }
+  function toggleAttendee(email: string) {
+    const e = email.trim().toLowerCase();
+    if (!e) return;
+    setEditor((ed) => (ed ? { ...ed, attendees: ed.attendees.includes(e) ? ed.attendees.filter((a) => a !== e) : [...ed.attendees, e] } : ed));
   }
 
   async function save() {
@@ -139,14 +149,18 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, accent }: 
     setErr(null);
     const startsAt = new Date(editor.start).toISOString();
     const endsAt = new Date(editor.end).toISOString();
+    const common = { title: editor.title, startsAt, endsAt, notes: editor.notes, color: editor.color, weekly: editor.weekly, attendees: editor.attendees };
     if (editor.id) {
-      const r = await updateMeeting(editor.id, { title: editor.title, startsAt, endsAt, notes: editor.notes, color: editor.color, weekly: editor.weekly });
-      if (r.ok) { setMeetings((prev) => prev.map((m) => (m.id === r.meeting.id ? r.meeting : m))); setEditor(null); }
+      const r = await updateMeeting(editor.id, common, true);
+      if (r.ok) { setMeetings((prev) => prev.map((m) => (m.id === r.meeting.id ? r.meeting : m))); setEditor(null); if (r.inviteError) setToast(`Convites: ${r.inviteError}`); }
       else setErr(r.error);
     } else {
-      const r = await createMeeting({ title: editor.title, startsAt, endsAt, notes: editor.notes, color: editor.color, weekly: editor.weekly });
-      if (r.ok) { setMeetings((prev) => [...prev, r.meeting]); setEditor(null); }
-      else setErr(r.error);
+      const r = await createMeeting(common);
+      if (r.ok) {
+        setMeetings((prev) => [...prev, r.meeting]);
+        setEditor(null);
+        if (editor.attendees.length) setToast(r.inviteError ? `Reunião criada · convites falharam (${r.inviteError})` : `Reunião criada · ${r.invited ?? 0} convite(s) enviado(s).`);
+      } else setErr(r.error);
     }
     setSaving(false);
   }
@@ -205,6 +219,13 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, accent }: 
           <button type="button" onClick={() => openNew(today, Math.max(DAY_START, Math.min(DAY_END - 1, today.getHours())))} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90"><Plus className="h-3.5 w-3.5" /> Nova reunião</button>
         </div>
       </div>
+
+      {toast && (
+        <div className="flex items-center justify-between rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs text-accent">
+          {toast}
+          <button type="button" onClick={() => setToast(null)} aria-label="Fechar"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
 
       {/* Grid */}
       <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-surface">
@@ -321,6 +342,36 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, accent }: 
                 <button key={c} type="button" onClick={() => setEditor({ ...editor, color: c })} className={`h-5 w-5 rounded-full ${editor.color === c ? "ring-2 ring-offset-2 ring-offset-surface" : ""}`} style={{ backgroundColor: c, boxShadow: editor.color === c ? `0 0 0 2px ${c}` : undefined }} aria-label={`Cor ${c}`} />
               ))}
             </div>
+
+            {/* Attendees — invites go out on save */}
+            <div className="space-y-1.5">
+              <span className="text-xs text-foreground-muted">Convidados (recebem convite por email)</span>
+              {teamEmails.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {teamEmails.map((em) => (
+                    <button key={em} type="button" onClick={() => toggleAttendee(em)} className={`rounded-full border px-2 py-0.5 text-[10px] ${editor.attendees.includes(em.toLowerCase()) ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>{em}</button>
+                  ))}
+                </div>
+              )}
+              {editor.attendees.filter((a) => !teamEmails.some((t) => t.toLowerCase() === a)).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {editor.attendees.filter((a) => !teamEmails.some((t) => t.toLowerCase() === a)).map((a) => (
+                    <button key={a} type="button" onClick={() => toggleAttendee(a)} className="rounded-full border border-accent bg-accent-bg px-2 py-0.5 text-[10px] text-accent">{a} ×</button>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-1.5">
+                <input
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (/@/.test(emailInput)) { toggleAttendee(emailInput); setEmailInput(""); } } }}
+                  placeholder="email@exemplo.com"
+                  className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
+                />
+                <button type="button" onClick={() => { if (/@/.test(emailInput)) { toggleAttendee(emailInput); setEmailInput(""); } }} className="rounded-md border border-border px-2 py-1 text-xs text-foreground-muted hover:text-foreground">Add</button>
+              </div>
+            </div>
+
             <textarea
               value={editor.notes}
               onChange={(e) => setEditor({ ...editor, notes: e.target.value })}

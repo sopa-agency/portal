@@ -8,6 +8,8 @@ export type SendEmailOptions = {
   subject: string;
   html: string;
   text: string;
+  /** Calendar invite (nodemailer icalEvent): method + raw ICS content. */
+  icalEvent?: { method: string; content: string };
 };
 
 export type SendEmailResult =
@@ -25,7 +27,7 @@ export type SendEmailResult =
  */
 export async function sendProjectEmail(
   project: Pick<ProjectConfig, "name" | "agent">,
-  { to, bcc, subject, html, text }: SendEmailOptions,
+  { to, bcc, subject, html, text, icalEvent }: SendEmailOptions,
 ): Promise<SendEmailResult> {
   const prefix = project.agent.gatewayEnvPrefix;
 
@@ -75,7 +77,7 @@ export async function sendProjectEmail(
       secure,
       auth: { user, pass },
     });
-    await transporter.sendMail({ from, to, bcc, subject, html, text });
+    await transporter.sendMail({ from, to, bcc, subject, html, text, ...(icalEvent ? { icalEvent } : {}) });
     return { ok: true };
   } catch (err) {
     return {
