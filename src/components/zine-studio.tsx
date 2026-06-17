@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ImagePlus,
   Type,
@@ -16,6 +16,8 @@ import {
   HardDrive,
   Newspaper,
   Layers,
+  Undo2,
+  Redo2,
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
@@ -111,13 +113,78 @@ export function ZineStudio({
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ---- undo / redo history ----
+  // Debounced checkpoint so drags + bursts of edits coalesce into one step.
+  const past = useRef<Page[][]>([]);
+  const future = useRef<Page[][]>([]);
+  const lastCommitted = useRef<Page[]>(pages);
+  const fromHistory = useRef(false); // skip checkpoint when the change came from undo/redo/load
+  const checkpointTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [histLen, setHistLen] = useState({ p: 0, f: 0 });
+  const syncHist = () => setHistLen({ p: past.current.length, f: future.current.length });
+
+  const commitCheckpoint = useCallback(() => {
+    if (checkpointTimer.current) { clearTimeout(checkpointTimer.current); checkpointTimer.current = null; }
+    if (pages === lastCommitted.current) return;
+    past.current.push(lastCommitted.current);
+    if (past.current.length > 60) past.current.shift();
+    future.current = [];
+    lastCommitted.current = pages;
+    syncHist();
+  }, [pages]);
+
+  useEffect(() => {
+    if (fromHistory.current) { fromHistory.current = false; lastCommitted.current = pages; return; }
+    if (pages === lastCommitted.current) return;
+    if (checkpointTimer.current) clearTimeout(checkpointTimer.current);
+    checkpointTimer.current = setTimeout(commitCheckpoint, 350);
+    return () => { if (checkpointTimer.current) clearTimeout(checkpointTimer.current); };
+  }, [pages, commitCheckpoint]);
+
+  const restoreSnapshot = useCallback((snap: Page[]) => {
+    fromHistory.current = true;
+    setActive((a) => Math.min(a, snap.length - 1));
+    setSelectedId(null);
+    setPages(snap);
+  }, []);
+  const undo = useCallback(() => {
+    commitCheckpoint();
+    const prev = past.current.pop();
+    if (prev === undefined) return;
+    future.current.push(lastCommitted.current);
+    lastCommitted.current = prev;
+    syncHist();
+    restoreSnapshot(prev);
+  }, [commitCheckpoint, restoreSnapshot]);
+  const redo = useCallback(() => {
+    const next = future.current.pop();
+    if (next === undefined) return;
+    past.current.push(lastCommitted.current);
+    lastCommitted.current = next;
+    syncHist();
+    restoreSnapshot(next);
+  }, [restoreSnapshot]);
+
+  // undo/redo keyboard shortcuts (skip while typing in a field)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = (e.target as HTMLElement | null)?.tagName;
+      if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === "z" || e.key === "Z")) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      else if (mod && (e.key === "y" || e.key === "Y")) { e.preventDefault(); redo(); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+
   // Load persisted state once.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storeKey);
       if (raw) {
         const saved = JSON.parse(raw) as { pages: Page[]; pageSize: PageSizeId };
-        if (Array.isArray(saved.pages) && saved.pages.length) setPages(saved.pages);
+        if (Array.isArray(saved.pages) && saved.pages.length) { fromHistory.current = true; setPages(saved.pages); }
         if (saved.pageSize) setPageSize(saved.pageSize);
       }
     } catch {
@@ -245,6 +312,28 @@ export function ZineStudio({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-lg border border-border p-0.5">
+            <button
+              type="button"
+              onClick={undo}
+              disabled={histLen.p === 0}
+              title="Desfazer (⌘Z)"
+              aria-label="Desfazer"
+              className="rounded-md px-2 py-1 text-foreground-muted hover:bg-foreground/5 hover:text-foreground disabled:opacity-30"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={redo}
+              disabled={histLen.f === 0}
+              title="Refazer (⌘⇧Z)"
+              aria-label="Refazer"
+              className="rounded-md px-2 py-1 text-foreground-muted hover:bg-foreground/5 hover:text-foreground disabled:opacity-30"
+            >
+              <Redo2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
           <select
             value={pageSize}
             onChange={(e) => setPageSize(e.target.value as PageSizeId)}
