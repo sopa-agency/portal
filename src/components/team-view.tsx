@@ -53,6 +53,10 @@ type ConnectionsViewProps = {
   connections: PortalConnection[];
   /** Project env prefix (e.g. "KEEPKEY") — interpolated into setup tutorials. */
   envPrefix: string;
+  /** GitHub repos the AI reads for context ("owner/name"). */
+  repos?: string[];
+  /** GitHub Project (Projects V2) powering the Kanban. */
+  githubProject?: { org: string; number: number };
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -695,49 +699,92 @@ function MemberModal({ member, onClose }: { member: TeamMember; onClose: () => v
   );
 }
 
-function ConnectionRow({
+function ConnectionCard({
   connection,
   onOpen,
+  repos,
+  githubProject,
 }: {
   connection: PortalConnection;
   onOpen: () => void;
+  repos?: string[];
+  githubProject?: { org: string; number: number };
 }) {
   const badge = statusBadge(connection.status);
+  const isGitHub = connection.network.toLowerCase() === "github";
 
   return (
     <button
       type="button"
       onClick={onOpen}
       aria-label={`${connection.network} setup guide`}
-      className="flex w-full flex-col gap-1.5 rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-border-strong sm:flex-row sm:items-start sm:gap-4">
-      {/* Icon + name */}
-      <div className="flex min-w-[160px] items-center gap-2 text-sm font-medium text-foreground">
-        <span className="text-foreground-subtle">{networkIcon(connection.network)}</span>
-        <span>{connection.network}</span>
-        {connection.handle && (
-          <span className="text-xs text-foreground-muted tabular-nums">{connection.handle}</span>
-        )}
-      </div>
-
-      {/* Badge */}
-      <div className="flex shrink-0 items-center">
-        <span
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
-        >
+      className="group flex w-full flex-col gap-3 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-elevated"
+    >
+      {/* Header: icon + name + status */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
+          <span className="text-foreground-subtle">{networkIcon(connection.network)}</span>
+          <span className="truncate">{connection.network}</span>
+        </div>
+        <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.className}`}>
           {badge.icon}
           {badge.label}
         </span>
       </div>
 
+      {isGitHub ? (
+        // GitHub: show the Kanban project + the repos the AI reads for context.
+        <div className="space-y-2">
+          {githubProject ? (
+            <div className="rounded-lg bg-surface-elevated px-2.5 py-1.5">
+              <div className="text-[10px] uppercase tracking-wide text-foreground-faint">Kanban</div>
+              <div className="truncate text-sm font-medium text-foreground tabular-nums">
+                {githubProject.org} · Project #{githubProject.number}
+              </div>
+            </div>
+          ) : null}
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-foreground-faint">
+              Repos que a IA lê{repos?.length ? ` (${repos.length})` : ""}
+            </div>
+            {repos && repos.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {repos.map((r) => (
+                  <span
+                    key={r}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-1.5 py-0.5 font-mono text-[11px] text-foreground-muted"
+                  >
+                    {networkIcon("github")}
+                    {r}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-foreground-faint">Nenhum repo configurado.</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        // Connected account (handle), emphasized.
+        connection.handle ? (
+          <div className="rounded-lg bg-surface-elevated px-2.5 py-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-foreground-faint">Conta</div>
+            <div className="truncate text-sm font-medium text-foreground tabular-nums">{connection.handle}</div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs text-foreground-faint">
+            Nenhuma conta conectada
+          </div>
+        )
+      )}
+
       {/* Detail + fixHint */}
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-sm text-foreground-muted">{connection.detail}</p>
+      <div className="min-w-0 space-y-1">
+        <p className="text-xs text-foreground-muted">{connection.detail}</p>
         {connection.fixHint && (
-          <p className="text-xs text-foreground-subtle">
+          <p className="text-[11px] text-foreground-subtle">
             <span className="mr-1 text-foreground-faint">→</span>
-            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">
-              {connection.fixHint}
-            </code>
+            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">{connection.fixHint}</code>
           </p>
         )}
       </div>
@@ -776,7 +823,7 @@ export function TeamView({ projectName, members }: TeamViewProps) {
 }
 
 // Linked-network connection status + setup guides — lives in Settings now.
-export function ConnectionsView({ projectName, connections, envPrefix }: ConnectionsViewProps) {
+export function ConnectionsView({ projectName, connections, envPrefix, repos, githubProject }: ConnectionsViewProps) {
   const [setupConnection, setSetupConnection] = useState<PortalConnection | null>(null);
 
   // Reorder: put non-na, non-manual first for scannability
@@ -784,18 +831,28 @@ export function ConnectionsView({ projectName, connections, envPrefix }: Connect
     const order: Record<ConnectionStatus, number> = { missing: 0, warning: 1, connected: 2, manual: 3, na: 4 };
     return order[a.status] - order[b.status];
   });
+  const connectedCount = connections.filter((c) => c.status === "connected").length;
+  const relevant = connections.filter((c) => c.status !== "na").length;
 
   return (
     <section aria-labelledby="networks-heading">
-      <div className="mb-4 flex items-baseline gap-3">
+      <div className="mb-4 flex flex-wrap items-baseline gap-3">
         <h2 id="networks-heading" className="text-lg font-semibold tracking-tight text-foreground">
-          Linked networks
+          Connections
         </h2>
-        <span className="text-xs text-foreground-faint">{projectName}</span>
+        <span className="text-xs text-foreground-faint">
+          {projectName} · {connectedCount}/{relevant} conectadas
+        </span>
       </div>
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sorted.map((c) => (
-          <ConnectionRow key={c.network} connection={c} onOpen={() => setSetupConnection(c)} />
+          <ConnectionCard
+            key={c.network}
+            connection={c}
+            onOpen={() => setSetupConnection(c)}
+            repos={repos}
+            githubProject={githubProject}
+          />
         ))}
       </div>
       {setupConnection && (

@@ -37,6 +37,8 @@ export default async function SettingsPage() {
         projectName={project.name}
         connections={connections}
         envPrefix={project.agent.gatewayEnvPrefix}
+        repos={project.repos}
+        githubProject={project.githubProject}
       />
     </div>
   );
