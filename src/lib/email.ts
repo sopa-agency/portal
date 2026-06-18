@@ -25,49 +25,53 @@ export type SendEmailResult =
  * not been set up yet (missing host/user/pass) so the UI can show a helpful
  * "not configured" message instead of a crash.
  */
+type SmtpConfig = { host: string; port: number; secure: boolean; user: string; pass: string; from: string };
+
+/**
+ * Resolve a COHERENT SMTP config (host + user + pass from the SAME source) by
+ * tier: the project's own (`${PREFIX}_*`) → global (`SMTP_*`/`EMAIL_*`) →
+ * SkateHive (`SKATEHIVE_*`). The SkateHive mailbox is the shared fallback so
+ * portals without their own SMTP (Gnars/Reelflip) still send.
+ */
+function resolveSmtp(prefix?: string): SmtpConfig | null {
+  const tiers: (string | null)[] = [prefix ?? null, null, "SKATEHIVE"];
+  for (const t of tiers) {
+    const get = (name: string) => (t ? process.env[`${t}_${name}`] : process.env[name]);
+    const host = get("SMTP_HOST");
+    const user = get("EMAIL_USER");
+    const pass = get("EMAIL_PASS");
+    if (host && user && pass) {
+      return {
+        host,
+        port: parseInt(get("SMTP_PORT") ?? "587", 10),
+        secure: (get("SMTP_SECURE") ?? "false") === "true",
+        user,
+        pass,
+        from: get("EMAIL_FROM") ?? user,
+      };
+    }
+  }
+  return null;
+}
+
 export async function sendProjectEmail(
   project: Pick<ProjectConfig, "name" | "agent">,
   { to, bcc, subject, html, text, icalEvent }: SendEmailOptions,
 ): Promise<SendEmailResult> {
   const prefix = project.agent.gatewayEnvPrefix;
+  const smtp = resolveSmtp(prefix);
 
-  const host =
-    (prefix ? process.env[`${prefix}_SMTP_HOST`] : undefined) ??
-    process.env.SMTP_HOST;
-  const portRaw =
-    (prefix ? process.env[`${prefix}_SMTP_PORT`] : undefined) ??
-    process.env.SMTP_PORT ??
-    "587";
-  const port = parseInt(portRaw, 10);
-  const secureRaw =
-    (prefix ? process.env[`${prefix}_SMTP_SECURE`] : undefined) ??
-    process.env.SMTP_SECURE ??
-    "false";
-  const secure = secureRaw === "true";
-  const user =
-    (prefix ? process.env[`${prefix}_EMAIL_USER`] : undefined) ??
-    process.env.EMAIL_USER;
-  const pass =
-    (prefix ? process.env[`${prefix}_EMAIL_PASS`] : undefined) ??
-    process.env.EMAIL_PASS;
-  const fromEnv =
-    (prefix ? process.env[`${prefix}_EMAIL_FROM`] : undefined) ??
-    process.env.EMAIL_FROM ??
-    user;
-
-  if (!host || !user || !pass) {
+  if (!smtp) {
     return {
       ok: false,
-      error: `Email is not configured for ${project.name} — set ${prefix}_SMTP_HOST / ${prefix}_EMAIL_USER / ${prefix}_EMAIL_PASS.`,
+      error: `Email is not configured — set ${prefix}_SMTP_HOST / ${prefix}_EMAIL_USER / ${prefix}_EMAIL_PASS (or the shared SKATEHIVE_* mailbox).`,
       notConfigured: true,
     };
   }
+  const { host, port, secure, user, pass, from: fromEnv } = smtp;
 
   // Add a display name prefix to the from address when not already present.
-  const from =
-    fromEnv?.includes("<")
-      ? fromEnv
-      : `${project.name} <${fromEnv}>`;
+  const from = fromEnv.includes("<") ? fromEnv : `${project.name} <${fromEnv}>`;
 
   try {
     const nodemailer = await import("nodemailer");
@@ -94,15 +98,5 @@ export async function sendProjectEmail(
 export function isEmailConfigured(
   project: Pick<ProjectConfig, "agent">,
 ): boolean {
-  const prefix = project.agent.gatewayEnvPrefix;
-  const host =
-    (prefix ? process.env[`${prefix}_SMTP_HOST`] : undefined) ??
-    process.env.SMTP_HOST;
-  const user =
-    (prefix ? process.env[`${prefix}_EMAIL_USER`] : undefined) ??
-    process.env.EMAIL_USER;
-  const pass =
-    (prefix ? process.env[`${prefix}_EMAIL_PASS`] : undefined) ??
-    process.env.EMAIL_PASS;
-  return Boolean(host && user && pass);
+  return resolveSmtp(project.agent.gatewayEnvPrefix) !== null;
 }
