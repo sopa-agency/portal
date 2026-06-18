@@ -653,7 +653,7 @@ function MemberModal({ member, canManage, onClose }: { member: TeamMember; canMa
       onClick={onClose}
     >
       <div
-        className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-surface-elevated p-5 shadow-2xl"
+        className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-border bg-surface-elevated p-5 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">

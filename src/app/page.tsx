@@ -15,6 +15,12 @@ import { HomeSplit, type SplitTab } from "@/components/home-split";
 import { loadLatestBriefing, todayIsoDate } from "@/lib/morning-briefing";
 import { fetchChannelMetrics } from "@/lib/social-metrics";
 import { getActiveProject } from "@/projects";
+import { cookies } from "next/headers";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
+import { getTeamRoster } from "@/lib/team-roster";
+import { getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
+import { MyTasks } from "@/components/my-tasks";
 
 // Direction B home (from the Claude Design handoff): summary band with the
 // at-a-glance numbers up top, then Morning brief and Socials SIDE BY SIDE —
@@ -103,6 +109,22 @@ export default async function Home() {
     ),
   ]);
 
+  // Logged-in user's own Kanban tasks (shown below the briefing).
+  const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
+  let myTasks: MemberTask[] = [];
+  let myEmail: string | null = null;
+  if (session && project.githubProject) {
+    const me = (await getTeamRoster(project).catch(() => [])).find(
+      (m) => m.username === session.username.toLowerCase(),
+    );
+    myEmail = me?.email ?? null;
+    const ghContact = me?.contacts.find((c) => c.label === "GitHub")?.value;
+    if (ghContact) {
+      const r = await getMemberTasks(ghContact);
+      if (r.ok) myTasks = r.tasks;
+    }
+  }
+
   // --- left pane: one tab per briefing agent (DEV / MKT / …) ---------------
   const briefTabs: SplitTab[] = [];
   let freshBriefs = 0;
@@ -168,6 +190,10 @@ export default async function Home() {
       <SummaryBand tiles={tiles} />
 
       <HomeSplit briefTabs={briefTabs} channelTabs={channelTabs} />
+
+      {session && project.githubProject ? (
+        <MyTasks tasks={myTasks} username={session.username} userEmail={myEmail} />
+      ) : null}
     </div>
   );
 }
