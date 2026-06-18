@@ -790,3 +790,39 @@ export async function createRepoIssue(args: {
     url: issue.url,
   } as MutationResult<{ itemId: string; url: string }> & { itemId: string; url: string };
 }
+
+// ---------------------------------------------------------------------------
+// Aggregated board (the SOPA hub) — union of every portal's Kanban by status.
+// ---------------------------------------------------------------------------
+
+export type AggregatedItem = KanbanItem & { board: string };
+export type AggregatedColumn = { name: string; items: AggregatedItem[] };
+
+/** Fetch + merge ALL portals' GitHub Project boards into one (read-only). */
+export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColumn[]; errors: string[] }> {
+  const { getAllProjects } = await import("@/projects/index");
+  const seen = new Set<string>();
+  const colItems = new Map<string, AggregatedItem[]>();
+  const order: string[] = [];
+  const errors: string[] = [];
+  for (const p of getAllProjects()) {
+    if (!p.githubProject) continue;
+    const key = `${p.githubProject.org}#${p.githubProject.number}`;
+    if (seen.has(key)) continue; // shared boards (e.g. reelflip + coletivoxv) once
+    seen.add(key);
+    const r = await fetchGitHubProject(p).catch(() => null);
+    if (!r || !r.ok) {
+      errors.push(`${p.name}: ${r && !r.ok ? r.error : "falhou"}`);
+      continue;
+    }
+    const board = r.title || p.name;
+    for (const col of r.columns) {
+      if (!colItems.has(col.name)) {
+        colItems.set(col.name, []);
+        order.push(col.name);
+      }
+      for (const it of col.items) colItems.get(col.name)!.push({ ...it, board });
+    }
+  }
+  return { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };
+}

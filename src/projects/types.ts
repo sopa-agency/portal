@@ -266,4 +266,6 @@ export type ProjectConfig = {
     /** GitHub Project number (Projects V2), e.g. 1 */
     number: number;
   };
+  /** Aggregate ALL portals' Kanban boards into one read-only view (the SOPA hub). */
+  kanbanAggregate?: boolean;
 };

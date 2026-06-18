@@ -108,7 +108,7 @@ export default async function RootLayout({
                   }))}
                 hiddenRoutes={project.hiddenRoutes}
                 postCreatorEnabled={!!project.postCreator}
-                kanbanEnabled={!!project.githubProject}
+                kanbanEnabled={!!project.githubProject || !!project.kanbanAggregate}
                 aboutEnabled={!!project.about}
                 orgChartEnabled={!!project.orgChart}
                 portfolioEnabled={!!project.portfolio}
@@ -128,7 +128,7 @@ export default async function RootLayout({
                 agentEmoji={project.agent.emoji}
                 greeting={project.agent.greeting}
                 logo={project.theme.logo}
-                kanbanEnabled={!!project.githubProject}
+                kanbanEnabled={!!project.githubProject || !!project.kanbanAggregate}
               />
             </div>
             </PresenceProvider>

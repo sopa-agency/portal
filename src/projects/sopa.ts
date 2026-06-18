@@ -60,6 +60,8 @@ const sopa: ProjectConfig = {
   orgChart: true,
   portfolio: true,
   meetings: true,
+  // SOPA is the hub: its Kanban aggregates every portal's board (read-only).
+  kanbanAggregate: true,
   treasury: {
     // SOPA's own multisig (Safe on Base).
     ethWallets: [{ label: "SOPA Safe", address: "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2" }],
