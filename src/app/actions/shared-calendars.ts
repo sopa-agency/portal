@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
-import { queryFreeBusy, appCalendarEmail } from "@/lib/google-calendar";
+import { queryFreeBusy, queryCalendarEvents, appCalendarEmail, meetingsCalendarId } from "@/lib/google-calendar";
 import { getTeamEmails } from "@/lib/team-roster";
 
 const isUrl = (s: string) => /^https?:\/\//i.test(s);
@@ -14,7 +14,8 @@ const isUrl = (s: string) => /^https?:\/\//i.test(s);
 const TEAM_COLORS = ["#a3e635", "#38bdf8", "#f472b6", "#fbbf24", "#c084fc", "#34d399", "#fb923c", "#22d3ee"];
 
 export type SharedCalendarDTO = { id: string; name: string; icsUrl: string; color: string | null };
-export type BusyBlock = { calendarId: string; name: string; color: string | null; start: string; end: string };
+// `title` = event summary when the calendar grants detail access; else undefined (just "busy").
+export type BusyBlock = { calendarId: string; name: string; color: string | null; start: string; end: string; title?: string };
 // Per-team-member availability status, so the panel can show who's connected.
 export type TeamAvail = { username: string; email: string; status: "ok" | "notShared" | "error"; detail?: string; color: string };
 
@@ -53,11 +54,13 @@ export async function addSharedCalendar(input: { name: string; icsUrl: string; c
   return { ok: true, calendar: { id: row.id, name: row.name, icsUrl: row.icsUrl, color: row.color } };
 }
 
-/** The service-account email teammates share their calendar (free/busy) with. */
-export async function getCalendarConnectInfo(): Promise<{ ok: true; serviceEmail: string | null } | { ok: false; error: string }> {
+/** The SA email teammates share with + the primary calendar meetings are written to. */
+export async function getCalendarConnectInfo(): Promise<
+  { ok: true; serviceEmail: string | null; meetingsCalendar: string | null } | { ok: false; error: string }
+> {
   const g = await gate();
   if (!g.ok) return g;
-  return { ok: true, serviceEmail: appCalendarEmail() };
+  return { ok: true, serviceEmail: appCalendarEmail(), meetingsCalendar: meetingsCalendarId(g.project.agent.gatewayEnvPrefix) };
 }
 
 export async function deleteSharedCalendar(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -100,20 +103,37 @@ export async function getAvailability(
       errors.push(fb.error);
       for (const r of roster) team.push({ username: r.username, email: r.email, status: "error", detail: fb.error, color: colorOf.get(r.email)! });
     } else {
+      // Best-effort titled events per calendar (only where the SA has "see all
+      // event details" access — e.g. vlad / the SkateHive calendar). Free/busy-only
+      // calendars 403 here and fall back to opaque "busy" blocks.
+      const evEntries = await Promise.all(
+        googleIds.map(async (id) => [id, await queryCalendarEvents(id, weekStart, weekEnd)] as const),
+      );
+      const titledById = new Map<string, { start: string; end: string; summary?: string }[]>();
+      for (const [id, res] of evEntries) {
+        if (!("error" in res) && res.events.some((e) => e.summary)) titledById.set(id, res.events);
+      }
+      const pushBlocks = (id: string, calendarId: string, name: string, color: string | null) => {
+        const titled = titledById.get(id);
+        if (titled) {
+          for (const e of titled) busy.push({ calendarId, name, color, start: e.start, end: e.end, title: e.summary });
+        } else {
+          for (const b of fb.busy[id] ?? []) busy.push({ calendarId, name, color, start: b.start, end: b.end });
+        }
+      };
       for (const r of roster) {
-        const color = colorOf.get(r.email)!;
         const reason = fb.errors[r.email];
-        for (const b of fb.busy[r.email] ?? []) busy.push({ calendarId: `team:${r.username}`, name: r.username, color, start: b.start, end: b.end });
+        pushBlocks(r.email, `team:${r.username}`, r.username, colorOf.get(r.email)!);
         team.push({
           username: r.username,
           email: r.email,
           status: reason ? (/notFound|not found/i.test(reason) ? "notShared" : "error") : "ok",
           detail: reason,
-          color,
+          color: colorOf.get(r.email)!,
         });
       }
       for (const cal of googleCals) {
-        for (const b of fb.busy[cal.icsUrl] ?? []) busy.push({ calendarId: cal.id, name: cal.name, color: cal.color, start: b.start, end: b.end });
+        pushBlocks(cal.icsUrl, cal.id, cal.name, cal.color);
         if (fb.errors[cal.icsUrl]) errors.push(`${cal.name}: ${fb.errors[cal.icsUrl]}`);
       }
     }

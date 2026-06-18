@@ -86,6 +86,35 @@ export async function queryFreeBusy(ids: string[], timeMin: Date, timeMax: Date)
   return { busy, errors };
 }
 
+export type TitledEvent = { start: string; end: string; summary?: string };
+
+/**
+ * List timed events (with titles) for a calendar in a window. Works only when
+ * the SA has "see all event details" access; free/busy-only sharing returns 403
+ * (caller falls back to queryFreeBusy). All-day events are skipped.
+ */
+export async function queryCalendarEvents(
+  calendarId: string,
+  timeMin: Date,
+  timeMax: Date,
+): Promise<{ events: TitledEvent[] } | { error: string }> {
+  const tok = await getAccessToken(["https://www.googleapis.com/auth/calendar.readonly"]);
+  if ("error" in tok) return { error: tok.error };
+  const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`);
+  url.searchParams.set("timeMin", timeMin.toISOString());
+  url.searchParams.set("timeMax", timeMax.toISOString());
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("orderBy", "startTime");
+  url.searchParams.set("maxResults", "50");
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${tok.token}` }, signal: AbortSignal.timeout(9000) });
+  if (!res.ok) return { error: `events HTTP ${res.status}` };
+  const data = (await res.json()) as { items?: { start?: { dateTime?: string }; end?: { dateTime?: string }; summary?: string }[] };
+  const events: TitledEvent[] = (data.items ?? [])
+    .filter((e) => e.start?.dateTime && e.end?.dateTime)
+    .map((e) => ({ start: e.start!.dateTime!, end: e.end!.dateTime!, summary: e.summary }));
+  return { events };
+}
+
 export type CalendarEventInput = {
   summary: string;
   description?: string | null;

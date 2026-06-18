@@ -78,12 +78,16 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
   const [calPanel, setCalPanel] = useState(false);
   const [newCal, setNewCal] = useState({ name: "", icsUrl: "" });
   const [serviceEmail, setServiceEmail] = useState<string | null>(null);
+  const [meetingsCal, setMeetingsCal] = useState<string | null>(null);
   const [teamAvail, setTeamAvail] = useState<TeamAvail[]>([]);
 
-  // The SA email teammates share their calendar with (loaded when panel opens).
+  // SA email + primary meetings calendar (loaded when the panel opens).
   useEffect(() => {
     if (!calPanel || serviceEmail !== null) return;
-    getCalendarConnectInfo().then((r) => setServiceEmail(r.ok ? (r.serviceEmail ?? "") : ""));
+    getCalendarConnectInfo().then((r) => {
+      setServiceEmail(r.ok ? (r.serviceEmail ?? "") : "");
+      if (r.ok) setMeetingsCal(r.meetingsCalendar ?? "");
+    });
   }, [calPanel, serviceEmail]);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -260,6 +264,11 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
                     <button type="button" onClick={() => navigator.clipboard?.writeText(serviceEmail)} title="Copiar" className="mt-1 block w-full truncate rounded bg-surface-elevated px-1.5 py-1 text-left font-mono text-[10px] text-accent hover:underline">{serviceEmail}</button>
                   </div>
                 ) : null}
+                {meetingsCal ? (
+                  <div className="mt-2 rounded-md border border-border bg-surface p-2 text-[10px] text-foreground-muted">
+                    As reuniões são criadas no calendário: <span className="font-mono text-foreground-subtle">{meetingsCal}</span>
+                  </div>
+                ) : null}
                 <details className="mt-2 border-t border-border pt-2">
                   <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-foreground-subtle">+ Calendário extra (fora da equipe / iCal)</summary>
                   <div className="mt-1.5 space-y-1.5">
@@ -329,11 +338,11 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
                 return (
                   <div
                     key={`busy-${bi}`}
-                    title={`${b.name} · ocupado`}
+                    title={b.title ? `${b.name}: ${b.title}` : `${b.name} · ocupado`}
                     style={{ top: Math.max(0, top), height, backgroundColor: `${c}1f`, borderColor: `${c}66` }}
                     className="pointer-events-none absolute inset-x-1 z-0 overflow-hidden rounded-md border border-dashed px-1 text-[9px] text-foreground-faint"
                   >
-                    {b.name}
+                    {b.title ? `${b.name}: ${b.title}` : b.name}
                   </div>
                 );
               })}
