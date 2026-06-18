@@ -18,6 +18,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
 import { getActiveProject, getAllProjects } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
+import { fetchSafeTokens } from "@/lib/safe-tx";
 
 function chainInfo(chainId: number) {
   if (chainId === 1) return { chain: mainnet, tx: "https://safe-transaction-mainnet.safe.global" };
@@ -219,11 +220,40 @@ export async function listBounties(): Promise<{ ok: true; bounties: BountyDTO[] 
   return { ok: true, bounties: rows.map(toDTO) };
 }
 
-/** Reserve a bounty on a task. Checks the amount fits the Safe's available balance. */
+/** A token the Safe holds + how much is still un-reserved for new bounties. */
+export type SafeTokenAvailability = { address: string | null; symbol: string; decimals: number; balance: string; available: string };
+
+const tokenKey = (addr: string | null) => (addr ? addr.toLowerCase() : "eth");
+
+/** Tokens held by a project's Safe, each with the amount still available to reserve. */
+export async function getSafeTokens(projectSlug: string): Promise<
+  { ok: true; tokens: SafeTokenAvailability[] } | { ok: false; error: string }
+> {
+  const g = await globalGate();
+  if (!g.ok) return g;
+  const config = await prisma.bountyConfig.findUnique({ where: { projectSlug } });
+  if (!config) return { ok: false, error: "Configure o Safe deste projeto primeiro." };
+  const held = await fetchSafeTokens(config.safeAddress, config.chainId);
+  // Sum already-reserved (open/proposed) per token for this project.
+  const open = await prisma.bounty.findMany({
+    where: { projectSlug, status: { in: ["open", "proposed"] } },
+    select: { amount: true, tokenAddress: true },
+  });
+  const reserved = new Map<string, number>();
+  for (const b of open) reserved.set(tokenKey(b.tokenAddress), (reserved.get(tokenKey(b.tokenAddress)) ?? 0) + (Number(b.amount) || 0));
+  const tokens = held.map((t): SafeTokenAvailability => {
+    const avail = Math.max(0, Number(t.balance) - (reserved.get(tokenKey(t.address)) ?? 0));
+    return { address: t.address, symbol: t.symbol, decimals: t.decimals, balance: t.balance, available: String(avail) };
+  });
+  return { ok: true, tokens };
+}
+
+/** Reserve a bounty on a task — the value is a token the Safe holds, capped at its available balance. */
 export async function createBounty(input: {
   projectSlug: string;
   taskKey: string;
   title: string;
+  tokenAddress: string | null;
   amount: string;
 }): Promise<{ ok: true; bounty: BountyDTO } | { ok: false; error: string }> {
   const g = await globalGate();
@@ -243,23 +273,37 @@ export async function createBounty(input: {
     return { ok: false, error: "Essa tarefa já tem um bounty." };
   }
 
-  // Available = on-chain balance − everything already reserved (open/proposed) for this project.
-  const st = await safeStatus(
-    { safeAddress: config.safeAddress, chainId: config.chainId, tokenAddress: config.tokenAddress, tokenSymbol: config.tokenSymbol, tokenDecimals: config.tokenDecimals },
-    null,
-  );
-  if (st.balance != null) {
-    // amount is a string column (no float drift in DB) — sum reserved in JS.
-    const open = await prisma.bounty.findMany({ where: { projectSlug: input.projectSlug, status: { in: ["open", "proposed"] } }, select: { amount: true } });
-    const reservedSum = open.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    if (reservedSum + amount > Number(st.balance) + 1e-9) {
-      return { ok: false, error: `Saldo insuficiente: ${st.balance} ${config.tokenSymbol} disponível, ${reservedSum} já reservado.` };
-    }
+  // The value must be a token the Safe actually holds, capped at its available balance.
+  const held = await fetchSafeTokens(config.safeAddress, config.chainId);
+  const want = tokenKey(input.tokenAddress);
+  const token = held.find((t) => tokenKey(t.address) === want);
+  if (!token) return { ok: false, error: "Esse token não está no Safe (ou sem saldo)." };
+
+  // Available for this token = held balance − everything reserved in the same token.
+  const open = await prisma.bounty.findMany({
+    where: { projectSlug: input.projectSlug, status: { in: ["open", "proposed"] }, ...(existing ? { id: { not: existing.id } } : {}) },
+    select: { amount: true, tokenAddress: true },
+  });
+  const reservedSame = open
+    .filter((b) => tokenKey(b.tokenAddress) === want)
+    .reduce((s, b) => s + (Number(b.amount) || 0), 0);
+  const available = Number(token.balance) - reservedSame;
+  if (amount > available + 1e-12) {
+    return { ok: false, error: `Acima do disponível: ${available} ${token.symbol} livre (${token.balance} no Safe, ${reservedSame} reservado).` };
   }
 
+  const data = {
+    title: input.title.slice(0, 300),
+    amount: String(amount),
+    tokenSymbol: token.symbol,
+    tokenAddress: token.address,
+    tokenDecimals: token.decimals,
+    status: "open",
+    createdBy: g.who.username,
+  };
   const row = existing
-    ? await prisma.bounty.update({ where: { id: existing.id }, data: { title: input.title.slice(0, 300), amount: String(amount), tokenSymbol: config.tokenSymbol, status: "open", payeeAddress: null, safeTxHash: null, createdBy: g.who.username } })
-    : await prisma.bounty.create({ data: { projectSlug: input.projectSlug, taskKey, title: input.title.slice(0, 300), amount: String(amount), tokenSymbol: config.tokenSymbol, status: "open", createdBy: g.who.username } });
+    ? await prisma.bounty.update({ where: { id: existing.id }, data: { ...data, payeeAddress: null, safeTxHash: null } })
+    : await prisma.bounty.create({ data: { projectSlug: input.projectSlug, taskKey, ...data } });
   return { ok: true, bounty: toDTO(row) };
 }
 
@@ -342,14 +386,15 @@ export async function proposeBountyPayment(id: string, payeeInput: string): Prom
 
   const { tx } = chainInfo(config.chainId);
   const safe = getAddress(config.safeAddress);
-  const amountUnits = parseUnits(b.amount, config.tokenDecimals);
+  // Pay out the token the bounty was created in (a token the Safe holds), not a config default.
+  const amountUnits = parseUnits(b.amount, b.tokenDecimals);
 
   // ETH transfer vs ERC-20 transfer(payee, amount).
   let to: `0x${string}`;
   let value: bigint;
   let data: `0x${string}`;
-  if (config.tokenAddress) {
-    to = getAddress(config.tokenAddress);
+  if (b.tokenAddress) {
+    to = getAddress(b.tokenAddress);
     value = BigInt(0);
     data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [payee, amountUnits] });
   } else {

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Coins, Loader2, Trash2, CalendarPlus } from "lucide-react";
-import { createBounty, cancelBounty, proposeBountyPayment, markBountyPaid, type BountyDTO } from "@/app/actions/bounty";
+import { createBounty, cancelBounty, proposeBountyPayment, markBountyPaid, getSafeTokens, type BountyDTO, type SafeTokenAvailability } from "@/app/actions/bounty";
 
 /** Stable handle for a task across reloads: GitHub node id, then url, then item id. */
 export function taskKeyOf(it: { contentId?: string | null; url?: string; id: string }): string {
@@ -78,6 +78,25 @@ export function BountyPanel({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Tokens the Safe holds (with available-to-reserve amounts) — for the create UI.
+  const showCreate = !bounty && canManage;
+  const [tokens, setTokens] = useState<SafeTokenAvailability[] | null>(null);
+  const [tokenKey, setTokenKey] = useState<string>("eth");
+  useEffect(() => {
+    if (!showCreate) return;
+    let live = true;
+    getSafeTokens(projectSlug).then((r) => {
+      if (!live) return;
+      if (r.ok) {
+        setTokens(r.tokens);
+        if (r.tokens[0]) setTokenKey(r.tokens[0].address ? r.tokens[0].address.toLowerCase() : "eth");
+      } else setTokens([]);
+    });
+    return () => { live = false; };
+  }, [showCreate, projectSlug]);
+  const selected = tokens?.find((t) => (t.address ? t.address.toLowerCase() : "eth") === tokenKey) ?? null;
+  const overCap = !!selected && Number(amount) > Number(selected.available) + 1e-12;
+
   if (!bounty && !canManage) return null;
 
   async function refresh() {
@@ -99,15 +118,37 @@ export function BountyPanel({
       </div>
       {msg && <p className={`text-xs ${msg.ok ? "text-success" : "text-danger"}`}>{msg.text}</p>}
 
-      {!bounty && canManage && (
-        <div className="flex items-end gap-2">
-          <label className="flex-1 text-xs text-foreground-muted">Valor
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="ex.: 100" className="mt-1 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground focus:border-border-strong focus:outline-none" />
-          </label>
-          <button type="button" onClick={() => run(() => createBounty({ projectSlug, taskKey, title, amount }), "Bounty criado ✅")} disabled={busy || !amount.trim()} className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Transformar em bounty"}
-          </button>
-        </div>
+      {showCreate && (
+        tokens === null ? (
+          <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Lendo saldos do Safe…</p>
+        ) : tokens.length === 0 ? (
+          <p className="text-xs text-foreground-muted">O Safe deste projeto não tem saldo (ou não está configurado em Settings → Bounties).</p>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-end gap-2">
+              <label className="text-xs text-foreground-muted">Token
+                <select value={tokenKey} onChange={(e) => { setTokenKey(e.target.value); setAmount(""); }} className="mt-1 block rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground focus:border-border-strong focus:outline-none">
+                  {tokens.map((t) => {
+                    const k = t.address ? t.address.toLowerCase() : "eth";
+                    return <option key={k} value={k}>{t.symbol} — {Number(t.available)} livre</option>;
+                  })}
+                </select>
+              </label>
+              <label className="flex-1 text-xs text-foreground-muted">Valor
+                <div className="mt-1 flex items-center gap-1">
+                  <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0" className={`w-full rounded-md border bg-surface px-2 py-1.5 text-sm text-foreground focus:outline-none ${overCap ? "border-danger" : "border-border focus:border-border-strong"}`} />
+                  <button type="button" onClick={() => selected && setAmount(selected.available)} className="shrink-0 rounded-md border border-border px-2 py-1.5 text-[11px] text-foreground-muted hover:text-foreground">Máx</button>
+                </div>
+              </label>
+            </div>
+            {selected && (
+              <p className="text-[11px] text-foreground-faint">Disponível: {Number(selected.available)} {selected.symbol} (Safe tem {Number(selected.balance)}). {overCap && <span className="text-danger">acima do limite</span>}</p>
+            )}
+            <button type="button" onClick={() => run(() => createBounty({ projectSlug, taskKey, title, tokenAddress: selected?.address ?? null, amount }), "Bounty criado ✅")} disabled={busy || !amount.trim() || overCap || !selected} className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Transformar em bounty"}
+            </button>
+          </div>
+        )
       )}
 
       {bounty && bounty.status === "open" && (
