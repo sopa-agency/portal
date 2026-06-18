@@ -192,7 +192,7 @@ export default async function Home() {
       <HomeSplit
         briefTabs={briefTabs}
         channelTabs={channelTabs}
-        briefFooter={
+        briefAbove={
           session && project.githubProject ? (
             <MyTasks tasks={myTasks} username={session.username} userEmail={myEmail} />
           ) : null
