@@ -80,6 +80,18 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
   const [serviceEmail, setServiceEmail] = useState<string | null>(null);
   const [meetingsCal, setMeetingsCal] = useState<string | null>(null);
   const [teamAvail, setTeamAvail] = useState<TeamAvail[]>([]);
+  // Per-member availability toggle (usernames hidden from the overlay), persisted.
+  const [hiddenTeam, setHiddenTeam] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try { const raw = localStorage.getItem("reunioes-hidden-team"); if (raw) setHiddenTeam(new Set(JSON.parse(raw) as string[])); } catch {}
+  }, []);
+  const toggleTeamMember = (u: string) =>
+    setHiddenTeam((prev) => {
+      const n = new Set(prev);
+      if (n.has(u)) n.delete(u); else n.add(u);
+      try { localStorage.setItem("reunioes-hidden-team", JSON.stringify([...n])); } catch {}
+      return n;
+    });
 
   // SA email + primary meetings calendar (loaded when the panel opens).
   useEffect(() => {
@@ -122,11 +134,13 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
   const busyByDay = useMemo(() => {
     const m: Record<number, BusyBlock[]> = {};
     for (const b of busy) {
+      // Skip team members the user toggled off.
+      if (b.calendarId.startsWith("team:") && hiddenTeam.has(b.calendarId.slice(5))) continue;
       const di = new Date(b.start).getDay();
       (m[di] ??= []).push(b);
     }
     return m;
-  }, [busy]);
+  }, [busy, hiddenTeam]);
 
   const occurrences = useMemo(
     () => meetings.map((m) => occurrenceInWeek(m, weekStart)).filter((o): o is Occurrence => o !== null),
@@ -233,12 +247,14 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
                       const dot = st?.color ?? accent;
                       const label = !st ? (availBusy ? "verificando…" : "—") : st.status === "ok" ? "conectado" : st.status === "notShared" ? "não compartilhou" : "erro";
                       const labelClass = st?.status === "ok" ? "text-success" : st?.status === "notShared" ? "text-foreground-faint" : st?.status === "error" ? "text-warning" : "text-foreground-faint";
+                      const shown = !hiddenTeam.has(m.username);
                       return (
-                        <div key={m.username} className="flex items-center gap-2 text-xs" title={st?.detail ?? m.email}>
-                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: st?.status === "ok" ? dot : "transparent", border: st?.status === "ok" ? undefined : `1.5px solid ${dot}` }} />
-                          <span className="min-w-0 flex-1 truncate text-foreground">{m.username}</span>
+                        <label key={m.username} className="flex cursor-pointer items-center gap-2 text-xs" title={st?.detail ?? m.email}>
+                          <input type="checkbox" checked={shown} onChange={() => toggleTeamMember(m.username)} className="shrink-0" />
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: st?.status === "ok" ? dot : "transparent", border: st?.status === "ok" ? undefined : `1.5px solid ${dot}`, opacity: shown ? 1 : 0.4 }} />
+                          <span className={`min-w-0 flex-1 truncate ${shown ? "text-foreground" : "text-foreground-faint line-through"}`}>{m.username}</span>
                           <span className={`shrink-0 text-[10px] ${labelClass}`}>{label}</span>
-                        </div>
+                        </label>
                       );
                     })}
                   </div>
