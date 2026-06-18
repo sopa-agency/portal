@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
+import { CommandK } from "@/components/command-k";
 import { ContentShell } from "@/components/content-shell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PageInfo } from "@/components/page-info";
@@ -73,6 +74,44 @@ export default async function RootLayout({
     }
   `;
 
+  // Portals the user can switch to (shared by the sidebar + ⌘K palette).
+  const switchProjects = session
+    ? getSwitcherProjects()
+        .filter((p) => p.allowlist.includes(session.username.toLowerCase()))
+        .map((p) => ({
+          slug: p.slug,
+          subdomain: p.subdomain,
+          name: p.name,
+          logo: p.theme.logo,
+          indent: !!p.switcher?.parent,
+          dividerBefore: !!p.switcher?.dividerBefore,
+        }))
+    : [];
+  // Enabled routes for the active portal (for ⌘K). Mirrors the sidebar's gating.
+  const navItems = (
+    [
+      { href: "/", label: "Home", on: true },
+      { href: "/post-creator", label: "Post Creator", on: !!project.postCreator },
+      { href: "/lab", label: "Lab", on: !!project.lab },
+      { href: "/zine", label: "Zine Studio", on: !!project.zineStudio },
+      { href: "/marketing-suggestions", label: "Post Suggestions", on: true },
+      { href: "/campaign-creator", label: "Campaign Creator", on: true },
+      { href: "/userbase", label: "Userbase", on: true },
+      { href: "/brain", label: "Brain", on: true },
+      { href: "/analytics", label: "Analytics", on: true },
+      { href: "/kanban", label: "Kanban", on: !!project.githubProject || !!project.kanbanAggregate },
+      { href: "/about", label: "About", on: !!project.about },
+      { href: "/treasury", label: "Treasury", on: true },
+      { href: "/org-chart", label: "Org Chart", on: !!project.orgChart },
+      { href: "/reunioes", label: "Reuniões", on: !!project.meetings },
+      { href: "/portfolio", label: "Portfolio", on: !!project.portfolio },
+      { href: "/team", label: "Team", on: true },
+      { href: "/settings", label: "Settings", on: true },
+    ] as const
+  )
+    .filter((r) => r.on && !project.hiddenRoutes?.includes(r.href))
+    .map(({ href, label }) => ({ href, label }));
+
   return (
     <html
       lang="en"
@@ -96,16 +135,7 @@ export default async function RootLayout({
                 projectName={project.name}
                 projectLogo={project.theme.logo}
                 currentSlug={project.slug}
-                switchProjects={getSwitcherProjects()
-                  .filter((p) => p.allowlist.includes(session.username.toLowerCase()))
-                  .map((p) => ({
-                    slug: p.slug,
-                    subdomain: p.subdomain,
-                    name: p.name,
-                    logo: p.theme.logo,
-                    indent: !!p.switcher?.parent,
-                    dividerBefore: !!p.switcher?.dividerBefore,
-                  }))}
+                switchProjects={switchProjects}
                 hiddenRoutes={project.hiddenRoutes}
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject || !!project.kanbanAggregate}
@@ -130,6 +160,7 @@ export default async function RootLayout({
                 logo={project.theme.logo}
                 kanbanEnabled={!!project.githubProject || !!project.kanbanAggregate}
               />
+              <CommandK navItems={navItems} portals={switchProjects} currentSlug={project.slug} />
             </div>
             </PresenceProvider>
           ) : (
