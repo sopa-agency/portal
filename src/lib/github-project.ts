@@ -795,7 +795,7 @@ export async function createRepoIssue(args: {
 // Aggregated board (the SOPA hub) — union of every portal's Kanban by status.
 // ---------------------------------------------------------------------------
 
-export type AggregatedItem = KanbanItem & { board: string };
+export type AggregatedItem = KanbanItem & { board: string; projectSlug: string };
 export type AggregatedColumn = { name: string; items: AggregatedItem[] };
 
 /** Fetch + merge ALL portals' GitHub Project boards into one (read-only). */
@@ -821,7 +821,7 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
         colItems.set(col.name, []);
         order.push(col.name);
       }
-      for (const it of col.items) colItems.get(col.name)!.push({ ...it, board });
+      for (const it of col.items) colItems.get(col.name)!.push({ ...it, board, projectSlug: p.slug });
     }
   }
   return { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };

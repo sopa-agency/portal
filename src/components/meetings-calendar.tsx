@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2, CalendarClock } from "lucide-react";
 import { createMeeting, updateMeeting, deleteMeeting, improveMeeting, type MeetingDTO } from "@/app/actions/meetings";
 import { MEETING_AI_INSTRUCTION } from "@/lib/ai-prompts";
 import { ImproveAiButton } from "@/components/improve-ai-button";
 import { addSharedCalendar, deleteSharedCalendar, getAvailability, getCalendarConnectInfo, type SharedCalendarDTO, type BusyBlock, type TeamAvail } from "@/app/actions/shared-calendars";
 
-type RosterMember = { username: string; email: string | null; avatarUrl: string };
+type RosterMember = { username: string; email: string | null; avatarUrl: string; github?: string | null };
 
 // Weekly meetings calendar (SOPA "Reuniões"). A Google-Calendar-style week grid:
 // click an empty slot to create, click an event to edit/delete. "weekly" events
@@ -89,6 +90,35 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
   // Members selectable as attendees for the meeting being edited (its project).
   const editorMembers = useMemo(() => (editor ? membersWithEmail(editor.forProject) : []), [editor, projects]);
   const [aiBusy, setAiBusy] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Prefill from the Kanban "Criar reunião EXEC" deep-link (?new=<base64 json>).
+  useEffect(() => {
+    const raw = searchParams.get("new");
+    if (!raw) return;
+    try {
+      const data = JSON.parse(decodeURIComponent(escape(atob(raw)))) as {
+        title?: string; forProject?: string; kind?: "plan" | "exec"; notes?: string; logins?: string[];
+      };
+      const slug = projects.find((p) => p.slug === data.forProject)?.slug ?? defaultProject;
+      const logins = new Set((data.logins ?? []).map((l) => l.toLowerCase()));
+      const emails = membersWithEmail(slug).filter((m) => m.github && logins.has(m.github)).map((m) => m.email);
+      const start = new Date(Date.now() + 86400000);
+      start.setHours(15, 0, 0, 0);
+      const end = new Date(start.getTime() + 60 * 60000);
+      setEditor({
+        id: null, title: data.title ?? "", start: toLocalInput(start), end: toLocalInput(end),
+        notes: data.notes ?? "", forProject: slug, emailBody: "",
+        kind: data.kind === "exec" ? "exec" : "plan", owners: emails,
+        color: accent, weekly: false, attendees: emails,
+      });
+    } catch {
+      /* bad payload — ignore */
+    }
+    router.replace("/reunioes"); // clear the param so a refresh doesn't reopen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [emailInput, setEmailInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
