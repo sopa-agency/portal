@@ -10,13 +10,35 @@ import type { AggregatedColumn, AggregatedItem } from "@/lib/github-project";
 // pre-filled with the task + its assignees.
 export function AggregatedKanban({ columns }: { columns: AggregatedColumn[] }) {
   const [active, setActive] = useState<AggregatedItem | null>(null);
+  const [board, setBoard] = useState<string | null>(null);
   const total = columns.reduce((n, c) => n + c.items.length, 0);
   if (total === 0) {
     return <p className="text-sm text-foreground-muted">Nenhuma tarefa nos boards (ou tokens do GitHub indisponíveis).</p>;
   }
+  const boards = [...new Set(columns.flatMap((c) => c.items.map((i) => i.board)))].sort();
+  const match = (it: AggregatedItem) => !board || it.board === board;
+  const visible = columns.map((c) => ({ ...c, items: c.items.filter(match) }));
+
   return (
-    <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
-      {columns.map((col) => (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {/* Project filter */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Projeto:</span>
+        <button type="button" onClick={() => setBoard(null)} className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${board === null ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
+          Todos <span className="text-foreground-faint">({total})</span>
+        </button>
+        {boards.map((b) => {
+          const n = columns.reduce((s, c) => s + c.items.filter((i) => i.board === b).length, 0);
+          return (
+            <button key={b} type="button" onClick={() => setBoard(b)} className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${board === b ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
+              {b} <span className="text-foreground-faint">({n})</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
+      {visible.map((col) => (
         <section key={col.name} className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-surface">
           <header className="sticky top-0 flex items-center justify-between gap-2 border-b border-border bg-surface px-3 py-2">
             <span className="truncate text-sm font-semibold text-foreground">{col.name}</span>
@@ -51,6 +73,7 @@ export function AggregatedKanban({ columns }: { columns: AggregatedColumn[] }) {
           </div>
         </section>
       ))}
+      </div>
       {active && <TaskDialog item={active} onClose={() => setActive(null)} />}
     </div>
   );
