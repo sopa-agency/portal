@@ -44,3 +44,7 @@ next-env.d.ts
 # Service-account keys (local only)
 .secrets/
 .design-ref/
+
+# scratch / temp working dirs (never commit — may hold browser profiles, cookies)
+.tmp/
+/tmp/
