@@ -12,6 +12,7 @@ export const CONTACT_PLATFORMS = [
   "GitHub",
   "Discord",
   "Website",
+  "Wallet",
 ] as const;
 
 export type ContactPlatform = (typeof CONTACT_PLATFORMS)[number];

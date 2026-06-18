@@ -87,6 +87,10 @@ export async function updateTeamMemberContact(input: {
           "Use the Discord user ID (numbers only). In Discord: Settings → Advanced → Developer Mode ON, then right-click the user → Copy User ID.",
       };
     }
+    // Wallet = an EVM address for bounty payouts.
+    if (value && label === "Wallet" && !/^0x[a-fA-F0-9]{40}$/.test(value.trim())) {
+      return { ok: false, error: "Endereço de carteira inválido (use um endereço EVM 0x…)." };
+    }
 
     if (value) {
       await prisma.teamMemberContact.upsert({
