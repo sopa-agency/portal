@@ -28,7 +28,7 @@ import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
 import type { TeamMessageOption } from "@/lib/team-messaging";
 import { resolveDiscordUser, sendTeamMessage, updateTeamMemberContact } from "@/app/actions/team";
-import { setMemberRole, removeMember } from "@/app/actions/team-admin";
+import { setMemberRole, removeMember, getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -556,6 +556,52 @@ function ContactsEditor({
   );
 }
 
+function MemberTasks({ githubLogin }: { githubLogin: string | null }) {
+  const [tasks, setTasks] = useState<MemberTask[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!githubLogin) { setTasks([]); return; }
+    let cancelled = false;
+    getMemberTasks(githubLogin).then((r) => {
+      if (cancelled) return;
+      if (r.ok) setTasks(r.tasks);
+      else { setTasks([]); setErr(r.error); }
+    });
+    return () => { cancelled = true; };
+  }, [githubLogin]);
+
+  return (
+    <div>
+      <h4 className="mb-2 text-sm font-semibold text-foreground">Tarefas no Kanban</h4>
+      {!githubLogin ? (
+        <p className="text-xs text-foreground-faint">Sem GitHub vinculado — adicione o contato GitHub pra ver as tarefas atribuídas.</p>
+      ) : tasks === null ? (
+        <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…</p>
+      ) : tasks.length === 0 ? (
+        <p className="text-xs text-foreground-faint">{err ?? "Nenhuma tarefa atribuída no board."}</p>
+      ) : (
+        <div className="space-y-1.5">
+          {tasks.map((t, i) => (
+            <a
+              key={i}
+              href={t.url ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-xl border border-border bg-surface px-3 py-2 transition-colors hover:border-border-strong"
+            >
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-foreground-muted">{t.status}</span>
+                {t.number ? <span className="text-[10px] text-foreground-faint">#{t.number}</span> : null}
+              </div>
+              <p className="mt-0.5 line-clamp-2 text-sm text-foreground">{t.title}</p>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MemberModal({ member, canManage, onClose }: { member: TeamMember; canManage?: boolean; onClose: () => void }) {
   const titleId = useId();
   const router = useRouter();
@@ -607,7 +653,7 @@ function MemberModal({ member, canManage, onClose }: { member: TeamMember; canMa
       onClick={onClose}
     >
       <div
-        className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface-elevated p-5 shadow-2xl"
+        className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-surface-elevated p-5 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
@@ -682,7 +728,8 @@ function MemberModal({ member, canManage, onClose }: { member: TeamMember; canMa
           </div>
         )}
 
-        <div className="mt-5 space-y-2">
+        <div className="mt-5 grid gap-5 md:grid-cols-2">
+          <div className="space-y-2">
           {contacts.map((contact) => {
             const editable = (CONTACT_PLATFORMS as readonly string[]).includes(contact.label);
             // GitHub rows get the live avatar next to the handle — instant
@@ -755,23 +802,26 @@ function MemberModal({ member, canManage, onClose }: { member: TeamMember; canMa
               </div>
             );
           })}
+            <ContactsEditor
+              member={current}
+              editing={editingContact}
+              onStartAdd={() => setEditingContact({ label: CONTACT_PLATFORMS[0], value: "" })}
+              onCancel={() => setEditingContact(null)}
+              onSaved={(patch) => {
+                setCurrent((c) => ({ ...c, ...patch }));
+                setEditingContact(null);
+              }}
+            />
+          </div>
+
+          <div className="space-y-5">
+            <MemberTasks githubLogin={githubLoginOf(current)} />
+            <MessageComposer
+              key={current.messageOptions.map((o) => `${o.channel}:${o.target}`).join("|")}
+              member={current}
+            />
+          </div>
         </div>
-
-        <ContactsEditor
-          member={current}
-          editing={editingContact}
-          onStartAdd={() => setEditingContact({ label: CONTACT_PLATFORMS[0], value: "" })}
-          onCancel={() => setEditingContact(null)}
-          onSaved={(patch) => {
-            setCurrent((c) => ({ ...c, ...patch }));
-            setEditingContact(null);
-          }}
-        />
-
-        <MessageComposer
-          key={current.messageOptions.map((o) => `${o.channel}:${o.target}`).join("|")}
-          member={current}
-        />
       </div>
     </div>
   );

@@ -356,7 +356,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
                     key={`busy-${bi}`}
                     title={b.title ? `${b.name}: ${b.title}` : `${b.name} · ocupado`}
                     style={{ top: Math.max(0, top), height, backgroundColor: `${c}1f`, borderColor: `${c}66` }}
-                    className="pointer-events-none absolute inset-x-1 z-0 overflow-hidden rounded-md border border-dashed px-1 text-[9px] text-foreground-faint"
+                    className="pointer-events-none absolute left-1 right-[58%] z-0 overflow-hidden rounded-md border border-dashed px-1 text-[9px] leading-tight text-foreground-faint"
                   >
                     {b.title ? `${b.name}: ${b.title}` : b.name}
                   </div>
@@ -373,7 +373,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
                     type="button"
                     onClick={(e) => { e.stopPropagation(); openEdit(o.meeting); }}
                     style={{ top: Math.max(0, top), height, backgroundColor: `${c}22`, borderColor: c }}
-                    className="absolute inset-x-1 z-10 overflow-hidden rounded-md border-l-2 px-1.5 py-0.5 text-left hover:brightness-110"
+                    className="absolute left-[44%] right-1 z-10 overflow-hidden rounded-md border-l-2 px-1.5 py-0.5 text-left hover:brightness-110"
                   >
                     <div className="flex items-center gap-1 truncate text-[11px] font-semibold text-foreground">
                       {o.meeting.weekly && <Repeat className="h-2.5 w-2.5 shrink-0 text-foreground-subtle" />}

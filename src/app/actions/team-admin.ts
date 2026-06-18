@@ -79,6 +79,31 @@ export async function removeMember(username: string): Promise<{ ok: true } | { o
   return { ok: true };
 }
 
+export type MemberTask = { title: string; url?: string; status: string; state?: string; number?: number };
+
+/** Kanban tasks (GitHub Project items) assigned to a member's GitHub login. */
+export async function getMemberTasks(
+  githubLogin: string,
+): Promise<{ ok: true; tasks: MemberTask[]; projectUrl?: string } | { ok: false; error: string }> {
+  const g = await viewerGate();
+  if (!g.ok) return g;
+  if (!g.project.githubProject) return { ok: true, tasks: [] };
+  const login = githubLogin.trim().toLowerCase().replace(/^@/, "").replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/\/.*$/, "");
+  if (!login) return { ok: true, tasks: [] };
+  const { fetchGitHubProject } = await import("@/lib/github-project");
+  const board = await fetchGitHubProject(g.project);
+  if (!board.ok) return { ok: false, error: board.error };
+  const tasks: MemberTask[] = [];
+  for (const col of board.columns) {
+    for (const it of col.items) {
+      if (it.assignees.some((a) => a.login.toLowerCase() === login)) {
+        tasks.push({ title: it.title, url: it.url, status: col.name, state: it.state, number: it.number });
+      }
+    }
+  }
+  return { ok: true, tasks, projectUrl: board.url };
+}
+
 // ── Cross-portal access management (global admins — e.g. from the SOPA panel) ──
 
 async function globalGate() {
