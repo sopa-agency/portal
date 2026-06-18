@@ -1,9 +1,13 @@
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { getActiveProject } from "@/projects";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { authorize } from "@/lib/team-access";
 import { PageHeader } from "@/components/page-header";
 import { KanbanBoard } from "@/components/kanban-board";
 import { AggregatedKanban } from "@/components/aggregated-kanban";
 import { fetchAggregatedBoards } from "@/lib/github-project";
+import { listBounties } from "@/app/actions/bounty";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +16,11 @@ export default async function KanbanPage() {
 
   // SOPA hub: aggregate every portal's board into one read-only view.
   if (project.kanbanAggregate) {
-    const { columns } = await fetchAggregatedBoards();
+    const [{ columns }, who, bountiesRes] = await Promise.all([
+      fetchAggregatedBoards(),
+      authorize((await cookies()).get(SESSION_COOKIE)?.value, project),
+      listBounties(),
+    ]);
     return (
       <div className="flex flex-col gap-6 md:h-[calc(100dvh-4rem)]">
         <PageHeader
@@ -20,7 +28,11 @@ export default async function KanbanPage() {
           title="Kanban"
           description="Todas as tarefas de todos os portais, por status (somente leitura)."
         />
-        <AggregatedKanban columns={columns} />
+        <AggregatedKanban
+          columns={columns}
+          bounties={bountiesRes.ok ? bountiesRes.bounties : []}
+          canManage={!!who?.global}
+        />
       </div>
     );
   }

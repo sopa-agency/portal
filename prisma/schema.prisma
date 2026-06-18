@@ -342,6 +342,25 @@ model BountyConfig {
   updatedAt    DateTime @updatedAt
 }
 
+// A Kanban task turned into a bounty, paid from the project's Safe (BountyConfig).
+model Bounty {
+  id           String   @id @default(cuid())
+  projectSlug  String
+  taskKey      String // GitHub item contentId / url — stable handle for the task
+  title        String
+  amount       String // human amount (e.g. "100") — combined with token decimals at propose
+  tokenSymbol  String
+  status       String   @default("open") // open | proposed | paid | cancelled
+  payeeAddress String?
+  safeTxHash   String?
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([projectSlug, taskKey])
+  @@index([projectSlug])
+}
+
 // External auth identity (OAuth) → team member (Hive username). Lets people sign
 // in with GitHub/Google and resolve to their portal membership/role.
 model AuthIdentity {

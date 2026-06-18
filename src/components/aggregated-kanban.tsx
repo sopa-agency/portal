@@ -2,15 +2,31 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, X, CalendarPlus } from "lucide-react";
+import { ExternalLink, X, CalendarPlus, Coins, Loader2, Trash2 } from "lucide-react";
 import type { AggregatedColumn, AggregatedItem } from "@/lib/github-project";
+import { createBounty, cancelBounty, proposeBountyPayment, type BountyDTO } from "@/app/actions/bounty";
+
+/** Stable handle for a task across reloads: GitHub node id, then url, then item id. */
+function taskKeyOf(it: AggregatedItem): string {
+  return it.contentId ?? it.url ?? it.id;
+}
 
 // Read-only aggregated board for the SOPA hub: every portal's Kanban merged by
 // status. Cards open a details dialog; from there you can create an EXEC meeting
-// pre-filled with the task + its assignees.
-export function AggregatedKanban({ columns }: { columns: AggregatedColumn[] }) {
+// pre-filled with the task + its assignees, or (global admins) turn it into a
+// bounty paid from the project's Safe.
+export function AggregatedKanban({
+  columns,
+  bounties,
+  canManage,
+}: {
+  columns: AggregatedColumn[];
+  bounties: BountyDTO[];
+  canManage: boolean;
+}) {
   const [active, setActive] = useState<AggregatedItem | null>(null);
   const [board, setBoard] = useState<string | null>(null);
+  const byKey = new Map(bounties.map((b) => [b.taskKey, b]));
   const total = columns.reduce((n, c) => n + c.items.length, 0);
   if (total === 0) {
     return <p className="text-sm text-foreground-muted">Nenhuma tarefa nos boards (ou tokens do GitHub indisponíveis).</p>;
@@ -45,7 +61,9 @@ export function AggregatedKanban({ columns }: { columns: AggregatedColumn[] }) {
             <span className="shrink-0 rounded-full bg-foreground/10 px-1.5 text-[10px] text-foreground-muted">{col.items.length}</span>
           </header>
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-            {col.items.map((it) => (
+            {col.items.map((it) => {
+              const bounty = byKey.get(taskKeyOf(it));
+              return (
               <button
                 key={it.id}
                 type="button"
@@ -55,6 +73,7 @@ export function AggregatedKanban({ columns }: { columns: AggregatedColumn[] }) {
                 <div className="mb-1 flex items-center gap-1.5">
                   <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">{it.board}</span>
                   {it.number ? <span className="text-[10px] text-foreground-faint">#{it.number}</span> : null}
+                  {bounty && <BountyBadge bounty={bounty} />}
                 </div>
                 <p className="line-clamp-3 text-sm text-foreground">{it.title}</p>
                 <div className="mt-1.5 flex items-center gap-2">
@@ -69,18 +88,54 @@ export function AggregatedKanban({ columns }: { columns: AggregatedColumn[] }) {
                   </span>
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
         </section>
       ))}
       </div>
-      {active && <TaskDialog item={active} onClose={() => setActive(null)} />}
+      {active && (
+        <TaskDialog
+          item={active}
+          bounty={byKey.get(taskKeyOf(active))}
+          canManage={canManage}
+          onClose={() => setActive(null)}
+        />
+      )}
     </div>
   );
 }
 
-function TaskDialog({ item, onClose }: { item: AggregatedItem; onClose: () => void }) {
+function BountyBadge({ bounty }: { bounty: BountyDTO }) {
+  const tone =
+    bounty.status === "paid"
+      ? "border-success/40 bg-success/10 text-success"
+      : bounty.status === "proposed"
+        ? "border-warning/40 bg-warning/10 text-warning"
+        : "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400";
+  return (
+    <span className={`flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${tone}`}>
+      <Coins className="h-2.5 w-2.5" /> {bounty.amount} {bounty.tokenSymbol}
+    </span>
+  );
+}
+
+function TaskDialog({
+  item,
+  bounty,
+  canManage,
+  onClose,
+}: {
+  item: AggregatedItem;
+  bounty: BountyDTO | undefined;
+  canManage: boolean;
+  onClose: () => void;
+}) {
   const router = useRouter();
+  const [amount, setAmount] = useState("");
+  const [payee, setPayee] = useState(bounty?.payeeAddress ?? "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function createExecMeeting() {
     const prefill = {
@@ -94,6 +149,32 @@ function TaskDialog({ item, onClose }: { item: AggregatedItem; onClose: () => vo
     router.push(`/reunioes?new=${encodeURIComponent(b64)}`);
   }
 
+  async function makeBounty() {
+    setBusy(true); setMsg(null);
+    const r = await createBounty({ projectSlug: item.projectSlug, taskKey: taskKeyOf(item), title: item.title, amount });
+    setBusy(false);
+    if (r.ok) { setMsg({ ok: true, text: "Bounty criado ✅" }); router.refresh(); }
+    else setMsg({ ok: false, text: r.error });
+  }
+
+  async function propose() {
+    if (!bounty) return;
+    setBusy(true); setMsg(null);
+    const r = await proposeBountyPayment(bounty.id, payee);
+    setBusy(false);
+    if (r.ok) { setMsg({ ok: true, text: "Pagamento proposto no Safe ✅ — aguarda aprovação dos owners." }); router.refresh(); }
+    else setMsg({ ok: false, text: r.error });
+  }
+
+  async function cancel() {
+    if (!bounty) return;
+    setBusy(true); setMsg(null);
+    const r = await cancelBounty(bounty.id);
+    setBusy(false);
+    if (r.ok) { setMsg({ ok: true, text: "Bounty cancelado." }); router.refresh(); }
+    else setMsg({ ok: false, text: r.error });
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="max-h-[88vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -102,6 +183,7 @@ function TaskDialog({ item, onClose }: { item: AggregatedItem; onClose: () => vo
             <div className="mb-1 flex items-center gap-2">
               <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">{item.board}</span>
               {item.number ? <span className="text-xs text-foreground-faint">#{item.number}</span> : null}
+              {bounty && <BountyBadge bounty={bounty} />}
             </div>
             <h3 className="text-base font-bold text-foreground">{item.title}</h3>
           </div>
@@ -127,6 +209,60 @@ function TaskDialog({ item, onClose }: { item: AggregatedItem; onClose: () => vo
           <div className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-elevated p-3 text-sm text-foreground-muted">{item.body}</div>
         ) : null}
 
+        {/* Bounty panel */}
+        {(bounty || canManage) && (
+          <div className="space-y-2 rounded-xl border border-border bg-surface-elevated p-3">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+              <Coins className="h-3.5 w-3.5 text-amber-500" /> Bounty
+            </div>
+            {msg && <p className={`text-xs ${msg.ok ? "text-success" : "text-danger"}`}>{msg.text}</p>}
+
+            {!bounty && canManage && (
+              <div className="flex items-end gap-2">
+                <label className="flex-1 text-xs text-foreground-muted">Valor
+                  <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="ex.: 100" className="mt-1 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground focus:border-border-strong focus:outline-none" />
+                </label>
+                <button type="button" onClick={makeBounty} disabled={busy || !amount.trim()} className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Transformar em bounty"}
+                </button>
+              </div>
+            )}
+
+            {bounty && bounty.status === "open" && (
+              <div className="space-y-2">
+                <p className="text-xs text-foreground-muted">Reservado: <span className="font-semibold text-foreground">{bounty.amount} {bounty.tokenSymbol}</span>. Ao concluir, proponha o pagamento no Safe do projeto.</p>
+                {canManage && (
+                  <>
+                    <label className="block text-xs text-foreground-muted">Carteira do beneficiário
+                      <input value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="0x… (carteira de quem entregou)" className="mt-1 w-full rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-xs text-foreground focus:border-border-strong focus:outline-none" />
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={propose} disabled={busy || !payee.trim()} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />} Propor pagamento no Safe
+                      </button>
+                      <button type="button" onClick={cancel} disabled={busy} title="Cancelar bounty" className="rounded-lg border border-border p-2 text-foreground-faint hover:border-danger hover:text-danger disabled:opacity-50">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {bounty && bounty.status === "proposed" && (
+              <div className="text-xs text-foreground-muted">
+                <p className="text-warning">Pagamento proposto no Safe — aguardando aprovação dos owners.</p>
+                {bounty.payeeAddress && <p className="mt-1 font-mono text-[11px]">→ {bounty.payeeAddress}</p>}
+                {bounty.safeTxHash && <p className="mt-0.5 truncate font-mono text-[10px] text-foreground-faint">{bounty.safeTxHash}</p>}
+              </div>
+            )}
+
+            {bounty && bounty.status === "paid" && (
+              <p className="text-xs text-success">Pago ✅ {bounty.payeeAddress ? `→ ${bounty.payeeAddress}` : ""}</p>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <button type="button" onClick={createExecMeeting} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90">
             <CalendarPlus className="h-4 w-4" /> Criar reunião EXEC
@@ -137,7 +273,6 @@ function TaskDialog({ item, onClose }: { item: AggregatedItem; onClose: () => vo
             </a>
           )}
         </div>
-        <p className="text-[11px] text-foreground-faint">A reunião EXEC abre já com o título, o projeto, a pauta e os responsáveis — você confirma data e horário.</p>
       </div>
     </div>
   );

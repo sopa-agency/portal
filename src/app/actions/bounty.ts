@@ -1,7 +1,17 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { createPublicClient, http, formatUnits, getAddress, erc20Abi } from "viem";
+import {
+  createPublicClient,
+  http,
+  formatUnits,
+  parseUnits,
+  getAddress,
+  erc20Abi,
+  encodeFunctionData,
+  hashTypedData,
+  zeroAddress,
+} from "viem";
 import { base, mainnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { SESSION_COOKIE } from "@/lib/auth";
@@ -14,15 +24,20 @@ function chainInfo(chainId: number) {
   return { chain: base, tx: "https://safe-transaction-base.safe.global" }; // default Base (8453)
 }
 
-/** Proposer address derived from SAFE_PROPOSER_PRIVATE_KEY (a delegate on each Safe). */
-function proposerAddress(): string | null {
+/** The proposer local account (a delegate on each Safe). Never leaves the server. */
+function proposerAccount() {
   const pk = process.env.SAFE_PROPOSER_PRIVATE_KEY?.trim();
   if (!pk) return null;
   try {
-    return privateKeyToAccount((pk.startsWith("0x") ? pk : `0x${pk}`) as `0x${string}`).address;
+    return privateKeyToAccount((pk.startsWith("0x") ? pk : `0x${pk}`) as `0x${string}`);
   } catch {
     return null;
   }
+}
+
+/** Proposer address derived from SAFE_PROPOSER_PRIVATE_KEY (a delegate on each Safe). */
+function proposerAddress(): string | null {
+  return proposerAccount()?.address ?? null;
 }
 
 // Cross-project bounty setup is managed by global admins (the SOPA hub).
@@ -169,5 +184,218 @@ export async function registerDelegate(projectSlug: string, delegator: string, s
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Falha ao registrar delegate." };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bounties: a Kanban task with a payout reserved from the project's Safe.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type BountyDTO = {
+  id: string;
+  projectSlug: string;
+  taskKey: string;
+  title: string;
+  amount: string;
+  tokenSymbol: string;
+  status: string; // open | proposed | paid | cancelled
+  payeeAddress: string | null;
+  safeTxHash: string | null;
+};
+
+function toDTO(b: {
+  id: string; projectSlug: string; taskKey: string; title: string; amount: string;
+  tokenSymbol: string; status: string; payeeAddress: string | null; safeTxHash: string | null;
+}): BountyDTO {
+  return { id: b.id, projectSlug: b.projectSlug, taskKey: b.taskKey, title: b.title, amount: b.amount, tokenSymbol: b.tokenSymbol, status: b.status, payeeAddress: b.payeeAddress, safeTxHash: b.safeTxHash };
+}
+
+/** Bounties visible on the aggregated Kanban — any authorized SOPA member can see the badges. */
+export async function listBounties(): Promise<{ ok: true; bounties: BountyDTO[] } | { ok: false; error: string }> {
+  const project = await getActiveProject();
+  const who = await authorize((await cookies()).get(SESSION_COOKIE)?.value, project);
+  if (!who) return { ok: false, error: "Unauthorized." };
+  const rows = await prisma.bounty.findMany({ where: { status: { not: "cancelled" } } }).catch(() => []);
+  return { ok: true, bounties: rows.map(toDTO) };
+}
+
+/** Reserve a bounty on a task. Checks the amount fits the Safe's available balance. */
+export async function createBounty(input: {
+  projectSlug: string;
+  taskKey: string;
+  title: string;
+  amount: string;
+}): Promise<{ ok: true; bounty: BountyDTO } | { ok: false; error: string }> {
+  const g = await globalGate();
+  if (!g.ok) return g;
+  if (!validSlug(input.projectSlug)) return { ok: false, error: "Portal inválido." };
+  const taskKey = input.taskKey.trim();
+  if (!taskKey) return { ok: false, error: "Tarefa inválida." };
+
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Valor inválido." };
+
+  const config = await prisma.bountyConfig.findUnique({ where: { projectSlug: input.projectSlug } });
+  if (!config) return { ok: false, error: "Configure o Safe deste projeto em Settings → Bounties primeiro." };
+
+  const existing = await prisma.bounty.findUnique({ where: { projectSlug_taskKey: { projectSlug: input.projectSlug, taskKey } } });
+  if (existing && existing.status !== "cancelled") {
+    return { ok: false, error: "Essa tarefa já tem um bounty." };
+  }
+
+  // Available = on-chain balance − everything already reserved (open/proposed) for this project.
+  const st = await safeStatus(
+    { safeAddress: config.safeAddress, chainId: config.chainId, tokenAddress: config.tokenAddress, tokenSymbol: config.tokenSymbol, tokenDecimals: config.tokenDecimals },
+    null,
+  );
+  if (st.balance != null) {
+    // amount is a string column (no float drift in DB) — sum reserved in JS.
+    const open = await prisma.bounty.findMany({ where: { projectSlug: input.projectSlug, status: { in: ["open", "proposed"] } }, select: { amount: true } });
+    const reservedSum = open.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    if (reservedSum + amount > Number(st.balance) + 1e-9) {
+      return { ok: false, error: `Saldo insuficiente: ${st.balance} ${config.tokenSymbol} disponível, ${reservedSum} já reservado.` };
+    }
+  }
+
+  const row = existing
+    ? await prisma.bounty.update({ where: { id: existing.id }, data: { title: input.title.slice(0, 300), amount: String(amount), tokenSymbol: config.tokenSymbol, status: "open", payeeAddress: null, safeTxHash: null, createdBy: g.who.username } })
+    : await prisma.bounty.create({ data: { projectSlug: input.projectSlug, taskKey, title: input.title.slice(0, 300), amount: String(amount), tokenSymbol: config.tokenSymbol, status: "open", createdBy: g.who.username } });
+  return { ok: true, bounty: toDTO(row) };
+}
+
+export async function cancelBounty(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await globalGate();
+  if (!g.ok) return g;
+  const b = await prisma.bounty.findUnique({ where: { id } });
+  if (!b) return { ok: false, error: "Bounty não encontrado." };
+  if (b.status === "paid") return { ok: false, error: "Bounty já pago não pode ser cancelado." };
+  await prisma.bounty.update({ where: { id }, data: { status: "cancelled" } });
+  return { ok: true };
+}
+
+const SAFE_TX_TYPES = {
+  SafeTx: [
+    { name: "to", type: "address" },
+    { name: "value", type: "uint256" },
+    { name: "data", type: "bytes" },
+    { name: "operation", type: "uint8" },
+    { name: "safeTxGas", type: "uint256" },
+    { name: "baseGas", type: "uint256" },
+    { name: "gasPrice", type: "uint256" },
+    { name: "gasToken", type: "address" },
+    { name: "refundReceiver", type: "address" },
+    { name: "nonce", type: "uint256" },
+  ],
+} as const;
+
+/** Next safe nonce = max(on-chain nonce, highest queued nonce + 1) to avoid collisions. */
+async function nextSafeNonce(tx: string, safe: string): Promise<number> {
+  let onchain = 0;
+  try {
+    const r = await fetch(`${tx}/api/v1/safes/${safe}/`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+    const j = (await r.json()) as { nonce?: number | string };
+    onchain = Number(j.nonce ?? 0) || 0;
+  } catch { /* fall through */ }
+  let queued = -1;
+  try {
+    const r = await fetch(`${tx}/api/v1/safes/${safe}/multisig-transactions/?ordering=-nonce&limit=1`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+    const j = (await r.json()) as { results?: { nonce?: number | string }[] };
+    if (j.results?.[0]?.nonce != null) queued = Number(j.results[0].nonce);
+  } catch { /* fall through */ }
+  return Math.max(onchain, queued + 1);
+}
+
+/**
+ * Propose the payout for a completed bounty to the project's Safe. Builds an
+ * ETH or ERC-20 transfer, signs the safeTxHash with the proposer (delegate) and
+ * POSTs it to the Safe Transaction Service for the owners to approve & execute.
+ */
+export async function proposeBountyPayment(id: string, payeeInput: string): Promise<
+  { ok: true; safeTxHash: string; url: string } | { ok: false; error: string }
+> {
+  const g = await globalGate();
+  if (!g.ok) return g;
+
+  let payee: `0x${string}`;
+  try { payee = getAddress(payeeInput.trim()); } catch { return { ok: false, error: "Endereço de pagamento inválido (0x…)." }; }
+
+  const b = await prisma.bounty.findUnique({ where: { id } });
+  if (!b) return { ok: false, error: "Bounty não encontrado." };
+  if (b.status === "paid") return { ok: false, error: "Bounty já pago." };
+  if (b.status === "proposed") return { ok: false, error: "Pagamento já proposto no Safe." };
+
+  const config = await prisma.bountyConfig.findUnique({ where: { projectSlug: b.projectSlug } });
+  if (!config) return { ok: false, error: "Safe do projeto não configurado." };
+
+  const account = proposerAccount();
+  if (!account) return { ok: false, error: "SAFE_PROPOSER_PRIVATE_KEY não configurado." };
+
+  const { tx } = chainInfo(config.chainId);
+  const safe = getAddress(config.safeAddress);
+  const amountUnits = parseUnits(b.amount, config.tokenDecimals);
+
+  // ETH transfer vs ERC-20 transfer(payee, amount).
+  let to: `0x${string}`;
+  let value: bigint;
+  let data: `0x${string}`;
+  if (config.tokenAddress) {
+    to = getAddress(config.tokenAddress);
+    value = BigInt(0);
+    data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [payee, amountUnits] });
+  } else {
+    to = payee;
+    value = amountUnits;
+    data = "0x";
+  }
+
+  try {
+    const nonce = await nextSafeNonce(tx, safe);
+    const message = {
+      to,
+      value,
+      data,
+      operation: 0,
+      safeTxGas: BigInt(0),
+      baseGas: BigInt(0),
+      gasPrice: BigInt(0),
+      gasToken: zeroAddress,
+      refundReceiver: zeroAddress,
+      nonce: BigInt(nonce),
+    } as const;
+    const domain = { chainId: config.chainId, verifyingContract: safe } as const;
+    const safeTxHash = hashTypedData({ domain, types: SAFE_TX_TYPES, primaryType: "SafeTx", message });
+    const signature = await account.signTypedData({ domain, types: SAFE_TX_TYPES, primaryType: "SafeTx", message });
+
+    const res = await fetch(`${tx}/api/v1/safes/${safe}/multisig-transactions/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        to,
+        value: value.toString(),
+        data: data === "0x" ? null : data,
+        operation: 0,
+        safeTxGas: "0",
+        baseGas: "0",
+        gasPrice: "0",
+        gasToken: zeroAddress,
+        refundReceiver: zeroAddress,
+        nonce,
+        contractTransactionHash: safeTxHash,
+        sender: account.address,
+        signature,
+        origin: `Portal bounty: ${b.title.slice(0, 80)}`,
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `Safe API HTTP ${res.status}: ${body.slice(0, 220)}` };
+    }
+
+    await prisma.bounty.update({ where: { id }, data: { status: "proposed", payeeAddress: payee, safeTxHash } });
+    const appUrl = `https://app.safe.global/transactions/queue?safe=${config.chainId === 1 ? "eth" : "base"}:${safe}`;
+    return { ok: true, safeTxHash, url: appUrl };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Falha ao propor pagamento." };
   }
 }
