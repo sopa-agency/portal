@@ -329,6 +329,19 @@ model TeamMemberContact {
   @@unique([projectSlug, username, label])
 }
 
+// Bounty payout setup per portal: which Safe + chain + token bounties pay from.
+// The proposer (SAFE_PROPOSER_PRIVATE_KEY) must be a delegate of this Safe.
+model BountyConfig {
+  projectSlug  String   @id
+  safeAddress  String
+  chainId      Int      @default(8453) // Base
+  tokenAddress String? // null = native ETH; else ERC-20 address
+  tokenSymbol  String   @default("ETH")
+  tokenDecimals Int     @default(18)
+  updatedBy    String?
+  updatedAt    DateTime @updatedAt
+}
+
 // External auth identity (OAuth) → team member (Hive username). Lets people sign
 // in with GitHub/Google and resolve to their portal membership/role.
 model AuthIdentity {
