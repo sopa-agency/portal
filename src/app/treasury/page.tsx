@@ -3,7 +3,9 @@ export const dynamic = "force-dynamic";
 import { PageHeader } from "@/components/page-header";
 import { SetupGuide, CodeBlock } from "@/components/setup-guide";
 import { TreasuryViews } from "@/components/treasury-views";
+import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { fetchTreasuryGroups } from "@/lib/treasury";
+import { fetchSafeActivity } from "@/lib/safe-tx";
 import { getActiveProject } from "@/projects";
 
 const usd = (n: number) =>
@@ -66,6 +68,18 @@ treasury: {
   const groups = await fetchTreasuryGroups(project);
   const combined = groups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
 
+  // Surface Safe transaction activity for any EVM treasury wallet that is a
+  // Gnosis Safe on Base (probed via the Safe Transaction Service).
+  const evmWallets = [
+    ...new Map(
+      groups.flatMap((g) => g.report.evm.map((w) => [w.address.toLowerCase(), { label: w.label, address: w.address }])),
+    ).values(),
+  ];
+  const probed = await Promise.all(
+    evmWallets.map(async (w): Promise<SafeActivityItem> => ({ ...w, chainId: 8453, activity: await fetchSafeActivity(w.address, 8453) })),
+  );
+  const safes = probed.filter((p) => p.activity.isSafe && (p.activity.queued.length > 0 || p.activity.history.length > 0));
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -79,6 +93,7 @@ treasury: {
         status={usd(combined)}
       />
       <TreasuryViews groups={groups} />
+      <SafeActivity safes={safes} />
     </div>
   );
 }
