@@ -49,10 +49,15 @@ function looksLikeImage(url: string): boolean {
   );
 }
 
+// A real User-Agent — some upstreams (e.g. Paragraph) reject the default fetch
+// UA / datacenter requests with no UA, which is what breaks the importer on Vercel.
+const UA = "portal-skatehive/1.0 (+https://reelflip.com)";
+
 async function fetchParagraph(handle: string): Promise<ZineBlogImage[]> {
   const res = await fetch(`https://api.paragraph.com/blogs/rss/${handle}`, {
-    headers: { Accept: "application/rss+xml, application/xml, text/xml" },
+    headers: { Accept: "application/rss+xml, application/xml, text/xml", "User-Agent": UA },
     cache: "no-store",
+    signal: AbortSignal.timeout(9000),
   });
   if (!res.ok) throw new Error(`Paragraph RSS HTTP ${res.status}`);
   const xml = await res.text();
@@ -76,9 +81,10 @@ async function fetchHive(tagOrAccount: { tag?: string; account?: string }): Prom
   const call = async (method: string, params: unknown) => {
     const res = await fetch(HIVE_API, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "User-Agent": UA },
       body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
       cache: "no-store",
+      signal: AbortSignal.timeout(9000),
     });
     if (!res.ok) throw new Error(`Hive API HTTP ${res.status}`);
     const json = (await res.json()) as { result?: HivePost[] };
@@ -134,6 +140,8 @@ export async function listZineBlogImages(
     );
     return { ok: true, images: images.slice(0, 60), source: community ?? account ?? "hive" };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[zine-blog] importer failed:", msg); // surfaces in Vercel logs
+    return { ok: false, error: msg };
   }
 }
