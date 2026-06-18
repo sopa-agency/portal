@@ -211,7 +211,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
     const start = new Date(day);
     start.setHours(hour, 0, 0, 0);
     setErr(null);
-    setEditor({ id: null, title: "", start: toLocalInput(start), durationMin: 60, notes: "", forProject: defaultProject, emailBody: "", kind: "plan", owners: [], color: accent, weekly: true, attendees: [] });
+    setEditor({ id: null, title: "", start: toLocalInput(start), durationMin: 60, notes: "", forProject: defaultProject, emailBody: "", kind: "plan", owners: [], color: accent, weekly: false, attendees: [] });
     setEmailInput("");
   }
   function openEdit(m: MeetingDTO) {
