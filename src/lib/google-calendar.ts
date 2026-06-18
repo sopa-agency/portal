@@ -142,7 +142,7 @@ export async function upsertCalendarEvent(
   calendarId: string,
   eventId: string | null,
   ev: CalendarEventInput,
-): Promise<{ ok: true; eventId: string } | { error: string }> {
+): Promise<{ ok: true; eventId: string; url: string | null } | { error: string }> {
   const tok = await getAccessToken(["https://www.googleapis.com/auth/calendar.events"]);
   if ("error" in tok) return { error: tok.error };
   const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
@@ -162,8 +162,8 @@ export async function upsertCalendarEvent(
       : "";
     return { error: `Calendar HTTP ${res.status}${hint}` };
   }
-  const data = (await res.json()) as { id?: string };
-  return data.id ? { ok: true, eventId: data.id } : { error: "Calendar: resposta sem id de evento." };
+  const data = (await res.json()) as { id?: string; htmlLink?: string };
+  return data.id ? { ok: true, eventId: data.id, url: data.htmlLink ?? null } : { error: "Calendar: resposta sem id de evento." };
 }
 
 export async function deleteCalendarEvent(calendarId: string, eventId: string): Promise<{ ok: boolean; error?: string }> {

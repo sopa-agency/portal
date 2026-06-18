@@ -506,6 +506,7 @@ model Meeting {
   weekly      Boolean  @default(false)
   attendees   String[] @default([]) // emails invited to the meeting
   googleEventId String? // id of the mirrored event on the primary Google Calendar
+  googleEventUrl String? // htmlLink to view the event in Google Calendar
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

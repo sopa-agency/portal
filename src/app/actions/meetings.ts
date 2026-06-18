@@ -22,6 +22,7 @@ export type MeetingDTO = {
   color: string | null;
   weekly: boolean;
   attendees: string[];
+  googleEventUrl: string | null;
 };
 
 async function gate() {
@@ -34,7 +35,7 @@ async function gate() {
 }
 
 const toDTO = (m: {
-  id: string; title: string; startsAt: Date; endsAt: Date; notes: string | null; forProject: string | null; emailBody: string | null; kind: string; owners: string[]; color: string | null; weekly: boolean; attendees: string[];
+  id: string; title: string; startsAt: Date; endsAt: Date; notes: string | null; forProject: string | null; emailBody: string | null; kind: string; owners: string[]; color: string | null; weekly: boolean; attendees: string[]; googleEventUrl: string | null;
 }): MeetingDTO => ({
   id: m.id,
   title: m.title,
@@ -48,6 +49,7 @@ const toDTO = (m: {
   color: m.color,
   weekly: m.weekly,
   attendees: m.attendees,
+  googleEventUrl: m.googleEventUrl,
 });
 
 // --- calendar invite (ICS) ---
@@ -115,7 +117,7 @@ async function sendInvites(
 async function pushToCalendar(
   project: ProjectConfig,
   m: { id: string; title: string; startsAt: Date; endsAt: Date; notes: string | null; weekly: boolean; googleEventId: string | null },
-): Promise<{ eventId?: string; error?: string }> {
+): Promise<{ eventId?: string; url?: string | null; error?: string }> {
   const calId = meetingsCalendarId(project.agent.gatewayEnvPrefix);
   if (!calId) return {}; // feature off until a calendar is configured
   try {
@@ -127,7 +129,7 @@ async function pushToCalendar(
       weekly: m.weekly,
       timeZone: meetingsTimeZone(project.agent.gatewayEnvPrefix),
     });
-    return "error" in res ? { error: res.error } : { eventId: res.eventId };
+    return "error" in res ? { error: res.error } : { eventId: res.eventId, url: res.url };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
@@ -180,7 +182,7 @@ export async function createMeeting(input: {
   });
   const inv = await sendInvites(g.project, m, attendees);
   const cal = await pushToCalendar(g.project, m);
-  if (cal.eventId) m = await prisma.meeting.update({ where: { id: m.id }, data: { googleEventId: cal.eventId } });
+  if (cal.eventId) m = await prisma.meeting.update({ where: { id: m.id }, data: { googleEventId: cal.eventId, googleEventUrl: cal.url ?? null } });
   return { ok: true, meeting: toDTO(m), invited: inv.sent, inviteError: inv.error, calendarError: cal.error };
 }
 

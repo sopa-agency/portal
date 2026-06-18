@@ -74,6 +74,7 @@ type Editor = {
   color: string;
   weekly: boolean;
   attendees: string[];
+  googleEventUrl?: string | null;
 };
 
 export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, defaultProject, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; projects: ProjectOption[]; defaultProject: string; accent: string }) {
@@ -194,6 +195,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
       color: m.color ?? accent,
       weekly: m.weekly,
       attendees: m.attendees ?? [],
+      googleEventUrl: m.googleEventUrl,
     });
   }
   function toggleAttendee(email: string) {
@@ -584,6 +586,11 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
                 className="mt-1.5 w-full resize-none rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
               />
             </details>
+            {editor.id && editor.googleEventUrl && (
+              <a href={editor.googleEventUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground">
+                <CalendarClock className="h-3.5 w-3.5" /> Ver no Google Calendar
+              </a>
+            )}
             {err && <p className="text-xs text-danger">{err}</p>}
             <div className="flex items-center gap-2">
               <button type="button" onClick={save} disabled={saving} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
