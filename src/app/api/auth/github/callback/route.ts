@@ -3,7 +3,7 @@ import { SESSION_COOKIE, SESSION_COOKIE_DOMAIN, SESSION_MAX_AGE, signSession } f
 import { getAccess } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
-import { githubOAuthCreds, exchangeGithubCode, fetchGithubUser, resolveMemberFromGithub, linkGithubIdentity } from "@/lib/oauth-github";
+import { githubOAuthCreds, exchangeGithubCode, fetchGithubUser, resolveMemberFromGithub, linkGithubIdentity, normGithub } from "@/lib/oauth-github";
 
 export const runtime = "nodejs";
 
@@ -29,11 +29,13 @@ export async function GET(req: NextRequest) {
   const gh = await fetchGithubUser(token);
   if (!gh) return fail("github_user");
 
-  const username = await resolveMemberFromGithub(gh.login, gh.emails);
-  if (!username) return fail("github_nomember");
+  // Resolve to a member: AuthIdentity/contact/email, else fall back to using the
+  // GitHub login AS the Hive username (covers global admins like @beaglexv whose
+  // handle matches but who have no contact rows). getAccess is the real gate.
+  const username = (await resolveMemberFromGithub(gh.login, gh.emails)) ?? normGithub(gh.login);
 
   const access = await getAccess(username, project);
-  if (!access.allowed) return fail("github_noaccess");
+  if (!access.allowed) return fail("github_nomember");
 
   // Persist the identity link + login activity (best-effort).
   await linkGithubIdentity(gh.login, username, gh.emails[0] ?? null);

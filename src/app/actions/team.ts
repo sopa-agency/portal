@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
-import { verifySession } from "@/lib/team-access";
+import { verifySession, getAccess } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import {
   publishSnapToHive,
@@ -61,7 +61,8 @@ export async function updateTeamMemberContact(input: {
     if (!session) return { ok: false, error: "Unauthorized" };
 
     const username = input.username.toLowerCase().trim();
-    if (!project.allowlist.includes(username)) {
+    const access = await getAccess(username, project);
+    if (!access.allowed) {
       return { ok: false, error: "Unknown team member." };
     }
 
@@ -191,7 +192,8 @@ export async function sendTeamMessage(input: {
     if (!session) return { ok: false, error: "Unauthorized" };
 
     const username = input.username.toLowerCase().trim();
-    if (!project.allowlist.includes(username)) {
+    const access = await getAccess(username, project);
+    if (!access.allowed) {
       return { ok: false, error: "Unknown team member." };
     }
 
