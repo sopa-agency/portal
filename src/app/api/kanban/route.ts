@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getActiveProject } from "@/projects";
 import { SESSION_COOKIE } from "@/lib/auth";
-import { verifySession } from "@/lib/team-access";
+import { authorize, verifySession } from "@/lib/team-access";
 import {
   addItemComment,
   addDraftIssue,
@@ -60,16 +60,18 @@ export async function GET() {
 
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
-  const session = await verifySession(token, project);
-  if (!session) {
+  const who = await authorize(token, project);
+  if (!who) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [result, teamGithub] = await Promise.all([
+  const [result, teamGithub, bountyRows] = await Promise.all([
     fetchGitHubProject(project),
     teamGithubLogins(project.slug).catch(() => []),
+    prisma.bounty.findMany({ where: { projectSlug: project.slug, status: { not: "cancelled" } } }).catch(() => []),
   ]);
   if (!result.ok) return NextResponse.json(result);
+  const bounties = bountyRows.map((b) => ({ id: b.id, projectSlug: b.projectSlug, taskKey: b.taskKey, title: b.title, amount: b.amount, tokenSymbol: b.tokenSymbol, status: b.status, payeeAddress: b.payeeAddress, safeTxHash: b.safeTxHash }));
 
   // Assignable users = everyone with access to the repos on the board (same
   // list GitHub's own picker offers), enriched with the portal username when
@@ -112,7 +114,7 @@ export async function GET() {
     return a.login.localeCompare(b.login);
   });
 
-  return NextResponse.json({ ...result, assignable });
+  return NextResponse.json({ ...result, assignable, projectSlug: project.slug, canManage: who.global, bounties });
 }
 
 // ---------------------------------------------------------------------------

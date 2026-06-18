@@ -40,7 +40,9 @@ import {
   GripVertical,
 } from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
+import type { BountyDTO } from "@/app/actions/bounty";
 import { MarkdownContent } from "@/components/markdown-content";
+import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
 
 // ---------------------------------------------------------------------------
 // Column status color (mid-tone hues that read on both light & dark surfaces)
@@ -86,7 +88,7 @@ function TypeIcon({ type }: { type: KanbanItem["type"] }) {
 // Card body (shared by sortable card + drag overlay)
 // ---------------------------------------------------------------------------
 
-function CardBody({ item }: { item: KanbanItem }) {
+function CardBody({ item, bounty }: { item: KanbanItem; bounty?: BountyDTO }) {
   const MAX_AVATARS = 3;
   const extra = item.assignees.length > MAX_AVATARS ? item.assignees.length - MAX_AVATARS : 0;
   const visible = item.assignees.slice(0, MAX_AVATARS);
@@ -118,6 +120,7 @@ function CardBody({ item }: { item: KanbanItem }) {
           <span className="font-mono tabular-nums text-[11px] text-foreground-subtle">#{item.number}</span>
         )}
         <StateBadge item={item} />
+        {bounty && <BountyBadge bounty={bounty} />}
         {item.assignees.length > 0 && (
           <div className="ml-auto flex items-center -space-x-1.5">
             {visible.map((a) => (
@@ -143,12 +146,14 @@ function CardBody({ item }: { item: KanbanItem }) {
 
 function SortableCard({
   item,
+  bounty,
   onArchive,
   onDelete,
   onOpen,
   busy,
 }: {
   item: KanbanItem;
+  bounty?: BountyDTO;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
   onOpen: (item: KanbanItem) => void;
@@ -180,7 +185,7 @@ function SortableCard({
           aria-label={`Open ${item.title}`}
           className="min-w-0 flex-1 cursor-pointer text-left"
         >
-          <CardBody item={item} />
+          <CardBody item={item} bounty={bounty} />
         </button>
       </div>
 
@@ -229,6 +234,7 @@ function SortableCard({
 
 function ColumnView({
   column,
+  bountyByKey,
   onArchive,
   onDelete,
   onAddDraft,
@@ -237,6 +243,7 @@ function ColumnView({
   busy,
 }: {
   column: KanbanColumn;
+  bountyByKey?: Map<string, BountyDTO>;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
   onAddDraft: (columnName: string, title: string, kind: "draft" | "issue") => void;
@@ -363,7 +370,7 @@ function ColumnView({
             </div>
           ) : (
             column.items.map((item) => (
-              <SortableCard key={item.id} item={item} onArchive={onArchive} onDelete={onDelete} onOpen={onOpen} busy={busy} />
+              <SortableCard key={item.id} item={item} bounty={bountyByKey?.get(taskKeyOf(item))} onArchive={onArchive} onDelete={onDelete} onOpen={onOpen} busy={busy} />
             ))
           )}
         </SortableContext>
@@ -385,6 +392,10 @@ function repoOf(url?: string): string | undefined {
 function CardDetailDialog({
   item,
   team,
+  projectSlug,
+  canManage,
+  bounty,
+  onBountyChanged,
   onSetAssignees,
   onMutate,
   onPatchItem,
@@ -393,6 +404,10 @@ function CardDetailDialog({
   item: KanbanItem;
   /** Assignable collaborators (with portal username when team-card-mapped). */
   team: { login: string; avatarUrl: string; username: string | null }[];
+  projectSlug?: string;
+  canManage: boolean;
+  bounty: BountyDTO | undefined;
+  onBountyChanged: () => void | Promise<void>;
   onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
   onMutate: MutateFn;
   onPatchItem: (itemId: string, patch: Partial<KanbanItem>) => void;
@@ -729,6 +744,23 @@ function CardDetailDialog({
             <p className="text-sm italic text-foreground-faint">No description.</p>
           )}
 
+          {/* Bounty + EXEC meeting — feature parity with the SOPA aggregated board */}
+          {!editing && projectSlug && (
+            <div className="mt-6 space-y-3 border-t border-border pt-4">
+              {(bounty || canManage) && (
+                <BountyPanel
+                  projectSlug={projectSlug}
+                  taskKey={taskKeyOf(item)}
+                  title={item.title}
+                  bounty={bounty}
+                  canManage={canManage}
+                  onChanged={onBountyChanged}
+                />
+              )}
+              <ExecMeetingButton projectSlug={projectSlug} title={item.title} body={item.body} logins={item.assignees.map((a) => a.login)} />
+            </div>
+          )}
+
           {/* Comments thread */}
           {canComment && !editing && (
             <div className="mt-6 border-t border-border pt-4">
@@ -902,6 +934,12 @@ type Board = Extract<KanbanResult, { ok: true }> & {
   /** Everyone assignable on the board's repos (GitHub collaborators), with the
    *  portal username attached when a team card maps the login. */
   assignable?: { login: string; avatarUrl: string; username: string | null }[];
+  /** This board's project slug — for bounty / EXEC-meeting actions. */
+  projectSlug?: string;
+  /** Viewer is a global admin (may create/propose bounties). */
+  canManage?: boolean;
+  /** Bounties reserved on this project's tasks (open/proposed/paid). */
+  bounties?: BountyDTO[];
 };
 
 export function KanbanBoard() {
@@ -913,6 +951,7 @@ export function KanbanBoard() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase); empty = all
+  const [showDone, setShowDone] = useState(false); // hide completed columns by default
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -1241,9 +1280,13 @@ export function KanbanBoard() {
     setPersonFilter((prev) => (prev.includes(k) ? prev.filter((p) => p !== k) : [...prev, k]));
   };
   // Filtered view (real board data stays intact for drag/drop, which is by id).
-  const displayColumns = personFilter.length === 0
+  const isDone = (name: string) => /done|conclu|complete|finaliz/i.test(name);
+  const doneCount = columns.filter((c) => isDone(c.name)).reduce((n, c) => n + c.items.length, 0);
+  const bountyByKey = new Map((board.bounties ?? []).map((b) => [b.taskKey, b]));
+  const personMatched = personFilter.length === 0
     ? columns
     : columns.map((c) => ({ ...c, items: c.items.filter((it) => it.assignees.some((a) => personFilter.includes(a.login.toLowerCase()))) }));
+  const displayColumns = personMatched.filter((c) => showDone || !isDone(c.name));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -1254,16 +1297,27 @@ export function KanbanBoard() {
           {truncated && <span className="text-xs text-warning">(first 100 items)</span>}
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="Saving" />}
         </p>
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Open project in GitHub"
-          className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
-        >
-          Open in GitHub
-          <ExternalLink className="h-3 w-3" aria-hidden="true" />
-        </a>
+        <div className="flex items-center gap-2">
+          {doneCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowDone((v) => !v)}
+              className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${showDone ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
+            >
+              {showDone ? "Ocultar concluídas" : "Mostrar concluídas"} <span className="text-foreground-faint">({doneCount})</span>
+            </button>
+          )}
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open project in GitHub"
+            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+          >
+            Open in GitHub
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          </a>
+        </div>
       </div>
 
       {/* Filter by person */}
@@ -1321,6 +1375,7 @@ export function KanbanBoard() {
               <ColumnView
                 key={col.name}
                 column={col}
+                bountyByKey={bountyByKey}
                 onArchive={onArchive}
                 onDelete={onDelete}
                 onAddDraft={onAddDraft}
@@ -1334,7 +1389,7 @@ export function KanbanBoard() {
         <DragOverlay>
           {activeItem ? (
             <div className="w-72 rotate-2 rounded-xl border border-accent-border bg-surface-elevated p-3 shadow-2xl">
-              <CardBody item={activeItem} />
+              <CardBody item={activeItem} bounty={bountyByKey.get(taskKeyOf(activeItem))} />
             </div>
           ) : null}
         </DragOverlay>
@@ -1344,6 +1399,10 @@ export function KanbanBoard() {
         <CardDetailDialog
           item={detailItem}
           team={board.assignable ?? []}
+          projectSlug={board.projectSlug}
+          canManage={!!board.canManage}
+          bounty={bountyByKey.get(taskKeyOf(detailItem))}
+          onBountyChanged={load}
           onSetAssignees={onSetAssignees}
           onMutate={(payload) => mutate({ ...payload, projectId: board.projectId })}
           onPatchItem={patchItem}
