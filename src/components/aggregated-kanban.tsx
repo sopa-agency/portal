@@ -26,14 +26,19 @@ export function AggregatedKanban({
 }) {
   const [active, setActive] = useState<AggregatedItem | null>(null);
   const [board, setBoard] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
   const byKey = new Map(bounties.map((b) => [b.taskKey, b]));
   const total = columns.reduce((n, c) => n + c.items.length, 0);
   if (total === 0) {
     return <p className="text-sm text-foreground-muted">Nenhuma tarefa nos boards (ou tokens do GitHub indisponíveis).</p>;
   }
+  const isDone = (name: string) => /done|conclu|complete|finaliz/i.test(name);
+  const doneCount = columns.filter((c) => isDone(c.name)).reduce((n, c) => n + c.items.length, 0);
   const boards = [...new Set(columns.flatMap((c) => c.items.map((i) => i.board)))].sort();
   const match = (it: AggregatedItem) => !board || it.board === board;
-  const visible = columns.map((c) => ({ ...c, items: c.items.filter(match) }));
+  const visible = columns
+    .filter((c) => showDone || !isDone(c.name))
+    .map((c) => ({ ...c, items: c.items.filter(match) }));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -51,6 +56,11 @@ export function AggregatedKanban({
             </button>
           );
         })}
+        {doneCount > 0 && (
+          <button type="button" onClick={() => setShowDone((v) => !v)} className={`ml-auto rounded-full border px-2 py-0.5 text-[11px] font-medium ${showDone ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
+            {showDone ? "Ocultar concluídas" : "Mostrar concluídas"} <span className="text-foreground-faint">({doneCount})</span>
+          </button>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
