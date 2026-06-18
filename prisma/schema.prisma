@@ -498,6 +498,10 @@ model Meeting {
   startsAt    DateTime
   endsAt      DateTime
   notes       String?  @db.Text
+  forProject  String? // which project this meeting is about (slug); attendees scoped to it
+  emailBody   String?  @db.Text // AI-improved / edited invite email body
+  kind        String   @default("plan") // "plan" (planning) | "exec" (execution, has owners)
+  owners      String[] @default([]) // emails of the responsible owners (exec meetings)
   color       String? // accent hex for the event block
   weekly      Boolean  @default(false)
   attendees   String[] @default([]) // emails invited to the meeting

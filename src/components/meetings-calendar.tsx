@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2, CalendarClock } from "lucide-react";
-import { createMeeting, updateMeeting, deleteMeeting, type MeetingDTO } from "@/app/actions/meetings";
+import { createMeeting, updateMeeting, deleteMeeting, improveMeeting, type MeetingDTO } from "@/app/actions/meetings";
+import { MEETING_AI_INSTRUCTION } from "@/lib/ai-prompts";
+import { ImproveAiButton } from "@/components/improve-ai-button";
 import { addSharedCalendar, deleteSharedCalendar, getAvailability, getCalendarConnectInfo, type SharedCalendarDTO, type BusyBlock, type TeamAvail } from "@/app/actions/shared-calendars";
 
 type RosterMember = { username: string; email: string | null; avatarUrl: string };
@@ -58,13 +60,34 @@ function occurrenceInWeek(m: MeetingDTO, weekStart: Date): Occurrence | null {
   return null;
 }
 
-export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; teamRoster: RosterMember[]; accent: string }) {
-  // Roster members that have an email — usable as invitees.
-  const invitable = useMemo(() => teamRoster.filter((m): m is RosterMember & { email: string } => !!m.email), [teamRoster]);
+type ProjectOption = { slug: string; name: string; members: RosterMember[] };
+type Editor = {
+  id: string | null;
+  title: string;
+  start: string;
+  end: string;
+  notes: string;
+  forProject: string;
+  emailBody: string;
+  kind: "plan" | "exec";
+  owners: string[];
+  color: string;
+  weekly: boolean;
+  attendees: string[];
+};
+
+export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, defaultProject, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; projects: ProjectOption[]; defaultProject: string; accent: string }) {
+  const membersWithEmail = (slug: string) =>
+    (projects.find((p) => p.slug === slug)?.members ?? []).filter((m): m is RosterMember & { email: string } => !!m.email);
+  // Active portal's members → availability panel list.
+  const invitable = useMemo(() => membersWithEmail(defaultProject), [projects, defaultProject]);
   const teamEmails = useMemo(() => invitable.map((m) => m.email), [invitable]);
   const [meetings, setMeetings] = useState<MeetingDTO[]>(initialMeetings);
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
-  const [editor, setEditor] = useState<null | { id: string | null; title: string; start: string; end: string; notes: string; color: string; weekly: boolean; attendees: string[] }>(null);
+  const [editor, setEditor] = useState<null | Editor>(null);
+  // Members selectable as attendees for the meeting being edited (its project).
+  const editorMembers = useMemo(() => (editor ? membersWithEmail(editor.forProject) : []), [editor, projects]);
+  const [aiBusy, setAiBusy] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -152,7 +175,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
     start.setHours(hour, 0, 0, 0);
     const end = new Date(start.getTime() + 60 * 60000);
     setErr(null);
-    setEditor({ id: null, title: "", start: toLocalInput(start), end: toLocalInput(end), notes: "", color: accent, weekly: true, attendees: [] });
+    setEditor({ id: null, title: "", start: toLocalInput(start), end: toLocalInput(end), notes: "", forProject: defaultProject, emailBody: "", kind: "plan", owners: [], color: accent, weekly: true, attendees: [] });
     setEmailInput("");
   }
   function openEdit(m: MeetingDTO) {
@@ -164,6 +187,10 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
       start: toLocalInput(new Date(m.startsAt)),
       end: toLocalInput(new Date(m.endsAt)),
       notes: m.notes ?? "",
+      forProject: m.forProject ?? defaultProject,
+      emailBody: m.emailBody ?? "",
+      kind: m.kind,
+      owners: m.owners ?? [],
       color: m.color ?? accent,
       weekly: m.weekly,
       attendees: m.attendees ?? [],
@@ -172,7 +199,53 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
   function toggleAttendee(email: string) {
     const e = email.trim().toLowerCase();
     if (!e) return;
-    setEditor((ed) => (ed ? { ...ed, attendees: ed.attendees.includes(e) ? ed.attendees.filter((a) => a !== e) : [...ed.attendees, e] } : ed));
+    setEditor((ed) =>
+      ed
+        ? {
+            ...ed,
+            attendees: ed.attendees.includes(e) ? ed.attendees.filter((a) => a !== e) : [...ed.attendees, e],
+            // dropping an attendee also drops them as owner
+            owners: ed.attendees.includes(e) ? ed.owners.filter((o) => o !== e) : ed.owners,
+          }
+        : ed,
+    );
+  }
+  function toggleOwner(email: string) {
+    const e = email.trim().toLowerCase();
+    setEditor((ed) =>
+      ed ? { ...ed, owners: ed.owners.includes(e) ? ed.owners.filter((o) => o !== e) : [...ed.owners, e] } : ed,
+    );
+  }
+  // When switching the meeting's project, drop attendees/owners not in it.
+  function setForProject(slug: string) {
+    setEditor((ed) => {
+      if (!ed) return ed;
+      const emails = new Set(membersWithEmail(slug).map((m) => m.email));
+      return {
+        ...ed,
+        forProject: slug,
+        attendees: ed.attendees.filter((a) => emails.has(a)),
+        owners: ed.owners.filter((o) => emails.has(o)),
+      };
+    });
+  }
+  async function improveWithAI(instruction?: string) {
+    if (!editor) return;
+    setAiBusy(true);
+    setErr(null);
+    const r = await improveMeeting({
+      title: editor.title,
+      notes: editor.notes,
+      kind: editor.kind,
+      forProject: projects.find((p) => p.slug === editor.forProject)?.name ?? editor.forProject,
+      when: new Date(editor.start).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" }),
+      attendees: editor.attendees,
+      owners: editor.owners,
+      instruction,
+    });
+    setAiBusy(false);
+    if (r.ok) setEditor((ed) => (ed ? { ...ed, notes: r.agenda || ed.notes, emailBody: r.email || ed.emailBody } : ed));
+    else setErr(r.error);
   }
 
   async function save() {
@@ -182,7 +255,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
     setErr(null);
     const startsAt = new Date(editor.start).toISOString();
     const endsAt = new Date(editor.end).toISOString();
-    const common = { title: editor.title, startsAt, endsAt, notes: editor.notes, color: editor.color, weekly: editor.weekly, attendees: editor.attendees };
+    const common = { title: editor.title, startsAt, endsAt, notes: editor.notes, forProject: editor.forProject, emailBody: editor.emailBody, kind: editor.kind, owners: editor.owners, color: editor.color, weekly: editor.weekly, attendees: editor.attendees };
     if (editor.id) {
       const r = await updateMeeting(editor.id, common, true);
       if (r.ok) {
@@ -377,10 +450,12 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
                   >
                     <div className="flex items-center gap-1 truncate text-[11px] font-semibold text-foreground">
                       {o.meeting.weekly && <Repeat className="h-2.5 w-2.5 shrink-0 text-foreground-subtle" />}
+                      <span className={`shrink-0 rounded px-1 text-[8px] font-bold uppercase ${o.meeting.kind === "exec" ? "bg-warning/20 text-warning" : "bg-foreground/10 text-foreground-subtle"}`}>{o.meeting.kind}</span>
                       {o.meeting.title}
                     </div>
-                    <div className="text-[10px] text-foreground-muted">
+                    <div className="flex items-center gap-1 text-[10px] text-foreground-muted">
                       {o.start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                      {o.meeting.kind === "exec" && o.meeting.owners.length > 0 && <span className="truncate text-accent">· {o.meeting.owners.length} dono(s)</span>}
                     </div>
                   </button>
                 );
@@ -393,7 +468,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
       {/* Editor */}
       {editor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setEditor(null)}>
-          <div className="w-full max-w-sm space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[88vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-foreground">{editor.id ? "Editar reunião" : "Nova reunião"}</h2>
               <button type="button" onClick={() => setEditor(null)} className="text-foreground-faint hover:text-foreground"><X className="h-4 w-4" /></button>
@@ -405,6 +480,20 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
               autoFocus
               className="w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
             />
+            {/* Project + type */}
+            <div className="flex gap-2 text-xs">
+              <label className="flex-1 text-foreground-muted">Projeto
+                <select value={editor.forProject} onChange={(e) => setForProject(e.target.value)} className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground">
+                  {projects.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
+                </select>
+              </label>
+              <label className="flex-1 text-foreground-muted">Tipo
+                <select value={editor.kind} onChange={(e) => setEditor({ ...editor, kind: e.target.value as "plan" | "exec" })} className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground">
+                  <option value="plan">[PLAN] Planejamento</option>
+                  <option value="exec">[EXEC] Execução</option>
+                </select>
+              </label>
+            </div>
             <div className="flex gap-2 text-xs">
               <label className="flex-1 text-foreground-muted">Início
                 <input type="datetime-local" value={editor.start} onChange={(e) => setEditor({ ...editor, start: e.target.value })} className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground" />
@@ -423,24 +512,36 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
               ))}
             </div>
 
-            {/* Attendees — invites go out on save */}
+            {/* Attendees — everyone's invited; EXEC meetings highlight owners (★) as responsible */}
             <div className="space-y-1.5">
-              <span className="text-xs text-foreground-muted">Convidados (recebem convite por email)</span>
-              {invitable.length > 0 ? (
+              <span className="text-xs text-foreground-muted">
+                Convidados · {projects.find((p) => p.slug === editor.forProject)?.name}
+                {editor.kind === "exec" ? " — clique no ★ pra marcar o dono" : ""}
+              </span>
+              {editorMembers.length > 0 ? (
                 <div className="flex max-h-28 flex-wrap gap-1 overflow-auto">
-                  {invitable.map((m) => (
-                    <button key={m.username} type="button" onClick={() => toggleAttendee(m.email)} title={m.email} className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${editor.attendees.includes(m.email) ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
-                      <img src={m.avatarUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
-                      {m.username}
-                    </button>
-                  ))}
+                  {editorMembers.map((m) => {
+                    const on = editor.attendees.includes(m.email);
+                    const owner = editor.owners.includes(m.email);
+                    return (
+                      <span key={m.username} className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${on ? (owner ? "border-accent bg-accent text-accent-foreground" : "border-accent bg-accent-bg text-accent") : "border-border text-foreground-muted"}`}>
+                        <button type="button" onClick={() => toggleAttendee(m.email)} title={m.email} className="flex items-center gap-1 hover:opacity-80">
+                          <img src={m.avatarUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+                          {m.username}
+                        </button>
+                        {editor.kind === "exec" && on && (
+                          <button type="button" onClick={() => toggleOwner(m.email)} title={owner ? "Dono (responsável)" : "Marcar como dono"} className="leading-none">{owner ? "★" : "☆"}</button>
+                        )}
+                      </span>
+                    );
+                  })}
                 </div>
               ) : (
-                <p className="text-[10px] text-foreground-faint">Sem emails de equipe ainda — cadastre na aba Team, ou digite abaixo.</p>
+                <p className="text-[10px] text-foreground-faint">Esse projeto não tem membros com email — cadastre na aba Team, ou digite abaixo.</p>
               )}
-              {editor.attendees.filter((a) => !teamEmails.some((t) => t.toLowerCase() === a)).length > 0 && (
+              {editor.attendees.filter((a) => !editorMembers.some((m) => m.email === a)).length > 0 && (
                 <div className="flex flex-wrap gap-1">
-                  {editor.attendees.filter((a) => !teamEmails.some((t) => t.toLowerCase() === a)).map((a) => (
+                  {editor.attendees.filter((a) => !editorMembers.some((m) => m.email === a)).map((a) => (
                     <button key={a} type="button" onClick={() => toggleAttendee(a)} className="rounded-full border border-accent bg-accent-bg px-2 py-0.5 text-[10px] text-accent">{a} ×</button>
                   ))}
                 </div>
@@ -457,13 +558,32 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, teamRoster
               </div>
             </div>
 
-            <textarea
-              value={editor.notes}
-              onChange={(e) => setEditor({ ...editor, notes: e.target.value })}
-              rows={3}
-              placeholder="Notas / pauta (opcional)"
-              className="w-full resize-none rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
-            />
+            {/* Pauta + Improve with AI */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-foreground-muted">Pauta</span>
+                <ImproveAiButton busy={aiBusy} defaultInstruction={MEETING_AI_INSTRUCTION} onRun={(instr) => improveWithAI(instr)} />
+              </div>
+              <textarea
+                value={editor.notes}
+                onChange={(e) => setEditor({ ...editor, notes: e.target.value })}
+                rows={3}
+                placeholder="Pauta / o que será discutido"
+                className="w-full resize-none rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
+              />
+            </div>
+
+            {/* Invite email (AI-fillable, editable) */}
+            <details className="rounded-lg border border-border bg-surface-elevated p-2" open={!!editor.emailBody}>
+              <summary className="cursor-pointer text-xs text-foreground-muted">Email do convite {editor.emailBody ? "(personalizado)" : "(padrão)"}</summary>
+              <textarea
+                value={editor.emailBody}
+                onChange={(e) => setEditor({ ...editor, emailBody: e.target.value })}
+                rows={4}
+                placeholder="Vazio = email padrão. Use o Improve with AI pra gerar."
+                className="mt-1.5 w-full resize-none rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
+              />
+            </details>
             {err && <p className="text-xs text-danger">{err}</p>}
             <div className="flex items-center gap-2">
               <button type="button" onClick={save} disabled={saving} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
