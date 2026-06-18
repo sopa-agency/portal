@@ -263,6 +263,16 @@ export async function createBounty(input: {
   return { ok: true, bounty: toDTO(row) };
 }
 
+/** Mark a proposed bounty as paid (after owners execute the Safe tx on-chain). */
+export async function markBountyPaid(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await globalGate();
+  if (!g.ok) return g;
+  const b = await prisma.bounty.findUnique({ where: { id } });
+  if (!b) return { ok: false, error: "Bounty não encontrado." };
+  await prisma.bounty.update({ where: { id }, data: { status: "paid" } });
+  return { ok: true };
+}
+
 export async function cancelBounty(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await globalGate();
   if (!g.ok) return g;

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ExternalLink, X, CalendarPlus, Coins, Loader2, Trash2 } from "lucide-react";
 import type { AggregatedColumn, AggregatedItem } from "@/lib/github-project";
-import { createBounty, cancelBounty, proposeBountyPayment, type BountyDTO } from "@/app/actions/bounty";
+import { createBounty, cancelBounty, proposeBountyPayment, markBountyPaid, type BountyDTO } from "@/app/actions/bounty";
 
 /** Stable handle for a task across reloads: GitHub node id, then url, then item id. */
 function taskKeyOf(it: AggregatedItem): string {
@@ -175,6 +175,15 @@ function TaskDialog({
     else setMsg({ ok: false, text: r.error });
   }
 
+  async function markPaid() {
+    if (!bounty) return;
+    setBusy(true); setMsg(null);
+    const r = await markBountyPaid(bounty.id);
+    setBusy(false);
+    if (r.ok) { setMsg({ ok: true, text: "Marcado como pago ✅" }); router.refresh(); }
+    else setMsg({ ok: false, text: r.error });
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="max-h-[88vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -254,6 +263,11 @@ function TaskDialog({
                 <p className="text-warning">Pagamento proposto no Safe — aguardando aprovação dos owners.</p>
                 {bounty.payeeAddress && <p className="mt-1 font-mono text-[11px]">→ {bounty.payeeAddress}</p>}
                 {bounty.safeTxHash && <p className="mt-0.5 truncate font-mono text-[10px] text-foreground-faint">{bounty.safeTxHash}</p>}
+                {canManage && (
+                  <button type="button" onClick={markPaid} disabled={busy} className="mt-2 rounded-md border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-semibold text-success hover:bg-success/20 disabled:opacity-50">
+                    {busy ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Marcar como pago"}
+                  </button>
+                )}
               </div>
             )}
 
