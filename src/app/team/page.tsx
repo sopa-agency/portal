@@ -9,6 +9,9 @@ import { getTeamRoster, portalsForUser } from "@/lib/team-roster";
 import { getRoles, authorize } from "@/lib/team-access";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { TeamAdmin } from "@/components/team-admin";
+import { PortalAccessManager } from "@/components/portal-access-manager";
+import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
 
 export default async function TeamPage() {
   const project = await getActiveProject();
@@ -37,6 +40,11 @@ export default async function TeamPage() {
     messageOptions: getTeamMessageOptions(project, username, { contacts }),
   }));
 
+  // Team management lives on the SOPA hub — also surfaced here in the Team tab.
+  const isTeamHub = project.slug === "sopa";
+  const teamAdmin = isTeamHub && viewer?.role === "admin" ? await listTeamMembers().catch(() => null) : null;
+  const portalAccess = isTeamHub && viewer?.global ? await listAllPortalAccess().catch(() => null) : null;
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -45,6 +53,10 @@ export default async function TeamPage() {
         description="Members of this portal. Connections moved to Settings."
       />
       <TeamView projectName={project.name} members={members} canManage={viewer?.role === "admin"} />
+      {teamAdmin?.ok ? (
+        <TeamAdmin initial={teamAdmin.members} viewerGlobal={teamAdmin.viewerGlobal} projectName={project.name} />
+      ) : null}
+      {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
     </div>
   );
 }
