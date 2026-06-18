@@ -75,14 +75,18 @@ function Pane({
 export function HomeSplit({
   briefTabs,
   channelTabs,
+  briefFooter,
 }: {
   briefTabs: SplitTab[];
   channelTabs: SplitTab[];
+  /** Rendered in the brief column, immediately under the Morning brief. */
+  briefFooter?: ReactNode;
 }) {
   return (
     <div className="grid gap-8 lg:grid-cols-2 lg:gap-0">
       <div className="min-w-0 lg:border-r lg:border-border lg:pr-7">
         <Pane icon={<FileText className="h-[17px] w-[17px]" />} title="Morning brief" tabs={briefTabs} />
+        {briefFooter ? <div className="mt-6">{briefFooter}</div> : null}
       </div>
       <div className="min-w-0 lg:pl-7">
         <Pane icon={<Megaphone className="h-[17px] w-[17px]" />} title="Socials" tabs={channelTabs} />

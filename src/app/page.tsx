@@ -189,11 +189,15 @@ export default async function Home() {
 
       <SummaryBand tiles={tiles} />
 
-      <HomeSplit briefTabs={briefTabs} channelTabs={channelTabs} />
-
-      {session && project.githubProject ? (
-        <MyTasks tasks={myTasks} username={session.username} userEmail={myEmail} />
-      ) : null}
+      <HomeSplit
+        briefTabs={briefTabs}
+        channelTabs={channelTabs}
+        briefFooter={
+          session && project.githubProject ? (
+            <MyTasks tasks={myTasks} username={session.username} userEmail={myEmail} />
+          ) : null
+        }
+      />
     </div>
   );
 }
