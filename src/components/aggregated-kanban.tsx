@@ -16,13 +16,13 @@ export function AggregatedKanban({ columns }: { columns: AggregatedColumn[] }) {
             <span className="shrink-0 rounded-full bg-foreground/10 px-1.5 text-[10px] text-foreground-muted">{col.items.length}</span>
           </header>
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-            {col.items.map((it) => (
-              <a
+            {col.items.map((it) => {
+              const Card = it.url ? "a" : "div";
+              return (
+              <Card
                 key={it.id}
-                href={it.url ?? "#"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block rounded-lg border border-border bg-surface-elevated p-2.5 transition-colors hover:border-border-strong"
+                {...(it.url ? { href: it.url, target: "_blank", rel: "noopener noreferrer" } : {})}
+                className={`block rounded-lg border border-border bg-surface-elevated p-2.5 transition-colors ${it.url ? "hover:border-border-strong" : ""}`}
               >
                 <div className="mb-1 flex items-center gap-1.5">
                   <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">{it.board}</span>
@@ -40,8 +40,9 @@ export function AggregatedKanban({ columns }: { columns: AggregatedColumn[] }) {
                     ))}
                   </span>
                 </div>
-              </a>
-            ))}
+              </Card>
+              );
+            })}
           </div>
         </section>
       ))}
