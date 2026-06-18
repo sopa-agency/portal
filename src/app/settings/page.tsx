@@ -20,11 +20,14 @@ export default async function SettingsPage() {
     discordRow.detail = live.detail;
   }
 
-  // Team & roles — admins only.
-  const team = await listTeamMembers().catch(() => null);
-  const showAdmin = team?.ok && team.viewerRole === "admin";
-  // Cross-portal access — global admins only (e.g. the SOPA admin hub).
-  const portalAccess = team?.ok && team.viewerGlobal ? await listAllPortalAccess().catch(() => null) : null;
+  // Team management is centralized on the SOPA portal (the team hub). Other
+  // portals' Settings only show connections; SOPA's "Acesso por portal" already
+  // manages every portal's roster from one place.
+  const isTeamHub = project.slug === "sopa";
+  const team = isTeamHub ? await listTeamMembers().catch(() => null) : null;
+  const showAdmin = isTeamHub && team?.ok && team.viewerRole === "admin";
+  // Cross-portal access — global admins only.
+  const portalAccess = isTeamHub && team?.ok && team.viewerGlobal ? await listAllPortalAccess().catch(() => null) : null;
 
   return (
     <div className="space-y-10">
