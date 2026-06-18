@@ -16,6 +16,13 @@ type RosterMember = { username: string; email: string | null; avatarUrl: string;
 
 const DAY_START = 7; // 07:00
 const DAY_END = 22; // 22:00
+const DURATIONS = [
+  { min: 15, label: "15 min" },
+  { min: 30, label: "30 min" },
+  { min: 60, label: "1 hora" },
+  { min: 90, label: "1h30" },
+  { min: 120, label: "2 horas" },
+];
 const HOUR_H = 48; // px per hour
 const HOURS = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i);
 const DAY_NAMES = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -66,7 +73,7 @@ type Editor = {
   id: string | null;
   title: string;
   start: string;
-  end: string;
+  durationMin: number;
   notes: string;
   forProject: string;
   emailBody: string;
@@ -106,9 +113,8 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
       const emails = membersWithEmail(slug).filter((m) => m.github && logins.has(m.github)).map((m) => m.email);
       const start = new Date(Date.now() + 86400000);
       start.setHours(15, 0, 0, 0);
-      const end = new Date(start.getTime() + 60 * 60000);
       setEditor({
-        id: null, title: data.title ?? "", start: toLocalInput(start), end: toLocalInput(end),
+        id: null, title: data.title ?? "", start: toLocalInput(start), durationMin: 60,
         notes: data.notes ?? "", forProject: slug, emailBody: "",
         kind: data.kind === "exec" ? "exec" : "plan", owners: emails,
         color: accent, weekly: false, attendees: emails,
@@ -204,9 +210,8 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
   function openNew(day: Date, hour: number) {
     const start = new Date(day);
     start.setHours(hour, 0, 0, 0);
-    const end = new Date(start.getTime() + 60 * 60000);
     setErr(null);
-    setEditor({ id: null, title: "", start: toLocalInput(start), end: toLocalInput(end), notes: "", forProject: defaultProject, emailBody: "", kind: "plan", owners: [], color: accent, weekly: true, attendees: [] });
+    setEditor({ id: null, title: "", start: toLocalInput(start), durationMin: 60, notes: "", forProject: defaultProject, emailBody: "", kind: "plan", owners: [], color: accent, weekly: true, attendees: [] });
     setEmailInput("");
   }
   function openEdit(m: MeetingDTO) {
@@ -216,7 +221,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
       id: m.id,
       title: m.title,
       start: toLocalInput(new Date(m.startsAt)),
-      end: toLocalInput(new Date(m.endsAt)),
+      durationMin: Math.max(15, Math.round((new Date(m.endsAt).getTime() - new Date(m.startsAt).getTime()) / 60000)),
       notes: m.notes ?? "",
       forProject: m.forProject ?? defaultProject,
       emailBody: m.emailBody ?? "",
@@ -286,7 +291,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
     setSaving(true);
     setErr(null);
     const startsAt = new Date(editor.start).toISOString();
-    const endsAt = new Date(editor.end).toISOString();
+    const endsAt = new Date(new Date(editor.start).getTime() + editor.durationMin * 60000).toISOString();
     const common = { title: editor.title, startsAt, endsAt, notes: editor.notes, forProject: editor.forProject, emailBody: editor.emailBody, kind: editor.kind, owners: editor.owners, color: editor.color, weekly: editor.weekly, attendees: editor.attendees };
     if (editor.id) {
       const r = await updateMeeting(editor.id, common, true);
@@ -530,8 +535,11 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
               <label className="flex-1 text-foreground-muted">Início
                 <input type="datetime-local" value={editor.start} onChange={(e) => setEditor({ ...editor, start: e.target.value })} className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground" />
               </label>
-              <label className="flex-1 text-foreground-muted">Fim
-                <input type="datetime-local" value={editor.end} onChange={(e) => setEditor({ ...editor, end: e.target.value })} className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground" />
+              <label className="text-foreground-muted">Duração
+                <select value={editor.durationMin} onChange={(e) => setEditor({ ...editor, durationMin: Number(e.target.value) })} className="mt-1 block w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground">
+                  {DURATIONS.map((d) => <option key={d.min} value={d.min}>{d.label}</option>)}
+                  {!DURATIONS.some((d) => d.min === editor.durationMin) && <option value={editor.durationMin}>{editor.durationMin} min</option>}
+                </select>
               </label>
             </div>
             <label className="flex items-center gap-2 text-xs text-foreground-muted">
