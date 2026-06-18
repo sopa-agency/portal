@@ -79,7 +79,16 @@ export async function removeMember(username: string): Promise<{ ok: true } | { o
   return { ok: true };
 }
 
-export type MemberTask = { title: string; url?: string; status: string; state?: string; number?: number };
+export type MemberTask = {
+  title: string;
+  url?: string;
+  status: string;
+  state?: string;
+  number?: number;
+  body?: string;
+  assignees?: { login: string; avatarUrl: string }[];
+  labels?: { name: string; color: string }[];
+};
 
 /** Kanban tasks (GitHub Project items) assigned to a member's GitHub login. */
 export async function getMemberTasks(
@@ -97,7 +106,16 @@ export async function getMemberTasks(
   for (const col of board.columns) {
     for (const it of col.items) {
       if (it.assignees.some((a) => a.login.toLowerCase() === login)) {
-        tasks.push({ title: it.title, url: it.url, status: col.name, state: it.state, number: it.number });
+        tasks.push({
+          title: it.title,
+          url: it.url,
+          status: col.name,
+          state: it.state,
+          number: it.number,
+          body: it.body,
+          assignees: it.assignees,
+          labels: it.labels.map((l) => ({ name: l.name, color: l.color })),
+        });
       }
     }
   }
