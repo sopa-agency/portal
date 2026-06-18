@@ -139,7 +139,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                 priority
               />
               <p className="min-w-0 flex-1 truncate text-lg font-bold tracking-tight text-accent">
-                portal · {projectName.toLowerCase()}
+                {projectName}
               </p>
               <ChevronsUpDown className="h-4 w-4 shrink-0 text-foreground-faint" />
             </button>
@@ -178,7 +178,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
             <Image src={projectLogo} alt={projectName} width={36} height={36} className="shrink-0 rounded-md" priority />
             <div className="min-w-0">
               <p className="text-lg font-bold tracking-tight text-accent">
-                portal · {projectName.toLowerCase()}
+                {projectName}
               </p>
               <p className="mt-0.5 text-xs uppercase tracking-widest text-foreground-subtle">
                 internal ops
