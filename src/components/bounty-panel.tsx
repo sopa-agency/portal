@@ -2,12 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Coins, Loader2, Trash2, CalendarPlus } from "lucide-react";
+import { Coins, Loader2, Trash2, CalendarPlus, Check, ArrowUpRight, Wallet } from "lucide-react";
 import { createBounty, cancelBounty, proposeBountyPayment, markBountyPaid, getSafeTokens, type BountyDTO, type SafeTokenAvailability } from "@/app/actions/bounty";
 
 /** Stable handle for a task across reloads: GitHub node id, then url, then item id. */
 export function taskKeyOf(it: { contentId?: string | null; url?: string; id: string }): string {
   return it.contentId ?? it.url ?? it.id;
+}
+
+/** Trim a number to a readable amount of significant decimals. */
+function fmtNum(v: string | number): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return n.toLocaleString("en-US", { maximumFractionDigits: 6 });
+}
+
+function tokenGlyph(symbol: string) {
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[10px] font-bold uppercase tracking-tight text-amber-600 dark:text-amber-400">
+      {symbol.slice(0, 3)}
+    </span>
+  );
 }
 
 export function BountyBadge({ bounty }: { bounty: BountyDTO }) {
@@ -19,7 +34,7 @@ export function BountyBadge({ bounty }: { bounty: BountyDTO }) {
         : "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400";
   return (
     <span className={`flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${tone}`}>
-      <Coins className="h-2.5 w-2.5" /> {bounty.amount} {bounty.tokenSymbol}
+      <Coins className="h-2.5 w-2.5" /> {fmtNum(bounty.amount)} {bounty.tokenSymbol}
     </span>
   );
 }
@@ -53,9 +68,9 @@ export function ExecMeetingButton({
 
 /**
  * Bounty lifecycle for one task, paid from the project's Safe. Global admins can
- * reserve a bounty, set the payee, propose the Safe payment, mark paid, or cancel.
- * Non-admins see read-only status. Renders nothing when there's no bounty and the
- * viewer can't manage.
+ * reserve a bounty (in a token the Safe holds, capped at its balance), set the
+ * payee, propose the Safe payment, mark paid, or cancel. Non-admins see read-only
+ * status. Renders nothing when there's no bounty and the viewer can't manage.
  */
 export function BountyPanel({
   projectSlug,
@@ -78,7 +93,7 @@ export function BountyPanel({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Tokens the Safe holds (with available-to-reserve amounts) — for the create UI.
+  // Tokens the Safe holds (trusted only, with available-to-reserve amounts).
   const showCreate = !bounty && canManage;
   const [tokens, setTokens] = useState<SafeTokenAvailability[] | null>(null);
   const [tokenKey, setTokenKey] = useState<string>("eth");
@@ -94,7 +109,8 @@ export function BountyPanel({
     });
     return () => { live = false; };
   }, [showCreate, projectSlug]);
-  const selected = tokens?.find((t) => (t.address ? t.address.toLowerCase() : "eth") === tokenKey) ?? null;
+  const keyOf = (t: SafeTokenAvailability) => (t.address ? t.address.toLowerCase() : "eth");
+  const selected = tokens?.find((t) => keyOf(t) === tokenKey) ?? null;
   const overCap = !!selected && Number(amount) > Number(selected.available) + 1e-12;
 
   if (!bounty && !canManage) return null;
@@ -112,82 +128,187 @@ export function BountyPanel({
   }
 
   return (
-    <div className="space-y-2 rounded-xl border border-border bg-surface-elevated p-3">
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-        <Coins className="h-3.5 w-3.5 text-amber-500" /> Bounty
+    <div className="overflow-hidden rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/[0.07] to-transparent">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b border-amber-500/15 px-3.5 py-2.5">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
+          <Coins className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold leading-none text-foreground">Bounty</p>
+          <p className="mt-0.5 text-[11px] leading-none text-foreground-faint">pago do Safe do projeto</p>
+        </div>
+        {bounty && (
+          <span className="ml-auto"><BountyBadge bounty={bounty} /></span>
+        )}
       </div>
-      {msg && <p className={`text-xs ${msg.ok ? "text-success" : "text-danger"}`}>{msg.text}</p>}
 
-      {showCreate && (
-        tokens === null ? (
-          <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Lendo saldos do Safe…</p>
-        ) : tokens.length === 0 ? (
-          <p className="text-xs text-foreground-muted">O Safe deste projeto não tem saldo (ou não está configurado em Settings → Bounties).</p>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex items-end gap-2">
-              <label className="text-xs text-foreground-muted">Token
-                <select value={tokenKey} onChange={(e) => { setTokenKey(e.target.value); setAmount(""); }} className="mt-1 block rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground focus:border-border-strong focus:outline-none">
+      <div className="space-y-3 p-3.5">
+        {msg && (
+          <p className={`rounded-lg px-2.5 py-1.5 text-xs ${msg.ok ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{msg.text}</p>
+        )}
+
+        {/* ── Create ── */}
+        {showCreate && (
+          tokens === null ? (
+            <p className="flex items-center gap-1.5 py-2 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Lendo saldos do Safe…</p>
+          ) : tokens.length === 0 ? (
+            <p className="text-xs text-foreground-muted">O Safe deste projeto não tem saldo confiável (ou não está configurado em Settings → Bounties).</p>
+          ) : (
+            <div className="space-y-3">
+              {/* Token picker */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">Token</p>
+                <div className="flex flex-wrap gap-1.5">
                   {tokens.map((t) => {
-                    const k = t.address ? t.address.toLowerCase() : "eth";
-                    return <option key={k} value={k}>{t.symbol} — {Number(t.available)} livre</option>;
+                    const k = keyOf(t);
+                    const on = k === tokenKey;
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => { setTokenKey(k); setAmount(""); setMsg(null); }}
+                        className={`group flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-left transition-all ${on ? "border-accent bg-accent-bg shadow-sm" : "border-border bg-surface hover:border-border-strong"}`}
+                      >
+                        {tokenGlyph(t.symbol)}
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-1 text-xs font-semibold text-foreground">
+                            {t.symbol}
+                            {on && <Check className="h-3 w-3 text-accent" />}
+                          </span>
+                          <span className="block text-[10px] tabular-nums text-foreground-faint">{fmtNum(t.available)} livre</span>
+                        </span>
+                      </button>
+                    );
                   })}
-                </select>
-              </label>
-              <label className="flex-1 text-xs text-foreground-muted">Valor
-                <div className="mt-1 flex items-center gap-1">
-                  <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0" className={`w-full rounded-md border bg-surface px-2 py-1.5 text-sm text-foreground focus:outline-none ${overCap ? "border-danger" : "border-border focus:border-border-strong"}`} />
-                  <button type="button" onClick={() => selected && setAmount(selected.available)} className="shrink-0 rounded-md border border-border px-2 py-1.5 text-[11px] text-foreground-muted hover:text-foreground">Máx</button>
                 </div>
-              </label>
-            </div>
-            {selected && (
-              <p className="text-[11px] text-foreground-faint">Disponível: {Number(selected.available)} {selected.symbol} (Safe tem {Number(selected.balance)}). {overCap && <span className="text-danger">acima do limite</span>}</p>
-            )}
-            <button type="button" onClick={() => run(() => createBounty({ projectSlug, taskKey, title, tokenAddress: selected?.address ?? null, amount }), "Bounty criado ✅")} disabled={busy || !amount.trim() || overCap || !selected} className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Transformar em bounty"}
-            </button>
-          </div>
-        )
-      )}
-
-      {bounty && bounty.status === "open" && (
-        <div className="space-y-2">
-          <p className="text-xs text-foreground-muted">Reservado: <span className="font-semibold text-foreground">{bounty.amount} {bounty.tokenSymbol}</span>. Ao concluir, proponha o pagamento no Safe do projeto.</p>
-          {canManage && (
-            <>
-              <label className="block text-xs text-foreground-muted">Carteira do beneficiário
-                <input value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="0x… (carteira de quem entregou)" className="mt-1 w-full rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-xs text-foreground focus:border-border-strong focus:outline-none" />
-              </label>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => run(() => proposeBountyPayment(bounty.id, payee), "Pagamento proposto no Safe ✅ — aguarda aprovação dos owners.")} disabled={busy || !payee.trim()} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />} Propor pagamento no Safe
-                </button>
-                <button type="button" onClick={() => run(() => cancelBounty(bounty.id), "Bounty cancelado.")} disabled={busy} title="Cancelar bounty" className="rounded-lg border border-border p-2 text-foreground-faint hover:border-danger hover:text-danger disabled:opacity-50">
-                  <Trash2 className="h-4 w-4" />
-                </button>
               </div>
-            </>
-          )}
-        </div>
-      )}
 
-      {bounty && bounty.status === "proposed" && (
-        <div className="text-xs text-foreground-muted">
-          <p className="text-warning">Pagamento proposto no Safe — aguardando aprovação dos owners.</p>
-          {bounty.payeeAddress && <p className="mt-1 font-mono text-[11px]">→ {bounty.payeeAddress}</p>}
-          {bounty.safeTxHash && <p className="mt-0.5 truncate font-mono text-[10px] text-foreground-faint">{bounty.safeTxHash}</p>}
-          {canManage && (
-            <button type="button" onClick={() => run(() => markBountyPaid(bounty.id), "Marcado como pago ✅")} disabled={busy} className="mt-2 rounded-md border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-semibold text-success hover:bg-success/20 disabled:opacity-50">
-              {busy ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Marcar como pago"}
-            </button>
-          )}
-        </div>
-      )}
+              {/* Amount */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">Valor</p>
+                  {selected && (
+                    <span className="text-[10px] tabular-nums text-foreground-faint">
+                      disponível <span className="font-semibold text-foreground-muted">{fmtNum(selected.available)} {selected.symbol}</span>
+                    </span>
+                  )}
+                </div>
+                <div className={`flex items-center rounded-lg border bg-surface pr-1.5 transition-colors ${overCap ? "border-danger" : "border-border focus-within:border-border-strong"}`}>
+                  <input
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="0.0"
+                    className="w-full bg-transparent px-2.5 py-2 text-base font-semibold tabular-nums text-foreground placeholder:text-foreground-faint focus:outline-none"
+                  />
+                  {selected && <span className="shrink-0 text-xs font-medium text-foreground-muted">{selected.symbol}</span>}
+                  <button
+                    type="button"
+                    onClick={() => selected && setAmount(selected.available)}
+                    className="ml-1.5 shrink-0 rounded-md bg-accent-bg px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-accent transition-colors hover:bg-accent/20"
+                  >
+                    Máx
+                  </button>
+                </div>
+                {overCap && <p className="text-[11px] text-danger">Acima do disponível no Safe.</p>}
+              </div>
 
-      {bounty && bounty.status === "paid" && (
-        <p className="text-xs text-success">Pago ✅ {bounty.payeeAddress ? `→ ${bounty.payeeAddress}` : ""}</p>
-      )}
+              <button
+                type="button"
+                onClick={() => run(() => createBounty({ projectSlug, taskKey, title, tokenAddress: selected?.address ?? null, amount }), "Bounty criado ✅")}
+                disabled={busy || !amount.trim() || overCap || !selected}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />} Transformar em bounty
+              </button>
+            </div>
+          )
+        )}
+
+        {/* ── Open: reserved, awaiting payout ── */}
+        {bounty && bounty.status === "open" && (
+          <div className="space-y-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold tabular-nums text-foreground">{fmtNum(bounty.amount)}</span>
+              <span className="text-sm font-medium text-foreground-muted">{bounty.tokenSymbol}</span>
+              <span className="ml-auto rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">reservado</span>
+            </div>
+            {canManage ? (
+              <>
+                <div className="space-y-1">
+                  <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-faint"><Wallet className="h-3 w-3" /> Carteira do beneficiário</p>
+                  <input
+                    value={payee}
+                    onChange={(e) => setPayee(e.target.value)}
+                    placeholder="0x… (quem entregou)"
+                    className="w-full rounded-lg border border-border bg-surface px-2.5 py-2 font-mono text-xs text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => run(() => proposeBountyPayment(bounty.id, payee), "Pagamento proposto no Safe ✅ — aguarda aprovação dos owners.")}
+                    disabled={busy || !payee.trim()}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />} Propor pagamento
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(() => cancelBounty(bounty.id), "Bounty cancelado.")}
+                    disabled={busy}
+                    title="Cancelar bounty"
+                    className="shrink-0 rounded-lg border border-border p-2.5 text-foreground-faint transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-foreground-muted">Ao concluir, um admin propõe o pagamento no Safe do projeto.</p>
+            )}
+          </div>
+        )}
+
+        {/* ── Proposed: in the Safe queue ── */}
+        {bounty && bounty.status === "proposed" && (
+          <div className="space-y-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-bold tabular-nums text-foreground">{fmtNum(bounty.amount)}</span>
+              <span className="text-sm font-medium text-foreground-muted">{bounty.tokenSymbol}</span>
+              <span className="ml-auto flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning"><Loader2 className="h-2.5 w-2.5 animate-spin" /> aguardando owners</span>
+            </div>
+            {bounty.payeeAddress && (
+              <p className="flex items-center gap-1 font-mono text-[11px] text-foreground-muted"><Wallet className="h-3 w-3 shrink-0" /> {bounty.payeeAddress}</p>
+            )}
+            {bounty.safeTxHash && (
+              <p className="truncate font-mono text-[10px] text-foreground-faint">{bounty.safeTxHash}</p>
+            )}
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => run(() => markBountyPaid(bounty.id), "Marcado como pago ✅")}
+                disabled={busy}
+                className="flex items-center gap-1.5 rounded-lg border border-success/40 bg-success/10 px-3 py-1.5 text-xs font-semibold text-success transition-colors hover:bg-success/20 disabled:opacity-50"
+              >
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Marcar como pago
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── Paid ── */}
+        {bounty && bounty.status === "paid" && (
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-success/15 text-success"><Check className="h-4 w-4" /></span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">{fmtNum(bounty.amount)} {bounty.tokenSymbol} pago</p>
+              {bounty.payeeAddress && <p className="font-mono text-[11px] text-foreground-faint">→ {bounty.payeeAddress}</p>}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
