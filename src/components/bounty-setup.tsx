@@ -1,45 +1,56 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, XCircle, ChevronDown, ExternalLink } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ChevronDown, ExternalLink, RefreshCw, CircleDashed } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
+import { getBountySetup, saveBountyConfig, type ProjectBounty, type ChainStatus } from "@/app/actions/bounty";
 
 const safeAppUrl = (chainId: number, address: string) => `https://app.safe.global/home?safe=${chainId === 1 ? "eth" : "base"}:${address}`;
-import { getBountySetup, saveBountyConfig, type ProjectBounty, type ChainStatus } from "@/app/actions/bounty";
+const isReady = (c: ChainStatus) => c.exists && c.delegate === true;
+const isFunded = (c: ChainStatus) => c.exists && !!c.balances && c.balances !== "vazio";
 
 export function BountySetup() {
   const [proposer, setProposer] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectBounty[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   async function load() {
+    setRefreshing(true);
     const r = await getBountySetup();
     setLoading(false);
-    if (r.ok) { setProposer(r.proposer); setProjects(r.projects); }
+    setRefreshing(false);
+    if (r.ok) { setProposer(r.proposer); setProjects(r.projects); setErr(null); }
     else setErr(r.error);
   }
   useEffect(() => { load(); }, []);
 
-  if (loading) return <p className="text-sm text-foreground-muted"><Loader2 className="inline h-4 w-4 animate-spin" /> Carregando bounty setup…</p>;
+  if (loading) return <p className="text-sm text-foreground-muted"><Loader2 className="inline h-4 w-4 animate-spin" /> Lendo Safes ao vivo…</p>;
+
+  const configured = projects.filter((p) => p.safeAddress);
+  const readyCount = configured.filter((p) => p.chains.some(isReady)).length;
 
   return (
     <section aria-labelledby="bounty-heading" className="space-y-4">
-      <div className="flex items-baseline gap-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 id="bounty-heading" className="text-lg font-semibold tracking-tight text-foreground">Bounties &amp; Safe</h2>
-        <span className="text-xs text-foreground-faint">cada Safe paga em Base e Ethereum — token escolhido por bounty</span>
+        <span className="text-xs text-foreground-faint">{readyCount}/{configured.length} portais prontos pra pagar</span>
+        <button type="button" onClick={load} disabled={refreshing} className="ml-auto flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50">
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Atualizar
+        </button>
       </div>
       {err && <p className="text-xs text-danger">{err}</p>}
 
       <div className="rounded-xl border border-border bg-surface p-3">
-        <div className="text-[10px] uppercase tracking-wide text-foreground-faint">Proposer (delegate de cada Safe — só propõe)</div>
+        <div className="text-[10px] uppercase tracking-wide text-foreground-faint">Proposer — delegate de cada Safe (só propõe, nunca executa)</div>
         {proposer ? (
           <CopyButton value={proposer} className="mt-1 flex w-full items-center gap-1.5 truncate font-mono text-xs text-accent hover:underline">
             {proposer}
           </CopyButton>
         ) : (
-          <p className="mt-1 text-xs text-danger">SAFE_PROPOSER_PRIVATE_KEY não configurado.</p>
+          <p className="mt-1 text-xs text-danger">⚠ SAFE_PROPOSER_PRIVATE_KEY não configurado no servidor.</p>
         )}
         <p className="mt-1.5 text-[11px] text-foreground-faint">Registre esse endereço como delegate de cada Safe no app.safe.global — em <span className="font-medium">cada rede</span> que for usar.</p>
       </div>
@@ -59,15 +70,26 @@ export function BountySetup() {
   );
 }
 
-function ChainPill({ c }: { c: ChainStatus }) {
-  if (!c.exists) return <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-foreground-faint">{c.name}: —</span>;
-  const ok = c.delegate === true;
+/** One explicit status line in the per-chain checklist. */
+function Line({ state, children }: { state: "ok" | "bad" | "pending" | "neutral"; children: React.ReactNode }) {
+  const Icon = state === "ok" ? CheckCircle2 : state === "bad" ? XCircle : state === "pending" ? Loader2 : CircleDashed;
+  const tone = state === "ok" ? "text-success" : state === "bad" ? "text-warning" : "text-foreground-muted";
   return (
-    <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] ${ok ? "border-success/40 bg-success/10 text-success" : "border-warning/40 bg-warning/10 text-warning"}`}>
-      {ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-      {c.name}
+    <span className={`flex items-center gap-1.5 text-[11px] ${tone}`}>
+      <Icon className={`h-3 w-3 shrink-0 ${state === "pending" ? "animate-spin" : ""}`} /> {children}
     </span>
   );
+}
+
+/** Compact overall-status chip for the collapsed row. */
+function OverallChip({ project }: { project: ProjectBounty }) {
+  if (!project.safeAddress) return <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-foreground-faint">sem Safe</span>;
+  if (project.chains.length === 0) return <span className="flex items-center gap-1 text-[10px] text-foreground-faint"><Loader2 className="h-3 w-3 animate-spin" /> checando…</span>;
+  const ready = project.chains.filter(isReady);
+  if (ready.length > 0) {
+    return <span className="flex items-center gap-1 rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success"><CheckCircle2 className="h-3 w-3" /> Pronto · {ready.map((c) => c.name).join(", ")}</span>;
+  }
+  return <span className="flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning"><XCircle className="h-3 w-3" /> falta delegate</span>;
 }
 
 function ProjectBountyRow({
@@ -93,18 +115,12 @@ function ProjectBountyRow({
     else setMsg({ ok: false, text: r.error });
   }
 
-  const readyChains = project.chains.filter((c) => c.exists && c.delegate === true).length;
-
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">
       <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-surface-elevated">
         <span className="text-sm font-semibold text-foreground">{project.name}</span>
-        <span className="flex items-center gap-1.5">
-          {project.safeAddress ? (
-            project.chains.length ? project.chains.map((c) => <ChainPill key={c.chainId} c={c} />) : <span className="text-[10px] text-foreground-faint">checando…</span>
-          ) : (
-            <span className="text-[11px] text-foreground-faint">sem Safe</span>
-          )}
+        <span className="flex items-center gap-2">
+          <OverallChip project={project} />
           <ChevronDown className={`h-4 w-4 text-foreground-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
         </span>
       </button>
@@ -123,33 +139,51 @@ function ProjectBountyRow({
 
           {project.safeAddress && (
             <div className="grid gap-2 sm:grid-cols-2">
-              {project.chains.map((c) => (
-                <div key={c.chainId} className="rounded-lg border border-border bg-surface-elevated p-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">{c.name}</span>
+              {project.chains.map((c) => {
+                const ready = isReady(c);
+                const tint = !c.exists ? "border-border opacity-70" : ready ? "border-success/40" : "border-warning/40";
+                return (
+                  <div key={c.chainId} className={`space-y-1.5 rounded-lg border bg-surface-elevated p-2.5 ${tint}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                        {c.name}
+                        {c.exists && (
+                          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${ready ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>{ready ? "PRONTO" : "AÇÃO"}</span>
+                        )}
+                      </span>
+                      {c.exists && project.safeAddress && (
+                        <a href={safeAppUrl(c.chainId, project.safeAddress)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-accent hover:underline">
+                          Abrir <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      )}
+                    </div>
+
                     {!c.exists ? (
-                      <span className="text-[10px] text-foreground-faint">Safe não existe aqui</span>
-                    ) : c.delegate === true ? (
-                      <span className="flex items-center gap-1 text-[10px] text-success"><CheckCircle2 className="h-3 w-3" /> delegate</span>
+                      <Line state="bad">Safe não está implantado nesta rede</Line>
                     ) : (
-                      <span className="flex items-center gap-1 text-[10px] text-warning"><XCircle className="h-3 w-3" /> sem delegate</span>
+                      <>
+                        <Line state="ok">Safe implantado</Line>
+                        <Line state={c.delegate === null ? "pending" : c.delegate ? "ok" : "bad"}>
+                          {c.delegate === null ? "Verificando delegate…" : c.delegate ? "Proposer é delegate" : "Proposer NÃO é delegate"}
+                        </Line>
+                        <Line state={isFunded(c) ? "neutral" : "bad"}>Saldo: {c.balances || "vazio"}</Line>
+                      </>
+                    )}
+
+                    {c.exists && c.delegate === false && (
+                      <p className="text-[10px] text-warning">→ Registre o proposer como delegate desta rede no app.safe.global.</p>
                     )}
                   </div>
-                  {c.exists && <p className="mt-1 text-[11px] tabular-nums text-foreground-muted">{c.balances}</p>}
-                  {c.exists && project.safeAddress && (
-                    <a href={safeAppUrl(c.chainId, project.safeAddress)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[10px] text-accent hover:underline">
-                      Abrir no Safe <ExternalLink className="h-2.5 w-2.5" />
-                    </a>
-                  )}
-                  {c.exists && c.delegate !== true && (
-                    <p className="mt-1 text-[10px] text-warning">Registre o proposer como delegate desta rede no app.safe.global.</p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {project.safeAddress && (
-            <p className="text-[11px] text-foreground-faint">{readyChains > 0 ? `Pronto pra pagar em ${readyChains} rede(s).` : "Nenhuma rede pronta ainda — registre o delegate."}</p>
+            <p className="text-[11px] text-foreground-faint">
+              {project.chains.some(isReady)
+                ? `Pronto pra pagar em: ${project.chains.filter(isReady).map((c) => c.name).join(", ")}.`
+                : "Nenhuma rede pronta — registre o proposer como delegate."}
+            </p>
           )}
         </div>
       )}
