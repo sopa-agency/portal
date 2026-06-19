@@ -4,8 +4,9 @@ import { PageHeader } from "@/components/page-header";
 import { SetupGuide, CodeBlock } from "@/components/setup-guide";
 import { TreasuryViews } from "@/components/treasury-views";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
+import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
 import { fetchTreasuryGroups } from "@/lib/treasury";
-import { fetchSafeActivity } from "@/lib/safe-tx";
+import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
 import { getActiveProject, getAllProjects } from "@/projects";
 import { prisma } from "@/lib/prisma";
 
@@ -101,6 +102,19 @@ treasury: {
   );
   const safes = probed.filter((p): p is SafeActivityItem => p !== null && (p.activity.queued.length > 0 || p.activity.history.length > 0));
 
+  // Operational budget: the configured bounty multisig(s) + spendable balances
+  // per chain (USD valued), shown highlighted + separate from the DAO treasury.
+  const budgets = (
+    await Promise.all(
+      bountyConfigs.map(async (bc): Promise<ProjectBudget | null> => {
+        const chains = (await Promise.all([8453, 1].map((chainId) => fetchSafeBudget(bc.safeAddress, chainId)))).filter(
+          (b): b is NonNullable<typeof b> => b !== null,
+        );
+        return chains.length ? { slug: bc.projectSlug, name: nameOf(bc.projectSlug), address: bc.safeAddress, chains } : null;
+      }),
+    )
+  ).filter((b): b is ProjectBudget => b !== null);
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -113,7 +127,11 @@ treasury: {
         }
         status={usd(combined)}
       />
-      <TreasuryViews groups={groups} />
+      <MultisigBudgets budgets={budgets} />
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground-subtle">Tesouro do DAO</h2>
+        <TreasuryViews groups={groups} />
+      </div>
       <SafeActivity safes={safes} />
     </div>
   );

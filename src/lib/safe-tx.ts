@@ -29,6 +29,41 @@ export async function fetchSafeInfo(safeAddress: string, chainId: number): Promi
   }
 }
 
+export type SafeBudgetToken = { symbol: string; balance: string; usd: number | null };
+export type SafeBudget = { chainId: number; tokens: SafeBudgetToken[]; totalUsd: number };
+
+/** A Safe's spendable balance on one chain, with USD values — null if the Safe
+ *  isn't deployed on that chain. Used for the treasury "multisig budget" view. */
+export async function fetchSafeBudget(safeAddress: string, chainId: number): Promise<SafeBudget | null> {
+  const tx = safeTxService(chainId);
+  try {
+    const r = await fetch(`${tx}/api/v1/safes/${getAddress(safeAddress)}/balances/?trusted=true`, {
+      headers: { Accept: "application/json" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!r.ok) return null; // 404 = not a Safe on this chain
+    const arr = (await r.json()) as { tokenAddress: string | null; token: { symbol?: string; decimals?: number } | null; balance: string; fiatBalance?: string | null }[];
+    const STABLES = new Set(["USDC", "USDT", "DAI", "USDBC", "EURC", "USDS"]);
+    const rank = (t: SafeBudgetToken, native: boolean) => (native ? 0 : STABLES.has(t.symbol.toUpperCase()) ? 1 : 2);
+    const tokens = arr
+      .filter((b) => Number(b.balance) > 0)
+      .map((b): SafeBudgetToken & { _native: boolean } => ({
+        symbol: b.token?.symbol ?? "ETH",
+        balance: formatUnits(BigInt(b.balance), b.token?.decimals ?? 18),
+        usd: b.fiatBalance != null && b.fiatBalance !== "" ? Number(b.fiatBalance) : null,
+        _native: b.tokenAddress === null,
+      }))
+      // USD desc when known; else ETH → stablecoins → rest, then symbol.
+      .sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0) || rank(a, a._native) - rank(b, b._native) || a.symbol.localeCompare(b.symbol))
+      .map(({ _native, ...t }) => { void _native; return t; });
+    const totalUsd = tokens.reduce((s, t) => s + (t.usd ?? 0), 0);
+    return { chainId, tokens, totalUsd };
+  } catch {
+    return null;
+  }
+}
+
 export type SafeToken = {
   /** null = native ETH. */
   address: string | null;
