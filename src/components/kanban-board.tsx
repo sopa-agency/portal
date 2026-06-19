@@ -808,9 +808,11 @@ export function CardDetailDialog({
             <p className="text-sm italic text-foreground-faint">No description.</p>
           )}
 
-          {/* Bounty + EXEC meeting — feature parity with the SOPA aggregated board */}
+          {/* Bounty + EXEC meeting — feature parity with the SOPA aggregated board.
+              Collapsed they sit side by side; an open/expanded bounty panel is
+              w-full and wraps to its own row. */}
           {!editing && projectSlug && (
-            <div className="mt-6 space-y-3 border-t border-border pt-4">
+            <div className="mt-6 flex flex-wrap items-start gap-2 border-t border-border pt-4">
               {(bounty || canManage) && (
                 <BountyPanel
                   projectSlug={projectSlug}

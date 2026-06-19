@@ -152,7 +152,7 @@ export function BountyPanel({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/[0.07] to-transparent">
+    <div className="w-full overflow-hidden rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/[0.07] to-transparent">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-amber-500/15 px-3.5 py-2.5">
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
