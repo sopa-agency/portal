@@ -25,7 +25,9 @@ export async function fetchSafeTokens(safeAddress: string, chainId: number): Pro
   const tx = safeTxService(chainId);
   try {
     const safe = getAddress(safeAddress);
-    const r = await fetch(`${tx}/api/v1/safes/${safe}/balances/?trusted=false`, {
+    // trusted=true → only tokens on the Safe's curated list (filters spam/scam
+    // airdrops). Native ETH is always returned regardless.
+    const r = await fetch(`${tx}/api/v1/safes/${safe}/balances/?trusted=true`, {
       headers: { Accept: "application/json" },
       redirect: "follow",
       signal: AbortSignal.timeout(9000),
