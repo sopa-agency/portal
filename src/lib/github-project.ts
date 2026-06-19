@@ -573,23 +573,27 @@ export async function setIssueAssignees(args: {
   addIds: string[];
   removeIds: string[];
 }): Promise<MutationResult> {
+  // Declare ONLY the variables actually used — GitHub rejects a mutation that
+  // declares $addIds/$removeIds without referencing them (e.g. add-only assigns).
   const parts: string[] = [];
+  const decls: string[] = ["$contentId: ID!"];
+  const vars: Record<string, unknown> = { contentId: args.contentId };
   if (args.addIds.length > 0) {
+    decls.push("$addIds: [ID!]!");
+    vars.addIds = args.addIds;
     parts.push(`add: addAssigneesToAssignable(input: { assignableId: $contentId, assigneeIds: $addIds }) { clientMutationId }`);
   }
   if (args.removeIds.length > 0) {
+    decls.push("$removeIds: [ID!]!");
+    vars.removeIds = args.removeIds;
     parts.push(`remove: removeAssigneesFromAssignable(input: { assignableId: $contentId, assigneeIds: $removeIds }) { clientMutationId }`);
   }
   if (parts.length === 0) return { ok: true };
   const query = `
-    mutation($contentId: ID!, $addIds: [ID!]!, $removeIds: [ID!]!) {
+    mutation(${decls.join(", ")}) {
       ${parts.join("\n")}
     }`;
-  return githubGraphQL(args.token, query, {
-    contentId: args.contentId,
-    addIds: args.addIds,
-    removeIds: args.removeIds,
-  });
+  return githubGraphQL(args.token, query, vars);
 }
 
 /** Replace the assignee set on a draft-issue card. */
