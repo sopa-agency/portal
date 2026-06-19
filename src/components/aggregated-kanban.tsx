@@ -16,7 +16,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Archive, Trash2, Plus, X, Loader2 } from "lucide-react";
 import type { AggregatedColumn, AggregatedItem, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
 import { getProjectAssignees, type Assignee } from "@/app/actions/kanban";
@@ -24,6 +24,8 @@ import { BountyBadge, taskKeyOf } from "@/components/bounty-panel";
 import { CardDetailDialog } from "@/components/kanban-board";
 
 const COL_PREFIX = "aggcol:";
+
+type ProjMeta = { slug: string; name: string; projectId: string; statusFieldId: string | null; statusOptions: { name: string; optionId: string }[] };
 
 // Aggregated board for the SOPA hub: every portal's Kanban merged by status.
 // Cards are draggable — dropping into another column changes the card's status
@@ -45,6 +47,7 @@ export function AggregatedKanban({
   const [team, setTeam] = useState<Assignee[] | null>(null);
   const [dragging, setDragging] = useState<AggregatedItem | null>(null);
   const [board, setBoard] = useState<string | null>(null);
+  const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase)
   const [showDone, setShowDone] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -63,16 +66,17 @@ export function AggregatedKanban({
     setActive((prev) => (prev && prev.id === itemId ? { ...prev, ...patch } : prev));
   }
 
-  // All dialog mutations target the card's OWN project board (cross-project token + session).
+  // All mutations target the card's OWN project board (cross-project token + session).
+  async function post(targetProjectSlug: string, projectId: string, payload: Record<string, unknown>) {
+    const res = await fetch("/api/kanban", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, projectId, targetProjectSlug }),
+    });
+    return res.json();
+  }
   function mutateFor(item: AggregatedItem) {
-    return async (payload: Record<string, unknown>) => {
-      const res = await fetch("/api/kanban", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, projectId: item.projectId, targetProjectSlug: item.projectSlug }),
-      });
-      return res.json();
-    };
+    return (payload: Record<string, unknown>) => post(item.projectSlug, item.projectId, payload);
   }
 
   async function setAssigneesFor(item: KanbanItem, logins: string[]) {
@@ -82,8 +86,25 @@ export function AggregatedKanban({
     );
     const prev = it.assignees;
     patchCard(it.id, { assignees: optimistic });
-    const r = await mutateFor(it)({ action: "setAssignees", contentId: it.contentId, itemType: it.type, logins, currentLogins: prev.map((a) => a.login) });
+    const r = await post(it.projectSlug, it.projectId, { action: "setAssignees", contentId: it.contentId, itemType: it.type, logins, currentLogins: prev.map((a) => a.login) });
     if (!r.ok) { patchCard(it.id, { assignees: prev }); flash(r.error || "Falha ao atribuir."); }
+  }
+
+  async function removeCard(item: AggregatedItem, action: "archive" | "delete") {
+    const snap = cols;
+    setCols((prev) => prev.map((c) => ({ ...c, items: c.items.filter((i) => i.id !== item.id) })));
+    const r = await post(item.projectSlug, item.projectId, { action, itemId: item.id });
+    if (!r.ok) { setCols(snap); flash(r.error || (action === "archive" ? "Falha ao arquivar." : "Falha ao deletar.")); }
+  }
+
+  // Create a draft on a chosen project's board, in this column's status.
+  async function createCard(proj: ProjMeta, optionId: string | undefined, title: string) {
+    const draft = await post(proj.slug, proj.projectId, { action: "addDraft", title });
+    if (!draft.ok || !draft.itemId) { flash(draft.error || "Falha ao criar card."); return; }
+    if (proj.statusFieldId && optionId) {
+      await post(proj.slug, proj.projectId, { action: "setStatus", itemId: draft.itemId, fieldId: proj.statusFieldId, optionId });
+    }
+    router.refresh();
   }
 
   const sensors = useSensors(
@@ -96,7 +117,37 @@ export function AggregatedKanban({
   const isDone = (name: string) => /done|conclu|complete|finaliz/i.test(name);
   const doneCount = cols.filter((c) => isDone(c.name)).reduce((n, c) => n + c.items.length, 0);
   const boards = [...new Set(cols.flatMap((c) => c.items.map((i) => i.board)))].sort();
-  const match = (it: AggregatedItem) => !board || it.board === board;
+
+  // People to filter by (assignees across all cards).
+  const people = (() => {
+    const m = new Map<string, { login: string; avatarUrl: string }>();
+    for (const c of cols) for (const it of c.items) for (const a of it.assignees) {
+      if (!m.has(a.login.toLowerCase())) m.set(a.login.toLowerCase(), { login: a.login, avatarUrl: a.avatarUrl });
+    }
+    return [...m.values()].sort((a, b) => a.login.localeCompare(b.login));
+  })();
+  const togglePerson = (login: string) => {
+    const k = login.toLowerCase();
+    setPersonFilter((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+  };
+
+  // Per-project context (for creating cards in a column on a specific project board).
+  const projectsMeta = (() => {
+    const m = new Map<string, ProjMeta>();
+    for (const c of cols) for (const it of c.items) {
+      if (!m.has(it.projectSlug)) m.set(it.projectSlug, { slug: it.projectSlug, name: it.board, projectId: it.projectId, statusFieldId: it.statusFieldId, statusOptions: it.statusOptions });
+    }
+    return m;
+  })();
+  // Projects that have a given status column (can create a card there).
+  const createCandidates = (colName: string) =>
+    [...projectsMeta.values()]
+      .map((p) => ({ proj: p, optionId: p.statusOptions.find((o) => o.name.toLowerCase() === colName.toLowerCase())?.optionId }))
+      .filter((x) => x.proj.statusFieldId && x.optionId);
+
+  const match = (it: AggregatedItem) =>
+    (!board || it.board === board) &&
+    (personFilter.length === 0 || it.assignees.some((a) => personFilter.includes(a.login.toLowerCase())));
   const visible = cols
     .filter((c) => showDone || !isDone(c.name))
     .map((c) => ({ ...c, items: c.items.filter(match) }));
@@ -188,6 +239,24 @@ export function AggregatedKanban({
         )}
       </div>
 
+      {/* Person filter */}
+      {people.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Pessoa:</span>
+          <button type="button" onClick={() => setPersonFilter([])} className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${personFilter.length === 0 ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>Todas</button>
+          {people.map((p) => {
+            const on = personFilter.includes(p.login.toLowerCase());
+            return (
+              <button key={p.login} type="button" onClick={() => togglePerson(p.login)} title={`@${p.login}`} aria-pressed={on} className={`flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] ${on ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.avatarUrl} alt="" className="h-4 w-4 rounded-full object-cover" />
+                {p.login}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {toast && (
         <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">{toast}</div>
       )}
@@ -201,9 +270,23 @@ export function AggregatedKanban({
       >
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
           {visible.map((col) => (
-            <DroppableColumn key={col.name} name={col.name} count={col.items.length}>
+            <DroppableColumn
+              key={col.name}
+              name={col.name}
+              count={col.items.length}
+              candidates={canManage ? createCandidates(col.name) : []}
+              onAdd={createCard}
+            >
               {col.items.map((it) => (
-                <DraggableCard key={it.id} item={it} bounty={byKey.get(taskKeyOf(it))} onOpen={() => setActive(it)} />
+                <DraggableCard
+                  key={it.id}
+                  item={it}
+                  bounty={byKey.get(taskKeyOf(it))}
+                  canManage={canManage}
+                  onOpen={() => setActive(it)}
+                  onArchive={() => removeCard(it, "archive")}
+                  onDelete={() => removeCard(it, "delete")}
+                />
               ))}
             </DroppableColumn>
           ))}
@@ -236,15 +319,71 @@ export function AggregatedKanban({
   );
 }
 
-function DroppableColumn({ name, count, children }: { name: string; count: number; children: React.ReactNode }) {
+function DroppableColumn({
+  name,
+  count,
+  candidates,
+  onAdd,
+  children,
+}: {
+  name: string;
+  count: number;
+  candidates: { proj: ProjMeta; optionId: string | undefined }[];
+  onAdd: (proj: ProjMeta, optionId: string | undefined, title: string) => void | Promise<void>;
+  children: React.ReactNode;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: `${COL_PREFIX}${name}` });
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [projSlug, setProjSlug] = useState(candidates[0]?.proj.slug ?? "");
+  const [busy, setBusy] = useState(false);
+  const chosen = candidates.find((c) => c.proj.slug === projSlug) ?? candidates[0];
+
+  async function submit() {
+    if (!title.trim() || !chosen) return;
+    setBusy(true);
+    await onAdd(chosen.proj, chosen.optionId, title.trim());
+    setBusy(false);
+    setTitle("");
+    setAdding(false);
+  }
+
   return (
     <section className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-surface">
       <header className="sticky top-0 flex items-center justify-between gap-2 border-b border-border bg-surface px-3 py-2">
         <span className="truncate text-sm font-semibold text-foreground">{name}</span>
-        <span className="shrink-0 rounded-full bg-foreground/10 px-1.5 text-[10px] text-foreground-muted">{count}</span>
+        <span className="flex items-center gap-1">
+          <span className="shrink-0 rounded-full bg-foreground/10 px-1.5 text-[10px] text-foreground-muted">{count}</span>
+          {candidates.length > 0 && (
+            <button type="button" aria-label={`Novo card em ${name}`} onClick={() => setAdding((a) => !a)} className="rounded p-0.5 text-foreground-faint hover:text-foreground">
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </span>
       </header>
       <div ref={setNodeRef} className={`min-h-0 flex-1 space-y-2 overflow-y-auto p-2 transition-colors ${isOver ? "bg-accent-bg/40" : ""}`}>
+        {adding && candidates.length > 0 && (
+          <div className="space-y-1.5 rounded-lg border border-border bg-surface-elevated p-2">
+            <textarea
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } else if (e.key === "Escape") { setTitle(""); setAdding(false); } }}
+              rows={2}
+              autoFocus
+              placeholder="Título do card… (Enter cria, Esc cancela)"
+              className="w-full resize-none rounded-md bg-surface px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
+            />
+            <div className="flex items-center gap-1.5">
+              <select value={projSlug} onChange={(e) => setProjSlug(e.target.value)} className="min-w-0 flex-1 rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-foreground">
+                {candidates.map((c) => <option key={c.proj.slug} value={c.proj.slug}>{c.proj.name}</option>)}
+              </select>
+              <button type="button" onClick={() => { setTitle(""); setAdding(false); }} className="rounded-md p-1 text-foreground-faint hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+              <button type="button" onClick={submit} disabled={busy || !title.trim()} className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground disabled:opacity-50">
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add"}
+              </button>
+            </div>
+          </div>
+        )}
         {children}
       </div>
     </section>
@@ -275,7 +414,7 @@ function CardInner({ item, bounty }: { item: AggregatedItem; bounty?: BountyDTO 
   );
 }
 
-function DraggableCard({ item, bounty, onOpen }: { item: AggregatedItem; bounty?: BountyDTO; onOpen: () => void }) {
+function DraggableCard({ item, bounty, canManage, onOpen, onArchive, onDelete }: { item: AggregatedItem; bounty?: BountyDTO; canManage: boolean; onOpen: () => void; onArchive: () => void; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id });
   const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1 };
   return (
@@ -284,15 +423,24 @@ function DraggableCard({ item, bounty, onOpen }: { item: AggregatedItem; bounty?
       style={style}
       className="group relative rounded-lg border border-border bg-surface-elevated p-2.5 transition-colors hover:border-border-strong"
     >
-      <button
-        type="button"
-        aria-label="Mover card"
-        className="absolute right-1 top-1 cursor-grab touch-none rounded p-0.5 text-foreground-faint opacity-0 transition-opacity hover:text-foreground active:cursor-grabbing group-hover:opacity-100"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
+      {/* Hover actions: drag · archive · delete */}
+      <div className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {canManage && (
+          <>
+            <button type="button" aria-label="Arquivar" onPointerDown={(e) => e.stopPropagation()} onClick={onArchive} className="rounded p-0.5 text-foreground-faint hover:text-foreground"><Archive className="h-3.5 w-3.5" /></button>
+            <button type="button" aria-label="Deletar" onPointerDown={(e) => e.stopPropagation()} onClick={onDelete} className="rounded p-0.5 text-foreground-faint hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
+          </>
+        )}
+        <button
+          type="button"
+          aria-label="Mover card"
+          className="cursor-grab touch-none rounded p-0.5 text-foreground-faint hover:text-foreground active:cursor-grabbing"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      </div>
       <button type="button" onClick={onOpen} className="block w-full text-left">
         <CardInner item={item} bounty={bounty} />
       </button>
