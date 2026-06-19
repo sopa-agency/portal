@@ -32,7 +32,6 @@ const gnars: ProjectConfig = {
     accentBorderLight: "rgba(209, 29, 42, 0.3)",
     accentBorderDark: "rgba(255, 51, 68, 0.35)",
     logo: "/projects/gnars/logo.png",
-    favicon: "/projects/gnars/favicon.ico",
   },
   hive: {
     // Gnars posts to the gnars Hive community.

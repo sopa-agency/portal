@@ -35,7 +35,6 @@ const reelflip: ProjectConfig = {
     accentBorderLight: "rgba(8, 145, 178, 0.3)",
     accentBorderDark: "rgba(34, 211, 238, 0.3)",
     logo: "/projects/reelflip/reelflip-avatar.png",
-    favicon: "/projects/reelflip/favicon.ico",
   },
   hive: {
     // Reelflip posts to Hive THROUGH SkateHive — its own @reelflip account

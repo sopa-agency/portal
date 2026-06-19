@@ -69,7 +69,6 @@ const skatehive: ProjectConfig = {
     accentBorderLight: "rgba(91, 156, 0, 0.3)",
     accentBorderDark: "rgba(163, 230, 53, 0.3)",
     logo: "/projects/skatehive/logo.svg",
-    favicon: "/projects/skatehive/favicon.ico",
   },
   hive: {
     account: "skatehive",

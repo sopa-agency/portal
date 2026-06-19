@@ -27,9 +27,12 @@ const geistMono = Geist_Mono({
 
 export async function generateMetadata(): Promise<Metadata> {
   const project = await getActiveProject();
+  // Each portal's browser favicon is its own logo (favicon override if set).
+  const icon = project.theme.favicon ?? project.theme.logo;
   return {
     title: `${project.name} Portal`,
     description: project.description,
+    icons: { icon, shortcut: icon, apple: icon },
   };
 }
 
