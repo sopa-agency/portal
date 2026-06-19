@@ -12,6 +12,7 @@ import {
 } from "@/app/actions/bounty";
 
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const USDC_ETH = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 
 export function BountySetup() {
   const [proposer, setProposer] = useState<string | null>(null);
@@ -164,6 +165,7 @@ function ProjectBountyRow({
           </label>
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => setForm({ ...form, chainId: 8453, tokenAddress: USDC_BASE, tokenSymbol: "USDC", tokenDecimals: 6 })} className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground">USDC (Base)</button>
+            <button type="button" onClick={() => setForm({ ...form, chainId: 1, tokenAddress: USDC_ETH, tokenSymbol: "USDC", tokenDecimals: 6 })} className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground">USDC (Ethereum)</button>
             <button type="button" onClick={() => setForm({ ...form, tokenAddress: "", tokenSymbol: "ETH", tokenDecimals: 18 })} className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground">ETH</button>
             <button type="button" onClick={save} disabled={saving || !form.safeAddress.trim()} className="ml-auto rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Salvar"}

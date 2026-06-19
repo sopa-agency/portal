@@ -69,16 +69,27 @@ treasury: {
   const combined = groups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
 
   // Surface Safe transaction activity for any EVM treasury wallet that is a
-  // Gnosis Safe on Base (probed via the Safe Transaction Service).
+  // Gnosis Safe — probed on BOTH Base and Ethereum mainnet via the Safe
+  // Transaction Service (a wallet may be a Safe on either chain).
   const evmWallets = [
     ...new Map(
       groups.flatMap((g) => g.report.evm.map((w) => [w.address.toLowerCase(), { label: w.label, address: w.address }])),
     ).values(),
   ];
+  const SAFE_CHAINS = [8453, 1];
   const probed = await Promise.all(
-    evmWallets.map(async (w): Promise<SafeActivityItem> => ({ ...w, chainId: 8453, activity: await fetchSafeActivity(w.address, 8453) })),
+    evmWallets.map(async (w): Promise<SafeActivityItem | null> => {
+      const perChain = await Promise.all(
+        SAFE_CHAINS.map(async (chainId) => ({ chainId, activity: await fetchSafeActivity(w.address, chainId) })),
+      );
+      // Prefer the chain where it's a Safe with activity, else any chain it's a Safe on.
+      const hit =
+        perChain.find((r) => r.activity.isSafe && (r.activity.queued.length > 0 || r.activity.history.length > 0)) ??
+        perChain.find((r) => r.activity.isSafe);
+      return hit ? { ...w, chainId: hit.chainId, activity: hit.activity } : null;
+    }),
   );
-  const safes = probed.filter((p) => p.activity.isSafe && (p.activity.queued.length > 0 || p.activity.history.length > 0));
+  const safes = probed.filter((p): p is SafeActivityItem => p !== null && (p.activity.queued.length > 0 || p.activity.history.length > 0));
 
   return (
     <div className="space-y-8">
