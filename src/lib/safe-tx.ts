@@ -11,6 +11,24 @@ export function safeAppChainPrefix(chainId: number): string {
   return chainId === 1 ? "eth" : "base";
 }
 
+/** Whether a Safe is deployed on a chain (+ its threshold). null on error. */
+export async function fetchSafeInfo(safeAddress: string, chainId: number): Promise<{ exists: boolean; threshold: number } | null> {
+  const tx = safeTxService(chainId);
+  try {
+    const r = await fetch(`${tx}/api/v1/safes/${getAddress(safeAddress)}/`, {
+      headers: { Accept: "application/json" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(9000),
+    });
+    if (r.status === 404 || r.status === 422) return { exists: false, threshold: 0 };
+    if (!r.ok) return null;
+    const j = (await r.json()) as { threshold?: number };
+    return { exists: true, threshold: Number(j.threshold ?? 0) };
+  } catch {
+    return null;
+  }
+}
+
 export type SafeToken = {
   /** null = native ETH. */
   address: string | null;

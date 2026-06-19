@@ -349,6 +349,7 @@ model Bounty {
   taskKey      String // GitHub item contentId / url — stable handle for the task
   title        String
   amount       String // human amount — must fit the Safe's live balance of this token
+  chainId      Int      @default(8453) // 8453 Base | 1 Ethereum — which chain pays
   tokenSymbol  String
   tokenAddress String? // null = native ETH; else an ERC-20 the Safe actually holds
   tokenDecimals Int     @default(18)

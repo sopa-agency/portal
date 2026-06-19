@@ -14,7 +14,14 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
 import { getActiveProject, getAllProjects } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
-import { fetchSafeTokens, safeTxService } from "@/lib/safe-tx";
+import { fetchSafeTokens, fetchSafeInfo, safeTxService } from "@/lib/safe-tx";
+
+/** Chains a project's Safe can be used on. Same address is probed on each. */
+const SUPPORTED_CHAINS: { chainId: number; name: string }[] = [
+  { chainId: 8453, name: "Base" },
+  { chainId: 1, name: "Ethereum" },
+];
+const tokenKey = (addr: string | null) => (addr ? addr.toLowerCase() : "eth");
 
 /** The proposer local account (a delegate on each Safe). Never leaves the server. */
 function proposerAccount() {
@@ -41,45 +48,47 @@ async function globalGate() {
   return { ok: true as const, who };
 }
 
-type BountyConfigDTO = { safeAddress: string; chainId: number; tokenAddress: string | null; tokenSymbol: string; tokenDecimals: number };
+/** Per-chain status of a project's Safe (for the Settings overview). */
+export type ChainStatus = {
+  chainId: number;
+  name: string;
+  exists: boolean; // Safe deployed on this chain
+  delegate: boolean | null; // proposer registered as delegate here
+  balances: string; // short human summary, e.g. "0.001 ETH · 16 USDC"
+};
 export type ProjectBounty = {
   slug: string;
   name: string;
-  config: BountyConfigDTO | null;
-  balance: string | null;
-  delegateRegistered: boolean | null;
+  safeAddress: string | null;
+  chains: ChainStatus[];
 };
 
-async function safeStatus(config: BountyConfigDTO, proposer: string | null): Promise<{ balance: string | null; delegate: boolean | null }> {
-  const tx = safeTxService(config.chainId);
-  let balance: string | null = null;
-  let delegate: boolean | null = null;
-  // Read balance from the Safe Transaction Service (reliable; same source as the
-  // token picker) — avoids slow/flaky public RPCs, esp. on mainnet.
+/** Is the proposer a registered delegate of `safe` on `chainId`? */
+async function isProposerDelegate(safe: string, chainId: number, proposer: string): Promise<boolean | null> {
   try {
-    const want = config.tokenAddress ? config.tokenAddress.toLowerCase() : "eth";
-    const tokens = await fetchSafeTokens(config.safeAddress, config.chainId);
-    const t = tokens.find((x) => (x.address ? x.address.toLowerCase() : "eth") === want);
-    balance = t ? t.balance : "0";
+    const res = await fetch(`${safeTxService(chainId)}/api/v2/delegates/?safe=${getAddress(safe)}&delegate=${getAddress(proposer)}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    const j = (await res.json()) as { count?: number; results?: unknown[] };
+    return (j.count ?? j.results?.length ?? 0) > 0;
   } catch {
-    balance = null;
+    return null;
   }
-  if (proposer) {
-    try {
-      const res = await fetch(`${tx}/api/v2/delegates/?safe=${getAddress(config.safeAddress)}&delegate=${getAddress(proposer)}`, {
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(8000),
-      });
-      const j = (await res.json()) as { count?: number; results?: unknown[] };
-      delegate = (j.count ?? j.results?.length ?? 0) > 0;
-    } catch {
-      delegate = null;
-    }
-  }
-  return { balance, delegate };
 }
 
-/** Per-project bounty setup (Safe/token/delegate) for every portal. */
+async function chainStatus(safe: string, chainId: number, name: string, proposer: string | null): Promise<ChainStatus> {
+  const info = await fetchSafeInfo(safe, chainId);
+  if (!info?.exists) return { chainId, name, exists: false, delegate: null, balances: "" };
+  const [delegate, tokens] = await Promise.all([
+    proposer ? isProposerDelegate(safe, chainId, proposer) : Promise.resolve(null),
+    fetchSafeTokens(safe, chainId),
+  ]);
+  const balances = tokens.slice(0, 3).map((t) => `${Number(t.balance)} ${t.symbol}`).join(" · ") || "vazio";
+  return { chainId, name, exists: true, delegate, balances };
+}
+
+/** Per-project bounty setup — the Safe + its status on EVERY supported chain. */
 export async function getBountySetup(): Promise<{ ok: true; proposer: string | null; projects: ProjectBounty[] } | { ok: false; error: string }> {
   const g = await globalGate();
   if (!g.ok) return g;
@@ -89,12 +98,9 @@ export async function getBountySetup(): Promise<{ ok: true; proposer: string | n
   const projects = await Promise.all(
     getAllProjects().map(async (p): Promise<ProjectBounty> => {
       const row = byProject.get(p.slug);
-      const config: BountyConfigDTO | null = row
-        ? { safeAddress: row.safeAddress, chainId: row.chainId, tokenAddress: row.tokenAddress, tokenSymbol: row.tokenSymbol, tokenDecimals: row.tokenDecimals }
-        : null;
-      if (!config) return { slug: p.slug, name: p.name, config: null, balance: null, delegateRegistered: null };
-      const st = await safeStatus(config, proposer);
-      return { slug: p.slug, name: p.name, config, balance: st.balance, delegateRegistered: st.delegate };
+      if (!row) return { slug: p.slug, name: p.name, safeAddress: null, chains: [] };
+      const chains = await Promise.all(SUPPORTED_CHAINS.map((c) => chainStatus(row.safeAddress, c.chainId, c.name, proposer)));
+      return { slug: p.slug, name: p.name, safeAddress: row.safeAddress, chains };
     }),
   );
   return { ok: true, proposer, projects };
@@ -104,13 +110,8 @@ function validSlug(slug: string): boolean {
   return getAllProjects().some((p) => p.slug === slug);
 }
 
-export async function saveBountyConfig(projectSlug: string, input: {
-  safeAddress: string;
-  chainId: number;
-  tokenAddress: string | null;
-  tokenSymbol: string;
-  tokenDecimals: number;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+/** Save the project's Safe address (same address is used on Base + mainnet). */
+export async function saveBountyConfig(projectSlug: string, input: { safeAddress: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await globalGate();
   if (!g.ok) return g;
   if (!validSlug(projectSlug)) return { ok: false, error: "Portal inválido." };
@@ -120,14 +121,11 @@ export async function saveBountyConfig(projectSlug: string, input: {
   } catch {
     return { ok: false, error: "Endereço do Safe inválido." };
   }
-  let token: string | null = null;
-  if (input.tokenAddress?.trim()) {
-    try { token = getAddress(input.tokenAddress.trim()); } catch { return { ok: false, error: "Endereço do token inválido." }; }
-  }
+  // chainId/token columns are legacy defaults — chain + token are chosen per bounty.
   await prisma.bountyConfig.upsert({
     where: { projectSlug },
-    update: { safeAddress: safe, chainId: input.chainId, tokenAddress: token, tokenSymbol: input.tokenSymbol.trim() || "ETH", tokenDecimals: input.tokenDecimals, updatedBy: g.who.username },
-    create: { projectSlug, safeAddress: safe, chainId: input.chainId, tokenAddress: token, tokenSymbol: input.tokenSymbol.trim() || "ETH", tokenDecimals: input.tokenDecimals, updatedBy: g.who.username },
+    update: { safeAddress: safe, updatedBy: g.who.username },
+    create: { projectSlug, safeAddress: safe, chainId: 8453, tokenAddress: null, tokenSymbol: "ETH", tokenDecimals: 18, updatedBy: g.who.username },
   });
   return { ok: true };
 }
@@ -145,6 +143,7 @@ export type BountyDTO = {
   taskKey: string;
   title: string;
   amount: string;
+  chainId: number;
   tokenSymbol: string;
   status: string; // open | proposed | paid | cancelled
   payeeAddress: string | null;
@@ -153,9 +152,9 @@ export type BountyDTO = {
 
 function toDTO(b: {
   id: string; projectSlug: string; taskKey: string; title: string; amount: string;
-  tokenSymbol: string; status: string; payeeAddress: string | null; safeTxHash: string | null;
+  chainId: number; tokenSymbol: string; status: string; payeeAddress: string | null; safeTxHash: string | null;
 }): BountyDTO {
-  return { id: b.id, projectSlug: b.projectSlug, taskKey: b.taskKey, title: b.title, amount: b.amount, tokenSymbol: b.tokenSymbol, status: b.status, payeeAddress: b.payeeAddress, safeTxHash: b.safeTxHash };
+  return { id: b.id, projectSlug: b.projectSlug, taskKey: b.taskKey, title: b.title, amount: b.amount, chainId: b.chainId, tokenSymbol: b.tokenSymbol, status: b.status, payeeAddress: b.payeeAddress, safeTxHash: b.safeTxHash };
 }
 
 /** Bounties visible on the aggregated Kanban — any authorized SOPA member can see the badges. */
@@ -169,43 +168,64 @@ export async function listBounties(): Promise<{ ok: true; bounties: BountyDTO[] 
 
 /** A token the Safe holds + how much is still un-reserved for new bounties. */
 export type SafeTokenAvailability = { address: string | null; symbol: string; decimals: number; balance: string; available: string };
+/** A chain a project's Safe is usable on (deployed + proposer is delegate), with its tokens. */
+export type SafeChainOption = { chainId: number; name: string; tokens: SafeTokenAvailability[] };
 
-const tokenKey = (addr: string | null) => (addr ? addr.toLowerCase() : "eth");
+/** Available per token = held − reserved (open/proposed bounties on the SAME chain+token). */
+function withAvailability(held: { address: string | null; symbol: string; decimals: number; balance: string }[], reservedByToken: Map<string, number>): SafeTokenAvailability[] {
+  return held.map((t) => ({
+    address: t.address,
+    symbol: t.symbol,
+    decimals: t.decimals,
+    balance: t.balance,
+    available: String(Math.max(0, Number(t.balance) - (reservedByToken.get(tokenKey(t.address)) ?? 0))),
+  }));
+}
 
-/** Tokens held by a project's Safe, each with the amount still available to reserve. */
-export async function getSafeTokens(projectSlug: string): Promise<
-  { ok: true; tokens: SafeTokenAvailability[] } | { ok: false; error: string }
+/** Chains (Base + mainnet) a project's Safe can pay from — where it's deployed AND
+ *  the proposer is a registered delegate — each with its spendable tokens. */
+export async function getSafeOptions(projectSlug: string): Promise<
+  { ok: true; chains: SafeChainOption[] } | { ok: false; error: string }
 > {
   const g = await globalGate();
   if (!g.ok) return g;
   const config = await prisma.bountyConfig.findUnique({ where: { projectSlug } });
   if (!config) return { ok: false, error: "Configure o Safe deste projeto primeiro." };
-  const held = await fetchSafeTokens(config.safeAddress, config.chainId);
-  // Sum already-reserved (open/proposed) per token for this project.
-  const open = await prisma.bounty.findMany({
+  const proposer = proposerAddress();
+  const reservedRows = await prisma.bounty.findMany({
     where: { projectSlug, status: { in: ["open", "proposed"] } },
-    select: { amount: true, tokenAddress: true },
+    select: { amount: true, tokenAddress: true, chainId: true },
   });
-  const reserved = new Map<string, number>();
-  for (const b of open) reserved.set(tokenKey(b.tokenAddress), (reserved.get(tokenKey(b.tokenAddress)) ?? 0) + (Number(b.amount) || 0));
-  const tokens = held.map((t): SafeTokenAvailability => {
-    const avail = Math.max(0, Number(t.balance) - (reserved.get(tokenKey(t.address)) ?? 0));
-    return { address: t.address, symbol: t.symbol, decimals: t.decimals, balance: t.balance, available: String(avail) };
-  });
-  return { ok: true, tokens };
+
+  const chains: SafeChainOption[] = [];
+  for (const c of SUPPORTED_CHAINS) {
+    const info = await fetchSafeInfo(config.safeAddress, c.chainId);
+    if (!info?.exists) continue;
+    const delegate = proposer ? await isProposerDelegate(config.safeAddress, c.chainId, proposer) : false;
+    if (!delegate) continue; // can't propose here → don't offer it
+    const held = await fetchSafeTokens(config.safeAddress, c.chainId);
+    const reserved = new Map<string, number>();
+    for (const b of reservedRows.filter((r) => r.chainId === c.chainId)) {
+      reserved.set(tokenKey(b.tokenAddress), (reserved.get(tokenKey(b.tokenAddress)) ?? 0) + (Number(b.amount) || 0));
+    }
+    chains.push({ chainId: c.chainId, name: c.name, tokens: withAvailability(held, reserved) });
+  }
+  return { ok: true, chains };
 }
 
-/** Reserve a bounty on a task — the value is a token the Safe holds, capped at its available balance. */
+/** Reserve a bounty — pick a chain + a token the Safe holds there, capped at its available balance. */
 export async function createBounty(input: {
   projectSlug: string;
   taskKey: string;
   title: string;
+  chainId: number;
   tokenAddress: string | null;
   amount: string;
 }): Promise<{ ok: true; bounty: BountyDTO } | { ok: false; error: string }> {
   const g = await globalGate();
   if (!g.ok) return g;
   if (!validSlug(input.projectSlug)) return { ok: false, error: "Portal inválido." };
+  if (!SUPPORTED_CHAINS.some((c) => c.chainId === input.chainId)) return { ok: false, error: "Rede não suportada." };
   const taskKey = input.taskKey.trim();
   if (!taskKey) return { ok: false, error: "Tarefa inválida." };
 
@@ -220,15 +240,14 @@ export async function createBounty(input: {
     return { ok: false, error: "Essa tarefa já tem um bounty." };
   }
 
-  // The value must be a token the Safe actually holds, capped at its available balance.
-  const held = await fetchSafeTokens(config.safeAddress, config.chainId);
+  // The value must be a token the Safe holds on the chosen chain, capped at available.
+  const held = await fetchSafeTokens(config.safeAddress, input.chainId);
   const want = tokenKey(input.tokenAddress);
   const token = held.find((t) => tokenKey(t.address) === want);
-  if (!token) return { ok: false, error: "Esse token não está no Safe (ou sem saldo)." };
+  if (!token) return { ok: false, error: "Esse token não está no Safe nessa rede (ou sem saldo)." };
 
-  // Available for this token = held balance − everything reserved in the same token.
   const open = await prisma.bounty.findMany({
-    where: { projectSlug: input.projectSlug, status: { in: ["open", "proposed"] }, ...(existing ? { id: { not: existing.id } } : {}) },
+    where: { projectSlug: input.projectSlug, chainId: input.chainId, status: { in: ["open", "proposed"] }, ...(existing ? { id: { not: existing.id } } : {}) },
     select: { amount: true, tokenAddress: true },
   });
   const reservedSame = open
@@ -242,6 +261,7 @@ export async function createBounty(input: {
   const data = {
     title: input.title.slice(0, 300),
     amount: String(amount),
+    chainId: input.chainId,
     tokenSymbol: token.symbol,
     tokenAddress: token.address,
     tokenDecimals: token.decimals,
@@ -331,9 +351,9 @@ export async function proposeBountyPayment(id: string, payeeInput: string): Prom
   const account = proposerAccount();
   if (!account) return { ok: false, error: "SAFE_PROPOSER_PRIVATE_KEY não configurado." };
 
-  const tx = safeTxService(config.chainId);
+  // Pay on the bounty's own chain (Base or mainnet), in its own token.
+  const tx = safeTxService(b.chainId);
   const safe = getAddress(config.safeAddress);
-  // Pay out the token the bounty was created in (a token the Safe holds), not a config default.
   const amountUnits = parseUnits(b.amount, b.tokenDecimals);
 
   // ETH transfer vs ERC-20 transfer(payee, amount).
@@ -364,7 +384,7 @@ export async function proposeBountyPayment(id: string, payeeInput: string): Prom
       refundReceiver: zeroAddress,
       nonce: BigInt(nonce),
     } as const;
-    const domain = { chainId: config.chainId, verifyingContract: safe } as const;
+    const domain = { chainId: b.chainId, verifyingContract: safe } as const;
     const safeTxHash = hashTypedData({ domain, types: SAFE_TX_TYPES, primaryType: "SafeTx", message });
     const signature = await account.signTypedData({ domain, types: SAFE_TX_TYPES, primaryType: "SafeTx", message });
 
@@ -395,7 +415,7 @@ export async function proposeBountyPayment(id: string, payeeInput: string): Prom
     }
 
     await prisma.bounty.update({ where: { id }, data: { status: "proposed", payeeAddress: payee, safeTxHash } });
-    const appUrl = `https://app.safe.global/transactions/queue?safe=${config.chainId === 1 ? "eth" : "base"}:${safe}`;
+    const appUrl = `https://app.safe.global/transactions/queue?safe=${b.chainId === 1 ? "eth" : "base"}:${safe}`;
     return { ok: true, safeTxHash, url: appUrl };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Falha ao propor pagamento." };

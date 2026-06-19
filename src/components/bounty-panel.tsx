@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Coins, Loader2, Trash2, CalendarPlus, Check, ArrowUpRight, Wallet } from "lucide-react";
-import { createBounty, cancelBounty, proposeBountyPayment, markBountyPaid, getSafeTokens, type BountyDTO, type SafeTokenAvailability } from "@/app/actions/bounty";
+import { createBounty, cancelBounty, proposeBountyPayment, markBountyPaid, getSafeOptions, type BountyDTO, type SafeTokenAvailability, type SafeChainOption } from "@/app/actions/bounty";
+
+const CHAIN_LABEL: Record<number, string> = { 8453: "Base", 1: "Ethereum" };
 
 /** Stable handle for a task across reloads: GitHub node id, then url, then item id. */
 export function taskKeyOf(it: { contentId?: string | null; url?: string; id: string }): string {
@@ -93,24 +95,30 @@ export function BountyPanel({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Tokens the Safe holds (trusted only, with available-to-reserve amounts).
+  // Chains the Safe can pay from (Base/Ethereum) + their spendable tokens.
   const showCreate = !bounty && canManage;
-  const [tokens, setTokens] = useState<SafeTokenAvailability[] | null>(null);
+  const [chains, setChains] = useState<SafeChainOption[] | null>(null);
+  const [chainId, setChainId] = useState<number | null>(null);
   const [tokenKey, setTokenKey] = useState<string>("eth");
   useEffect(() => {
     if (!showCreate) return;
     let live = true;
-    getSafeTokens(projectSlug).then((r) => {
+    getSafeOptions(projectSlug).then((r) => {
       if (!live) return;
-      if (r.ok) {
-        setTokens(r.tokens);
-        if (r.tokens[0]) setTokenKey(r.tokens[0].address ? r.tokens[0].address.toLowerCase() : "eth");
-      } else setTokens([]);
+      const list = r.ok ? r.chains : [];
+      setChains(list);
+      if (list[0]) {
+        setChainId(list[0].chainId);
+        const t0 = list[0].tokens[0];
+        setTokenKey(t0 ? (t0.address ? t0.address.toLowerCase() : "eth") : "eth");
+      }
     });
     return () => { live = false; };
   }, [showCreate, projectSlug]);
   const keyOf = (t: SafeTokenAvailability) => (t.address ? t.address.toLowerCase() : "eth");
-  const selected = tokens?.find((t) => keyOf(t) === tokenKey) ?? null;
+  const activeChain = chains?.find((c) => c.chainId === chainId) ?? null;
+  const tokens = activeChain?.tokens ?? [];
+  const selected = tokens.find((t) => keyOf(t) === tokenKey) ?? null;
   const overCap = !!selected && Number(amount) > Number(selected.available) + 1e-12;
 
   if (!bounty && !canManage) return null;
@@ -150,12 +158,34 @@ export function BountyPanel({
 
         {/* ── Create ── */}
         {showCreate && (
-          tokens === null ? (
-            <p className="flex items-center gap-1.5 py-2 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Lendo saldos do Safe…</p>
-          ) : tokens.length === 0 ? (
-            <p className="text-xs text-foreground-muted">O Safe deste projeto não tem saldo confiável (ou não está configurado em Settings → Bounties).</p>
+          chains === null ? (
+            <p className="flex items-center gap-1.5 py-2 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Lendo redes e saldos do Safe…</p>
+          ) : chains.length === 0 ? (
+            <p className="text-xs text-foreground-muted">Nenhuma rede pronta. Configure o Safe e registre o proposer como delegate (Base e/ou Ethereum) em Settings → Bounties.</p>
           ) : (
             <div className="space-y-3">
+              {/* Chain picker (only when usable on >1 chain) */}
+              {chains.length > 1 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">Rede</p>
+                  <div className="flex gap-1.5">
+                    {chains.map((c) => {
+                      const on = c.chainId === chainId;
+                      return (
+                        <button
+                          key={c.chainId}
+                          type="button"
+                          onClick={() => { setChainId(c.chainId); const t0 = c.tokens[0]; setTokenKey(t0 ? (t0.address ? t0.address.toLowerCase() : "eth") : "eth"); setAmount(""); setMsg(null); }}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${on ? "border-accent bg-accent-bg text-accent" : "border-border bg-surface text-foreground-muted hover:border-border-strong"}`}
+                        >
+                          {CHAIN_LABEL[c.chainId] ?? c.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {tokens.length === 0 && <p className="text-xs text-foreground-muted">Sem saldo confiável nessa rede.</p>}
               {/* Token picker */}
               <div className="space-y-1.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">Token</p>
@@ -216,8 +246,8 @@ export function BountyPanel({
 
               <button
                 type="button"
-                onClick={() => run(() => createBounty({ projectSlug, taskKey, title, tokenAddress: selected?.address ?? null, amount }), "Bounty criado ✅")}
-                disabled={busy || !amount.trim() || overCap || !selected}
+                onClick={() => run(() => createBounty({ projectSlug, taskKey, title, chainId: chainId!, tokenAddress: selected?.address ?? null, amount }), "Bounty criado ✅")}
+                disabled={busy || !amount.trim() || overCap || !selected || !chainId}
                 className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />} Transformar em bounty
@@ -232,6 +262,7 @@ export function BountyPanel({
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold tabular-nums text-foreground">{fmtNum(bounty.amount)}</span>
               <span className="text-sm font-medium text-foreground-muted">{bounty.tokenSymbol}</span>
+              <span className="text-[11px] text-foreground-faint">· {CHAIN_LABEL[bounty.chainId] ?? bounty.chainId}</span>
               <span className="ml-auto rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">reservado</span>
             </div>
             {canManage ? (
@@ -277,6 +308,7 @@ export function BountyPanel({
             <div className="flex items-baseline gap-2">
               <span className="text-xl font-bold tabular-nums text-foreground">{fmtNum(bounty.amount)}</span>
               <span className="text-sm font-medium text-foreground-muted">{bounty.tokenSymbol}</span>
+              <span className="text-[11px] text-foreground-faint">· {CHAIN_LABEL[bounty.chainId] ?? bounty.chainId}</span>
               <span className="ml-auto flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning"><Loader2 className="h-2.5 w-2.5 animate-spin" /> aguardando owners</span>
             </div>
             {bounty.payeeAddress && (

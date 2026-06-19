@@ -2,14 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, XCircle, Copy, ChevronDown } from "lucide-react";
-import {
-  getBountySetup,
-  saveBountyConfig,
-  type ProjectBounty,
-} from "@/app/actions/bounty";
-
-const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-const USDC_ETH = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+import { getBountySetup, saveBountyConfig, type ProjectBounty, type ChainStatus } from "@/app/actions/bounty";
 
 export function BountySetup() {
   const [proposer, setProposer] = useState<string | null>(null);
@@ -32,7 +25,7 @@ export function BountySetup() {
     <section aria-labelledby="bounty-heading" className="space-y-4">
       <div className="flex items-baseline gap-3">
         <h2 id="bounty-heading" className="text-lg font-semibold tracking-tight text-foreground">Bounties &amp; Safe</h2>
-        <span className="text-xs text-foreground-faint">cada projeto paga do seu Safe — config por projeto</span>
+        <span className="text-xs text-foreground-faint">cada Safe paga em Base e Ethereum — token escolhido por bounty</span>
       </div>
       {err && <p className="text-xs text-danger">{err}</p>}
 
@@ -45,6 +38,7 @@ export function BountySetup() {
         ) : (
           <p className="mt-1 text-xs text-danger">SAFE_PROPOSER_PRIVATE_KEY não configurado.</p>
         )}
+        <p className="mt-1.5 text-[11px] text-foreground-faint">Registre esse endereço como delegate de cada Safe no app.safe.global — em <span className="font-medium">cada rede</span> que for usar.</p>
       </div>
 
       <div className="space-y-2">
@@ -52,7 +46,6 @@ export function BountySetup() {
           <ProjectBountyRow
             key={p.slug}
             project={p}
-            proposer={proposer}
             isOpen={open === p.slug}
             onToggle={() => setOpen(open === p.slug ? null : p.slug)}
             onChanged={load}
@@ -63,93 +56,92 @@ export function BountySetup() {
   );
 }
 
+function ChainPill({ c }: { c: ChainStatus }) {
+  if (!c.exists) return <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-foreground-faint">{c.name}: —</span>;
+  const ok = c.delegate === true;
+  return (
+    <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] ${ok ? "border-success/40 bg-success/10 text-success" : "border-warning/40 bg-warning/10 text-warning"}`}>
+      {ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+      {c.name}
+    </span>
+  );
+}
+
 function ProjectBountyRow({
   project,
-  proposer,
   isOpen,
   onToggle,
   onChanged,
 }: {
   project: ProjectBounty;
-  proposer: string | null;
   isOpen: boolean;
   onToggle: () => void;
   onChanged: () => Promise<void>;
 }) {
-  const c = project.config;
-  const [form, setForm] = useState({
-    safeAddress: c?.safeAddress ?? "",
-    chainId: c?.chainId ?? 8453,
-    tokenAddress: c?.tokenAddress ?? "",
-    tokenSymbol: c?.tokenSymbol ?? "ETH",
-    tokenDecimals: c?.tokenDecimals ?? 18,
-  });
+  const [addr, setAddr] = useState(project.safeAddress ?? "");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function save() {
     setSaving(true); setMsg(null);
-    const r = await saveBountyConfig(project.slug, { ...form, tokenAddress: form.tokenAddress.trim() || null });
+    const r = await saveBountyConfig(project.slug, { safeAddress: addr });
     setSaving(false);
     if (r.ok) { setMsg({ ok: true, text: "Salvo ✅" }); await onChanged(); }
     else setMsg({ ok: false, text: r.error });
   }
 
+  const readyChains = project.chains.filter((c) => c.exists && c.delegate === true).length;
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">
       <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-surface-elevated">
         <span className="text-sm font-semibold text-foreground">{project.name}</span>
-        <span className="flex items-center gap-2 text-xs">
-          {c ? (
-            <>
-              <span className="text-foreground-muted">{project.balance != null ? `${project.balance} ${c.tokenSymbol}` : "—"}</span>
-              {project.delegateRegistered === true ? <CheckCircle2 className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-warning" />}
-            </>
+        <span className="flex items-center gap-1.5">
+          {project.safeAddress ? (
+            project.chains.length ? project.chains.map((c) => <ChainPill key={c.chainId} c={c} />) : <span className="text-[10px] text-foreground-faint">checando…</span>
           ) : (
-            <span className="text-foreground-faint">sem Safe</span>
+            <span className="text-[11px] text-foreground-faint">sem Safe</span>
           )}
           <ChevronDown className={`h-4 w-4 text-foreground-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
         </span>
       </button>
 
       {isOpen && (
-        <div className="space-y-2 border-t border-border p-3">
+        <div className="space-y-3 border-t border-border p-3">
           {msg && <p className={`text-xs ${msg.ok ? "text-success" : "text-danger"}`}>{msg.text}</p>}
-          <label className="block text-xs text-foreground-muted">Endereço do Safe
-            <input value={form.safeAddress} onChange={(e) => setForm({ ...form, safeAddress: e.target.value })} placeholder="0x…" className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 font-mono text-xs text-foreground focus:border-border-strong focus:outline-none" />
+          <label className="block text-xs text-foreground-muted">Endereço do Safe <span className="text-foreground-faint">(mesmo endereço em Base e Ethereum)</span>
+            <div className="mt-1 flex items-center gap-2">
+              <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="0x…" className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 font-mono text-xs text-foreground focus:border-border-strong focus:outline-none" />
+              <button type="button" onClick={save} disabled={saving || !addr.trim()} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Salvar"}
+              </button>
+            </div>
           </label>
-          <div className="flex flex-wrap gap-2">
-            <label className="text-xs text-foreground-muted">Rede
-              <select value={form.chainId} onChange={(e) => setForm({ ...form, chainId: Number(e.target.value) })} className="mt-1 block rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground">
-                <option value={8453}>Base</option>
-                <option value={1}>Ethereum</option>
-              </select>
-            </label>
-            <label className="text-xs text-foreground-muted">Token
-              <input value={form.tokenSymbol} onChange={(e) => setForm({ ...form, tokenSymbol: e.target.value })} className="mt-1 block w-20 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground" />
-            </label>
-            <label className="text-xs text-foreground-muted">Decimais
-              <input type="number" value={form.tokenDecimals} onChange={(e) => setForm({ ...form, tokenDecimals: Number(e.target.value) })} className="mt-1 block w-20 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground" />
-            </label>
-          </div>
-          <label className="block text-xs text-foreground-muted">Token address (vazio = ETH)
-            <input value={form.tokenAddress} onChange={(e) => setForm({ ...form, tokenAddress: e.target.value })} placeholder="0x… ou vazio" className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 font-mono text-xs text-foreground focus:border-border-strong focus:outline-none" />
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setForm({ ...form, chainId: 8453, tokenAddress: USDC_BASE, tokenSymbol: "USDC", tokenDecimals: 6 })} className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground">USDC (Base)</button>
-            <button type="button" onClick={() => setForm({ ...form, chainId: 1, tokenAddress: USDC_ETH, tokenSymbol: "USDC", tokenDecimals: 6 })} className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground">USDC (Ethereum)</button>
-            <button type="button" onClick={() => setForm({ ...form, tokenAddress: "", tokenSymbol: "ETH", tokenDecimals: 18 })} className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground">ETH</button>
-            <button type="button" onClick={save} disabled={saving || !form.safeAddress.trim()} className="ml-auto rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Salvar"}
-            </button>
-          </div>
-          {c && proposer && project.delegateRegistered !== true && (
-            <p className="rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2 text-[11px] leading-relaxed text-warning">
-              Proposer ainda não é delegate deste Safe. Registre-o no <span className="font-semibold">app.safe.global</span> adicionando <span className="font-mono">{proposer}</span> como delegate/proposer. O status atualiza aqui depois.
-            </p>
+
+          {project.safeAddress && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {project.chains.map((c) => (
+                <div key={c.chainId} className="rounded-lg border border-border bg-surface-elevated p-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">{c.name}</span>
+                    {!c.exists ? (
+                      <span className="text-[10px] text-foreground-faint">Safe não existe aqui</span>
+                    ) : c.delegate === true ? (
+                      <span className="flex items-center gap-1 text-[10px] text-success"><CheckCircle2 className="h-3 w-3" /> delegate</span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[10px] text-warning"><XCircle className="h-3 w-3" /> sem delegate</span>
+                    )}
+                  </div>
+                  {c.exists && <p className="mt-1 text-[11px] tabular-nums text-foreground-muted">{c.balances}</p>}
+                  {c.exists && c.delegate !== true && (
+                    <p className="mt-1 text-[10px] text-warning">Registre o proposer como delegate desta rede no app.safe.global.</p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-          {c && project.delegateRegistered === true && (
-            <p className="text-[11px] text-success">✅ Proposer registrado como delegate — pronto pra propor pagamentos.</p>
+          {project.safeAddress && (
+            <p className="text-[11px] text-foreground-faint">{readyChains > 0 ? `Pronto pra pagar em ${readyChains} rede(s).` : "Nenhuma rede pronta ainda — registre o delegate."}</p>
           )}
         </div>
       )}
