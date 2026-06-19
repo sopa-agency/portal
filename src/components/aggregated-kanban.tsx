@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -16,11 +16,12 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { ExternalLink, X, GripVertical, UserPlus, Check, Loader2 } from "lucide-react";
-import type { AggregatedColumn, AggregatedItem } from "@/lib/github-project";
+import { GripVertical } from "lucide-react";
+import type { AggregatedColumn, AggregatedItem, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
 import { getProjectAssignees, type Assignee } from "@/app/actions/kanban";
-import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
+import { BountyBadge, taskKeyOf } from "@/components/bounty-panel";
+import { CardDetailDialog } from "@/components/kanban-board";
 
 const COL_PREFIX = "aggcol:";
 
@@ -41,10 +42,49 @@ export function AggregatedKanban({
   const [cols, setCols] = useState<AggregatedColumn[]>(columns);
   useEffect(() => setCols(columns), [columns]);
   const [active, setActive] = useState<AggregatedItem | null>(null);
+  const [team, setTeam] = useState<Assignee[] | null>(null);
   const [dragging, setDragging] = useState<AggregatedItem | null>(null);
   const [board, setBoard] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Load the open card's project assignable list (for the shared dialog's assign picker).
+  useEffect(() => {
+    if (!active) { setTeam(null); return; }
+    let live = true;
+    setTeam(null);
+    getProjectAssignees(active.projectSlug).then((r) => { if (live) setTeam(r.ok ? r.assignees : []); });
+    return () => { live = false; };
+  }, [active]);
+
+  // Patch a card in the local board state (after dialog edits — title/body/labels).
+  function patchCard(itemId: string, patch: Partial<KanbanItem>) {
+    setCols((prev) => prev.map((c) => ({ ...c, items: c.items.map((i) => (i.id === itemId ? { ...i, ...patch } : i)) })));
+    setActive((prev) => (prev && prev.id === itemId ? { ...prev, ...patch } : prev));
+  }
+
+  // All dialog mutations target the card's OWN project board (cross-project token + session).
+  function mutateFor(item: AggregatedItem) {
+    return async (payload: Record<string, unknown>) => {
+      const res = await fetch("/api/kanban", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, projectId: item.projectId, targetProjectSlug: item.projectSlug }),
+      });
+      return res.json();
+    };
+  }
+
+  async function setAssigneesFor(item: KanbanItem, logins: string[]) {
+    const it = item as AggregatedItem;
+    const optimistic = logins.map(
+      (l) => it.assignees.find((a) => a.login.toLowerCase() === l.toLowerCase()) ?? { login: l, avatarUrl: `https://github.com/${l}.png?size=48` },
+    );
+    const prev = it.assignees;
+    patchCard(it.id, { assignees: optimistic });
+    const r = await mutateFor(it)({ action: "setAssignees", contentId: it.contentId, itemType: it.type, logins, currentLogins: prev.map((a) => a.login) });
+    if (!r.ok) { patchCard(it.id, { assignees: prev }); flash(r.error || "Falha ao atribuir."); }
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -178,12 +218,18 @@ export function AggregatedKanban({
       </DndContext>
 
       {active && (
-        <TaskDialog
+        <CardDetailDialog
           item={active}
-          bounty={byKey.get(taskKeyOf(active))}
+          team={team ?? []}
+          memberForLogin={() => null}
+          projectSlug={active.projectSlug}
           canManage={canManage}
+          bounty={byKey.get(taskKeyOf(active))}
+          onBountyChanged={() => router.refresh()}
+          onSetAssignees={setAssigneesFor}
+          onMutate={mutateFor(active)}
+          onPatchItem={patchCard}
           onClose={() => setActive(null)}
-          onChanged={() => router.refresh()}
         />
       )}
     </div>
@@ -250,148 +296,6 @@ function DraggableCard({ item, bounty, onOpen }: { item: AggregatedItem; bounty?
       <button type="button" onClick={onOpen} className="block w-full text-left">
         <CardInner item={item} bounty={bounty} />
       </button>
-    </div>
-  );
-}
-
-function TaskDialog({
-  item,
-  bounty,
-  canManage,
-  onClose,
-  onChanged,
-}: {
-  item: AggregatedItem;
-  bounty: BountyDTO | undefined;
-  canManage: boolean;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const [assignees, setAssignees] = useState<{ login: string; avatarUrl: string }[]>(item.assignees);
-  const [picker, setPicker] = useState(false);
-  const [options, setOptions] = useState<Assignee[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const dirty = useRef(false);
-  const canAssign = item.contentId != null;
-
-  function close() { if (dirty.current) onChanged(); onClose(); }
-
-  async function openPicker() {
-    setPicker(true);
-    if (options === null) {
-      const r = await getProjectAssignees(item.projectSlug);
-      if (r.ok) setOptions(r.assignees);
-      else { setOptions([]); setErr(r.error); }
-    }
-  }
-
-  async function toggle(o: Assignee) {
-    const lc = o.login.toLowerCase();
-    const has = assignees.some((a) => a.login.toLowerCase() === lc);
-    const prev = assignees;
-    const nextLogins = has ? prev.filter((a) => a.login.toLowerCase() !== lc).map((a) => a.login) : [...prev.map((a) => a.login), o.login];
-    setAssignees(has ? prev.filter((a) => a.login.toLowerCase() !== lc) : [...prev, { login: o.login, avatarUrl: o.avatarUrl }]);
-    setBusy(true); setErr(null);
-    try {
-      const res = await fetch("/api/kanban", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "setAssignees", targetProjectSlug: item.projectSlug, projectId: item.projectId, contentId: item.contentId, itemType: item.type, logins: nextLogins, currentLogins: prev.map((a) => a.login) }),
-      });
-      const data = (await res.json()) as { ok: boolean; error?: string };
-      if (!data.ok) { setAssignees(prev); setErr(data.error || "Falha ao atribuir."); }
-      else dirty.current = true;
-    } catch {
-      setAssignees(prev); setErr("Falha de rede ao atribuir.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={close}>
-      <div className="max-h-[88vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="mb-1 flex items-center gap-2">
-              <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">{item.board}</span>
-              {item.number ? <span className="text-xs text-foreground-faint">#{item.number}</span> : null}
-              {bounty && <BountyBadge bounty={bounty} />}
-            </div>
-            <h3 className="text-base font-bold text-foreground">{item.title}</h3>
-          </div>
-          <button type="button" onClick={close} className="shrink-0 text-foreground-faint hover:text-foreground"><X className="h-4 w-4" /></button>
-        </div>
-
-        {/* Responsáveis — editable */}
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Responsáveis</span>
-            <span className="flex flex-wrap items-center gap-1">
-              {assignees.map((a) => (
-                <span key={a.login} className="flex items-center gap-1 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted">
-                  {a.avatarUrl ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={a.avatarUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
-                  ) : null}
-                  {a.login}
-                </span>
-              ))}
-              {assignees.length === 0 && <span className="text-[10px] text-foreground-faint">ninguém</span>}
-            </span>
-            {canAssign && (
-              <button type="button" onClick={() => (picker ? setPicker(false) : openPicker())} className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-foreground-muted hover:border-border-strong hover:text-foreground">
-                <UserPlus className="h-3 w-3" /> {picker ? "Fechar" : "Atribuir"}
-              </button>
-            )}
-          </div>
-          {err && <p className="text-[11px] text-danger">{err}</p>}
-          {picker && (
-            <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-lg border border-border bg-surface-elevated p-1">
-              {options === null ? (
-                <p className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-foreground-muted"><Loader2 className="h-3 w-3 animate-spin" /> Carregando…</p>
-              ) : options.length === 0 ? (
-                <p className="px-2 py-1.5 text-[11px] text-foreground-faint">Ninguém atribuível.</p>
-              ) : (
-                options.map((o) => {
-                  const on = assignees.some((a) => a.login.toLowerCase() === o.login.toLowerCase());
-                  return (
-                    <button key={o.login} type="button" disabled={busy} onClick={() => toggle(o)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground-muted transition-colors hover:bg-surface disabled:opacity-50">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={o.avatarUrl} alt="" className="h-4 w-4 rounded-full object-cover" />
-                      <span className="min-w-0 flex-1 truncate">{o.username ? `${o.username} · @${o.login}` : `@${o.login}`}</span>
-                      {on && <Check className="h-3.5 w-3.5 text-accent" />}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          )}
-        </div>
-
-        {item.body ? (
-          <div className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-elevated p-3 text-sm text-foreground-muted">{item.body}</div>
-        ) : null}
-
-        <BountyPanel
-          projectSlug={item.projectSlug}
-          taskKey={taskKeyOf(item)}
-          title={item.title}
-          bounty={bounty}
-          canManage={canManage}
-          onChanged={onChanged}
-        />
-
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <ExecMeetingButton projectSlug={item.projectSlug} title={item.title} body={item.body} logins={item.assignees.map((a) => a.login)} />
-          {item.url && (
-            <a href={item.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground-muted hover:border-border-strong hover:text-foreground">
-              <ExternalLink className="h-4 w-4" /> Abrir no GitHub
-            </a>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

@@ -89,7 +89,17 @@ function TypeIcon({ type }: { type: KanbanItem["type"] }) {
 // Card body (shared by sortable card + drag overlay)
 // ---------------------------------------------------------------------------
 
-function CardBody({ item, bounty }: { item: KanbanItem; bounty?: BountyDTO }) {
+function CardBody({
+  item,
+  bounty,
+  memberForLogin,
+  onOpenMember,
+}: {
+  item: KanbanItem;
+  bounty?: BountyDTO;
+  memberForLogin?: (login: string) => TeamMember | null;
+  onOpenMember?: (member: TeamMember) => void;
+}) {
   const MAX_AVATARS = 3;
   const extra = item.assignees.length > MAX_AVATARS ? item.assignees.length - MAX_AVATARS : 0;
   const visible = item.assignees.slice(0, MAX_AVATARS);
@@ -124,11 +134,37 @@ function CardBody({ item, bounty }: { item: KanbanItem; bounty?: BountyDTO }) {
         {bounty && <BountyBadge bounty={bounty} />}
         {item.assignees.length > 0 && (
           <div className="ml-auto flex items-center -space-x-1.5">
-            {visible.map((a) => (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} width={22} height={22}
-                className="h-[22px] w-[22px] rounded-full object-cover ring-2 ring-surface-elevated" />
-            ))}
+            {visible.map((a) => {
+              const member = memberForLogin?.(a.login) ?? null;
+              const avatar = (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={a.avatarUrl}
+                  alt={a.login}
+                  title={member ? `Open @${member.username} contact card` : a.login}
+                  width={22}
+                  height={22}
+                  className="h-[22px] w-[22px] rounded-full object-cover ring-2 ring-surface-elevated"
+                />
+              );
+              return member && onOpenMember ? (
+                <button
+                  key={a.login}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenMember(member);
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  className="rounded-full transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-accent"
+                  aria-label={`Open @${member.username} contact card`}
+                >
+                  {avatar}
+                </button>
+              ) : (
+                <span key={a.login}>{avatar}</span>
+              );
+            })}
             {extra > 0 && (
               <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-surface text-[9px] font-semibold tabular-nums text-foreground-subtle ring-2 ring-surface-elevated">
                 +{extra}
@@ -151,6 +187,8 @@ function SortableCard({
   onArchive,
   onDelete,
   onOpen,
+  memberForLogin,
+  onOpenMember,
   busy,
 }: {
   item: KanbanItem;
@@ -158,6 +196,8 @@ function SortableCard({
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
   onOpen: (item: KanbanItem) => void;
+  memberForLogin?: (login: string) => TeamMember | null;
+  onOpenMember?: (member: TeamMember) => void;
   busy: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
@@ -180,14 +220,21 @@ function SortableCard({
         >
           <GripVertical className="h-4 w-4" />
         </button>
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => onOpen(item)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onOpen(item);
+            }
+          }}
           aria-label={`Open ${item.title}`}
           className="min-w-0 flex-1 cursor-pointer text-left"
         >
-          <CardBody item={item} bounty={bounty} />
-        </button>
+          <CardBody item={item} bounty={bounty} memberForLogin={memberForLogin} onOpenMember={onOpenMember} />
+        </div>
       </div>
 
       {/* Action buttons — appear on hover */}
@@ -241,6 +288,8 @@ function ColumnView({
   onAddDraft,
   issueRepo,
   onOpen,
+  memberForLogin,
+  onOpenMember,
   busy,
 }: {
   column: KanbanColumn;
@@ -251,6 +300,8 @@ function ColumnView({
   /** owner/name of the board's primary repo — enables the "Issue" kind. */
   issueRepo?: string | null;
   onOpen: (item: KanbanItem) => void;
+  memberForLogin?: (login: string) => TeamMember | null;
+  onOpenMember?: (member: TeamMember) => void;
   busy: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `container:${column.name}` });
@@ -371,7 +422,17 @@ function ColumnView({
             </div>
           ) : (
             column.items.map((item) => (
-              <SortableCard key={item.id} item={item} bounty={bountyByKey?.get(taskKeyOf(item))} onArchive={onArchive} onDelete={onDelete} onOpen={onOpen} busy={busy} />
+              <SortableCard
+                key={item.id}
+                item={item}
+                bounty={bountyByKey?.get(taskKeyOf(item))}
+                onArchive={onArchive}
+                onDelete={onDelete}
+                onOpen={onOpen}
+                memberForLogin={memberForLogin}
+                onOpenMember={onOpenMember}
+                busy={busy}
+              />
             ))
           )}
         </SortableContext>
@@ -390,7 +451,7 @@ function repoOf(url?: string): string | undefined {
   return m?.[1];
 }
 
-function CardDetailDialog({
+export function CardDetailDialog({
   item,
   team,
   memberForLogin,
@@ -940,7 +1001,7 @@ function CardDetailDialog({
 
 type ItemComment = { id: string; author: string; avatarUrl: string; body: string; createdAt: string };
 type RepoLabel = { id: string; name: string; color: string };
-type MutateFn = (payload: Record<string, unknown>) => Promise<{
+export type MutateFn = (payload: Record<string, unknown>) => Promise<{
   ok: boolean;
   error?: string;
   itemId?: string;
@@ -1327,6 +1388,12 @@ export function KanbanBoard() {
     const matched = board.assignable?.find((m) => m.login.toLowerCase() === login.toLowerCase());
     return matched?.username ? teamMemberByUsername.get(matched.username.toLowerCase()) ?? null : null;
   };
+  const openMemberByLogin = (login: string): boolean => {
+    const member = memberForLogin(login);
+    if (!member) return false;
+    setSelectedMember(member);
+    return true;
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -1372,18 +1439,21 @@ export function KanbanBoard() {
           </button>
           {people.map((p) => {
             const on = personFilter.includes(p.login.toLowerCase());
+            const member = memberForLogin(p.login);
             return (
               <button
                 key={p.login}
                 type="button"
-                onClick={() => togglePerson(p.login)}
-                title={`@${p.login}`}
+                onClick={() => {
+                  if (!openMemberByLogin(p.login)) togglePerson(p.login);
+                }}
+                title={member ? `Open @${member.username} contact card` : `Filter @${p.login}`}
                 aria-pressed={on}
                 className={`flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] transition ${on ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.avatarUrl} alt="" width={20} height={20} className="h-5 w-5 rounded-full object-cover" />
-                {p.login}
+                {member ? member.username : p.login}
               </button>
             );
           })}
@@ -1421,6 +1491,8 @@ export function KanbanBoard() {
                 onAddDraft={onAddDraft}
                 issueRepo={primaryRepo}
                 onOpen={setDetailItem}
+                memberForLogin={memberForLogin}
+                onOpenMember={setSelectedMember}
                 busy={busy}
               />
             ))}
