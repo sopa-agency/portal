@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getActiveProject } from "@/projects";
+import { getActiveProject, getAllProjects } from "@/projects";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize, verifySession } from "@/lib/team-access";
 import {
@@ -139,6 +139,8 @@ type Body = {
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "createIssue"
     | "aiBody";
+  /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
+  targetProjectSlug?: string;
   projectId?: string;
   fieldId?: string;
   itemId?: string;
@@ -167,14 +169,10 @@ export async function POST(req: Request) {
   const project = await getActiveProject();
 
   const cookieStore = await cookies();
-  const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+  const sessionToken = cookieStore.get(SESSION_COOKIE)?.value;
+  const session = await verifySession(sessionToken, project);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const token = resolveGitHubToken(project);
-  if (!token) {
-    return NextResponse.json({ ok: false, error: "GITHUB_TOKEN not set" }, { status: 500 });
   }
 
   let body: Body;
@@ -184,7 +182,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { action, projectId, fieldId, itemId, optionId, afterId, title } = body;
+  const { action, projectId, fieldId, itemId, optionId, afterId, title, targetProjectSlug } = body;
+
+  // Which board are we mutating? Default = the active project. The SOPA
+  // aggregated board passes targetProjectSlug to move a card on ANOTHER portal's
+  // board — allowed only if the viewer also has a session on that project.
+  let token = resolveGitHubToken(project);
+  if (targetProjectSlug && targetProjectSlug !== project.slug) {
+    const target = getAllProjects().find((p) => p.slug === targetProjectSlug);
+    if (!target) return NextResponse.json({ ok: false, error: "Unknown target project" }, { status: 400 });
+    const allowed = await verifySession(sessionToken, target);
+    if (!allowed) return NextResponse.json({ ok: false, error: "Not authorized for that project" }, { status: 403 });
+    token = resolveGitHubToken(target);
+  }
+  if (!token) {
+    return NextResponse.json({ ok: false, error: "GITHUB_TOKEN not set" }, { status: 500 });
+  }
 
   // addDraftAuto: create a draft card WITHOUT a client-supplied projectId — we
   // resolve the board node id server-side. Used by surfaces that don't load the

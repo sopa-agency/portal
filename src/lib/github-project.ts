@@ -795,7 +795,16 @@ export async function createRepoIssue(args: {
 // Aggregated board (the SOPA hub) — union of every portal's Kanban by status.
 // ---------------------------------------------------------------------------
 
-export type AggregatedItem = KanbanItem & { board: string; projectSlug: string };
+export type AggregatedItem = KanbanItem & {
+  board: string;
+  projectSlug: string;
+  /** The card's own GitHub Project board node id (for cross-project mutations). */
+  projectId: string;
+  /** Status single-select field id on that board (null if none). */
+  statusFieldId: string | null;
+  /** That board's status columns (name → optionId) — to map a drop target to an optionId. */
+  statusOptions: { name: string; optionId: string }[];
+};
 export type AggregatedColumn = { name: string; items: AggregatedItem[] };
 
 /** Fetch + merge ALL portals' GitHub Project boards into one (read-only). */
@@ -816,12 +825,13 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
       continue;
     }
     const board = r.title || p.name;
+    const statusOptions = r.columns.filter((c) => c.optionId).map((c) => ({ name: c.name, optionId: c.optionId! }));
     for (const col of r.columns) {
       if (!colItems.has(col.name)) {
         colItems.set(col.name, []);
         order.push(col.name);
       }
-      for (const it of col.items) colItems.get(col.name)!.push({ ...it, board, projectSlug: p.slug });
+      for (const it of col.items) colItems.get(col.name)!.push({ ...it, board, projectSlug: p.slug, projectId: r.projectId, statusFieldId: r.statusFieldId, statusOptions });
     }
   }
   return { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };
