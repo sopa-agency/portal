@@ -23,6 +23,8 @@ import {
   setItemStatus,
   updateItemContent,
 } from "@/lib/github-project";
+import { getTeamRoster } from "@/lib/team-roster";
+import { getTeamMessageOptions } from "@/lib/team-messaging";
 import { prisma } from "@/lib/prisma";
 
 /** Strip "@", full profile URLs, and whitespace from a stored GitHub contact value. */
@@ -65,8 +67,9 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [result, teamGithub, bountyRows] = await Promise.all([
+  const [result, teamRoster, teamGithub, bountyRows] = await Promise.all([
     fetchGitHubProject(project),
+    getTeamRoster(project).catch(() => []),
     teamGithubLogins(project.slug).catch(() => []),
     prisma.bounty.findMany({ where: { projectSlug: project.slug, status: { not: "cancelled" } } }).catch(() => []),
   ]);
@@ -113,8 +116,16 @@ export async function GET() {
     if (!!a.username !== !!b.username) return a.username ? -1 : 1;
     return a.login.localeCompare(b.login);
   });
+  const teamMembers = teamRoster.map(({ username, avatarUrl, profileUrl, contacts, global }) => ({
+    username,
+    avatarUrl,
+    profileUrl,
+    contacts,
+    global,
+    messageOptions: getTeamMessageOptions(project, username, { contacts }),
+  }));
 
-  return NextResponse.json({ ...result, assignable, projectSlug: project.slug, canManage: who.global, bounties });
+  return NextResponse.json({ ...result, assignable, teamMembers, projectSlug: project.slug, canManage: who.global, bounties });
 }
 
 // ---------------------------------------------------------------------------

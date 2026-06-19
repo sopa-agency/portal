@@ -43,6 +43,7 @@ import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-projec
 import type { BountyDTO } from "@/app/actions/bounty";
 import { MarkdownContent } from "@/components/markdown-content";
 import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
+import { MemberModal, type TeamMember } from "@/components/team-view";
 
 // ---------------------------------------------------------------------------
 // Column status color (mid-tone hues that read on both light & dark surfaces)
@@ -392,6 +393,7 @@ function repoOf(url?: string): string | undefined {
 function CardDetailDialog({
   item,
   team,
+  memberForLogin,
   projectSlug,
   canManage,
   bounty,
@@ -404,6 +406,7 @@ function CardDetailDialog({
   item: KanbanItem;
   /** Assignable collaborators (with portal username when team-card-mapped). */
   team: { login: string; avatarUrl: string; username: string | null }[];
+  memberForLogin: (login: string) => TeamMember | null;
   projectSlug?: string;
   canManage: boolean;
   bounty: BountyDTO | undefined;
@@ -831,14 +834,33 @@ function CardDetailDialog({
             {item.assignees.length > 0 ? (
               <>
                 <div className="flex -space-x-1.5">
-                  {item.assignees.map((a) => (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} width={24} height={24}
-                      className="h-6 w-6 rounded-full object-cover ring-2 ring-surface-elevated" />
-                  ))}
+                  {item.assignees.map((a) => {
+                    const member = memberForLogin(a.login);
+                    const avatar = (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={a.avatarUrl} alt={a.login} title={member ? `Open @${member.username} contact card` : a.login} width={24} height={24}
+                        className="h-6 w-6 rounded-full object-cover ring-2 ring-surface-elevated" />
+                    );
+                    return member ? (
+                      <button
+                        key={a.login}
+                        type="button"
+                        onClick={() => window.dispatchEvent(new CustomEvent("kanban:open-member", { detail: { username: member.username } }))}
+                        className="rounded-full transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-accent"
+                        aria-label={`Open @${member.username} contact card`}
+                      >
+                        {avatar}
+                      </button>
+                    ) : (
+                      <span key={a.login}>{avatar}</span>
+                    );
+                  })}
                 </div>
                 <span className="truncate text-xs text-foreground-subtle">
-                  {item.assignees.map((a) => `@${a.login}`).join(", ")}
+                  {item.assignees.map((a) => {
+                    const member = memberForLogin(a.login);
+                    return member ? `@${member.username}` : `@${a.login}`;
+                  }).join(", ")}
                 </span>
               </>
             ) : (
@@ -934,6 +956,8 @@ type Board = Extract<KanbanResult, { ok: true }> & {
   /** Everyone assignable on the board's repos (GitHub collaborators), with the
    *  portal username attached when a team card maps the login. */
   assignable?: { login: string; avatarUrl: string; username: string | null }[];
+  /** Team contact cards from the central roster, used by Kanban assignee clicks. */
+  teamMembers?: TeamMember[];
   /** This board's project slug — for bounty / EXEC-meeting actions. */
   projectSlug?: string;
   /** Viewer is a global admin (may create/propose bounties). */
@@ -950,6 +974,7 @@ export function KanbanBoard() {
   const [detailItem, setDetailItem] = useState<KanbanItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase); empty = all
   const [showDone, setShowDone] = useState(false); // hide completed columns by default
 
@@ -979,6 +1004,16 @@ export function KanbanBoard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const onOpenMember = (event: Event) => {
+      const username = (event as CustomEvent<{ username?: string }>).detail?.username?.toLowerCase();
+      if (!username) return;
+      setSelectedMember(board?.teamMembers?.find((m) => m.username.toLowerCase() === username) ?? null);
+    };
+    window.addEventListener("kanban:open-member", onOpenMember);
+    return () => window.removeEventListener("kanban:open-member", onOpenMember);
+  }, [board?.teamMembers]);
 
   function flash(msg: string) {
     setToast(msg);
@@ -1287,6 +1322,11 @@ export function KanbanBoard() {
     ? columns
     : columns.map((c) => ({ ...c, items: c.items.filter((it) => it.assignees.some((a) => personFilter.includes(a.login.toLowerCase()))) }));
   const displayColumns = personMatched.filter((c) => showDone || !isDone(c.name));
+  const teamMemberByUsername = new Map((board.teamMembers ?? []).map((m) => [m.username.toLowerCase(), m]));
+  const memberForLogin = (login: string): TeamMember | null => {
+    const matched = board.assignable?.find((m) => m.login.toLowerCase() === login.toLowerCase());
+    return matched?.username ? teamMemberByUsername.get(matched.username.toLowerCase()) ?? null : null;
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -1399,6 +1439,7 @@ export function KanbanBoard() {
         <CardDetailDialog
           item={detailItem}
           team={board.assignable ?? []}
+          memberForLogin={memberForLogin}
           projectSlug={board.projectSlug}
           canManage={!!board.canManage}
           bounty={bountyByKey.get(taskKeyOf(detailItem))}
@@ -1408,6 +1449,9 @@ export function KanbanBoard() {
           onPatchItem={patchItem}
           onClose={() => setDetailItem(null)}
         />
+      )}
+      {selectedMember && (
+        <MemberModal member={selectedMember} onClose={() => setSelectedMember(null)} />
       )}
     </div>
   );

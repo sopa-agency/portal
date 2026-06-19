@@ -35,7 +35,7 @@ import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms
 
 type Role = "admin" | "member" | "viewer";
 
-type TeamMember = {
+export type TeamMember = {
   username: string;
   avatarUrl: string;
   profileUrl: string;
@@ -602,7 +602,7 @@ function MemberTasks({ githubLogin }: { githubLogin: string | null }) {
   );
 }
 
-function MemberModal({ member, canManage, onClose }: { member: TeamMember; canManage?: boolean; onClose: () => void }) {
+export function MemberModal({ member, canManage, onClose }: { member: TeamMember; canManage?: boolean; onClose: () => void }) {
   const titleId = useId();
   const router = useRouter();
   const [mgrBusy, setMgrBusy] = useState(false);
