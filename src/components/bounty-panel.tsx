@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Coins, Loader2, Trash2, CalendarPlus, Check, ArrowUpRight, Wallet } from "lucide-react";
+import { Coins, Loader2, Trash2, CalendarPlus, Check, ArrowUpRight, Wallet, X } from "lucide-react";
 import { createBounty, cancelBounty, proposeBountyPayment, markBountyPaid, getSafeOptions, type BountyDTO, type SafeTokenAvailability, type SafeChainOption } from "@/app/actions/bounty";
 
 const CHAIN_LABEL: Record<number, string> = { 8453: "Base", 1: "Ethereum" };
@@ -95,13 +95,15 @@ export function BountyPanel({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Create form is collapsed behind a button (like "Criar reunião EXEC").
+  const [expanded, setExpanded] = useState(false);
   // Chains the Safe can pay from (Base/Ethereum) + their spendable tokens.
   const showCreate = !bounty && canManage;
   const [chains, setChains] = useState<SafeChainOption[] | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [tokenKey, setTokenKey] = useState<string>("eth");
   useEffect(() => {
-    if (!showCreate) return;
+    if (!showCreate || !expanded) return;
     let live = true;
     getSafeOptions(projectSlug).then((r) => {
       if (!live) return;
@@ -114,7 +116,7 @@ export function BountyPanel({
       }
     });
     return () => { live = false; };
-  }, [showCreate, projectSlug]);
+  }, [showCreate, expanded, projectSlug]);
   const keyOf = (t: SafeTokenAvailability) => (t.address ? t.address.toLowerCase() : "eth");
   const activeChain = chains?.find((c) => c.chainId === chainId) ?? null;
   const tokens = activeChain?.tokens ?? [];
@@ -122,6 +124,19 @@ export function BountyPanel({
   const overCap = !!selected && Number(amount) > Number(selected.available) + 1e-12;
 
   if (!bounty && !canManage) return null;
+
+  // Collapsed: just a button (sibling to "Criar reunião EXEC") that reveals the form.
+  if (showCreate && !expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+      >
+        <Coins className="h-4 w-4" /> Transformar em bounty
+      </button>
+    );
+  }
 
   async function refresh() {
     if (onChanged) await onChanged();
@@ -148,6 +163,11 @@ export function BountyPanel({
         </div>
         {bounty && (
           <span className="ml-auto"><BountyBadge bounty={bounty} /></span>
+        )}
+        {showCreate && (
+          <button type="button" onClick={() => setExpanded(false)} aria-label="Fechar" className="ml-auto shrink-0 text-foreground-faint hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
         )}
       </div>
 
