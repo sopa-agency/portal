@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -16,9 +16,10 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { ExternalLink, X, GripVertical } from "lucide-react";
+import { ExternalLink, X, GripVertical, UserPlus, Check, Loader2 } from "lucide-react";
 import type { AggregatedColumn, AggregatedItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
+import { getProjectAssignees, type Assignee } from "@/app/actions/kanban";
 import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
 
 const COL_PREFIX = "aggcol:";
@@ -266,8 +267,50 @@ function TaskDialog({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const [assignees, setAssignees] = useState<{ login: string; avatarUrl: string }[]>(item.assignees);
+  const [picker, setPicker] = useState(false);
+  const [options, setOptions] = useState<Assignee[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const dirty = useRef(false);
+  const canAssign = item.contentId != null;
+
+  function close() { if (dirty.current) onChanged(); onClose(); }
+
+  async function openPicker() {
+    setPicker(true);
+    if (options === null) {
+      const r = await getProjectAssignees(item.projectSlug);
+      if (r.ok) setOptions(r.assignees);
+      else { setOptions([]); setErr(r.error); }
+    }
+  }
+
+  async function toggle(o: Assignee) {
+    const lc = o.login.toLowerCase();
+    const has = assignees.some((a) => a.login.toLowerCase() === lc);
+    const prev = assignees;
+    const nextLogins = has ? prev.filter((a) => a.login.toLowerCase() !== lc).map((a) => a.login) : [...prev.map((a) => a.login), o.login];
+    setAssignees(has ? prev.filter((a) => a.login.toLowerCase() !== lc) : [...prev, { login: o.login, avatarUrl: o.avatarUrl }]);
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch("/api/kanban", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setAssignees", targetProjectSlug: item.projectSlug, projectId: item.projectId, contentId: item.contentId, itemType: item.type, logins: nextLogins, currentLogins: prev.map((a) => a.login) }),
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      if (!data.ok) { setAssignees(prev); setErr(data.error || "Falha ao atribuir."); }
+      else dirty.current = true;
+    } catch {
+      setAssignees(prev); setErr("Falha de rede ao atribuir.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={close}>
       <div className="max-h-[88vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -278,23 +321,54 @@ function TaskDialog({
             </div>
             <h3 className="text-base font-bold text-foreground">{item.title}</h3>
           </div>
-          <button type="button" onClick={onClose} className="shrink-0 text-foreground-faint hover:text-foreground"><X className="h-4 w-4" /></button>
+          <button type="button" onClick={close} className="shrink-0 text-foreground-faint hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
 
-        {item.assignees.length > 0 && (
+        {/* Responsáveis — editable */}
+        <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Responsáveis</span>
             <span className="flex flex-wrap items-center gap-1">
-              {item.assignees.map((a) => (
+              {assignees.map((a) => (
                 <span key={a.login} className="flex items-center gap-1 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={a.avatarUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+                  {a.avatarUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={a.avatarUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+                  ) : null}
                   {a.login}
                 </span>
               ))}
+              {assignees.length === 0 && <span className="text-[10px] text-foreground-faint">ninguém</span>}
             </span>
+            {canAssign && (
+              <button type="button" onClick={() => (picker ? setPicker(false) : openPicker())} className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-foreground-muted hover:border-border-strong hover:text-foreground">
+                <UserPlus className="h-3 w-3" /> {picker ? "Fechar" : "Atribuir"}
+              </button>
+            )}
           </div>
-        )}
+          {err && <p className="text-[11px] text-danger">{err}</p>}
+          {picker && (
+            <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-lg border border-border bg-surface-elevated p-1">
+              {options === null ? (
+                <p className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-foreground-muted"><Loader2 className="h-3 w-3 animate-spin" /> Carregando…</p>
+              ) : options.length === 0 ? (
+                <p className="px-2 py-1.5 text-[11px] text-foreground-faint">Ninguém atribuível.</p>
+              ) : (
+                options.map((o) => {
+                  const on = assignees.some((a) => a.login.toLowerCase() === o.login.toLowerCase());
+                  return (
+                    <button key={o.login} type="button" disabled={busy} onClick={() => toggle(o)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground-muted transition-colors hover:bg-surface disabled:opacity-50">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={o.avatarUrl} alt="" className="h-4 w-4 rounded-full object-cover" />
+                      <span className="min-w-0 flex-1 truncate">{o.username ? `${o.username} · @${o.login}` : `@${o.login}`}</span>
+                      {on && <Check className="h-3.5 w-3.5 text-accent" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
 
         {item.body ? (
           <div className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-elevated p-3 text-sm text-foreground-muted">{item.body}</div>
