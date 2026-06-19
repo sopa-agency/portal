@@ -2,9 +2,6 @@
 
 import { cookies } from "next/headers";
 import {
-  createPublicClient,
-  http,
-  formatUnits,
   parseUnits,
   getAddress,
   erc20Abi,
@@ -12,18 +9,12 @@ import {
   hashTypedData,
   zeroAddress,
 } from "viem";
-import { base, mainnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
 import { getActiveProject, getAllProjects } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
-import { fetchSafeTokens } from "@/lib/safe-tx";
-
-function chainInfo(chainId: number) {
-  if (chainId === 1) return { chain: mainnet, tx: "https://safe-transaction-mainnet.safe.global" };
-  return { chain: base, tx: "https://safe-transaction-base.safe.global" }; // default Base (8453)
-}
+import { fetchSafeTokens, safeTxService } from "@/lib/safe-tx";
 
 /** The proposer local account (a delegate on each Safe). Never leaves the server. */
 function proposerAccount() {
@@ -60,18 +51,16 @@ export type ProjectBounty = {
 };
 
 async function safeStatus(config: BountyConfigDTO, proposer: string | null): Promise<{ balance: string | null; delegate: boolean | null }> {
-  const { chain, tx } = chainInfo(config.chainId);
+  const tx = safeTxService(config.chainId);
   let balance: string | null = null;
   let delegate: boolean | null = null;
+  // Read balance from the Safe Transaction Service (reliable; same source as the
+  // token picker) — avoids slow/flaky public RPCs, esp. on mainnet.
   try {
-    const client = createPublicClient({ chain, transport: http() });
-    const safe = getAddress(config.safeAddress);
-    if (config.tokenAddress) {
-      const raw = (await client.readContract({ address: getAddress(config.tokenAddress), abi: erc20Abi, functionName: "balanceOf", args: [safe] })) as bigint;
-      balance = formatUnits(raw, config.tokenDecimals);
-    } else {
-      balance = formatUnits(await client.getBalance({ address: safe }), 18);
-    }
+    const want = config.tokenAddress ? config.tokenAddress.toLowerCase() : "eth";
+    const tokens = await fetchSafeTokens(config.safeAddress, config.chainId);
+    const t = tokens.find((x) => (x.address ? x.address.toLowerCase() : "eth") === want);
+    balance = t ? t.balance : "0";
   } catch {
     balance = null;
   }
@@ -342,7 +331,7 @@ export async function proposeBountyPayment(id: string, payeeInput: string): Prom
   const account = proposerAccount();
   if (!account) return { ok: false, error: "SAFE_PROPOSER_PRIVATE_KEY não configurado." };
 
-  const { tx } = chainInfo(config.chainId);
+  const tx = safeTxService(config.chainId);
   const safe = getAddress(config.safeAddress);
   // Pay out the token the bounty was created in (a token the Safe holds), not a config default.
   const amountUnits = parseUnits(b.amount, b.tokenDecimals);
