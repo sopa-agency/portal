@@ -36,7 +36,7 @@ export default async function LabPage() {
     project.slug === "skatehive"
       ? (["holo", "pixel", "gold"] as const)
       : project.slug === "gnars"
-        ? (["bounty"] as const)
+        ? (["skatecard", "bounty"] as const)
         : ([] as const);
 
   return (

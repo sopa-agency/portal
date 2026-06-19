@@ -81,7 +81,7 @@ type Clip = {
   offsetY?: number;
   scale?: number;
 };
-type CardStyle = "holo" | "pixel" | "gold" | "bounty";
+type CardStyle = "holo" | "pixel" | "gold" | "bounty" | "skatecard";
 type Rarity = "Rare" | "Epic" | "Legendary";
 
 /** Trading-card overlay that frames the clip as a rare TCG card. */
@@ -171,6 +171,7 @@ const CARD_STYLE_META: Record<CardStyle, { name: string; note: string; defaultAc
   pixel: { name: "Pixel Arcade Legend", note: "8-bit border + CRT scanlines", defaultAccent: "#bdf25a" },
   gold: { name: "Gold Legendary Foil", note: "Gilded frame + medallion seal", defaultAccent: "#ffd86b" },
   bounty: { name: "Gnars Bounty", note: "POIDH challenge — Ken Pixel on black, onchain reward in gold", defaultAccent: "#fbbf24" },
+  skatecard: { name: "Skate Trading Card", note: "Baseball-card layout for skate — name plate, framed clip, stat bar (Gnars gold)", defaultAccent: "#fbbf24" },
 };
 
 // Gnars bounty palette — mirrors gnars-website OG_COLORS (og-utils.ts).
@@ -274,6 +275,10 @@ function drawCard(
   // challenge: Ken Pixel on black, onchain reward in gold). Branch out early.
   if (card.style === "bounty") {
     drawBountyCard(ctx, W, H, card, clipEl, framing);
+    return;
+  }
+  if (card.style === "skatecard") {
+    drawSkateCard(ctx, W, H, card, clipEl, framing);
     return;
   }
 
@@ -520,6 +525,114 @@ function drawBountyCard(
     pix(20);
     centerText(footer.toUpperCase(), H - botSafe, GN.muted, f(3));
   }
+}
+
+/** Skate trading card — classic baseball-card layout (gold-framed card, name
+ *  plate, framed "player" clip, stat bar), themed for Gnars (Ken Pixel on black,
+ *  gold foil). Best on a portrait clip. */
+function drawSkateCard(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  card: CardData,
+  clipEl: HTMLVideoElement | null,
+  framing: { offsetX: number; offsetY: number; scale: number },
+) {
+  ensureGnarsBountyAssets();
+  const gold = card.accent || GN.gold;
+  const fs = card.fontScale || 1;
+  const S = Math.min(W, H) / 1080;
+  const f = (n: number) => n * S * fs;
+  const hidden = new Set(card.hidden ?? []);
+  const pix = (px: number) => { ctx.font = `400 ${f(px)}px 'Ken Pixel', 'JetBrains Mono', ui-monospace, monospace`; };
+  const wide = (text: string, sp: number) => { let t = 0; for (const ch of text) t += ctx.measureText(ch).width + sp; return t - sp; };
+  const at = (text: string, x: number, y: number, color: string, sp: number) => {
+    ctx.textAlign = "left"; ctx.fillStyle = color; let cx = x;
+    for (const ch of text) { ctx.fillText(ch, cx, y); cx += ctx.measureText(ch).width + sp; }
+  };
+  const center = (text: string, cy: number, color: string, sp: number) => at(text, W / 2 - wide(text, sp) / 2, cy, color, sp);
+  ctx.textBaseline = "alphabetic";
+
+  // 1) field + double card frame (classic trading-card border)
+  ctx.fillStyle = GN.bg; ctx.fillRect(0, 0, W, H);
+  const M = Math.min(W, H) * 0.045;
+  ctx.lineWidth = Math.max(3, f(9)); ctx.strokeStyle = gold;
+  roundRectPath(ctx, M, M, W - 2 * M, H - 2 * M, f(24)); ctx.stroke();
+  const Mi = M + f(11);
+  ctx.lineWidth = Math.max(1, f(2)); ctx.strokeStyle = "rgba(255,255,255,0.16)";
+  roundRectPath(ctx, Mi, Mi, W - 2 * Mi, H - 2 * Mi, f(16)); ctx.stroke();
+
+  const padX = Mi + f(22);
+  const innerW = W - 2 * padX;
+  let y = Mi + f(20);
+
+  // 2) header — discipline tag pill (left) + team logo (right)
+  const tag = (card.type || "SKATER").toUpperCase();
+  pix(20);
+  const tagH = f(34);
+  const tagW = wide(tag, f(3)) + f(28);
+  ctx.fillStyle = gold; roundRectPath(ctx, padX, y, tagW, tagH, f(8)); ctx.fill();
+  at(tag, padX + f(14), y + tagH - f(11), GN.bg, f(3));
+  const logoSrc = card.logo === undefined ? "/projects/gnars/logo.png" : card.logo;
+  if (logoSrc) {
+    ensureLogo(logoSrc);
+    const lg = getLogo(logoSrc);
+    const lw = tagH * 1.3;
+    if (lg) ctx.drawImage(lg, W - padX - lw, y + (tagH - lw * (lg.height / lg.width || 1)) / 2, lw, lw * (lg.height / lg.width || 1));
+  }
+  y += tagH + f(16);
+
+  // 3) skater name plate — big gold, auto-shrink to one line
+  const name = (card.skater || card.title || "SKATER").toUpperCase();
+  let nameSize = 58;
+  for (; nameSize > 28; nameSize -= 3) { pix(nameSize); if (wide(name, f(2)) <= innerW) break; }
+  center(name, y + f(nameSize), gold, f(2));
+  y += f(nameSize) + f(20);
+
+  // 4) "player photo" — the framed clip (the hero)
+  const winH = H * 0.40;
+  ctx.save();
+  roundRectPath(ctx, padX, y, innerW, winH, f(10)); ctx.clip();
+  if (clipEl && clipEl.readyState >= 2) drawCoverInRect(ctx, clipEl, padX, y, innerW, winH, framing);
+  else { ctx.fillStyle = "#0a0a0a"; ctx.fillRect(padX, y, innerW, winH); }
+  ctx.restore();
+  ctx.strokeStyle = gold; ctx.lineWidth = Math.max(2, f(3));
+  roundRectPath(ctx, padX, y, innerW, winH, f(10)); ctx.stroke();
+  y += winH + f(28);
+
+  // 5) trick/clip title — white, ≤2 centered lines
+  const title = (card.title || "").toUpperCase().trim();
+  if (title && !hidden.has("title")) {
+    const tSize = 30; pix(tSize);
+    const words = title.split(/\s+/); const lines: string[] = []; let cur = "";
+    for (const w of words) { const test = cur ? `${cur} ${w}` : w; if (wide(test, f(1)) > innerW && cur) { lines.push(cur); cur = w; if (lines.length === 1) break; } else cur = test; }
+    if (cur) lines.push(cur); if (lines.length > 2) lines.length = 2;
+    const lh = f(tSize * 1.25);
+    for (let i = 0; i < lines.length; i++) center(lines[i], y + f(tSize) + i * lh, GN.fg, f(1));
+  }
+
+  // 6) stat bar (baseball-card stats), pinned bottom: TIME · VOTES · No.
+  const stats: { label: string; value: string }[] = [];
+  if (card.runtime) stats.push({ label: "TIME", value: card.runtime });
+  if (card.upvotes && card.upvotes !== "0") stats.push({ label: "VOTES", value: `▲ ${card.upvotes}` });
+  if (card.serial) stats.push({ label: "No.", value: card.serial });
+  if (stats.length && !hidden.has("stats")) {
+    const barH = f(46);
+    const barY = H - Mi - f(60) - barH;
+    ctx.strokeStyle = "rgba(251,191,36,0.45)"; ctx.lineWidth = Math.max(1, f(1.5));
+    roundRectPath(ctx, padX, barY, innerW, barH, f(8)); ctx.stroke();
+    const cellW = innerW / stats.length;
+    stats.forEach((s, i) => {
+      const cx = padX + cellW * i + cellW / 2;
+      if (i > 0) { ctx.beginPath(); ctx.moveTo(padX + cellW * i, barY + f(8)); ctx.lineTo(padX + cellW * i, barY + barH - f(8)); ctx.strokeStyle = "rgba(251,191,36,0.3)"; ctx.stroke(); }
+      pix(13); at(s.label, cx - wide(s.label, f(2)) / 2, barY + f(17), GN.muted, f(2));
+      pix(22); at(s.value, cx - wide(s.value, f(1)) / 2, barY + barH - f(11), gold, f(1));
+    });
+  }
+
+  // 7) league footer wordmark
+  pix(16);
+  center((card.footerUrl || "GNARS · SKATE SERIES").toUpperCase(), H - Mi - f(8), GN.muted, f(4));
 }
 
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
@@ -843,7 +956,7 @@ export function VideoEditor({
       ].forEach((s) => fonts.load(s).catch(() => {}));
     }
     // Gnars bounty cards need the Ken Pixel font + grants seal.
-    if (cardStyles.includes("bounty")) ensureGnarsBountyAssets();
+    if (cardStyles.includes("bounty") || cardStyles.includes("skatecard")) ensureGnarsBountyAssets();
   }, [cardStyles]);
 
   // --- audio graph -----------------------------------------------------------

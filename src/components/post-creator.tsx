@@ -1537,7 +1537,7 @@ export function PostCreator({
 }: {
   agentName: string;
   igHandle: string;
-  cardStyles?: ("holo" | "pixel" | "gold" | "bounty")[];
+  cardStyles?: ("holo" | "pixel" | "gold" | "bounty" | "skatecard")[];
   brandName?: string;
   brandAccent?: string;
   /** SkateHive: the design Studio defaults to the "Skate Spot Found!" template. */

@@ -23,7 +23,7 @@ export default async function PostCreatorPage() {
     project.slug === "skatehive"
       ? (["holo", "pixel", "gold"] as const)
       : project.slug === "gnars"
-        ? (["bounty"] as const)
+        ? (["skatecard", "bounty"] as const)
         : ([] as const);
 
   return (

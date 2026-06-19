@@ -138,7 +138,7 @@ export function PostLab({
   insights: LabInsight[];
   hasRepo: boolean;
   /** Studio card-overlay templates (POIDH bounty, SkateHive trading cards). */
-  cardStyles?: ("holo" | "pixel" | "gold" | "bounty")[];
+  cardStyles?: ("holo" | "pixel" | "gold" | "bounty" | "skatecard")[];
 }) {
   const router = useRouter();
   const [view, setView] = useState<"compose" | "calendar">("compose");
