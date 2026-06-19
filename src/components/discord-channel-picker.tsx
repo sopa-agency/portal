@@ -9,7 +9,7 @@ import { listDiscordChannels, saveDiscordChannel, type DiscordChannel } from "@/
  * posts to Discord (campaign shooter, lab, team) uses this default unless a send
  * overrides it. The same bot/guild can serve several portals on different channels.
  */
-export function DiscordChannelPicker() {
+export function DiscordChannelPicker({ compact = false }: { compact?: boolean }) {
   const [channels, setChannels] = useState<DiscordChannel[] | null>(null);
   const [selected, setSelected] = useState<string>("");
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -40,11 +40,11 @@ export function DiscordChannelPicker() {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-3">
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-        <Hash className="h-3.5 w-3.5 text-[#5865F2]" /> Canal padrão do Discord
+    <div className={compact ? "" : "rounded-xl border border-border bg-surface p-3"}>
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">
+        <Hash className="h-3 w-3 text-[#5865F2]" /> Canal padrão
       </div>
-      <p className="mt-0.5 text-[11px] text-foreground-faint">Pra onde este portal posta no Discord (campanhas, lab, time). Mesmo bot/servidor pode usar canais diferentes por portal.</p>
+      {!compact && <p className="mt-0.5 text-[11px] text-foreground-faint">Pra onde este portal posta no Discord (campanhas, lab, time). Mesmo bot/servidor pode usar canais diferentes por portal.</p>}
       {err && <p className="mt-2 text-xs text-danger">{err}</p>}
       {msg && <p className="mt-2 text-xs text-success">{msg}</p>}
 

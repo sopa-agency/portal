@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ConnectionSetupDialog } from "@/components/connection-setup-dialog";
+import { DiscordChannelPicker } from "@/components/discord-channel-picker";
 import { useRouter } from "next/navigation";
 import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
@@ -841,13 +842,15 @@ function ConnectionCard({
 }) {
   const badge = statusBadge(connection.status);
   const isGitHub = connection.network.toLowerCase() === "github";
+  const isDiscord = connection.network.toLowerCase() === "discord";
 
   return (
+    <div className="group flex w-full flex-col gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-border-strong">
     <button
       type="button"
       onClick={onOpen}
       aria-label={`${connection.network} setup guide`}
-      className="group flex w-full flex-col gap-3 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-elevated"
+      className="flex w-full flex-col gap-3 text-left"
     >
       {/* Header: icon + name + status */}
       <div className="flex items-center justify-between gap-2">
@@ -918,6 +921,14 @@ function ConnectionCard({
         )}
       </div>
     </button>
+
+      {/* Discord: pick the default channel right on its card. */}
+      {isDiscord && connection.status !== "missing" && (
+        <div className="border-t border-border pt-2">
+          <DiscordChannelPicker compact />
+        </div>
+      )}
+    </div>
   );
 }
 

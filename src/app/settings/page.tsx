@@ -6,7 +6,6 @@ import { ConnectionsView } from "@/components/team-view";
 import { TeamAdmin } from "@/components/team-admin";
 import { PortalAccessManager } from "@/components/portal-access-manager";
 import { BountySetup } from "@/components/bounty-setup";
-import { DiscordChannelPicker } from "@/components/discord-channel-picker";
 import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
 import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
 
@@ -43,7 +42,6 @@ export default async function SettingsPage() {
       ) : null}
       {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
       {showAdmin ? <BountySetup /> : null}
-      {discordRow && discordRow.status !== "missing" ? <DiscordChannelPicker /> : null}
       <ConnectionsView
         projectName={project.name}
         connections={connections}
