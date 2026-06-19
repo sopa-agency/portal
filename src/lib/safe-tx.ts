@@ -52,6 +52,10 @@ export async function fetchSafeTokens(safeAddress: string, chainId: number): Pro
     });
     if (!r.ok) return [];
     const arr = (await r.json()) as { tokenAddress: string | null; token: { symbol?: string; decimals?: number } | null; balance: string }[];
+    const STABLES = new Set(["USDC", "USDT", "DAI", "USDBC", "EURC", "USDS"]);
+    // Native ETH first, then stablecoins, then the rest alphabetically — so the
+    // tokens people actually pay bounties in lead (not the DAO's misc holdings).
+    const rank = (t: SafeToken) => (t.address === null ? 0 : STABLES.has(t.symbol.toUpperCase()) ? 1 : 2);
     return arr
       .map((b): SafeToken => {
         const decimals = b.token?.decimals ?? 18;
@@ -62,7 +66,8 @@ export async function fetchSafeTokens(safeAddress: string, chainId: number): Pro
           balance: formatUnits(BigInt(b.balance), decimals),
         };
       })
-      .filter((t) => Number(t.balance) > 0);
+      .filter((t) => Number(t.balance) > 0)
+      .sort((a, b) => rank(a) - rank(b) || a.symbol.localeCompare(b.symbol));
   } catch {
     return [];
   }
