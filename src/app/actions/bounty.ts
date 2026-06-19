@@ -53,8 +53,10 @@ export type ChainStatus = {
   chainId: number;
   name: string;
   exists: boolean; // Safe deployed on this chain
-  delegate: boolean | null; // proposer registered as delegate here
+  delegate: boolean | null; // proposer registered as delegate here (null = couldn't check)
   balances: string; // short human summary, e.g. "0.001 ETH · 16 USDC"
+  /** The Safe service couldn't be read (e.g. rate-limited) — status is unknown, not "absent". */
+  unknown?: boolean;
 };
 export type ProjectBounty = {
   slug: string;
@@ -63,23 +65,31 @@ export type ProjectBounty = {
   chains: ChainStatus[];
 };
 
-/** Is the proposer a registered delegate of `safe` on `chainId`? */
+/** Is the proposer a registered delegate of `safe` on `chainId`? null = couldn't
+ *  read the service (e.g. Vercel got rate-limited) — must NOT read as "no". */
 async function isProposerDelegate(safe: string, chainId: number, proposer: string): Promise<boolean | null> {
-  try {
-    const res = await fetch(`${safeTxService(chainId)}/api/v2/delegates/?safe=${getAddress(safe)}&delegate=${getAddress(proposer)}`, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(8000),
-    });
-    const j = (await res.json()) as { count?: number; results?: unknown[] };
-    return (j.count ?? j.results?.length ?? 0) > 0;
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${safeTxService(chainId)}/api/v2/delegates/?safe=${getAddress(safe)}&delegate=${getAddress(proposer)}`, {
+        headers: { Accept: "application/json" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) continue; // 429/5xx → retry, then give up as "unknown"
+      const j = (await res.json()) as { count?: number; results?: unknown[] };
+      return (j.count ?? j.results?.length ?? 0) > 0;
+    } catch {
+      /* retry */
+    }
   }
+  return null;
 }
 
 async function chainStatus(safe: string, chainId: number, name: string, proposer: string | null): Promise<ChainStatus> {
   const info = await fetchSafeInfo(safe, chainId);
-  if (!info?.exists) return { chainId, name, exists: false, delegate: null, balances: "" };
+  // null = service unreadable (rate-limited/timeout) → "unknown", NOT "not deployed".
+  if (info === null) return { chainId, name, exists: false, delegate: null, balances: "", unknown: true };
+  if (!info.exists) return { chainId, name, exists: false, delegate: null, balances: "" };
   const [delegate, tokens] = await Promise.all([
     proposer ? isProposerDelegate(safe, chainId, proposer) : Promise.resolve(null),
     fetchSafeTokens(safe, chainId),

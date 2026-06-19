@@ -590,6 +590,7 @@ function MemberTasks({ githubLogin }: { githubLogin: string | null }) {
               className="block w-full rounded-xl border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong"
             >
               <div className="flex items-center gap-2">
+                {t.board && <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">{t.board}</span>}
                 <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-foreground-muted">{t.status}</span>
                 {t.number ? <span className="text-[10px] text-foreground-faint">#{t.number}</span> : null}
               </div>

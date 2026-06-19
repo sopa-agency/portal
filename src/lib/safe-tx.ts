@@ -14,19 +14,25 @@ export function safeAppChainPrefix(chainId: number): string {
 /** Whether a Safe is deployed on a chain (+ its threshold). null on error. */
 export async function fetchSafeInfo(safeAddress: string, chainId: number): Promise<{ exists: boolean; threshold: number } | null> {
   const tx = safeTxService(chainId);
-  try {
-    const r = await fetch(`${tx}/api/v1/safes/${getAddress(safeAddress)}/`, {
-      headers: { Accept: "application/json" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(9000),
-    });
-    if (r.status === 404 || r.status === 422) return { exists: false, threshold: 0 };
-    if (!r.ok) return null;
-    const j = (await r.json()) as { threshold?: number };
-    return { exists: true, threshold: Number(j.threshold ?? 0) };
-  } catch {
-    return null;
+  const addr = getAddress(safeAddress);
+  // Retry transient failures (429/5xx/timeout) — Vercel's shared IPs get
+  // rate-limited by the Safe service, which must NOT read as "not deployed".
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(`${tx}/api/v1/safes/${addr}/`, {
+        headers: { Accept: "application/json" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(11000),
+      });
+      if (r.status === 404 || r.status === 422) return { exists: false, threshold: 0 };
+      if (!r.ok) continue; // transient → retry, then null (unknown)
+      const j = (await r.json()) as { threshold?: number };
+      return { exists: true, threshold: Number(j.threshold ?? 0) };
+    } catch {
+      /* retry */
+    }
   }
+  return null;
 }
 
 export type SafeBudgetToken = { symbol: string; balance: string; usd: number | null };

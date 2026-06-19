@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -44,6 +44,21 @@ export function AggregatedKanban({
   const [cols, setCols] = useState<AggregatedColumn[]>(columns);
   useEffect(() => setCols(columns), [columns]);
   const [active, setActive] = useState<AggregatedItem | null>(null);
+
+  // Deep-link: /kanban?open=<itemId> (Team dialog / "Minhas tarefas" on SOPA)
+  // opens that card once, then strips the param.
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current) return;
+    openedFromUrl.current = true;
+    const id = new URLSearchParams(window.location.search).get("open");
+    if (!id) return;
+    const item = columns.flatMap((c) => c.items).find((it) => it.id === id);
+    if (item) setActive(item);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("open");
+    window.history.replaceState(null, "", url.pathname + url.search);
+  }, [columns]);
   const [team, setTeam] = useState<Assignee[] | null>(null);
   const [dragging, setDragging] = useState<AggregatedItem | null>(null);
   const [board, setBoard] = useState<string | null>(null);

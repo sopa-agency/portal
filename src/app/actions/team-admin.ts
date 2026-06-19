@@ -90,6 +90,8 @@ export type MemberTask = {
   body?: string;
   assignees?: { login: string; avatarUrl: string }[];
   labels?: { name: string; color: string }[];
+  /** Project/board name — set on the SOPA aggregated view (tasks across portals). */
+  board?: string;
 };
 
 /** Kanban tasks (GitHub Project items) assigned to a member's GitHub login. */
@@ -98,10 +100,47 @@ export async function getMemberTasks(
 ): Promise<{ ok: true; tasks: MemberTask[]; projectUrl?: string } | { ok: false; error: string }> {
   const g = await viewerGate();
   if (!g.ok) return g;
-  if (!g.project.githubProject) return { ok: true, tasks: [] };
   const login = githubLogin.trim().toLowerCase().replace(/^@/, "").replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/\/.*$/, "");
   if (!login) return { ok: true, tasks: [] };
   const { fetchGitHubProject } = await import("@/lib/github-project");
+
+  // SOPA hub (no own board, aggregates): collect the person's tasks across EVERY
+  // portal's board, tagged with the project name.
+  if (!g.project.githubProject) {
+    if (!g.project.kanbanAggregate) return { ok: true, tasks: [] };
+    const { getAllProjects } = await import("@/projects/index");
+    const seen = new Set<string>();
+    const tasks: MemberTask[] = [];
+    for (const p of getAllProjects()) {
+      if (!p.githubProject) continue;
+      const key = `${p.githubProject.org}#${p.githubProject.number}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const board = await fetchGitHubProject(p).catch(() => null);
+      if (!board || !board.ok) continue;
+      const boardName = board.title || p.name;
+      for (const col of board.columns) {
+        for (const it of col.items) {
+          if (it.assignees.some((a) => a.login.toLowerCase() === login)) {
+            tasks.push({
+              id: it.id,
+              title: it.title,
+              url: it.url,
+              status: col.name,
+              state: it.state,
+              number: it.number,
+              body: it.body,
+              assignees: it.assignees,
+              labels: it.labels.map((l) => ({ name: l.name, color: l.color })),
+              board: boardName,
+            });
+          }
+        }
+      }
+    }
+    return { ok: true, tasks };
+  }
+
   const board = await fetchGitHubProject(g.project);
   if (!board.ok) return { ok: false, error: board.error };
   const tasks: MemberTask[] = [];

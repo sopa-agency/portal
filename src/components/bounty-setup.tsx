@@ -89,6 +89,10 @@ function OverallChip({ project }: { project: ProjectBounty }) {
   if (ready.length > 0) {
     return <span className="flex items-center gap-1 rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success"><CheckCircle2 className="h-3 w-3" /> Pronto · {ready.map((c) => c.name).join(", ")}</span>;
   }
+  // Don't claim "falta delegate" if we simply couldn't read the service.
+  if (project.chains.every((c) => c.unknown)) {
+    return <span className="flex items-center gap-1 text-[10px] text-foreground-faint"><Loader2 className="h-3 w-3" /> não verificado</span>;
+  }
   return <span className="flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning"><XCircle className="h-3 w-3" /> falta delegate</span>;
 }
 
@@ -141,7 +145,7 @@ function ProjectBountyRow({
             <div className="grid gap-2 sm:grid-cols-2">
               {project.chains.map((c) => {
                 const ready = isReady(c);
-                const tint = !c.exists ? "border-border opacity-70" : ready ? "border-success/40" : "border-warning/40";
+                const tint = c.unknown ? "border-border" : !c.exists ? "border-border opacity-70" : ready ? "border-success/40" : "border-warning/40";
                 return (
                   <div key={c.chainId} className={`space-y-1.5 rounded-lg border bg-surface-elevated p-2.5 ${tint}`}>
                     <div className="flex items-center justify-between">
@@ -158,13 +162,15 @@ function ProjectBountyRow({
                       )}
                     </div>
 
-                    {!c.exists ? (
+                    {c.unknown ? (
+                      <Line state="pending">Não foi possível ler o Safe service (rate limit?) — clique Atualizar</Line>
+                    ) : !c.exists ? (
                       <Line state="bad">Safe não está implantado nesta rede</Line>
                     ) : (
                       <>
                         <Line state="ok">Safe implantado</Line>
                         <Line state={c.delegate === null ? "pending" : c.delegate ? "ok" : "bad"}>
-                          {c.delegate === null ? "Verificando delegate…" : c.delegate ? "Proposer é delegate" : "Proposer NÃO é delegate"}
+                          {c.delegate === null ? "Não foi possível verificar o delegate — Atualizar" : c.delegate ? "Proposer é delegate" : "Proposer NÃO é delegate"}
                         </Line>
                         <Line state={isFunded(c) ? "neutral" : "bad"}>Saldo: {c.balances || "vazio"}</Line>
                       </>
