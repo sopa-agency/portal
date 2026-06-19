@@ -9,6 +9,7 @@ import {
   archiveItem,
   clearItemStatus,
   createRepoIssue,
+  convertDraftToIssue,
   deleteItem,
   fetchAssignableUsers,
   fetchGitHubProject,
@@ -138,7 +139,7 @@ type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "createIssue"
-    | "aiBody";
+    | "convertDraft" | "aiBody";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
   projectId?: string;
@@ -340,6 +341,15 @@ export async function POST(req: Request) {
         title: body.newTitle.trim(),
         body: body.newBody,
       });
+      break;
+    }
+    case "convertDraft": {
+      const [owner, name] = (body.repo ?? "").split("/");
+      if (!itemId || !owner || !name)
+        return NextResponse.json({ ok: false, error: "itemId + repo (owner/name) required" }, { status: 400 });
+      const meta = await fetchRepoMeta(token, owner, name);
+      if (!meta.ok) { result = meta; break; }
+      result = await convertDraftToIssue({ token, itemId, repoId: meta.repoId });
       break;
     }
     case "aiBody": {

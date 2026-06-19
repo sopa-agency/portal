@@ -3,9 +3,44 @@
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
-import { getAllProjects } from "@/projects/index";
+import { getActiveProject, getAllProjects } from "@/projects/index";
 import { resolveGitHubToken, fetchGitHubProject, fetchAssignableUsers } from "@/lib/github-project";
+import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { prisma } from "@/lib/prisma";
+
+/**
+ * Send an issue to the project's coding agent: solve it on a branch and open a
+ * PR (never merge). Returns the PR URL for the user to review. Long-running —
+ * the agent does real git work via the gateway.
+ */
+export async function solveIssueWithAgent(input: { title: string; body?: string; url?: string }): Promise<
+  { ok: true; prUrl: string | null; result: string } | { ok: false; error: string }
+> {
+  try {
+    const project = await getActiveProject();
+    const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
+    if (!session) return { ok: false, error: "Unauthorized." };
+    if (!input.title?.trim()) return { ok: false, error: "Issue sem título." };
+
+    const prompt = [
+      "You are this project's coding agent, called from the Kanban to resolve a GitHub issue.",
+      "Solve the issue end-to-end ON A NEW BRANCH and open a Pull Request. Do NOT merge or push to the default branch.",
+      "Make the real code change, commit, push the branch, open the PR.",
+      "Return the PR URL on its own line (https://github.com/<owner>/<repo>/pull/<n>). If you can't, explain the exact blocker.",
+      "",
+      `Issue: ${input.title.trim()}`,
+      input.url ? `URL: ${input.url}` : "",
+      input.body?.trim() ? `\nBody:\n${input.body.trim().slice(0, 6000)}` : "",
+    ].filter(Boolean).join("\n");
+
+    const raw = await callOpenClaw(prompt, project.agent.id, { project, timeoutMs: 280_000 });
+    if (!raw) return { ok: false, error: "Resposta vazia do agente." };
+    const prUrl = raw.match(/https?:\/\/github\.com\/[^\s)"']+\/pull\/\d+/)?.[0] ?? null;
+    return { ok: true, prUrl, result: raw };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 export type Assignee = { login: string; avatarUrl: string; username: string | null };
 

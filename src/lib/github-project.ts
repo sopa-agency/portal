@@ -760,6 +760,30 @@ export async function setItemLabels(args: {
 // Real issues — create in a repo and drop onto the board
 // ---------------------------------------------------------------------------
 
+/** Convert a Project draft-issue item into a real repo issue (keeps the same
+ *  board item). Returns the new issue's content id + url + number. */
+export async function convertDraftToIssue(args: {
+  token: string;
+  itemId: string;
+  repoId: string;
+}): Promise<MutationResult<{ contentId: string; url: string; number: number }>> {
+  const r = await githubGraphQL<{
+    convertProjectV2DraftIssueItemToIssue: { item: { content: { id: string; url: string; number: number } | null } };
+  }>(
+    args.token,
+    `mutation($itemId: ID!, $repoId: ID!) {
+      convertProjectV2DraftIssueItemToIssue(input: { itemId: $itemId, repositoryId: $repoId }) {
+        item { content { ... on Issue { id url number } } }
+      }
+    }`,
+    { itemId: args.itemId, repoId: args.repoId },
+  );
+  if (!r.ok) return r;
+  const c = r.data.convertProjectV2DraftIssueItemToIssue.item.content;
+  if (!c) return { ok: false, error: "Convert returned no issue content." };
+  return { ok: true, contentId: c.id, url: c.url, number: c.number } as MutationResult<{ contentId: string; url: string; number: number }> & { contentId: string; url: string; number: number };
+}
+
 export async function createRepoIssue(args: {
   token: string;
   projectId: string;

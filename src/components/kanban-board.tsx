@@ -44,6 +44,7 @@ import type { BountyDTO } from "@/app/actions/bounty";
 import { MarkdownContent } from "@/components/markdown-content";
 import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
 import { MemberModal, type TeamMember } from "@/components/team-view";
+import { solveIssueWithAgent } from "@/app/actions/kanban";
 
 // ---------------------------------------------------------------------------
 // Column status color (mid-tone hues that read on both light & dark surfaces)
@@ -459,6 +460,7 @@ export function CardDetailDialog({
   canManage,
   bounty,
   onBountyChanged,
+  issueRepo,
   onSetAssignees,
   onMutate,
   onPatchItem,
@@ -472,6 +474,8 @@ export function CardDetailDialog({
   canManage: boolean;
   bounty: BountyDTO | undefined;
   onBountyChanged: () => void | Promise<void>;
+  /** Board's primary repo (owner/name) — enables draft→issue + solve-with-agent. */
+  issueRepo?: string | null;
   onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
   onMutate: MutateFn;
   onPatchItem: (itemId: string, patch: Partial<KanbanItem>) => void;
@@ -488,6 +492,32 @@ export function CardDetailDialog({
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+
+  // --- draft→issue convert + solve-with-agent (issues) ---
+  const [converting, setConverting] = useState(false);
+  const [solveBusy, setSolveBusy] = useState(false);
+  const [solveRes, setSolveRes] = useState<{ prUrl: string | null; result: string } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function convertToIssue() {
+    if (!issueRepo || converting) return;
+    setConverting(true); setActionError(null);
+    const r = (await onMutate({ action: "convertDraft", itemId: item.id, repo: issueRepo })) as {
+      ok: boolean; error?: string; url?: string; contentId?: string; number?: number;
+    };
+    setConverting(false);
+    if (r.ok) onPatchItem(item.id, { type: "issue", url: r.url, contentId: r.contentId, number: r.number, state: "open" });
+    else setActionError(r.error ?? "Falha ao converter em issue.");
+  }
+
+  async function solveWithAgent() {
+    if (solveBusy) return;
+    setSolveBusy(true); setActionError(null); setSolveRes(null);
+    const r = await solveIssueWithAgent({ title: item.title, body: item.body, url: item.url });
+    setSolveBusy(false);
+    if (r.ok) setSolveRes({ prUrl: r.prUrl, result: r.result });
+    else setActionError(r.error);
+  }
 
   // Generate (empty body) or improve (existing body) via the project agent.
   // Lands in the edit textarea for review — never saves on its own.
@@ -806,6 +836,49 @@ export function CardDetailDialog({
             <MarkdownContent markdown={item.body} githubRepo={repoOf(item.url)} />
           ) : (
             <p className="text-sm italic text-foreground-faint">No description.</p>
+          )}
+
+          {/* Draft → issue, and solve-with-agent (issues) → PR for review. */}
+          {!editing && issueRepo && (item.type === "draft" || item.type === "issue") && (
+            <div className="mt-6 space-y-2 border-t border-border pt-4">
+              {actionError && <p className="text-xs text-danger">{actionError}</p>}
+              {item.type === "draft" && (
+                <button
+                  type="button"
+                  onClick={convertToIssue}
+                  disabled={converting}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                >
+                  {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDot className="h-4 w-4" />}
+                  Converter em issue
+                </button>
+              )}
+              {item.type === "issue" && !solveRes && (
+                <button
+                  type="button"
+                  onClick={solveWithAgent}
+                  disabled={solveBusy}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-50"
+                >
+                  {solveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitPullRequest className="h-4 w-4" />}
+                  {solveBusy ? "Agente resolvendo… (pode demorar alguns min)" : "Resolver com agente → PR"}
+                </button>
+              )}
+              {solveRes && (
+                <div className="rounded-lg border border-success/30 bg-success/5 p-3 text-sm">
+                  {solveRes.prUrl ? (
+                    <a href={solveRes.prUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 font-semibold text-success hover:underline">
+                      <GitPullRequest className="h-4 w-4" /> PR pronto pra revisão ↗
+                    </a>
+                  ) : (
+                    <>
+                      <p className="mb-1 font-semibold text-warning">O agente terminou sem URL de PR:</p>
+                      <MarkdownContent markdown={solveRes.result} githubRepo={issueRepo} />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Bounty + EXEC meeting — feature parity with the SOPA aggregated board.
@@ -1533,6 +1606,7 @@ export function KanbanBoard() {
           canManage={!!board.canManage}
           bounty={bountyByKey.get(taskKeyOf(detailItem))}
           onBountyChanged={load}
+          issueRepo={primaryRepo}
           onSetAssignees={onSetAssignees}
           onMutate={(payload) => mutate({ ...payload, projectId: board.projectId })}
           onPatchItem={patchItem}
