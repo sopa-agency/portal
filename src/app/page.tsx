@@ -142,6 +142,7 @@ export default async function Home() {
           teamEmails={project.teamEmails ?? []}
           projectName={project.name}
           githubRepo={project.repos[0]}
+          postCreatorEnabled={!!project.postCreator}
         />
       ) : (
         <BriefingMissing agent={result.agent} error={result.error} />

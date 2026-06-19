@@ -1556,6 +1556,15 @@ export function PostCreator({
   const [caption, setCaption] = useState("");
   const [topic, setTopic] = useState("");
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+
+  // Prefill from a "Take action" hand-off (Morning Briefing → post): seed the
+  // caption once on mount, then clear the stash so a reload starts blank.
+  useEffect(() => {
+    try {
+      const draft = sessionStorage.getItem("portal:post-draft");
+      if (draft) { setCaption(draft); sessionStorage.removeItem("portal:post-draft"); }
+    } catch { /* sessionStorage unavailable */ }
+  }, []);
   const [loadedStatus, setLoadedStatus] = useState<DraftRow["status"] | null>(null);
   const [loadedPermalink, setLoadedPermalink] = useState<string | null>(null);
 

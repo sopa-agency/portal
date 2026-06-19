@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Loader2, MessageSquare, RefreshCw, Send, Sparkles, X, Zap } from "lucide-react";
+import { CheckCircle2, Loader2, MessageSquare, RefreshCw, Send, Sparkles, X, Zap, Megaphone } from "lucide-react";
 import {
   executeBriefingAction,
   followUpBriefingAction,
   proposeBriefingAction,
   regenerateBriefing,
   getBriefingJobs,
+  type ProposedAction,
 } from "@/app/actions/briefings";
 import { MarkdownContent } from "@/components/markdown-content";
 
@@ -25,16 +26,20 @@ export function TakeActionButton({
   agentSlug,
   agentLabel,
   githubRepo,
+  postCreatorEnabled = false,
 }: {
   agentSlug: string;
   agentLabel: string;
   githubRepo?: string;
+  /** Active project has the Post Creator → enable the "Abrir no Post Creator" route. */
+  postCreatorEnabled?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [step, setStep] = useState<Step>("proposal");
   const [proposal, setProposal] = useState("");
+  const [action, setAction] = useState<ProposedAction | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [following, setFollowing] = useState(false);
@@ -45,6 +50,7 @@ export function TakeActionButton({
   const reset = () => {
     setStep("proposal");
     setProposal("");
+    setAction(null);
     setTurns([]);
     setDraft("");
     setFollowing(false);
@@ -63,9 +69,21 @@ export function TakeActionButton({
     reset();
     startTransition(async () => {
       const r = await proposeBriefingAction(agentSlug);
-      if (r.ok) setProposal(r.proposal);
+      if (r.ok) { setProposal(r.proposal); setAction(r.action); }
       else setError(r.error);
     });
+  };
+
+  // Route a "post" action into the Post Creator, pre-filled with the draft.
+  const openInPostCreator = () => {
+    if (!action || action.kind !== "post") return;
+    const draft = action.drafts
+      ? action.drafts.farcaster ?? action.drafts.hive ?? Object.values(action.drafts)[0] ?? ""
+      : "";
+    const text = [draft, action.embedUrl].filter(Boolean).join("\n\n").trim() || proposal;
+    try { sessionStorage.setItem("portal:post-draft", text); } catch { /* ignore */ }
+    close();
+    router.push("/post-creator");
   };
 
   const execute = async () => {
@@ -288,11 +306,26 @@ export function TakeActionButton({
                     type="button"
                     onClick={execute}
                     disabled={!proposal || executing || pending}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-sm font-medium text-accent transition hover:bg-accent/20 disabled:opacity-50"
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:opacity-50 ${
+                      action?.kind === "post" && postCreatorEnabled
+                        ? "border-border bg-surface text-foreground-muted hover:border-border-strong hover:text-foreground"
+                        : "border-accent-border bg-accent-bg text-accent hover:bg-accent/20"
+                    }`}
                   >
                     {executing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                    Confirm & run
+                    {action?.kind === "git" ? "Executar via agente" : "Confirm & run"}
                   </button>
+                  {action?.kind === "post" && postCreatorEnabled && (
+                    <button
+                      type="button"
+                      onClick={openInPostCreator}
+                      disabled={!proposal || pending}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      <Megaphone className="h-3.5 w-3.5" />
+                      Abrir no Post Creator
+                    </button>
+                  )}
                 </>
               )}
 

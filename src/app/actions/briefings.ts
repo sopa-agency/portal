@@ -308,9 +308,44 @@ function buildProposePrompt(brief: string): string {
     "- Risk/needs approval: ...",
     "- Expected result: ...",
     "",
+    "Then, so the portal can route the action to the right tool, append a JSON block:",
+    "```json",
+    '{ "kind": "post" | "git" | "other", "channels": ["farcaster","hive"], "drafts": { "farcaster": "ready-to-post text", "hive": "ready-to-post text" }, "embedUrl": "https://…" }',
+    "```",
+    'Rules: kind="post" when the action is publishing social/marketing content — include ready-to-post drafts per channel and any embed/bounty URL. kind="git" when it touches a repo/PR/commit/deploy. kind="other" otherwise (omit drafts/embedUrl).',
+    "",
     "Morning briefing:",
     brief,
   ].join("\n");
+}
+
+export type ProposedAction = {
+  kind: "post" | "git" | "other";
+  channels?: string[];
+  drafts?: Record<string, string>;
+  embedUrl?: string;
+};
+
+/** Split the agent's reply into the human-facing markdown + the routing JSON. */
+function parseProposal(raw: string): { proposal: string; action: ProposedAction } {
+  let action: ProposedAction = { kind: "other" };
+  const block = [...raw.matchAll(/```json\s*([\s\S]*?)```/gi)].pop();
+  if (block) {
+    try {
+      const j = JSON.parse(block[1].trim()) as Record<string, unknown>;
+      const kind = j.kind === "post" || j.kind === "git" ? j.kind : "other";
+      action = {
+        kind,
+        channels: Array.isArray(j.channels) ? j.channels.map(String) : undefined,
+        drafts: j.drafts && typeof j.drafts === "object" ? (j.drafts as Record<string, string>) : undefined,
+        embedUrl: typeof j.embedUrl === "string" ? j.embedUrl : undefined,
+      };
+    } catch {
+      /* malformed JSON → leave as "other" */
+    }
+  }
+  const proposal = raw.replace(/```json[\s\S]*?```/gi, "").trim();
+  return { proposal: proposal || raw.trim(), action };
 }
 
 function buildExecutePrompt(brief: string, proposal: string): string {
@@ -365,7 +400,7 @@ async function loadLatestBriefingBody(agentSlug: string): Promise<string | null>
 
 export async function proposeBriefingAction(
   agentSlug: string,
-): Promise<{ ok: true; proposal: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; proposal: string; action: ProposedAction } | { ok: false; error: string }> {
   try {
     const project = await getActiveProject();
     const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
@@ -375,10 +410,11 @@ export async function proposeBriefingAction(
     if (!brief) return { ok: false, error: "No briefing yet for this agent — regenerate one first." };
 
     await ensureLocalGatewayToken();
-    const proposal = await callOpenClaw(buildProposePrompt(brief), agentSlug, { timeoutMs: TIMEOUT_MS, project });
-    if (!proposal) return { ok: false, error: "Empty proposal returned from gateway" };
+    const raw = await callOpenClaw(buildProposePrompt(brief), agentSlug, { timeoutMs: TIMEOUT_MS, project });
+    if (!raw) return { ok: false, error: "Empty proposal returned from gateway" };
 
-    return { ok: true, proposal };
+    const { proposal, action } = parseProposal(raw);
+    return { ok: true, proposal, action };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

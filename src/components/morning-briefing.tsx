@@ -41,12 +41,14 @@ export function MorningBriefing({
   teamEmails = [],
   projectName = "",
   githubRepo,
+  postCreatorEnabled = false,
 }: {
   briefing: Briefing;
   today: string;
   teamEmails?: string[];
   projectName?: string;
   githubRepo?: string;
+  postCreatorEnabled?: boolean;
 }) {
   const { status, actions, sources, middle } = partitionSections(briefing.sections);
   const freshness = freshnessLabel(briefing.date, today);
@@ -73,7 +75,7 @@ export function MorningBriefing({
           </span>
           <ImprovePromptButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
           <FeedbackButton kind="briefing" channelKey={briefing.agent.slug} label={`${briefing.agent.label} briefing`} />
-          <TakeActionButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} githubRepo={githubRepo} />
+          <TakeActionButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} githubRepo={githubRepo} postCreatorEnabled={postCreatorEnabled} />
           {teamEmails.length > 0 && (
             <EmailBriefingButton
               agentSlug={briefing.agent.slug}
