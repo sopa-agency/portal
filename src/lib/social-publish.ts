@@ -6,6 +6,7 @@
 import crypto from "node:crypto";
 import type { ProjectConfig } from "@/projects/types";
 import { brandEnv } from "@/lib/brand-env";
+import { prisma } from "@/lib/prisma";
 
 export const HIVE_NODES = [
   "https://api.hive.blog",
@@ -388,12 +389,19 @@ export async function uploadMediaToPinata(
 export async function publishToDiscord(
   text: string,
   project?: ProjectConfig,
+  channelIdOverride?: string,
 ): Promise<PublishResult> {
   try {
     const prefix = project?.agent?.gatewayEnvPrefix;
     // Identity credential: never falls back across brands (see brand-env.ts).
     const token = brandEnv(project, "DISCORD_BOT_TOKEN");
-    const channelId = brandEnv(project, "DISCORD_CHANNEL_ID");
+    // Channel: per-send override → saved project default (DB) → env.
+    let channelId = channelIdOverride?.trim() || null;
+    if (!channelId && project) {
+      const saved = await prisma.discordChannelConfig.findUnique({ where: { projectSlug: project.slug } }).catch(() => null);
+      channelId = saved?.channelId ?? null;
+    }
+    if (!channelId) channelId = brandEnv(project, "DISCORD_CHANNEL_ID") ?? null;
 
     if (!token || !channelId) {
       const p = prefix ?? "YOUR_PROJECT";

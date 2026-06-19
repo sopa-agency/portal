@@ -342,6 +342,16 @@ model BountyConfig {
   updatedAt    DateTime @updatedAt
 }
 
+// Default Discord channel a project posts to (overrides the env DISCORD_CHANNEL_ID).
+// Same bot/guild can serve several portals (SOPA ↔ Reelflip) on different channels.
+model DiscordChannelConfig {
+  projectSlug String   @id
+  channelId   String
+  channelName String?
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+}
+
 // A Kanban task turned into a bounty, paid from the project's Safe (BountyConfig).
 model Bounty {
   id           String   @id @default(cuid())
