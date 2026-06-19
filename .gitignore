@@ -48,3 +48,5 @@ next-env.d.ts
 # scratch / temp working dirs (never commit — may hold browser profiles, cookies)
 .tmp/
 /tmp/
+.playwright-cli/
+.playwright-mcp/
