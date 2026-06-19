@@ -6,7 +6,8 @@ import { TreasuryViews } from "@/components/treasury-views";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { fetchTreasuryGroups } from "@/lib/treasury";
 import { fetchSafeActivity } from "@/lib/safe-tx";
-import { getActiveProject } from "@/projects";
+import { getActiveProject, getAllProjects } from "@/projects";
+import { prisma } from "@/lib/prisma";
 
 const usd = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -68,25 +69,34 @@ treasury: {
   const groups = await fetchTreasuryGroups(project);
   const combined = groups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
 
-  // Surface Safe transaction activity for any EVM treasury wallet that is a
-  // Gnosis Safe — probed on BOTH Base and Ethereum mainnet via the Safe
-  // Transaction Service (a wallet may be a Safe on either chain).
-  const evmWallets = [
-    ...new Map(
-      groups.flatMap((g) => g.report.evm.map((w) => [w.address.toLowerCase(), { label: w.label, address: w.address }])),
-    ).values(),
-  ];
-  const SAFE_CHAINS = [8453, 1];
+  // Surface Safe transaction activity. Candidates = EVM treasury wallets (chain
+  // unknown → probe Base + mainnet) plus the project's configured bounty Safes
+  // (known chain). A wallet may be a Safe on either chain.
+  const slugs = [project.slug, ...(project.treasury?.includeProjects ?? [])];
+  const bountyConfigs = await prisma.bountyConfig.findMany({ where: { projectSlug: { in: slugs } } }).catch(() => []);
+  const nameOf = (slug: string) => getAllProjects().find((p) => p.slug === slug)?.name ?? slug;
+
+  // address(lower) → { label, address, chains[] }. Bounty Safes pin their chain.
+  const candidates = new Map<string, { label: string; address: string; chains: number[] }>();
+  for (const g of groups) for (const w of g.report.evm) {
+    const k = w.address.toLowerCase();
+    if (!candidates.has(k)) candidates.set(k, { label: w.label, address: w.address, chains: [8453, 1] });
+  }
+  for (const bc of bountyConfigs) {
+    const k = bc.safeAddress.toLowerCase();
+    const existing = candidates.get(k);
+    candidates.set(k, { label: existing?.label ?? `${nameOf(bc.projectSlug)} bounty Safe`, address: bc.safeAddress, chains: [bc.chainId] });
+  }
+
   const probed = await Promise.all(
-    evmWallets.map(async (w): Promise<SafeActivityItem | null> => {
+    [...candidates.values()].map(async (w): Promise<SafeActivityItem | null> => {
       const perChain = await Promise.all(
-        SAFE_CHAINS.map(async (chainId) => ({ chainId, activity: await fetchSafeActivity(w.address, chainId) })),
+        w.chains.map(async (chainId) => ({ chainId, activity: await fetchSafeActivity(w.address, chainId) })),
       );
-      // Prefer the chain where it's a Safe with activity, else any chain it's a Safe on.
       const hit =
         perChain.find((r) => r.activity.isSafe && (r.activity.queued.length > 0 || r.activity.history.length > 0)) ??
         perChain.find((r) => r.activity.isSafe);
-      return hit ? { ...w, chainId: hit.chainId, activity: hit.activity } : null;
+      return hit ? { label: w.label, address: w.address, chainId: hit.chainId, activity: hit.activity } : null;
     }),
   );
   const safes = probed.filter((p): p is SafeActivityItem => p !== null && (p.activity.queued.length > 0 || p.activity.history.length > 0));
