@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, XCircle, Copy, ChevronDown } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, ChevronDown, ExternalLink } from "lucide-react";
+
+const safeAppUrl = (chainId: number, address: string) => `https://app.safe.global/home?safe=${chainId === 1 ? "eth" : "base"}:${address}`;
 import { getBountySetup, saveBountyConfig, type ProjectBounty, type ChainStatus } from "@/app/actions/bounty";
 
 export function BountySetup() {
@@ -133,6 +135,11 @@ function ProjectBountyRow({
                     )}
                   </div>
                   {c.exists && <p className="mt-1 text-[11px] tabular-nums text-foreground-muted">{c.balances}</p>}
+                  {c.exists && project.safeAddress && (
+                    <a href={safeAppUrl(c.chainId, project.safeAddress)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[10px] text-accent hover:underline">
+                      Abrir no Safe <ExternalLink className="h-2.5 w-2.5" />
+                    </a>
+                  )}
                   {c.exists && c.delegate !== true && (
                     <p className="mt-1 text-[10px] text-warning">Registre o proposer como delegate desta rede no app.safe.global.</p>
                   )}
