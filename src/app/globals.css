@@ -79,6 +79,25 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Tailwind v4 dropped the default cursor:pointer on buttons. Restore it for all
+   interactive controls so clickable UI (incl. copy chips) feels clickable.
+   In @layer base so Tailwind utilities (cursor-grab, cursor-default, …) still win. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;

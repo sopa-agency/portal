@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, XCircle, Copy, ChevronDown, ExternalLink } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ChevronDown, ExternalLink } from "lucide-react";
+import { CopyButton } from "@/components/copy-button";
 
 const safeAppUrl = (chainId: number, address: string) => `https://app.safe.global/home?safe=${chainId === 1 ? "eth" : "base"}:${address}`;
 import { getBountySetup, saveBountyConfig, type ProjectBounty, type ChainStatus } from "@/app/actions/bounty";
@@ -34,9 +35,9 @@ export function BountySetup() {
       <div className="rounded-xl border border-border bg-surface p-3">
         <div className="text-[10px] uppercase tracking-wide text-foreground-faint">Proposer (delegate de cada Safe — só propõe)</div>
         {proposer ? (
-          <button type="button" onClick={() => navigator.clipboard?.writeText(proposer)} title="Copiar" className="mt-1 flex w-full items-center gap-1.5 truncate font-mono text-xs text-accent hover:underline">
-            <Copy className="h-3 w-3 shrink-0" /> {proposer}
-          </button>
+          <CopyButton value={proposer} className="mt-1 flex w-full items-center gap-1.5 truncate font-mono text-xs text-accent hover:underline">
+            {proposer}
+          </CopyButton>
         ) : (
           <p className="mt-1 text-xs text-danger">SAFE_PROPOSER_PRIVATE_KEY não configurado.</p>
         )}

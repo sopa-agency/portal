@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2, CalendarCl
 import { createMeeting, updateMeeting, deleteMeeting, improveMeeting, type MeetingDTO } from "@/app/actions/meetings";
 import { MEETING_AI_INSTRUCTION } from "@/lib/ai-prompts";
 import { ImproveAiButton } from "@/components/improve-ai-button";
+import { CopyButton } from "@/components/copy-button";
 import { addSharedCalendar, deleteSharedCalendar, getAvailability, getCalendarConnectInfo, type SharedCalendarDTO, type BusyBlock, type TeamAvail } from "@/app/actions/shared-calendars";
 
 type RosterMember = { username: string; email: string | null; avatarUrl: string; github?: string | null };
@@ -387,7 +388,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
                 {serviceEmail ? (
                   <div className="mt-2 rounded-md border border-border bg-surface p-2 text-[10px] text-foreground-muted">
                     Pra um membro aparecer como <span className="text-success">conectado</span>, ele compartilha “Ver disponibilidade” do Google Calendar dele com:
-                    <button type="button" onClick={() => navigator.clipboard?.writeText(serviceEmail)} title="Copiar" className="mt-1 block w-full truncate rounded bg-surface-elevated px-1.5 py-1 text-left font-mono text-[10px] text-accent hover:underline">{serviceEmail}</button>
+                    <CopyButton value={serviceEmail} className="mt-1 flex w-full items-center gap-1 truncate rounded bg-surface-elevated px-1.5 py-1 text-left font-mono text-[10px] text-accent hover:underline">{serviceEmail}</CopyButton>
                   </div>
                 ) : null}
                 {meetingsCal ? (

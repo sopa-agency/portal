@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Coins, Loader2, Trash2, CalendarPlus, Check, ArrowUpRight, Wallet, X } from "lucide-react";
 import { createBounty, cancelBounty, proposeBountyPayment, markBountyPaid, getSafeOptions, type BountyDTO, type SafeTokenAvailability, type SafeChainOption } from "@/app/actions/bounty";
+import { CopyButton } from "@/components/copy-button";
 
 const CHAIN_LABEL: Record<number, string> = { 8453: "Base", 1: "Ethereum" };
 
@@ -332,10 +333,14 @@ export function BountyPanel({
               <span className="ml-auto flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning"><Loader2 className="h-2.5 w-2.5 animate-spin" /> aguardando owners</span>
             </div>
             {bounty.payeeAddress && (
-              <p className="flex items-center gap-1 font-mono text-[11px] text-foreground-muted"><Wallet className="h-3 w-3 shrink-0" /> {bounty.payeeAddress}</p>
+              <CopyButton value={bounty.payeeAddress} title="Copiar carteira" className="flex w-full items-center gap-1 truncate font-mono text-[11px] text-foreground-muted hover:text-foreground">
+                <Wallet className="h-3 w-3 shrink-0" /> {bounty.payeeAddress}
+              </CopyButton>
             )}
             {bounty.safeTxHash && (
-              <p className="truncate font-mono text-[10px] text-foreground-faint">{bounty.safeTxHash}</p>
+              <CopyButton value={bounty.safeTxHash} title="Copiar safeTxHash" className="flex w-full items-center gap-1 truncate font-mono text-[10px] text-foreground-faint hover:text-foreground-muted">
+                {bounty.safeTxHash}
+              </CopyButton>
             )}
             {canManage && (
               <button
