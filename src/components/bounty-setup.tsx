@@ -1,13 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, XCircle, Copy, Wallet, ChevronDown } from "lucide-react";
-import { createWalletClient, custom } from "viem";
+import { Loader2, CheckCircle2, XCircle, Copy, ChevronDown } from "lucide-react";
 import {
   getBountySetup,
   saveBountyConfig,
-  getDelegateSignPayload,
-  registerDelegate,
   type ProjectBounty,
 } from "@/app/actions/bounty";
 
@@ -88,7 +85,6 @@ function ProjectBountyRow({
     tokenDecimals: c?.tokenDecimals ?? 18,
   });
   const [saving, setSaving] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function save() {
@@ -97,30 +93,6 @@ function ProjectBountyRow({
     setSaving(false);
     if (r.ok) { setMsg({ ok: true, text: "Salvo ✅" }); await onChanged(); }
     else setMsg({ ok: false, text: r.error });
-  }
-
-  async function registerAsDelegate() {
-    setBusy(true); setMsg(null);
-    try {
-      const payload = await getDelegateSignPayload(project.slug);
-      if (!payload.ok) { setMsg({ ok: false, text: payload.error }); return; }
-      const eth = (window as unknown as { ethereum?: unknown }).ethereum;
-      if (!eth) { setMsg({ ok: false, text: "Carteira não detectada (MetaMask/Rabby)." }); return; }
-      const wc = createWalletClient({ transport: custom(eth as Parameters<typeof custom>[0]) });
-      const [delegator] = await wc.requestAddresses();
-      const signature = await wc.signTypedData({
-        account: delegator,
-        domain: payload.domain as Record<string, unknown>,
-        types: payload.types as Record<string, { name: string; type: string }[]>,
-        primaryType: payload.primaryType,
-        message: payload.message as Record<string, unknown>,
-      });
-      const r = await registerDelegate(project.slug, delegator, signature);
-      if (r.ok) { setMsg({ ok: true, text: "Delegate registrado ✅" }); await onChanged(); }
-      else setMsg({ ok: false, text: r.error });
-    } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : "Falha ao assinar." });
-    } finally { setBusy(false); }
   }
 
   return (
@@ -172,9 +144,12 @@ function ProjectBountyRow({
             </button>
           </div>
           {c && proposer && project.delegateRegistered !== true && (
-            <button type="button" onClick={registerAsDelegate} disabled={busy} className="flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Conectar carteira (owner) &amp; registrar proposer
-            </button>
+            <p className="rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2 text-[11px] leading-relaxed text-warning">
+              Proposer ainda não é delegate deste Safe. Registre-o no <span className="font-semibold">app.safe.global</span> adicionando <span className="font-mono">{proposer}</span> como delegate/proposer. O status atualiza aqui depois.
+            </p>
+          )}
+          {c && project.delegateRegistered === true && (
+            <p className="text-[11px] text-success">✅ Proposer registrado como delegate — pronto pra propor pagamentos.</p>
           )}
         </div>
       )}

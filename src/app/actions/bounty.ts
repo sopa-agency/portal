@@ -143,50 +143,8 @@ export async function saveBountyConfig(projectSlug: string, input: {
   return { ok: true };
 }
 
-/** EIP-712 typed data an owner signs to register the proposer as a delegate on a project's Safe. */
-export async function getDelegateSignPayload(projectSlug: string): Promise<
-  { ok: true; domain: object; types: object; message: object; primaryType: string; delegate: string } | { ok: false; error: string }
-> {
-  const g = await globalGate();
-  if (!g.ok) return g;
-  const row = await prisma.bountyConfig.findUnique({ where: { projectSlug } });
-  const proposer = proposerAddress();
-  if (!row || !proposer) return { ok: false, error: "Configure o Safe e o proposer primeiro." };
-  const totp = Math.floor(Date.now() / 1000 / 3600);
-  return {
-    ok: true,
-    delegate: proposer,
-    primaryType: "Delegate",
-    domain: { name: "Safe Transaction Service", version: "1.0", chainId: row.chainId },
-    types: { Delegate: [{ name: "delegateAddress", type: "address" }, { name: "totp", type: "uint256" }] },
-    message: { delegateAddress: getAddress(proposer), totp },
-  };
-}
-
-/** Register the proposer as a delegate on a project's Safe (owner EIP-712 signature). */
-export async function registerDelegate(projectSlug: string, delegator: string, signature: string, label = "Portal bounty proposer"): Promise<{ ok: true } | { ok: false; error: string }> {
-  const g = await globalGate();
-  if (!g.ok) return g;
-  const row = await prisma.bountyConfig.findUnique({ where: { projectSlug } });
-  const proposer = proposerAddress();
-  if (!row || !proposer) return { ok: false, error: "Configure o Safe e o proposer primeiro." };
-  const { tx } = chainInfo(row.chainId);
-  try {
-    const res = await fetch(`${tx}/api/v2/delegates/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ safe: getAddress(row.safeAddress), delegate: getAddress(proposer), delegator: getAddress(delegator), signature, label }),
-      signal: AbortSignal.timeout(9000),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      return { ok: false, error: `Safe API HTTP ${res.status}: ${body.slice(0, 200)}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Falha ao registrar delegate." };
-  }
-}
+// Delegate registration is done directly in the Safe{Wallet} UI (app.safe.global);
+// the portal only reads delegate status (see safeStatus) to gate proposing.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bounties: a Kanban task with a payout reserved from the project's Safe.
