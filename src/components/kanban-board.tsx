@@ -1068,6 +1068,21 @@ export function KanbanBoard() {
     void load();
   }, [load]);
 
+  // Deep-link: /kanban?open=<itemId> (from Team member dialog / "Minhas tarefas")
+  // opens that card once the board has loaded, then strips the param.
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (!board || openedFromUrl.current) return;
+    openedFromUrl.current = true;
+    const id = new URLSearchParams(window.location.search).get("open");
+    if (!id) return;
+    const item = board.columns.flatMap((c) => c.items).find((it) => it.id === id);
+    if (item) setDetailItem(item);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("open");
+    window.history.replaceState(null, "", url.pathname + url.search);
+  }, [board]);
+
   useEffect(() => {
     const onOpenMember = (event: Event) => {
       const username = (event as CustomEvent<{ username?: string }>).detail?.username?.toLowerCase();

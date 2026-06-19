@@ -112,12 +112,10 @@ export default async function Home() {
   // Logged-in user's own Kanban tasks (shown below the briefing).
   const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
   let myTasks: MemberTask[] = [];
-  let myEmail: string | null = null;
   if (session && project.githubProject) {
     const me = (await getTeamRoster(project).catch(() => [])).find(
       (m) => m.username === session.username.toLowerCase(),
     );
-    myEmail = me?.email ?? null;
     const ghContact = me?.contacts.find((c) => c.label === "GitHub")?.value;
     if (ghContact) {
       const r = await getMemberTasks(ghContact);
@@ -195,7 +193,7 @@ export default async function Home() {
         channelTabs={channelTabs}
         briefAbove={
           session && project.githubProject ? (
-            <MyTasks tasks={myTasks} username={session.username} userEmail={myEmail} />
+            <MyTasks tasks={myTasks} username={session.username} />
           ) : null
         }
       />

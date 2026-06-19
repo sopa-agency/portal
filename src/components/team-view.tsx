@@ -557,6 +557,7 @@ function ContactsEditor({
 }
 
 function MemberTasks({ githubLogin }: { githubLogin: string | null }) {
+  const router = useRouter();
   const [tasks, setTasks] = useState<MemberTask[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -582,19 +583,18 @@ function MemberTasks({ githubLogin }: { githubLogin: string | null }) {
       ) : (
         <div className="space-y-1.5">
           {tasks.map((t, i) => (
-            <a
+            <button
               key={i}
-              href={t.url ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block rounded-xl border border-border bg-surface px-3 py-2 transition-colors hover:border-border-strong"
+              type="button"
+              onClick={() => router.push(`/kanban?open=${encodeURIComponent(t.id)}`)}
+              className="block w-full rounded-xl border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong"
             >
               <div className="flex items-center gap-2">
                 <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-foreground-muted">{t.status}</span>
                 {t.number ? <span className="text-[10px] text-foreground-faint">#{t.number}</span> : null}
               </div>
               <p className="mt-0.5 line-clamp-2 text-sm text-foreground">{t.title}</p>
-            </a>
+            </button>
           ))}
         </div>
       )}

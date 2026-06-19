@@ -80,6 +80,8 @@ export async function removeMember(username: string): Promise<{ ok: true } | { o
 }
 
 export type MemberTask = {
+  /** GitHub Project item id — opens the card on the Kanban via /kanban?open=<id>. */
+  id: string;
   title: string;
   url?: string;
   status: string;
@@ -107,6 +109,7 @@ export async function getMemberTasks(
     for (const it of col.items) {
       if (it.assignees.some((a) => a.login.toLowerCase() === login)) {
         tasks.push({
+          id: it.id,
           title: it.title,
           url: it.url,
           status: col.name,
