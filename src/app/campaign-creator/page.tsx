@@ -5,12 +5,13 @@ import { createCampaign } from "@/app/actions/campaigns";
 import { CampaignGrid } from "@/components/campaign-grid";
 import { PageHeader } from "@/components/page-header";
 import { getCampaignTemplates } from "@/lib/campaign-templates";
+import { campaignProgress } from "@/lib/campaign-kind";
 import { prisma } from "@/lib/prisma";
 import { ageFromDate } from "@/lib/utils";
 import { getActiveProject } from "@/projects";
 
 export default async function CampaignCreatorPage() {
-  let campaigns: { id: string; name: string; updatedAt: string; docCount: number }[] = [];
+  let campaigns: { id: string; name: string; updatedAt: string; docCount: number; posted: number; publishable: number }[] = [];
   let dbError = false;
 
   const project = await getActiveProject();
@@ -18,14 +19,22 @@ export default async function CampaignCreatorPage() {
     const rows = await prisma.campaign.findMany({
       where: { archivedAt: null, projectSlug: project.slug },
       orderBy: { updatedAt: "desc" },
-      include: { _count: { select: { documents: true } } },
+      include: {
+        _count: { select: { documents: true } },
+        documents: { select: { name: true, isMain: true, postedAt: true } },
+      },
     });
-    campaigns = rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      updatedAt: ageFromDate(row.updatedAt),
-      docCount: row._count.documents,
-    }));
+    campaigns = rows.map((row) => {
+      const { posted, total } = campaignProgress(row.documents);
+      return {
+        id: row.id,
+        name: row.name,
+        updatedAt: ageFromDate(row.updatedAt),
+        docCount: row._count.documents,
+        posted,
+        publishable: total,
+      };
+    });
   } catch {
     dbError = true;
   }

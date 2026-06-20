@@ -5,6 +5,7 @@ import { CampaignFolderShell } from "@/components/campaign-folder-shell";
 import { CampaignTitleEditor } from "@/components/campaign-title-editor";
 import type { CampaignPreviewBrand } from "@/components/campaign-document-preview";
 import { prisma } from "@/lib/prisma";
+import { campaignProgress } from "@/lib/campaign-kind";
 import { ageFromDate } from "@/lib/utils";
 import { getActiveProject } from "@/projects";
 
@@ -50,6 +51,8 @@ export default async function CampaignFolderPage({
     accentDark: project.theme.accentLight,
   };
 
+  const progress = campaignProgress(campaign.documents);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 border-b border-border pb-5">
@@ -65,10 +68,19 @@ export default async function CampaignFolderPage({
           <span>Campaign folder</span>
         </div>
         <CampaignTitleEditor campaignId={campaign.id} initialName={campaign.name} />
-        <p className="text-[11px] text-foreground-subtle">
-          {campaign.documents.length} {campaign.documents.length === 1 ? "document" : "documents"} ·
-          Updated {ageFromDate(campaign.updatedAt)}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-foreground-subtle">
+          <span>{campaign.documents.length} {campaign.documents.length === 1 ? "document" : "documents"}</span>
+          <span aria-hidden="true">·</span>
+          <span>Updated {ageFromDate(campaign.updatedAt)}</span>
+          {progress.total > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${progress.posted >= progress.total ? "bg-success/15 text-success" : "bg-foreground/10 text-foreground-muted"}`}>
+                {progress.posted >= progress.total ? "✓ publicada" : "publicado"} {progress.posted}/{progress.total}
+              </span>
+            </>
+          )}
+        </div>
       </div>
 
       <CampaignFolderShell

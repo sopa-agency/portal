@@ -10,7 +10,30 @@ type Campaign = {
   name: string;
   updatedAt: string;
   docCount: number;
+  /** Publishable artifacts already posted, and the total publishable. */
+  posted: number;
+  publishable: number;
 };
+
+/** Small "X/Y publicado" progress with a bar — green when fully shipped. */
+function CampaignProgress({ posted, total }: { posted: number; total: number }) {
+  if (total === 0) return null;
+  const done = posted >= total;
+  const pct = Math.round((posted / total) * 100);
+  return (
+    <div className="mt-2.5">
+      <div className="mb-1 flex items-center justify-between text-[10px] font-medium">
+        <span className={done ? "text-success" : "text-foreground-muted"}>
+          {done ? "✓ publicada" : "publicado"}
+        </span>
+        <span className={done ? "text-success" : "text-foreground-subtle"}>{posted}/{total}</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">
+        <div className={`h-full rounded-full ${done ? "bg-success" : "bg-accent"}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
 
 export function CampaignGrid({ campaigns }: { campaigns: Campaign[] }) {
   const [view, setView] = useState<"grid" | "list">("grid");
@@ -130,6 +153,7 @@ function CampaignCard({
           <span aria-hidden="true">·</span>
           <span>{campaign.updatedAt}</span>
         </div>
+        <CampaignProgress posted={campaign.posted} total={campaign.publishable} />
       </Link>
       {menuOpen && <ActionsMenu id={campaign.id} name={campaign.name} onClose={onMenuToggle} />}
     </div>
@@ -164,6 +188,11 @@ function CampaignList({
           >
             <Folder className="h-4 w-4 shrink-0 text-accent/70" />
             <span className="truncate text-sm font-medium text-foreground">{c.name}</span>
+            {c.publishable > 0 && (
+              <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${c.posted >= c.publishable ? "bg-success/15 text-success" : "bg-foreground/10 text-foreground-muted"}`}>
+                {c.posted >= c.publishable ? "✓ " : ""}{c.posted}/{c.publishable}
+              </span>
+            )}
           </Link>
           <span className="tabular-nums text-xs text-foreground-muted">{c.docCount}</span>
           <span className="text-xs text-foreground-muted">{c.updatedAt}</span>
