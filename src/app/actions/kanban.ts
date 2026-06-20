@@ -77,17 +77,19 @@ export async function getProjectAssignees(projectSlug: string): Promise<
     teamGithub.push({ username: r.username, login });
   }
 
-  const repos = board.ok
-    ? [
-        ...new Map(
-          board.columns
-            .flatMap((c) => c.items)
-            .map((i) => i.url?.match(/github\.com\/([^/]+)\/([^/]+)\//))
-            .filter((m): m is RegExpMatchArray => !!m)
-            .map((m) => [`${m[1]}/${m[2]}`.toLowerCase(), { owner: m[1], name: m[2] }]),
-        ).values(),
+  const repos = [
+    ...new Map(
+      [
+        // Configured repos — collaborators stay assignable even on draft-only boards.
+        ...(project.repos ?? []).map((r) => r.match(/^([^/]+)\/([^/]+)$/)),
+        ...(board.ok
+          ? board.columns.flatMap((c) => c.items).map((i) => i.url?.match(/github\.com\/([^/]+)\/([^/]+)\//))
+          : []),
       ]
-    : [];
+        .filter((m): m is RegExpMatchArray => !!m)
+        .map((m) => [`${m[1]}/${m[2]}`.toLowerCase(), { owner: m[1], name: m[2] }]),
+    ).values(),
+  ];
   const collaborators = token && repos.length ? await fetchAssignableUsers(token, repos).catch(() => []) : [];
 
   const usernameByLogin = new Map(teamGithub.map((t) => [t.login.toLowerCase(), t.username]));

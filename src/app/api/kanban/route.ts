@@ -84,9 +84,15 @@ export async function GET() {
   const ghToken = resolveGitHubToken(project);
   const repos = [
     ...new Map(
-      result.columns
-        .flatMap((c) => c.items)
-        .map((i) => i.url?.match(/github\.com\/([^/]+)\/([^/]+)\//))
+      [
+        // Configured repos — so collaborators are assignable even on a board with
+        // only drafts (no issue URLs to derive a repo from), e.g. Gnars Pros.
+        ...(project.repos ?? []).map((r) => r.match(/^([^/]+)\/([^/]+)$/)),
+        // Repos that show up on the board's issue/PR URLs.
+        ...result.columns
+          .flatMap((c) => c.items)
+          .map((i) => i.url?.match(/github\.com\/([^/]+)\/([^/]+)\//)),
+      ]
         .filter((m): m is RegExpMatchArray => !!m)
         .map((m) => [`${m[1]}/${m[2]}`.toLowerCase(), { owner: m[1], name: m[2] }]),
     ).values(),
