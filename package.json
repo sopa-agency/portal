@@ -14,7 +14,8 @@
     "worker:briefing": "node scripts/briefing-worker.js",
     "worker:agent": "node scripts/agent-worker.js",
     "worker:brain-queue": "node scripts/brain-queue-worker.js",
-    "worker:brain-file-server": "node scripts/brain-file-server.js"
+    "worker:brain-file-server": "node scripts/brain-file-server.js",
+    "worker:farcaster-trail": "node scripts/farcaster-trail-worker.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

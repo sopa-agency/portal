@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
+import { isTrailParticipant } from "@/lib/farcaster-trail-config";
 import { CommandK } from "@/components/command-k";
 import { ContentShell } from "@/components/content-shell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -148,6 +149,7 @@ export default async function RootLayout({
                 labEnabled={!!project.lab}
                 zineEnabled={!!project.zineStudio}
                 meetingsEnabled={!!project.meetings}
+                farcasterTrailEnabled={isTrailParticipant(project.slug)}
               />
               <ThemeToggle />
               <PageInfo />
