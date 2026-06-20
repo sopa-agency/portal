@@ -1765,6 +1765,8 @@ ${kind === "tweets"
 /** Publish a campaign artifact where supported; return manual-copy signal for others. */
 export async function sendCampaignArtifact(
   documentId: string,
+  /** Discord only — post to this channel instead of the project default. */
+  discordChannelId?: string,
 ): Promise<
   | { ok: true; url?: string; platform: string; detail?: string }
   | { ok: false; error: string; manual?: boolean }
@@ -1820,7 +1822,7 @@ export async function sendCampaignArtifact(
 
     if (kind === "discord") {
       const { publishToDiscord } = await import("@/lib/social-publish");
-      const result = await publishToDiscord(content, project);
+      const result = await publishToDiscord(content, project, discordChannelId);
       if (!result.ok) return { ok: false, error: result.error };
       await prisma.campaignDocument.update({
         where: { id: documentId },

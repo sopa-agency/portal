@@ -22,6 +22,7 @@ import {
 } from "@/app/actions/campaigns";
 import type { CampaignDocumentKind } from "@/components/campaign-document-preview";
 import { CampaignMagPublishDialog } from "@/components/campaign-mag-publish-dialog";
+import { DiscordChannelSelect } from "@/components/discord-channel-picker";
 
 type Props = {
   documentId: string;
@@ -77,6 +78,7 @@ export function CampaignArtifactActions({
   const isEmail = kind === "email";
 
   const [magDialogOpen, setMagDialogOpen] = useState(false);
+  const [discordChannel, setDiscordChannel] = useState<string | null>(null); // per-send channel override
 
   // Publish the mag post (invoked from the confirmation dialog).
   const confirmMagPublish = () => {
@@ -110,7 +112,7 @@ export function CampaignArtifactActions({
     if (!window.confirm(`Publish this ${label} post now?`)) return;
     setSendStatus(null);
     startSend(async () => {
-      const res = await sendCampaignArtifact(documentId);
+      const res = await sendCampaignArtifact(documentId, kind === "discord" ? discordChannel ?? undefined : undefined);
       setSendStatus(res);
       if (res.ok) setPostedAt(new Date());
     });
@@ -211,6 +213,11 @@ export function CampaignArtifactActions({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
+
+        {/* Discord: pick the channel for this send (defaults to the project's). */}
+        {kind === "discord" && (
+          <DiscordChannelSelect value={discordChannel} onChange={setDiscordChannel} />
+        )}
 
         {/* hive / farcaster / discord — auto-publish via server action */}
         {supportsAutoSend && (

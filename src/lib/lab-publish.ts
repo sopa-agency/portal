@@ -117,6 +117,7 @@ export async function publishLabChannel(
   network: string,
   text: string,
   project: ProjectConfig,
+  discordChannelId?: string,
 ): Promise<PublishResult> {
   switch (network) {
     case "hive":
@@ -126,7 +127,7 @@ export async function publishLabChannel(
     case "binance":
       return publishToBinanceSquare(text, project);
     case "discord":
-      return publishToDiscord(text, project);
+      return publishToDiscord(text, project, discordChannelId);
     case "hive_mag":
       return publishHiveMag(text, project);
     case "email":

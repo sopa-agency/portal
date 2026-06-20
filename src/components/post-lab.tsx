@@ -18,6 +18,7 @@ import {
 import { Lightbulb } from "lucide-react";
 import { type PostType, type CalendarExtra, createDraft, scheduleDraft } from "@/app/actions/post-creator";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
+import { DiscordChannelSelect } from "@/components/discord-channel-picker";
 import { CampaignEmailBuilderDialog } from "@/components/campaign-email-builder-dialog";
 import { createEmptyEmail, serializeEmail, renderEmail, parseEmail, type EmailDocument, type EmailBrand } from "@/lib/campaign-email";
 import { IgPreview } from "@/components/post/ig-preview";
@@ -148,6 +149,7 @@ export function PostLab({
   const [media, setMedia] = useState<Media[]>([]);
   const [mediaOverrides, setMediaOverrides] = useState<Record<string, Media[]>>({}); // per-channel media
   const [mediaTarget, setMediaTarget] = useState<string>("all"); // where the next upload lands: "all" | network id
+  const [discordChannel, setDiscordChannel] = useState<string | null>(null); // per-send Discord channel override
   const [emailContent, setEmailContent] = useState(""); // serialized EmailDocument from the visual builder
   const [emailBuilderOpen, setEmailBuilderOpen] = useState(false);
   const [enabled, setEnabled] = useState<Record<string, boolean>>({ instagram: true, hive: true, farcaster: true });
@@ -366,7 +368,7 @@ export function PostLab({
         others.push(sr.ok ? `• ${n.label}: ✓ agendado (${when})` : `• ${n.label}: erro ao agendar — ${sr.error}`);
         continue;
       }
-      const pr = await labPublishNow(n.id, body);
+      const pr = await labPublishNow(n.id, body, n.id === "discord" ? discordChannel ?? undefined : undefined);
       others.push(pr.ok ? `• ${n.label}: ✓ publicado${pr.url ? ` — ${pr.url}` : ""}` : `• ${n.label}: erro — ${pr.error}`);
     }
 
@@ -697,6 +699,12 @@ export function PostLab({
               onChange={(e) => setScheduleWhen(e.target.value)}
               className="mb-3 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
             />
+            {enabled["discord"] && !scheduleWhen && (
+              <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5">
+                <span className="text-[11px] text-foreground-muted">Canal do Discord</span>
+                <DiscordChannelSelect value={discordChannel} onChange={setDiscordChannel} />
+              </div>
+            )}
             <button
               type="button"
               onClick={() => void submit()}

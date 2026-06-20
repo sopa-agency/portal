@@ -5,6 +5,44 @@ import { Loader2, Hash, Check } from "lucide-react";
 import { listDiscordChannels, saveDiscordChannel, type DiscordChannel } from "@/app/actions/discord";
 
 /**
+ * Inline channel selector for a single Discord send (campaign shooter, lab).
+ * Defaults to the project's saved/current channel; `onChange` gives the chosen
+ * channel id to pass as a per-send override. Falls back silently when Discord
+ * isn't configured (renders nothing).
+ */
+export function DiscordChannelSelect({ value, onChange }: { value: string | null; onChange: (id: string) => void }) {
+  const [channels, setChannels] = useState<DiscordChannel[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    listDiscordChannels().then((r) => {
+      if (!live) return;
+      if (r.ok) {
+        setChannels(r.channels);
+        if (!value && r.currentId) onChange(r.currentId);
+      } else setChannels([]);
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (channels === null) return <span className="flex items-center gap-1 text-[11px] text-foreground-faint"><Loader2 className="h-3 w-3 animate-spin" /> canais…</span>;
+  if (channels.length === 0) return null;
+  return (
+    <label className="flex items-center gap-1 text-[11px] text-foreground-muted">
+      <Hash className="h-3 w-3 text-[#5865F2]" />
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-md border border-border bg-surface-elevated px-1.5 py-1 text-[11px] text-foreground focus:border-border-strong focus:outline-none"
+      >
+        {!value && <option value="" disabled>canal…</option>}
+        {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+      </select>
+    </label>
+  );
+}
+
+/**
  * Picks the project's default Discord channel (saved to the DB). Everything that
  * posts to Discord (campaign shooter, lab, team) uses this default unless a send
  * overrides it. The same bot/guild can serve several portals on different channels.

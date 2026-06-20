@@ -183,6 +183,8 @@ Return ONLY the finished post text — no preamble, no quotes, no explanation.`;
 export async function labPublishNow(
   network: string,
   text: string,
+  /** Discord only — post to this channel instead of the project default. */
+  discordChannelId?: string,
 ): Promise<{ ok: true; url?: string } | { ok: false; error: string }> {
   try {
     const project = await labGate();
@@ -190,7 +192,7 @@ export async function labPublishNow(
     const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
     if (!session) return { ok: false, error: "Unauthorized." };
     if (!text.trim()) return { ok: false, error: "Empty text." };
-    const r = await publishLabChannel(network, text, project);
+    const r = await publishLabChannel(network, text, project, discordChannelId);
     return r.ok ? { ok: true, url: r.url } : { ok: false, error: r.error };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
