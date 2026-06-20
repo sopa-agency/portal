@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
-import { prisma } from "@/lib/prisma";
+import { prisma, withDbRetry } from "@/lib/prisma";
 import { uploadMediaToPinata, createPinataSignedUploadUrl } from "@/lib/social-publish";
 import { publishInstagramPost } from "@/lib/instagram-publish";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
@@ -249,7 +249,7 @@ export async function createDraft(params: {
   try {
     const { project, username } = await authGate();
     const publishMode = derivePublishMode(params.musicNote, params.brandedPartner, params.locationNote);
-    const row = await prisma.instagramPost.create({
+    const row = await withDbRetry(() => prisma.instagramPost.create({
       data: {
         projectSlug: project.slug,
         type: params.type,
@@ -268,7 +268,7 @@ export async function createDraft(params: {
         locationNote: params.locationNote?.trim() ?? null,
         publishMode,
       },
-    });
+    }));
     return { ok: true, id: row.id };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -312,7 +312,7 @@ export async function updateDraft(
     // Resolve the effective type to decide whether userTags apply
     const effectiveType = params.type ?? existing.type;
 
-    await prisma.instagramPost.update({
+    await withDbRetry(() => prisma.instagramPost.update({
       where: { id },
       data: {
         ...(params.type !== undefined ? { type: params.type } : {}),
@@ -329,7 +329,7 @@ export async function updateDraft(
         ...(params.locationNote !== undefined ? { locationNote: params.locationNote.trim() || null } : {}),
         publishMode,
       },
-    });
+    }));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -522,7 +522,9 @@ export async function publishDraft(
     });
 
     if (result.ok) {
-      await prisma.instagramPost.update({
+      // The post is LIVE on Instagram now — persist that with retry so a Neon
+      // cold-start drop doesn't leave the DB thinking it failed (and risk a re-publish).
+      await withDbRetry(() => prisma.instagramPost.update({
         where: { id },
         data: {
           status: "published",
@@ -532,7 +534,7 @@ export async function publishDraft(
           scheduledFor: null,
           error: null,
         },
-      });
+      }));
       return {
         ok: true,
         igMediaId: result.igMediaId,
@@ -540,10 +542,10 @@ export async function publishDraft(
         firstCommentPosted: result.firstCommentPosted,
       };
     } else {
-      await prisma.instagramPost.update({
+      await withDbRetry(() => prisma.instagramPost.update({
         where: { id },
         data: { status: "failed", error: result.error },
-      });
+      }));
       return { ok: false, error: result.error };
     }
   } catch (err) {
