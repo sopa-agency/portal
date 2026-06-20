@@ -1011,10 +1011,10 @@ export function Editor({
               </>
             )}
 
-            {card.tipo !== "capa" && card.tipo !== "spot" && (
+            {card.tipo !== "capa" && (
               <>
                 <div className="mt-2 flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Chat boxes</h3>
+                  <h3 className="text-sm font-medium">{card.tipo === "spot" ? "Elementos livres" : "Chat boxes"}</h3>
                   <Button size="sm" variant="secondary" onClick={addBloco}><Plus className="size-3.5" />Add</Button>
                 </div>
                 {card.blocos.map((b, i) => (

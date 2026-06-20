@@ -58,34 +58,40 @@ export function CardArtwork({ card, assets }: { card: Card; assets: Assets }) {
       ) : card.tipo === "spot" ? (
         <SpotLayer card={card} />
       ) : (
-        <>
-          <Pill
-            el="subtitulo"
-            {...pos(card, "subtitulo")}
-            text={card.subtitulo}
-            fontSize={24}
-            bg={COLORS.cream}
-            color={COLORS.ink}
-            border={6}
-            radius={0}
-            padY={12}
-          />
-          {card.blocos.map((b) => (
-            <div
-              key={b.id}
-              data-el={`bloco:${b.id}`}
-              style={{
-                position: "absolute", left: b.x, top: b.y, width: b.w, display: "flex", boxSizing: "border-box",
-                padding: "16px 18px", backgroundColor: COLORS.yellow, border: "8px solid #000", borderRadius: 24,
-              }}
-            >
-              <div style={{ width: "100%", textAlign: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: b.fontSize, color: "#000", lineHeight: 1.33 }}>
-                {b.texto || " "}
-              </div>
-            </div>
-          ))}
-        </>
+        <Pill
+          el="subtitulo"
+          {...pos(card, "subtitulo")}
+          text={card.subtitulo}
+          fontSize={24}
+          bg={COLORS.cream}
+          color={COLORS.ink}
+          border={6}
+          radius={0}
+          padY={12}
+        />
       )}
+
+      {/* Free text blocks — addable/movable on EVERY card (incl. spot). */}
+      {card.blocos.map((b) => (
+        <BlocoBox key={b.id} b={b} />
+      ))}
+    </div>
+  );
+}
+
+/** A free, draggable text block (data-el="bloco:<id>"). */
+function BlocoBox({ b }: { b: Card["blocos"][number] }) {
+  return (
+    <div
+      data-el={`bloco:${b.id}`}
+      style={{
+        position: "absolute", left: b.x, top: b.y, width: b.w, display: "flex", boxSizing: "border-box",
+        padding: "16px 18px", backgroundColor: COLORS.yellow, border: "8px solid #000", borderRadius: 24,
+      }}
+    >
+      <div style={{ width: "100%", textAlign: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: b.fontSize, color: "#000", lineHeight: 1.33 }}>
+        {b.texto || " "}
+      </div>
     </div>
   );
 }
