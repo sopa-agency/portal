@@ -6,7 +6,7 @@ import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma, withDbRetry } from "@/lib/prisma";
 import { uploadMediaToPinata, createPinataSignedUploadUrl, normalizeMediaUrl } from "@/lib/social-publish";
-import { publishInstagramPost } from "@/lib/instagram-publish";
+import { publishInstagramPost, fetchRecentInstagramMedia } from "@/lib/instagram-publish";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import {
   buildGenerateCaptionPrompt,
@@ -792,6 +792,71 @@ export async function listUnifiedCalendar(): Promise<
     }
     events.sort((a, b) => (a.when < b.when ? -1 : 1));
     return { ok: true, events };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// importRecentInstagramPosts — backfill the calendar/feed with the last N posts
+// actually published on the brand's IG account (via Graph API). Idempotent:
+// dedups by igMediaId, so re-running (or a later Neon→Supabase data migration
+// that carries the same igMediaId) won't create duplicates. Imported rows are
+// real `published` posts tagged createdBy="instagram-import".
+// ---------------------------------------------------------------------------
+
+export async function importRecentInstagramPosts(
+  limit = 10,
+): Promise<
+  | { ok: true; imported: number; skipped: number; total: number }
+  | { ok: false; error: string }
+> {
+  try {
+    const { project } = await authGate();
+    const res = await fetchRecentInstagramMedia(project, limit);
+    if (!res.ok) return res;
+
+    const ids = res.media.map((m) => m.igMediaId);
+    if (ids.length === 0) return { ok: true, imported: 0, skipped: 0, total: 0 };
+
+    // Which of these are already in the DB (by igMediaId, scoped to project)?
+    const existing = await withDbRetry(() =>
+      prisma.instagramPost.findMany({
+        where: { projectSlug: project.slug, igMediaId: { in: ids } },
+        select: { igMediaId: true },
+      }),
+    );
+    const seen = new Set(existing.map((r) => r.igMediaId));
+    const fresh = res.media.filter((m) => !seen.has(m.igMediaId));
+
+    let imported = 0;
+    for (const m of fresh) {
+      await withDbRetry(() =>
+        prisma.instagramPost.create({
+          data: {
+            projectSlug: project.slug,
+            type: m.type,
+            caption: m.caption,
+            mediaUrls: m.mediaUrls,
+            status: "published",
+            igMediaId: m.igMediaId,
+            permalink: m.permalink,
+            publishedAt: new Date(m.publishedAt),
+            coverUrl: m.coverUrl,
+            publishMode: "auto",
+            createdBy: "instagram-import",
+          },
+        }),
+      );
+      imported++;
+    }
+
+    return {
+      ok: true,
+      imported,
+      skipped: res.media.length - imported,
+      total: res.media.length,
+    };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

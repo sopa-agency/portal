@@ -87,6 +87,96 @@ async function graphGet<T = Record<string, unknown>>(
 }
 
 // ---------------------------------------------------------------------------
+// fetchRecentInstagramMedia — pull the last N published posts from the brand's
+// IG account via the Graph API. Used to backfill the calendar/feed with what
+// actually went live (independent of our own DB), so the calendar isn't empty
+// when there are no portal-originated drafts.
+// ---------------------------------------------------------------------------
+
+export type ImportedMedia = {
+  igMediaId: string;
+  caption: string;
+  type: "IMAGE" | "CAROUSEL" | "REELS";
+  mediaUrls: string[]; // ordered public URLs (images, or per-child for carousels)
+  coverUrl: string | null; // poster frame for video/reels
+  permalink: string | null;
+  publishedAt: string; // ISO
+};
+
+type RawMedia = {
+  id: string;
+  caption?: string;
+  media_type?: string; // IMAGE | VIDEO | CAROUSEL_ALBUM
+  media_url?: string;
+  thumbnail_url?: string;
+  permalink?: string;
+  timestamp?: string;
+  children?: { data?: Array<{ media_url?: string; media_type?: string; thumbnail_url?: string }> };
+};
+
+function normalizeMedia(m: RawMedia): ImportedMedia | null {
+  if (!m.id) return null;
+  const kind = (m.media_type ?? "IMAGE").toUpperCase();
+  let type: ImportedMedia["type"] = "IMAGE";
+  let mediaUrls: string[] = [];
+  let coverUrl: string | null = null;
+
+  if (kind === "CAROUSEL_ALBUM") {
+    type = "CAROUSEL";
+    mediaUrls = (m.children?.data ?? [])
+      .map((c) => c.media_url ?? c.thumbnail_url ?? "")
+      .filter(Boolean);
+  } else if (kind === "VIDEO") {
+    type = "REELS";
+    if (m.media_url) mediaUrls = [m.media_url];
+    coverUrl = m.thumbnail_url ?? null;
+  } else {
+    type = "IMAGE";
+    if (m.media_url) mediaUrls = [m.media_url];
+  }
+
+  // No usable media (e.g. a Story-only or expired asset) → skip.
+  if (mediaUrls.length === 0 && !coverUrl) return null;
+
+  return {
+    igMediaId: m.id,
+    caption: m.caption ?? "",
+    type,
+    mediaUrls,
+    coverUrl,
+    permalink: m.permalink ?? null,
+    publishedAt: m.timestamp ?? new Date().toISOString(),
+  };
+}
+
+export async function fetchRecentInstagramMedia(
+  project: ProjectConfig,
+  limit = 10,
+): Promise<
+  { ok: true; media: ImportedMedia[] } | { ok: false; error: string }
+> {
+  const { token, igid } = resolveIgCredentials(project);
+  if (!token || !igid) {
+    return { ok: false, error: "Instagram não conectado neste portal (falta token/business id)." };
+  }
+  try {
+    const fields =
+      "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,children{media_url,media_type,thumbnail_url}";
+    const data = await graphGet<{ data?: RawMedia[] }>(
+      `/${igid}/media`,
+      { fields, limit: String(Math.min(Math.max(limit, 1), 50)) },
+      token,
+    );
+    const media = (data.data ?? [])
+      .map(normalizeMedia)
+      .filter((m): m is ImportedMedia => m !== null);
+    return { ok: true, media };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Reel container polling — poll until FINISHED or ERROR, ~3s cadence, 90s max
 // ---------------------------------------------------------------------------
 

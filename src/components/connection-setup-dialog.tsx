@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { ExternalLink, X } from "lucide-react";
 import type { PortalConnection } from "@/lib/portal-connections";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { FarcasterConnectButton } from "@/components/farcaster-connect-button";
 
 // ---------------------------------------------------------------------------
 // Per-service setup walkthroughs, opened by clicking a connection row on the
@@ -316,13 +317,16 @@ function findTutorial(network: string): Tutorial | null {
 export function ConnectionSetupDialog({
   connection,
   envPrefix,
+  farcasterClientId,
   onClose,
 }: {
   connection: PortalConnection;
   envPrefix: string;
+  farcasterClientId?: string;
   onClose: () => void;
 }) {
   const tutorial = findTutorial(connection.network);
+  const isFarcaster = connection.network.toLowerCase() === "farcaster";
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -367,6 +371,8 @@ export function ConnectionSetupDialog({
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
           <p className="text-sm text-foreground-muted">{connection.detail}</p>
+
+          {isFarcaster && <FarcasterConnectButton clientId={farcasterClientId} />}
 
           {tutorial ? (
             <>

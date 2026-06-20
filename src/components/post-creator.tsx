@@ -49,6 +49,7 @@ import {
   type DraftRow,
   type UserTag,
   listCalendarExtras,
+  importRecentInstagramPosts,
   type CalendarExtra,
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
@@ -839,15 +840,45 @@ function ScheduledCalendar({
   items,
   extras,
   onOpenPost,
+  onImport,
 }: {
   items: DraftRow[];
   extras: CalendarExtra[];
   onOpenPost: (id: string) => void;
+  onImport?: () => Promise<
+    | { ok: true; imported: number; skipped: number; total: number }
+    | { ok: false; error: string }
+  >;
 }) {
   const [extraList, setExtraList] = useState<CalendarExtra[]>(extras);
   const [openExtra, setOpenExtra] = useState<CalendarExtra | null>(null);
   const [calView, setCalView] = useState<"calendar" | "feed">("calendar");
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
   useEffect(() => setExtraList(extras), [extras]);
+
+  async function handleImport() {
+    if (!onImport || importing) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const res = await onImport();
+      if (res.ok) {
+        setImportMsg(
+          res.imported > 0
+            ? `+${res.imported} post${res.imported > 1 ? "s" : ""} importado${res.imported > 1 ? "s" : ""}`
+            : `Nada novo (${res.total} já no calendário)`,
+        );
+      } else {
+        setImportMsg(res.error.slice(0, 120));
+      }
+    } catch (err) {
+      setImportMsg(err instanceof Error ? err.message.slice(0, 120) : "Falhou");
+    } finally {
+      setImporting(false);
+      setTimeout(() => setImportMsg(null), 6000);
+    }
+  }
 
   // IG feed view: all posts with media, newest first (publish/scheduled date).
   const feedCells: FeedCell[] = useMemo(() => {
@@ -994,8 +1025,26 @@ function ScheduledCalendar({
         >
           Today
         </button>
+        {/* Backfill from Instagram (last posts actually published) */}
+        {onImport && (
+          <div className="ml-auto flex items-center gap-2">
+            {importMsg && (
+              <span className="text-[11px] text-foreground-subtle tabular-nums">{importMsg}</span>
+            )}
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={importing}
+              title="Importar os últimos posts publicados no Instagram para o calendário"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[12px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+            >
+              <Download className={`h-3.5 w-3.5 ${importing ? "animate-pulse" : ""}`} />
+              {importing ? "Importando…" : "Importar do IG"}
+            </button>
+          </div>
+        )}
         {/* Calendar ↔ IG feed view */}
-        <div className="ml-auto inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
+        <div className={`${onImport ? "" : "ml-auto "}inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs`}>
           {(["calendar", "feed"] as const).map((v) => (
             <button
               key={v}
@@ -3578,6 +3627,11 @@ export function PostCreator({
               items={calendarPosts}
               extras={calendarExtras}
               onOpenPost={(id) => setDialogPostId(id)}
+              onImport={async () => {
+                const res = await importRecentInstagramPosts(10);
+                if (res.ok && res.imported > 0) await refreshDrafts();
+                return res;
+              }}
             />
           ) : (
             <div className="space-y-6">

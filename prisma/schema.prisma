@@ -383,6 +383,74 @@ model DiscordChannelConfig {
   updatedAt   DateTime @updatedAt
 }
 
+// ─── Farcaster cross-account curation trail ────────────────────────────────
+// When one of our brand accounts posts a top-level cast, the others auto-LIKE
+// it and (HITL) reply with an on-brand comment. One row per detected cast.
+model FarcasterTrailCast {
+  hash        String   @id // cast hash
+  authorFid   Int
+  authorSlug  String // which of our portals posted it
+  text        String
+  embedsJson  String? // raw embeds for context
+  postedAt    DateTime
+  detectedAt  DateTime @default(now())
+
+  actions     FarcasterTrailAction[]
+
+  @@index([authorSlug])
+  @@index([detectedAt])
+}
+
+// One action per (cast × acting account × kind). Likes run automatically;
+// replies are human-in-the-loop (AI draft → review → post).
+model FarcasterTrailAction {
+  id          String   @id @default(cuid())
+  castHash    String
+  actorSlug   String // the portal doing the like/reply
+  kind        String // "like" | "reply"
+  status      String   @default("pending") // pending | done | skipped | failed
+  draft       String? // AI-generated reply draft (kind=reply)
+  postedText  String? // what was actually posted
+  resultRef   String? // reaction id / reply cast hash
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cast        FarcasterTrailCast @relation(fields: [castHash], references: [hash], onDelete: Cascade)
+
+  @@unique([castHash, actorSlug, kind])
+  @@index([actorSlug, status])
+}
+
+// A Farcaster signer a TEAM MEMBER approved via the Settings QR flow (managed
+// signer sponsored by FARCASTER_SPONSOR_*). One per portal member — lets the
+// person join the curation trail with their own account, approving in their
+// own Warpcast (never sharing a recovery phrase).
+model FarcasterMemberSigner {
+  username    String   @id // portal member (Hive username)
+  signerUuid  String
+  fid         Int?
+  handle      String? // their Farcaster handle once approved
+  status      String   @default("pending") // pending | approved | revoked
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// A Farcaster signer approved by the brand's account via Sign In With Neynar
+// (SIWN). One per portal. Lets a portal admin connect Farcaster from Settings
+// (no env edit / redeploy) — social-publish reads this as a fallback to the
+// per-project NEYNAR_SIGNER_UUID env var.
+model FarcasterSigner {
+  projectSlug String   @id
+  signerUuid  String
+  fid         Int?
+  username    String? // Farcaster handle that approved the signer
+  status      String   @default("approved") // approved | revoked
+  connectedBy String? // portal username who clicked Connect
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // A Kanban task turned into a bounty, paid from the project's Safe (BountyConfig).
 model Bounty {
   id           String   @id @default(cuid())

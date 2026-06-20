@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
@@ -13,6 +13,7 @@ const NAV = [
   { href: "/lab", label: "Lab", icon: FlaskConical, requiresLab: true },
   { href: "/zine", label: "Zine Studio", icon: BookOpenText, requiresZine: true },
   { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles },
+  { href: "/curadoria", label: "Curadoria FC", icon: Heart, requiresFarcasterTrail: true },
   { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone },
   { href: "/userbase", label: "Userbase", icon: Users },
   { href: "/brain", label: "Brain", icon: Brain },
@@ -58,9 +59,10 @@ type AppSidebarProps = {
   meetingsEnabled?: boolean;
   labEnabled?: boolean;
   zineEnabled?: boolean;
+  farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, labEnabled, zineEnabled, meetingsEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -104,6 +106,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if ("requiresOrgChart" in item && item.requiresOrgChart && !orgChartEnabled) return false;
     if ("requiresPortfolio" in item && item.requiresPortfolio && !portfolioEnabled) return false;
     if ("requiresMeetings" in item && item.requiresMeetings && !meetingsEnabled) return false;
+    if ("requiresFarcasterTrail" in item && item.requiresFarcasterTrail && !farcasterTrailEnabled) return false;
     return true;
   });
 

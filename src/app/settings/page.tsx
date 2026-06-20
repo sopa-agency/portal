@@ -6,8 +6,11 @@ import { ConnectionsView } from "@/components/team-view";
 import { TeamAdmin } from "@/components/team-admin";
 import { PortalAccessManager } from "@/components/portal-access-manager";
 import { BountySetup } from "@/components/bounty-setup";
-import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
+import { getPortalConnections, verifyDiscordConnection, verifyFarcasterConnection } from "@/lib/portal-connections";
 import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
+import { MyFarcasterCard } from "@/components/my-farcaster-card";
+import { getMyFarcaster } from "@/app/actions/farcaster-member";
+import { isTrailParticipant } from "@/lib/farcaster-trail-config";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -20,6 +23,17 @@ export default async function SettingsPage() {
     discordRow.status = live.status;
     discordRow.detail = live.detail;
   }
+  // Upgrade the Farcaster row when a signer was connected via SIWN (DB-stored).
+  const farcasterRow = connections.find((c) => c.network === "Farcaster");
+  if (farcasterRow && farcasterRow.status !== "na") {
+    const fc = await verifyFarcasterConnection(project);
+    if (fc) {
+      farcasterRow.status = fc.status;
+      farcasterRow.detail = fc.detail;
+      farcasterRow.fixHint = undefined;
+      if (fc.handle) farcasterRow.handle = fc.handle;
+    }
+  }
 
   // Team management is centralized on the SOPA portal (the team hub). Other
   // portals' Settings only show connections; SOPA's "Acesso por portal" already
@@ -29,6 +43,10 @@ export default async function SettingsPage() {
   const showAdmin = isTeamHub && team?.ok && team.viewerRole === "admin";
   // Cross-portal access — global admins only.
   const portalAccess = isTeamHub && team?.ok && team.viewerGlobal ? await listAllPortalAccess().catch(() => null) : null;
+
+  // Per-member Farcaster connection (QR) — only on trail portals.
+  const showMyFarcaster = isTrailParticipant(project.slug);
+  const myFarcaster = showMyFarcaster ? await getMyFarcaster().catch(() => null) : null;
 
   return (
     <div className="space-y-10">
@@ -42,12 +60,17 @@ export default async function SettingsPage() {
       ) : null}
       {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
       {showAdmin ? <BountySetup /> : null}
+      {showMyFarcaster && myFarcaster ? <MyFarcasterCard initial={myFarcaster} /> : null}
       <ConnectionsView
         projectName={project.name}
         connections={connections}
         envPrefix={project.agent.gatewayEnvPrefix}
         repos={project.repos}
         githubProject={project.githubProject}
+        farcasterClientId={
+          process.env[`${project.agent.gatewayEnvPrefix}_NEYNAR_CLIENT_ID`] ||
+          process.env.NEYNAR_CLIENT_ID
+        }
       />
     </div>
   );
