@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import type { ProjectConfig } from "@/projects/types";
 import { brandEnv } from "@/lib/brand-env";
 import { prisma } from "@/lib/prisma";
+import { resolveFarcasterSigner } from "@/lib/farcaster-signer";
 
 export const HIVE_NODES = [
   "https://api.hive.blog",
@@ -127,10 +128,12 @@ export async function publishCastToFarcaster(
     const apiKey =
       (prefix && process.env[`${prefix}_NEYNAR_API_KEY`]) ||
       process.env.NEYNAR_API_KEY;
-    // Signer = identity: never falls back across brands (see brand-env.ts).
-    const signerUuid = brandEnv(project, "NEYNAR_SIGNER_UUID");
+    // Signer = identity: resolve from DB (Settings → Connect Farcaster) first,
+    // then the per-project/global env var. brandEnv never crosses brands.
+    const resolved = await resolveFarcasterSigner(project);
+    const signerUuid = resolved?.signerUuid;
     if (!apiKey || !signerUuid) {
-      return { ok: false, error: "NEYNAR_API_KEY or NEYNAR_SIGNER_UUID not set" };
+      return { ok: false, error: "NEYNAR_API_KEY or signer not set (connect Farcaster in Settings)" };
     }
     if (!text?.trim()) return { ok: false, error: "Tweet text is empty" };
 

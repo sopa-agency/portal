@@ -6,7 +6,7 @@ import { ConnectionsView } from "@/components/team-view";
 import { TeamAdmin } from "@/components/team-admin";
 import { PortalAccessManager } from "@/components/portal-access-manager";
 import { BountySetup } from "@/components/bounty-setup";
-import { getPortalConnections, verifyDiscordConnection } from "@/lib/portal-connections";
+import { getPortalConnections, verifyDiscordConnection, verifyFarcasterConnection } from "@/lib/portal-connections";
 import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
 
 export default async function SettingsPage() {
@@ -19,6 +19,17 @@ export default async function SettingsPage() {
     const live = await verifyDiscordConnection(project);
     discordRow.status = live.status;
     discordRow.detail = live.detail;
+  }
+  // Upgrade the Farcaster row when a signer was connected via SIWN (DB-stored).
+  const farcasterRow = connections.find((c) => c.network === "Farcaster");
+  if (farcasterRow && farcasterRow.status !== "na") {
+    const fc = await verifyFarcasterConnection(project);
+    if (fc) {
+      farcasterRow.status = fc.status;
+      farcasterRow.detail = fc.detail;
+      farcasterRow.fixHint = undefined;
+      if (fc.handle) farcasterRow.handle = fc.handle;
+    }
   }
 
   // Team management is centralized on the SOPA portal (the team hub). Other
@@ -48,6 +59,10 @@ export default async function SettingsPage() {
         envPrefix={project.agent.gatewayEnvPrefix}
         repos={project.repos}
         githubProject={project.githubProject}
+        farcasterClientId={
+          process.env[`${project.agent.gatewayEnvPrefix}_NEYNAR_CLIENT_ID`] ||
+          process.env.NEYNAR_CLIENT_ID
+        }
       />
     </div>
   );

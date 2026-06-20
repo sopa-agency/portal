@@ -487,3 +487,22 @@ export async function verifyDiscordConnection(
     return { status: "warning", detail: "Couldn't reach Discord (timed out)." };
   }
 }
+
+// Upgrades the Farcaster row when a signer was connected via Sign In With Neynar
+// (stored in the DB), which getPortalConnections() can't see (it's sync/env-only).
+// Returns null when there's no DB signer — caller keeps the env-derived row.
+export async function verifyFarcasterConnection(
+  project: ProjectConfig,
+): Promise<{ status: ConnectionStatus; detail: string; handle?: string } | null> {
+  const { resolveFarcasterSigner } = await import("@/lib/farcaster-signer");
+  const resolved = await resolveFarcasterSigner(project);
+  if (!resolved || resolved.source !== "db") return null;
+  const handle = resolved.username ? `@${resolved.username.replace(/^@/, "")}` : undefined;
+  return {
+    status: "connected",
+    detail: handle
+      ? `Connected via Sign In With Neynar — casting as ${handle}.`
+      : "Connected via Sign In With Neynar.",
+    handle,
+  };
+}

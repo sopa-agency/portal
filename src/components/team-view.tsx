@@ -88,6 +88,8 @@ type ConnectionsViewProps = {
   repos?: string[];
   /** GitHub Project (Projects V2) powering the Kanban. */
   githubProject?: { org: string; number: number };
+  /** Neynar SIWN client id (public) — enables the "Conectar Farcaster" button. */
+  farcasterClientId?: string;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -963,7 +965,7 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
 }
 
 // Linked-network connection status + setup guides — lives in Settings now.
-export function ConnectionsView({ projectName, connections, envPrefix, repos, githubProject }: ConnectionsViewProps) {
+export function ConnectionsView({ projectName, connections, envPrefix, repos, githubProject, farcasterClientId }: ConnectionsViewProps) {
   const [setupConnection, setSetupConnection] = useState<PortalConnection | null>(null);
 
   // Reorder: put non-na, non-manual first for scannability
@@ -999,6 +1001,7 @@ export function ConnectionsView({ projectName, connections, envPrefix, repos, gi
         <ConnectionSetupDialog
           connection={setupConnection}
           envPrefix={envPrefix}
+          farcasterClientId={farcasterClientId}
           onClose={() => setSetupConnection(null)}
         />
       )}

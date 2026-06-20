@@ -383,6 +383,21 @@ model DiscordChannelConfig {
   updatedAt   DateTime @updatedAt
 }
 
+// A Farcaster signer approved by the brand's account via Sign In With Neynar
+// (SIWN). One per portal. Lets a portal admin connect Farcaster from Settings
+// (no env edit / redeploy) — social-publish reads this as a fallback to the
+// per-project NEYNAR_SIGNER_UUID env var.
+model FarcasterSigner {
+  projectSlug String   @id
+  signerUuid  String
+  fid         Int?
+  username    String? // Farcaster handle that approved the signer
+  status      String   @default("approved") // approved | revoked
+  connectedBy String? // portal username who clicked Connect
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // A Kanban task turned into a bounty, paid from the project's Safe (BountyConfig).
 model Bounty {
   id           String   @id @default(cuid())
