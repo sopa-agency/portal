@@ -13,7 +13,7 @@ import {
   publishTweetToHive,
   type TweetStateMap,
 } from "@/app/actions/repo-to-social";
-import type { SchedulablePlatform } from "@/lib/social-publish";
+import { normalizeMediaUrl, type SchedulablePlatform } from "@/lib/social-publish";
 import {
   publishMarketingTweetToBinance,
   publishMarketingTweetToFarcaster,
@@ -205,7 +205,7 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
     // Load project config (static — no DB round-trip)
     const project = getProject(post.projectSlug);
 
-    const mediaUrls = Array.isArray(post.mediaUrls) ? (post.mediaUrls as string[]) : [];
+    const mediaUrls = Array.isArray(post.mediaUrls) ? (post.mediaUrls as string[]).map(normalizeMediaUrl) : [];
     const collaborators = Array.isArray(post.collaborators)
       ? (post.collaborators as string[])
       : [];
@@ -221,7 +221,7 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
         collaborators: collaborators.length > 0 ? collaborators : undefined,
         firstComment: post.firstComment ?? undefined,
         userTags,
-        coverUrl: post.coverUrl ?? undefined,
+        coverUrl: post.coverUrl ? normalizeMediaUrl(post.coverUrl) : undefined,
         thumbOffsetMs: post.thumbOffsetMs ?? undefined,
       });
 

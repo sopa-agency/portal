@@ -45,6 +45,8 @@ import { MarkdownContent } from "@/components/markdown-content";
 import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
 import { MemberModal, type TeamMember } from "@/components/team-view";
 import { solveIssueWithAgent, listCardNotes, addCardNote, deleteCardNote, type CardNote } from "@/app/actions/kanban";
+import { useDialogA11y } from "@/hooks/use-dialog-a11y";
+import { useConfirm } from "@/components/confirm-dialog";
 
 // ---------------------------------------------------------------------------
 // Column status color (mid-tone hues that read on both light & dark surfaces)
@@ -214,8 +216,8 @@ function SortableCard({
       <div className="flex items-start gap-1.5">
         <button
           type="button"
-          aria-label="Drag card"
-          className="-ml-1 mt-0.5 cursor-grab touch-none rounded p-0.5 text-foreground-faint opacity-0 transition-opacity hover:text-foreground active:cursor-grabbing group-hover:opacity-100"
+          aria-label="Mover card"
+          className="-ml-1 mt-0.5 cursor-grab touch-none rounded p-0.5 text-foreground-faint opacity-100 transition-opacity hover:text-foreground active:cursor-grabbing [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
           {...attributes}
           {...listeners}
         >
@@ -239,13 +241,13 @@ function SortableCard({
       </div>
 
       {/* Action buttons — appear on hover */}
-      <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100">
+      <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-100 shadow-sm backdrop-blur transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
         {item.url && (
           <a
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Open in GitHub"
+            aria-label="Abrir no GitHub"
             className="rounded p-1 text-foreground-faint hover:bg-foreground/5 hover:text-foreground"
             onPointerDown={(e) => e.stopPropagation()}
           >
@@ -254,7 +256,7 @@ function SortableCard({
         )}
         <button
           type="button"
-          aria-label="Archive card"
+          aria-label="Arquivar"
           disabled={busy}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onArchive(item.id)}
@@ -264,7 +266,7 @@ function SortableCard({
         </button>
         <button
           type="button"
-          aria-label="Delete card"
+          aria-label="Deletar"
           disabled={busy}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onDelete(item.id)}
@@ -341,7 +343,7 @@ function ColumnView({
         </div>
         <button
           type="button"
-          aria-label={`Add card to ${column.name}`}
+          aria-label={`Adicionar card em ${column.name}`}
           onClick={() => setAdding((a) => !a)}
           className="rounded-md p-1 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
@@ -351,7 +353,7 @@ function ColumnView({
 
       <div
         ref={setNodeRef}
-        className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-b-xl p-2 pt-0.5 transition-colors ${
+        className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-visible rounded-b-xl p-2 pt-0.5 transition-colors lg:overflow-y-auto ${
           isOver ? "bg-accent-bg/40" : ""
         }`}
       >
@@ -370,7 +372,7 @@ function ColumnView({
                   setAdding(false);
                 }
               }}
-              placeholder={kind === "issue" ? "Issue title… (Enter to add, Esc to cancel)" : "Draft title… (Enter to add, Esc to cancel)"}
+              placeholder={kind === "issue" ? "Título da issue… (Enter cria, Esc cancela)" : "Título do card… (Enter cria, Esc cancela)"}
               rows={2}
               className="w-full resize-none rounded-md bg-surface px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
             />
@@ -399,7 +401,7 @@ function ColumnView({
                 type="button"
                 onClick={() => { setDraft(""); setAdding(false); }}
                 className="rounded-md p-1 text-foreground-faint hover:bg-foreground/5 hover:text-foreground"
-                aria-label="Cancel"
+                aria-label="Cancelar"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -407,9 +409,9 @@ function ColumnView({
                 type="button"
                 onClick={submit}
                 disabled={!draft.trim()}
-                className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-background disabled:opacity-50"
+                className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground disabled:opacity-50"
               >
-                Add
+                Adicionar
               </button>
               </div>
             </div>
@@ -419,7 +421,7 @@ function ColumnView({
         <SortableContext items={column.items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
           {column.items.length === 0 && !adding ? (
             <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-border/70 py-8">
-              <p className="text-xs text-foreground-faint">Drop cards here</p>
+              <p className="text-xs text-foreground-faint">Solte os cards aqui</p>
             </div>
           ) : (
             column.items.map((item) => (
@@ -472,7 +474,7 @@ function AgentSolveProgress() {
       </div>
       <p className="mt-1 text-xs text-foreground-muted">{STEPS[step]}</p>
       <p className="mt-1 font-mono text-[11px] tabular-nums text-foreground-faint">
-        {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} · pode levar alguns minutos — pode fechar e voltar
+        {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} · pode levar alguns minutos — mantenha esta janela aberta
       </p>
     </div>
   );
@@ -645,7 +647,7 @@ export function CardDetailDialog({
     if (r.ok && typeof r.body === "string" && r.body.trim()) {
       setDraftBody(r.body.trim());
     } else {
-      setEditError(r.error ?? "AI couldn't generate a body right now.");
+      setEditError(r.error ?? "A IA não conseguiu gerar agora.");
     }
   }
 
@@ -663,17 +665,8 @@ export function CardDetailDialog({
   const [repoLabels, setRepoLabels] = useState<RepoLabel[] | null>(null);
   const [labelBusy, setLabelBusy] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [onClose]);
+  const dialogPanelRef = useRef<HTMLDivElement>(null);
+  useDialogA11y(dialogPanelRef, onClose);
 
   // Comments load once per dialog open.
   useEffect(() => {
@@ -682,7 +675,7 @@ export function CardDetailDialog({
     onMutate({ action: "getComments", contentId: item.contentId }).then((r) => {
       if (cancelled) return;
       if (r.ok && r.comments) setComments(r.comments);
-      else setCommentsError(r.error ?? "Couldn't load comments");
+      else setCommentsError(r.error ?? "Não foi possível carregar os comentários");
     });
     return () => {
       cancelled = true;
@@ -734,7 +727,7 @@ export function CardDetailDialog({
       onPatchItem(item.id, { title, body: draftBody });
       setEditing(false);
     } else {
-      setEditError(r.error ?? "Save failed");
+      setEditError(r.error ?? "Falha ao salvar");
     }
   }
 
@@ -748,7 +741,7 @@ export function CardDetailDialog({
       const refreshed = await onMutate({ action: "getComments", contentId: item.contentId });
       if (refreshed.ok && refreshed.comments) setComments(refreshed.comments);
     } else {
-      setCommentsError(r.error ?? "Comment failed");
+      setCommentsError(r.error ?? "Falha ao comentar");
     }
     setCommentBusy(false);
   }
@@ -782,14 +775,16 @@ export function CardDetailDialog({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={item.title}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl"
+        ref={dialogPanelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={item.title}
+        className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -842,7 +837,7 @@ export function CardDetailDialog({
                   <div className="absolute left-0 top-full z-20 mt-1 max-h-60 w-64 overflow-y-auto rounded-xl border border-border bg-surface-elevated py-1 shadow-xl">
                     {!repoLabels ? (
                       <p className="flex items-center gap-2 px-3 py-2 text-xs text-foreground-muted">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading labels…
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando labels…
                       </p>
                     ) : (
                       repoLabels.map((l) => {
@@ -877,8 +872,8 @@ export function CardDetailDialog({
                 type="button"
                 onClick={aiAssist}
                 disabled={aiBusy}
-                aria-label={item.body?.trim() ? "Improve description with AI" : "Generate description with AI"}
-                title={item.body?.trim() ? "Improve description with AI" : "Generate description with AI"}
+                aria-label={item.body?.trim() ? "Melhorar descrição com IA" : "Gerar descrição com IA"}
+                title={item.body?.trim() ? "Melhorar descrição com IA" : "Gerar descrição com IA"}
                 className="rounded-lg border border-accent-border bg-accent-bg p-2 text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
               >
                 {aiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -892,7 +887,7 @@ export function CardDetailDialog({
                   setDraftBody(item.body ?? "");
                   setEditing(true);
                 }}
-                aria-label="Edit card"
+                aria-label="Editar card"
                 className="rounded-lg border border-border p-2 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
               >
                 <Pencil className="h-4 w-4" />
@@ -901,7 +896,7 @@ export function CardDetailDialog({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close card"
+              aria-label="Fechar"
               className="rounded-lg border border-border p-2 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
             >
               <X className="h-4 w-4" />
@@ -917,7 +912,7 @@ export function CardDetailDialog({
                 value={draftBody}
                 onChange={(e) => setDraftBody(e.target.value)}
                 rows={12}
-                placeholder="Description (GitHub-flavored markdown)…"
+                placeholder="Descrição (markdown do GitHub)…"
                 className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
               />
               {editError && <p className="text-xs text-danger">{editError}</p>}
@@ -929,7 +924,7 @@ export function CardDetailDialog({
                   className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
                 >
                   {aiBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  {draftBody.trim() ? "Improve with AI" : "Generate with AI"}
+                  {draftBody.trim() ? "Melhorar com IA" : "Gerar com IA"}
                 </button>
                 <div className="flex items-center gap-2">
                 <button
@@ -938,16 +933,16 @@ export function CardDetailDialog({
                   disabled={saving}
                   className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
                 >
-                  Cancel
+                  Cancelar
                 </button>
                 <button
                   type="button"
                   onClick={saveEdit}
                   disabled={saving || !draftTitle.trim()}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-50"
                 >
                   {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Save changes
+                  Salvar alterações
                 </button>
                 </div>
               </div>
@@ -955,7 +950,7 @@ export function CardDetailDialog({
           ) : item.body?.trim() ? (
             <MarkdownContent markdown={item.body} githubRepo={repoOf(item.url)} />
           ) : (
-            <p className="text-sm italic text-foreground-faint">No description.</p>
+            <p className="text-sm italic text-foreground-faint">Sem descrição.</p>
           )}
 
           {/* Draft → issue, and solve-with-agent (issues) → PR for review. */}
@@ -1024,16 +1019,16 @@ export function CardDetailDialog({
             <div className="mt-6 border-t border-border pt-4">
               <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
                 <MessageSquare className="h-3.5 w-3.5" />
-                Comments{comments ? ` (${comments.length})` : ""}
+                Comentários{comments ? ` (${comments.length})` : ""}
               </p>
               {commentsError ? (
                 <p className="text-xs text-danger">{commentsError}</p>
               ) : !comments ? (
                 <p className="flex items-center gap-2 text-xs text-foreground-muted">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…
                 </p>
               ) : comments.length === 0 ? (
-                <p className="text-xs italic text-foreground-faint">No comments yet.</p>
+                <p className="text-xs italic text-foreground-faint">Nenhum comentário ainda.</p>
               ) : (
                 <div className="space-y-3">
                   {comments.map((c) => (
@@ -1066,7 +1061,7 @@ export function CardDetailDialog({
                     }
                   }}
                   rows={2}
-                  placeholder="Write a comment… (⌘+Enter to send)"
+                  placeholder="Escreva um comentário… (⌘+Enter envia)"
                   className="min-w-0 flex-1 resize-none rounded-xl border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
                 />
                 <button
@@ -1074,7 +1069,7 @@ export function CardDetailDialog({
                   onClick={sendComment}
                   disabled={commentBusy || !commentDraft.trim()}
                   aria-label="Send comment"
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-background disabled:opacity-50"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground disabled:opacity-50"
                 >
                   {commentBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 </button>
@@ -1122,7 +1117,7 @@ export function CardDetailDialog({
                 </span>
               </>
             ) : (
-              <span className="text-xs text-foreground-faint">Unassigned</span>
+              <span className="text-xs text-foreground-faint">Sem responsável</span>
             )}
             {canAssign && (
               <button
@@ -1131,7 +1126,7 @@ export function CardDetailDialog({
                 aria-expanded={assignOpen}
                 className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
               >
-                Assign
+                Atribuir
               </button>
             )}
             {assignOpen && (
@@ -1139,7 +1134,7 @@ export function CardDetailDialog({
                 <div className="fixed inset-0 z-10" onClick={() => setAssignOpen(false)} />
                 <div className="absolute bottom-full left-0 z-20 mb-2 max-h-72 w-60 overflow-y-auto rounded-xl border border-border bg-surface-elevated py-1 shadow-xl">
                   <p className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-foreground-faint">
-                    Collaborators with access
+                    Colaboradores com acesso
                   </p>
                   {team.map((m) => {
                     const checked = item.assignees.some(
@@ -1185,7 +1180,7 @@ export function CardDetailDialog({
                         className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
                       />
                       <button type="button" disabled={assignBusy || !manualLogin.trim()} onClick={() => void addManualAssignee()} className="shrink-0 rounded-md bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-50">
-                        {assignBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add"}
+                        {assignBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Adicionar"}
                       </button>
                     </div>
                     <p className="mt-1 text-[10px] text-foreground-faint">Atribui qualquer usuário com acesso ao repo (ou da org).</p>
@@ -1201,7 +1196,7 @@ export function CardDetailDialog({
               rel="noopener noreferrer"
               className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
             >
-              Open in GitHub
+              Abrir no GitHub
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </a>
           )}
@@ -1250,7 +1245,9 @@ export function KanbanBoard() {
   const [activeItem, setActiveItem] = useState<KanbanItem | null>(null);
   const [detailItem, setDetailItem] = useState<KanbanItem | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; level: "error" | "success" } | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const { confirm, confirmUI } = useConfirm();
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase); empty = all
   const [showDone, setShowDone] = useState(false); // hide completed columns by default
@@ -1307,9 +1304,10 @@ export function KanbanBoard() {
     return () => window.removeEventListener("kanban:open-member", onOpenMember);
   }, [board?.teamMembers]);
 
-  function flash(msg: string) {
-    setToast(msg);
-    window.setTimeout(() => setToast(null), 4000);
+  function flash(msg: string, level: "error" | "success" = "error") {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast({ msg, level });
+    toastTimer.current = window.setTimeout(() => setToast(null), 4000);
   }
 
   // --- mutation helper ---
@@ -1404,7 +1402,7 @@ export function KanbanBoard() {
             itemId: activeId,
             optionId: col.optionId,
           });
-          if (!r.ok) throw new Error(r.error || "Failed to set status");
+          if (!r.ok) throw new Error(r.error || "Falha ao mudar o status");
         } else {
           // "No Status" column — clear the field.
           const r = await mutate({
@@ -1413,7 +1411,7 @@ export function KanbanBoard() {
             fieldId: nextBoard.statusFieldId,
             itemId: activeId,
           });
-          if (!r.ok) throw new Error(r.error || "Failed to clear status");
+          if (!r.ok) throw new Error(r.error || "Falha ao limpar o status");
         }
       }
       const rp = await mutate({
@@ -1422,9 +1420,9 @@ export function KanbanBoard() {
         itemId: activeId,
         afterId,
       });
-      if (!rp.ok) throw new Error(rp.error || "Failed to reorder");
+      if (!rp.ok) throw new Error(rp.error || "Falha ao reordenar");
     } catch (err) {
-      flash(err instanceof Error ? err.message : "Update failed — reverting");
+      flash(err instanceof Error ? err.message : "Falha ao atualizar — revertendo");
       await load();
     } finally {
       setBusy(false);
@@ -1454,7 +1452,7 @@ export function KanbanBoard() {
         kind === "issue" && primaryRepo
           ? await mutate({ action: "createIssue", projectId: board.projectId, repo: primaryRepo, newTitle: title })
           : await mutate({ action: "addDraft", projectId: board.projectId, title });
-      if (!r.ok || !r.itemId) throw new Error(r.error || "Failed to add card");
+      if (!r.ok || !r.itemId) throw new Error(r.error || "Falha ao adicionar card");
       if (board.statusFieldId && col?.optionId) {
         await mutate({
           action: "setStatus",
@@ -1466,7 +1464,7 @@ export function KanbanBoard() {
       }
       await load();
     } catch (err) {
-      flash(err instanceof Error ? err.message : "Failed to add draft");
+      flash(err instanceof Error ? err.message : "Falha ao adicionar card");
     } finally {
       setBusy(false);
     }
@@ -1477,12 +1475,13 @@ export function KanbanBoard() {
     setBusy(true);
     try {
       const r = await mutate({ action: "archive", projectId: board.projectId, itemId });
-      if (!r.ok) throw new Error(r.error || "Failed to archive");
+      if (!r.ok) throw new Error(r.error || "Falha ao arquivar");
       setBoard((prev) =>
         prev ? { ...prev, columns: prev.columns.map((c) => ({ ...c, items: c.items.filter((i) => i.id !== itemId) })) } : prev,
       );
+      flash("Card arquivado.", "success");
     } catch (err) {
-      flash(err instanceof Error ? err.message : "Failed to archive");
+      flash(err instanceof Error ? err.message : "Falha ao arquivar");
     } finally {
       setBusy(false);
     }
@@ -1490,16 +1489,21 @@ export function KanbanBoard() {
 
   async function onDelete(itemId: string) {
     if (!board) return;
-    if (!window.confirm("Permanently delete this card from the project? This cannot be undone.")) return;
+    if (!(await confirm({
+      title: "Deletar card?",
+      message: "Isto remove o card permanentemente do projeto. Esta ação não pode ser desfeita.",
+      confirmLabel: "Deletar",
+    }))) return;
     setBusy(true);
     try {
       const r = await mutate({ action: "delete", projectId: board.projectId, itemId });
-      if (!r.ok) throw new Error(r.error || "Failed to delete");
+      if (!r.ok) throw new Error(r.error || "Falha ao deletar");
       setBoard((prev) =>
         prev ? { ...prev, columns: prev.columns.map((c) => ({ ...c, items: c.items.filter((i) => i.id !== itemId) })) } : prev,
       );
+      flash("Card deletado.", "success");
     } catch (err) {
-      flash(err instanceof Error ? err.message : "Failed to delete");
+      flash(err instanceof Error ? err.message : "Falha ao deletar");
     } finally {
       setBusy(false);
     }
@@ -1547,9 +1551,9 @@ export function KanbanBoard() {
         logins,
         currentLogins,
       });
-      if (!r.ok) throw new Error(r.error || "Failed to update assignees");
+      if (!r.ok) throw new Error(r.error || "Falha ao atualizar responsáveis");
     } catch (err) {
-      flash(err instanceof Error ? err.message : "Failed to update assignees");
+      flash(err instanceof Error ? err.message : "Falha ao atualizar responsáveis");
       await load();
     }
   }
@@ -1557,7 +1561,7 @@ export function KanbanBoard() {
   // --- render ---
   if (loading) {
     return (
-      <div className="flex min-h-0 flex-1 gap-4 overflow-hidden" aria-label="Loading Kanban board">
+      <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-2" aria-label="Carregando o Kanban">
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="flex h-full min-h-64 min-w-64 flex-1 basis-80 animate-pulse flex-col rounded-xl border border-border bg-surface/60 p-2">
             <div className="m-1 mb-3 h-4 w-24 rounded bg-foreground/[0.07]" />
@@ -1573,18 +1577,18 @@ export function KanbanBoard() {
   }
 
   if (error || !board) {
-    const message = error ?? "Failed to load";
+    const message = error ?? "Falha ao carregar";
     const hint = /scope|permission|token/i.test(message);
     return (
       <div className="rounded-lg border border-danger/30 bg-danger/5 p-6" role="alert">
-        <p className="text-sm font-medium text-danger">Failed to load Kanban board</p>
+        <p className="text-sm font-medium text-danger">Falha ao carregar o Kanban</p>
         <p className="mt-1 text-xs text-foreground-muted">{message}</p>
         {hint && (
           <p className="mt-3 text-xs text-foreground-subtle">
-            Make sure <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">GITHUB_TOKEN</code> has{" "}
+            Confirme que <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">GITHUB_TOKEN</code> tem os escopos{" "}
             <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">project</code>,{" "}
-            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">read:org</code>, and{" "}
-            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">repo</code> scopes.
+            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">read:org</code> e{" "}
+            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">repo</code>.
           </p>
         )}
       </div>
@@ -1633,7 +1637,7 @@ export function KanbanBoard() {
         <p className="flex items-center gap-2 text-sm text-foreground-subtle">
           {title}
           {truncated && <span className="text-xs text-warning">(first 100 items)</span>}
-          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="Saving" />}
+          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="Salvando" />}
         </p>
         <div className="flex items-center gap-2">
           {doneCount > 0 && (
@@ -1649,10 +1653,10 @@ export function KanbanBoard() {
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Open project in GitHub"
+            aria-label="Abrir o projeto no GitHub"
             className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
-            Open in GitHub
+            Abrir no GitHub
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
           </a>
         </div>
@@ -1697,8 +1701,15 @@ export function KanbanBoard() {
       )}
 
       {toast && (
-        <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
-          {toast}
+        <div
+          className={`rounded-md border px-3 py-2 text-xs ${
+            toast.level === "success"
+              ? "border-success/30 bg-success/10 text-success"
+              : "border-danger/30 bg-danger/10 text-danger"
+          }`}
+          role={toast.level === "success" ? "status" : "alert"}
+        >
+          {toast.msg}
         </div>
       )}
 
@@ -1757,6 +1768,7 @@ export function KanbanBoard() {
       {selectedMember && (
         <MemberModal member={selectedMember} onClose={() => setSelectedMember(null)} />
       )}
+      {confirmUI}
     </div>
   );
 }

@@ -36,7 +36,7 @@
   --surface-elevated: #1f1f23;
   --foreground: #f4f4f5;
   --foreground-muted: #a1a1aa;
-  --foreground-subtle: #71717a;
+  --foreground-subtle: #8a8a93; /* lifted from #71717a so 11–13px metadata clears WCAG AA on surfaces */
   --foreground-faint: #52525b;
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.18);
