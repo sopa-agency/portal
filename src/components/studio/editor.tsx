@@ -46,7 +46,7 @@ const CLIENT_ASSETS: Assets = {
   barcode: "/assets/barcode.png?v=3", // ?v= força refetch quando o asset muda (browser cacheia por URL)
 };
 
-const RESIZABLE = new Set<string>(["subtitulo", "hook", "titulo"]); // + blocos
+const RESIZABLE = new Set<string>(["subtitulo", "hook", "titulo", "spotInfo"]); // + blocos
 // elementos editáveis (arrastáveis). kicker/selos/barcode são chrome "Fixo" → renderizados sem data-el.
 
 // paleta da marca p/ os swatches do card "fundo" (label, hex) — picker nativo fica como fallback.

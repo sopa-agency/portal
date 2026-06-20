@@ -172,13 +172,16 @@ const SPOT_DISPLAY_FONT = "Joystix";
 // sized deterministically here renders identically in both. Joystix is monospace,
 // so width ≈ chars · fontSize · ADVANCE; ADVANCE is set slightly generous so the
 // computed size never overflows the 960px box (CARD_W − 60·2).
-const SPOT_NAME_BOX = 960;
 const JOYSTIX_ADVANCE = 0.62;
-function fitSpotNameSize(text: string, base = 78, min = 34): number {
+function fitSpotNameSize(text: string, base = 78, min = 34, boxW = 960): number {
   const chars = Math.max(1, text.length);
-  return Math.max(min, Math.min(base, Math.floor(SPOT_NAME_BOX / (chars * JOYSTIX_ADVANCE))));
+  return Math.max(min, Math.min(base, Math.floor(boxW / (chars * JOYSTIX_ADVANCE))));
 }
 function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
+  // Banner + info block are draggable template elements (data-el + layout override).
+  const banner = pos(card, "spotBanner");
+  const info = pos(card, "spotInfo");
+  const infoW = info.w ?? 960;
   return (
     <>
       {/* bottom scrim so the text stays legible over any photo */}
@@ -190,8 +193,8 @@ function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
         }}
       />
 
-      {/* top banner — Joystix (SkateHive's brand pixel font) */}
-      <div style={{ position: "absolute", left: 48, top: 60, display: "flex", transform: "rotate(-2.5deg)" }}>
+      {/* top banner — Joystix (SkateHive's brand pixel font). Draggable. */}
+      <div data-el="spotBanner" style={{ position: "absolute", left: banner.x, top: banner.y, display: "flex", transform: "rotate(-2.5deg)" }}>
         <div
           style={{
             display: "flex", alignItems: "center", backgroundColor: SPOT_LIME, color: "#0a0a0a",
@@ -203,12 +206,12 @@ function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
         </div>
       </div>
 
-      {/* spot name + location + author, anchored bottom-left */}
-      <div style={{ position: "absolute", left: 60, right: 60, bottom: 84, display: "flex", flexDirection: "column" }}>
+      {/* spot name + location + author — draggable/resizable group. */}
+      <div data-el="spotInfo" style={{ position: "absolute", left: info.x, top: info.y, width: infoW, display: "flex", flexDirection: "column" }}>
         <div
           style={{
             display: "flex", whiteSpace: "nowrap", fontFamily: SPOT_DISPLAY_FONT,
-            fontSize: fitSpotNameSize((card.spotName || "Spot sem nome").toUpperCase()),
+            fontSize: fitSpotNameSize((card.spotName || "Spot sem nome").toUpperCase(), 78, 34, infoW),
             lineHeight: 1.1, color: "#ffffff", textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
           }}
         >

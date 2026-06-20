@@ -27,7 +27,10 @@ export type ElKey =
   | "kicker"
   | "seloReel"
   | "seloPreco"
-  | "barcode";
+  | "barcode"
+  // Spot card (SkateHive) — draggable template elements.
+  | "spotBanner"
+  | "spotInfo";
 
 // Posições/tamanhos default (coords de design, 1080×1350). Override por card.layout[key].
 export const DEF: Record<ElKey, { x: number; y: number; w?: number; h?: number; fontSize?: number }> = {
@@ -38,4 +41,7 @@ export const DEF: Record<ElKey, { x: number; y: number; w?: number; h?: number; 
   seloReel: { x: 898, y: 0, w: 138, h: 207 },
   seloPreco: { x: 6, y: 86, w: 97, h: 146 },
   barcode: { x: 10, y: 1208, w: 222 },
+  // Spot card: banner top-left; info block (name/location/author) near bottom-left.
+  spotBanner: { x: 48, y: 60, w: 520 },
+  spotInfo: { x: 60, y: 1010, w: 960 },
 };
