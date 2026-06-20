@@ -446,6 +446,38 @@ function ColumnView({
 // Card detail dialog — full issue/PR/draft content
 // ---------------------------------------------------------------------------
 
+/** Live progress while the coding agent solves an issue (a long gateway call,
+ *  up to ~5min): elapsed timer + rotating captions so it reads as "working". */
+function AgentSolveProgress() {
+  const STEPS = [
+    "Lendo a issue e o código do projeto…",
+    "Criando uma branch e implementando…",
+    "Rodando/checando a mudança…",
+    "Commitando, dando push e abrindo o PR…",
+  ];
+  const [elapsed, setElapsed] = useState(0);
+  const [step, setStep] = useState(0);
+  const startRef = useRef(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
+    const s = setInterval(() => setStep((i) => (i + 1) % STEPS.length), 4000);
+    return () => { clearInterval(t); clearInterval(s); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const secs = Math.floor(elapsed / 1000);
+  return (
+    <div className="rounded-lg border border-accent-border bg-accent-bg/40 p-3">
+      <div className="flex items-center gap-2 text-sm font-semibold text-accent">
+        <Loader2 className="h-4 w-4 animate-spin" /> Agente resolvendo a issue…
+      </div>
+      <p className="mt-1 text-xs text-foreground-muted">{STEPS[step]}</p>
+      <p className="mt-1 font-mono text-[11px] tabular-nums text-foreground-faint">
+        {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} · pode levar alguns minutos — pode fechar e voltar
+      </p>
+    </div>
+  );
+}
+
 /** Derive "owner/repo" from a GitHub issue/PR URL for #N autolinking. */
 function repoOf(url?: string): string | undefined {
   const m = url?.match(/github\.com\/([^/]+\/[^/]+)\//);
@@ -853,17 +885,16 @@ export function CardDetailDialog({
                   Converter em issue
                 </button>
               )}
-              {item.type === "issue" && !solveRes && (
+              {item.type === "issue" && !solveRes && !solveBusy && (
                 <button
                   type="button"
                   onClick={solveWithAgent}
-                  disabled={solveBusy}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent/20"
                 >
-                  {solveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitPullRequest className="h-4 w-4" />}
-                  {solveBusy ? "Agente resolvendo… (pode demorar alguns min)" : "Resolver com agente → PR"}
+                  <GitPullRequest className="h-4 w-4" /> Resolver com agente → PR
                 </button>
               )}
+              {item.type === "issue" && solveBusy && <AgentSolveProgress />}
               {solveRes && (
                 <div className="rounded-lg border border-success/30 bg-success/5 p-3 text-sm">
                   {solveRes.prUrl ? (

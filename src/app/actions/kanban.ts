@@ -38,7 +38,11 @@ export async function solveIssueWithAgent(input: { title: string; body?: string;
     const prUrl = raw.match(/https?:\/\/github\.com\/[^\s)"']+\/pull\/\d+/)?.[0] ?? null;
     return { ok: true, prUrl, result: raw };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    const m = err instanceof Error ? err.message : String(err);
+    if (/abort|timeout|timed out/i.test(m)) {
+      return { ok: false, error: "O agente passou do tempo limite aqui, mas pode ainda estar trabalhando. Verifique os PRs do repo em alguns minutos antes de tentar de novo." };
+    }
+    return { ok: false, error: m };
   }
 }
 
