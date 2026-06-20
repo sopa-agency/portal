@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Sparkles, Send, X, Check, ExternalLink, Heart } from "lucide-react";
+import { Loader2, Sparkles, Send, X, Check, ExternalLink, Heart, ChevronDown } from "lucide-react";
 import {
   generateTrailReply,
   postTrailReply,
@@ -21,12 +21,16 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
   const [busy, setBusy] = useState<null | "gen" | "post" | "skip">(null);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(item.status === "done" ? "posted" : null);
+  const [steerOpen, setSteerOpen] = useState(false);
+  const [steer, setSteer] = useState("");
 
-  const gen = async () => {
+  const QUICK_STEERS = ["mais curto", "mais engraçado", "menciona o autor", "faz uma pergunta", "mais hype"];
+
+  const gen = async (instruction?: string) => {
     setBusy("gen"); setErr(null);
-    const r = await generateTrailReply(item.actionId);
+    const r = await generateTrailReply(item.actionId, instruction, instruction ? text : undefined);
     setBusy(null);
-    if (r.ok) setText(r.draft);
+    if (r.ok) { setText(r.draft); setSteerOpen(false); }
     else setErr(r.error);
   };
   const post = async () => {
@@ -102,15 +106,28 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
               >
                 <X className="h-3.5 w-3.5" /> Pular
               </button>
-              <button
-                type="button"
-                onClick={gen}
-                disabled={!!busy}
-                className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-border-strong disabled:opacity-50"
-              >
-                {busy === "gen" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                Gerar com IA
-              </button>
+              {/* Split button: default generate + caret to steer the prompt */}
+              <div className="inline-flex items-stretch overflow-hidden rounded-lg border border-border">
+                <button
+                  type="button"
+                  onClick={() => gen()}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-50"
+                >
+                  {busy === "gen" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  Gerar com IA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSteerOpen((v) => !v)}
+                  disabled={!!busy}
+                  aria-label="Ajustar prompt"
+                  aria-expanded={steerOpen}
+                  className="border-l border-border px-1.5 text-foreground-muted transition-colors hover:bg-foreground/5 disabled:opacity-50"
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${steerOpen ? "rotate-180" : ""}`} />
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={post}
@@ -122,6 +139,45 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
               </button>
             </div>
           </div>
+
+          {/* Prompt-steer panel (toggled by the caret) */}
+          {steerOpen && (
+            <div className="mt-2 space-y-2 rounded-lg border border-border bg-surface-elevated p-2.5">
+              <div className="flex flex-wrap gap-1">
+                {QUICK_STEERS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => gen(q)}
+                    disabled={!!busy}
+                    className="rounded-full border border-border px-2 py-0.5 text-[11px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={steer}
+                  onChange={(e) => setSteer(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && steer.trim() && gen(steer)}
+                  placeholder="Instrução pra IA (ex: cita o /skateboard, mais irônico…)"
+                  disabled={!!busy}
+                  className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => steer.trim() && gen(steer)}
+                  disabled={!!busy || !steer.trim()}
+                  className="inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-bg px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                >
+                  {busy === "gen" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  Ajustar
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
       {err && <p className="mt-2 rounded-lg border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-xs text-danger">{err}</p>}

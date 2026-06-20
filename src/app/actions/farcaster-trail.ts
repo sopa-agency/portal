@@ -76,8 +76,19 @@ export async function listTrailFeed(): Promise<
   return { ok: true, items, project: g.project.name };
 }
 
-function replyPrompt(project: ProjectConfig, partnerSlug: string, castText: string): string {
+function replyPrompt(
+  project: ProjectConfig,
+  partnerSlug: string,
+  castText: string,
+  instruction?: string,
+  current?: string,
+): string {
   const voice = project.socials.find((s) => s.voice)?.voice ?? `${project.name}'s authentic, culture-native voice`;
+  const steer = instruction?.trim()
+    ? `\n\nEXTRA INSTRUCTION (highest priority — follow it): ${instruction.trim()}${
+        current?.trim() ? `\nRefine this current draft accordingly: """${current.trim()}"""` : ""
+      }`
+    : "";
   return `You are ${project.name}'s social account replying to a Farcaster cast from a partner brand (@${partnerSlug}).
 
 ${project.name}'s voice: ${voice}
@@ -87,12 +98,15 @@ Their cast:
 ${castText}
 """
 
-Write ONE short, genuine reply in that voice — supportive, specific to what they actually said, never generic hype. Skate/culture-native. No hashtags, at most one emoji (only if it fits). Max 220 characters. Output ONLY the reply text, nothing else.`;
+Write ONE short, genuine reply in that voice — supportive, specific to what they actually said, never generic hype. Skate/culture-native. No hashtags, at most one emoji (only if it fits). Max 220 characters. Output ONLY the reply text, nothing else.${steer}`;
 }
 
-/** Generate an on-brand AI draft for a reply action. */
+/** Generate an on-brand AI draft for a reply action. Optional `instruction`
+ * steers the tone/content; `current` is the existing draft to refine. */
 export async function generateTrailReply(
   actionId: string,
+  instruction?: string,
+  current?: string,
 ): Promise<{ ok: true; draft: string } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
@@ -107,7 +121,7 @@ export async function generateTrailReply(
   let draft: string;
   try {
     const raw = await callOpenClaw(
-      replyPrompt(g.project, action.cast.authorSlug, action.cast.text),
+      replyPrompt(g.project, action.cast.authorSlug, action.cast.text, instruction, current),
       g.project.agent.id,
       { timeoutMs: AI_TIMEOUT_MS, project: g.project },
     );
