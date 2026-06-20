@@ -5,7 +5,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma, withDbRetry } from "@/lib/prisma";
-import { uploadMediaToPinata, createPinataSignedUploadUrl } from "@/lib/social-publish";
+import { uploadMediaToPinata, createPinataSignedUploadUrl, normalizeMediaUrl } from "@/lib/social-publish";
 import { publishInstagramPost } from "@/lib/instagram-publish";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import {
@@ -110,7 +110,7 @@ function rowToPlain(row: {
     id: row.id,
     type: row.type as PostType,
     caption: row.caption,
-    mediaUrls: Array.isArray(row.mediaUrls) ? (row.mediaUrls as string[]) : [],
+    mediaUrls: Array.isArray(row.mediaUrls) ? (row.mediaUrls as string[]).map(normalizeMediaUrl) : [],
     status: row.status as PostStatus,
     igMediaId: row.igMediaId,
     permalink: row.permalink,
@@ -125,7 +125,7 @@ function rowToPlain(row: {
     scheduledFor: row.scheduledFor?.toISOString() ?? null,
     publishMode: (row.publishMode === "manual" ? "manual" : "auto"),
     userTags: Array.isArray(row.userTags) ? (row.userTags as UserTag[]) : [],
-    coverUrl: row.coverUrl ?? null,
+    coverUrl: row.coverUrl ? normalizeMediaUrl(row.coverUrl) : null,
     thumbOffsetMs: row.thumbOffsetMs ?? null,
     musicNote: row.musicNote ?? "",
     brandedPartner: row.brandedPartner ?? "",

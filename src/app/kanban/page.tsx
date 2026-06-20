@@ -22,11 +22,11 @@ export default async function KanbanPage() {
       listBounties(),
     ]);
     return (
-      <div className="flex flex-col gap-6 md:h-[calc(100dvh-4rem)]">
+      <div className="flex flex-col gap-6 lg:h-[calc(100dvh-4rem)]">
         <PageHeader
           eyebrow={project.name}
           title="Kanban"
-          description="Todas as tarefas de todos os portais, por status (somente leitura)."
+          description="Todas as tarefas de todos os portais, por status."
         />
         <AggregatedKanban
           columns={columns}
@@ -42,9 +42,10 @@ export default async function KanbanPage() {
   }
 
   return (
-    // Fixed viewport height on md+ (100dvh minus the shell's md:p-8 padding)
-    // so the board fills the screen and columns scroll internally.
-    <div className="flex flex-col gap-6 md:h-[calc(100dvh-4rem)]">
+    // Fixed viewport height on lg+ (100dvh minus the shell's md:p-8 padding),
+    // matching where the sidebar becomes a fixed side rail. Below lg the page
+    // flows under the stacked nav so the board doesn't double-scroll.
+    <div className="flex flex-col gap-6 lg:h-[calc(100dvh-4rem)]">
       <PageHeader
         eyebrow={project.name}
         title="Kanban"

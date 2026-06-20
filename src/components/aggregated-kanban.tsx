@@ -22,6 +22,7 @@ import type { BountyDTO } from "@/app/actions/bounty";
 import { getProjectAssignees, type Assignee } from "@/app/actions/kanban";
 import { BountyBadge, taskKeyOf } from "@/components/bounty-panel";
 import { CardDetailDialog } from "@/components/kanban-board";
+import { useConfirm } from "@/components/confirm-dialog";
 
 const COL_PREFIX = "aggcol:";
 
@@ -64,7 +65,9 @@ export function AggregatedKanban({
   const [board, setBoard] = useState<string | null>(null);
   const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase)
   const [showDone, setShowDone] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; level: "error" | "success" | "info" } | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const { confirm, confirmUI } = useConfirm();
 
   // Load the open card's project assignable list (for the shared dialog's assign picker).
   useEffect(() => {
@@ -106,10 +109,16 @@ export function AggregatedKanban({
   }
 
   async function removeCard(item: AggregatedItem, action: "archive" | "delete") {
+    if (action === "delete" && !(await confirm({
+      title: "Deletar card?",
+      message: `Isto remove "${item.title}" permanentemente do board "${item.board}". Esta ação não pode ser desfeita.`,
+      confirmLabel: "Deletar",
+    }))) return;
     const snap = cols;
     setCols((prev) => prev.map((c) => ({ ...c, items: c.items.filter((i) => i.id !== item.id) })));
     const r = await post(item.projectSlug, item.projectId, { action, itemId: item.id });
     if (!r.ok) { setCols(snap); flash(r.error || (action === "archive" ? "Falha ao arquivar." : "Falha ao deletar.")); }
+    else flash(action === "archive" ? "Card arquivado." : "Card deletado.", "success");
   }
 
   // Create a draft on a chosen project's board, in this column's status.
@@ -167,9 +176,10 @@ export function AggregatedKanban({
     .filter((c) => showDone || !isDone(c.name))
     .map((c) => ({ ...c, items: c.items.filter(match) }));
 
-  function flash(m: string) {
-    setToast(m);
-    window.setTimeout(() => setToast(null), 4000);
+  function flash(m: string, level: "error" | "success" | "info" = "error") {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast({ msg: m, level });
+    toastTimer.current = window.setTimeout(() => setToast(null), 4000);
   }
 
   function colNameOfDrop(overId: string): string | null {
@@ -189,7 +199,7 @@ export function AggregatedKanban({
 
     const opt = item.statusOptions.find((o) => o.name.toLowerCase() === targetCol.toLowerCase());
     if (!item.statusFieldId || !opt) {
-      flash(`"${item.board}" não tem a coluna "${targetCol}".`);
+      flash(`"${item.board}" não tem a coluna "${targetCol}".`, "info");
       return;
     }
 
@@ -220,6 +230,8 @@ export function AggregatedKanban({
       if (!data.ok) {
         setCols(snapshot);
         flash(data.error || "Falha ao mover o card.");
+      } else {
+        flash(`Movido para "${targetCol}".`, "success");
       }
     } catch {
       setCols(snapshot);
@@ -273,7 +285,18 @@ export function AggregatedKanban({
       )}
 
       {toast && (
-        <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">{toast}</div>
+        <div
+          className={`rounded-md border px-3 py-2 text-xs ${
+            toast.level === "success"
+              ? "border-success/30 bg-success/10 text-success"
+              : toast.level === "info"
+                ? "border-border bg-surface text-foreground-muted"
+                : "border-danger/30 bg-danger/10 text-danger"
+          }`}
+          role={toast.level === "error" ? "alert" : "status"}
+        >
+          {toast.msg}
+        </div>
       )}
 
       <DndContext
@@ -330,6 +353,7 @@ export function AggregatedKanban({
           onClose={() => setActive(null)}
         />
       )}
+      {confirmUI}
     </div>
   );
 }
@@ -416,7 +440,13 @@ function CardInner({ item, bounty }: { item: AggregatedItem; bounty?: BountyDTO 
       <p className="line-clamp-3 text-sm text-foreground">{item.title}</p>
       <div className="mt-1.5 flex items-center gap-2">
         {item.labels.slice(0, 3).map((l) => (
-          <span key={l.name} className="rounded px-1 text-[9px]" style={{ backgroundColor: `#${l.color}22`, color: `#${l.color}` }}>{l.name}</span>
+          <span
+            key={l.name}
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-1.5 py-0.5 text-[9px] font-medium leading-tight text-foreground-muted"
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: `#${l.color}` }} aria-hidden="true" />
+            {l.name}
+          </span>
         ))}
         <span className="ml-auto flex -space-x-1.5">
           {item.assignees.slice(0, 4).map((a) => (
@@ -439,7 +469,7 @@ function DraggableCard({ item, bounty, canManage, onOpen, onArchive, onDelete }:
       className="group relative rounded-lg border border-border bg-surface-elevated p-2.5 transition-colors hover:border-border-strong"
     >
       {/* Hover actions: drag · archive · delete */}
-      <div className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="absolute right-1 top-1 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-100 shadow-sm backdrop-blur transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
         {canManage && (
           <>
             <button type="button" aria-label="Arquivar" onPointerDown={(e) => e.stopPropagation()} onClick={onArchive} className="rounded p-0.5 text-foreground-faint hover:text-foreground"><Archive className="h-3.5 w-3.5" /></button>

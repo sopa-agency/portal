@@ -41,9 +41,9 @@ const RENDER_CONCURRENCY = 3; // renders Satori em paralelo no export .zip
 const THUMB_W = 36; // largura do thumbnail na lista de cards (px)
 
 const CLIENT_ASSETS: Assets = {
-  seloReel: "/assets/selo-reelflip.png",
-  seloPreco: "/assets/selo-preco.png",
-  barcode: "/assets/barcode.png?v=3", // ?v= força refetch quando o asset muda (browser cacheia por URL)
+  seloReel: "/studio/assets/selo-reelflip.png",
+  seloPreco: "/studio/assets/selo-preco.png",
+  barcode: "/studio/assets/barcode.png?v=3", // ?v= força refetch quando o asset muda (browser cacheia por URL)
 };
 
 const RESIZABLE = new Set<string>(["subtitulo", "hook", "titulo", "spotInfo"]); // + blocos

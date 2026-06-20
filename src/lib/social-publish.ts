@@ -267,7 +267,22 @@ export async function publishToBinanceSquare(
   }
 }
 
-const PINATA_GATEWAY = "https://gateway.pinata.cloud/ipfs";
+// Dedicated SkateHive gateway — the shared `gateway.pinata.cloud` is heavily
+// rate-limited (429s → broken images, worst on carousels). Override with
+// PINATA_GATEWAY if needed; trailing slash is trimmed so `${GATEWAY}/${cid}` is clean.
+const PINATA_GATEWAY = (process.env.PINATA_GATEWAY ?? "https://ipfs.skatehive.app/ipfs").replace(/\/+$/, "");
+
+/**
+ * Rewrite an already-stored media URL to the current gateway. IPFS is
+ * content-addressed, so the same CID is served by any gateway — this repoints
+ * legacy `gateway.pinata.cloud/ipfs/<cid>` URLs (saved before the switch) to
+ * PINATA_GATEWAY so old drafts/scheduled posts both render AND publish.
+ * Non-Pinata URLs and empty values pass through untouched.
+ */
+export function normalizeMediaUrl(url: string): string {
+  if (!url) return url;
+  return url.replace(/^https?:\/\/[^/]*\bgateway\.pinata\.cloud\/ipfs/i, PINATA_GATEWAY);
+}
 
 /** Shared media constraints for portal uploads (images vs video). */
 export function mediaUploadLimit(mimeType: string):
