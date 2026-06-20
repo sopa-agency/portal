@@ -422,6 +422,20 @@ model FarcasterTrailAction {
   @@index([actorSlug, status])
 }
 
+// A Farcaster signer a TEAM MEMBER approved via the Settings QR flow (managed
+// signer sponsored by FARCASTER_SPONSOR_*). One per portal member — lets the
+// person join the curation trail with their own account, approving in their
+// own Warpcast (never sharing a recovery phrase).
+model FarcasterMemberSigner {
+  username    String   @id // portal member (Hive username)
+  signerUuid  String
+  fid         Int?
+  handle      String? // their Farcaster handle once approved
+  status      String   @default("pending") // pending | approved | revoked
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // A Farcaster signer approved by the brand's account via Sign In With Neynar
 // (SIWN). One per portal. Lets a portal admin connect Farcaster from Settings
 // (no env edit / redeploy) — social-publish reads this as a fallback to the

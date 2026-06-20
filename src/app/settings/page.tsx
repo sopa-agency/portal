@@ -8,6 +8,9 @@ import { PortalAccessManager } from "@/components/portal-access-manager";
 import { BountySetup } from "@/components/bounty-setup";
 import { getPortalConnections, verifyDiscordConnection, verifyFarcasterConnection } from "@/lib/portal-connections";
 import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
+import { MyFarcasterCard } from "@/components/my-farcaster-card";
+import { getMyFarcaster } from "@/app/actions/farcaster-member";
+import { isTrailParticipant } from "@/lib/farcaster-trail-config";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -41,6 +44,10 @@ export default async function SettingsPage() {
   // Cross-portal access — global admins only.
   const portalAccess = isTeamHub && team?.ok && team.viewerGlobal ? await listAllPortalAccess().catch(() => null) : null;
 
+  // Per-member Farcaster connection (QR) — only on trail portals.
+  const showMyFarcaster = isTrailParticipant(project.slug);
+  const myFarcaster = showMyFarcaster ? await getMyFarcaster().catch(() => null) : null;
+
   return (
     <div className="space-y-10">
       <PageHeader
@@ -53,6 +60,7 @@ export default async function SettingsPage() {
       ) : null}
       {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
       {showAdmin ? <BountySetup /> : null}
+      {showMyFarcaster && myFarcaster ? <MyFarcasterCard initial={myFarcaster} /> : null}
       <ConnectionsView
         projectName={project.name}
         connections={connections}
