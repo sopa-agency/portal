@@ -38,6 +38,7 @@ export default async function ReunioesPage() {
       projects={projects}
       defaultProject={project.slug}
       accent={project.theme.accentDark}
+      scopeToProject={project.slug !== "sopa"}
     />
   );
 }

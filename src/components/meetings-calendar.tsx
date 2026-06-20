@@ -86,7 +86,7 @@ type Editor = {
   googleEventUrl?: string | null;
 };
 
-export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, defaultProject, accent }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; projects: ProjectOption[]; defaultProject: string; accent: string }) {
+export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, defaultProject, accent, scopeToProject = false }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; projects: ProjectOption[]; defaultProject: string; accent: string; scopeToProject?: boolean }) {
   const membersWithEmail = (slug: string) =>
     (projects.find((p) => p.slug === slug)?.members ?? []).filter((m): m is RosterMember & { email: string } => !!m.email);
   // Active portal's members → availability panel list.
@@ -203,9 +203,16 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
     return m;
   }, [busy, hiddenTeam]);
 
+  // Project filter — on a project's own page default to that project's meetings;
+  // on the SOPA hub (scopeToProject=false) default to all.
+  const [projFilter, setProjFilter] = useState<string>(scopeToProject ? defaultProject : "all");
+  const visibleMeetings = useMemo(
+    () => (projFilter === "all" ? meetings : meetings.filter((m) => (m.forProject ?? defaultProject) === projFilter)),
+    [meetings, projFilter, defaultProject],
+  );
   const occurrences = useMemo(
-    () => meetings.map((m) => occurrenceInWeek(m, weekStart)).filter((o): o is Occurrence => o !== null),
-    [meetings, weekStart],
+    () => visibleMeetings.map((m) => occurrenceInWeek(m, weekStart)).filter((o): o is Occurrence => o !== null),
+    [visibleMeetings, weekStart],
   );
 
   function openNew(day: Date, hour: number) {
@@ -333,6 +340,20 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
         <div>
           <h1 className="text-lg font-bold text-foreground">Reuniões</h1>
           <p className="text-[11px] text-foreground-faint">Calendário semanal · clique num horário para marcar</p>
+          {/* Project filter */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <button type="button" onClick={() => setProjFilter("all")} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${projFilter === "all" ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
+              Todos <span className="text-foreground-faint">({meetings.length})</span>
+            </button>
+            {projects
+              .map((p) => ({ p, n: meetings.filter((m) => (m.forProject ?? defaultProject) === p.slug).length }))
+              .filter((x) => x.n > 0 || x.p.slug === defaultProject)
+              .map(({ p, n }) => (
+                <button key={p.slug} type="button" onClick={() => setProjFilter(p.slug)} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${projFilter === p.slug ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
+                  {p.name} <span className="text-foreground-faint">({n})</span>
+                </button>
+              ))}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setWeekStart(startOfWeek(new Date()))} className="rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground">Hoje</button>
