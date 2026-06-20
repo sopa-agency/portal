@@ -54,6 +54,7 @@ import {
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
 import { CAPTION_MAX, COMMENT_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, type ViewTab, type StepId } from "@/components/post-creator-lib";
 import { IgPreview } from "@/components/post/ig-preview";
+import { IgFeedGrid, type FeedCell } from "@/components/post/ig-feed-grid";
 import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
 import {
   type AspectRatio,
@@ -845,7 +846,24 @@ function ScheduledCalendar({
 }) {
   const [extraList, setExtraList] = useState<CalendarExtra[]>(extras);
   const [openExtra, setOpenExtra] = useState<CalendarExtra | null>(null);
+  const [calView, setCalView] = useState<"calendar" | "feed">("calendar");
   useEffect(() => setExtraList(extras), [extras]);
+
+  // IG feed view: all posts with media, newest first (publish/scheduled date).
+  const feedCells: FeedCell[] = useMemo(() => {
+    const withDate = items
+      .map((d) => ({ d, t: d.scheduledFor ? new Date(d.scheduledFor).getTime() : d.publishedAt ? new Date(d.publishedAt).getTime() : 0 }))
+      .filter((x) => x.d.mediaUrls.length > 0)
+      .sort((a, b) => b.t - a.t);
+    return withDate.map(({ d }) => ({
+      id: d.id,
+      thumb: d.mediaUrls[0] ?? null,
+      isVideo: /\.(mp4|mov|webm)(\?|$)/i.test(d.mediaUrls[0] ?? ""),
+      isCarousel: d.mediaUrls.length > 1,
+      isReel: d.type === "REELS",
+      status: d.status === "published" ? "published" : d.status === "scheduled" ? "scheduled" : "draft",
+    }));
+  }, [items]);
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
@@ -976,9 +994,27 @@ function ScheduledCalendar({
         >
           Today
         </button>
+        {/* Calendar ↔ IG feed view */}
+        <div className="ml-auto inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
+          {(["calendar", "feed"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setCalView(v)}
+              className={`rounded-md px-2.5 py-1 font-medium transition-colors ${calView === v ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`}
+            >
+              {v === "calendar" ? "Calendário" : "Feed"}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Grid */}
+      {calView === "feed" ? (
+        <div className="mx-auto w-full max-w-[420px] overflow-hidden rounded-xl border border-border bg-surface p-1">
+          <IgFeedGrid cells={feedCells} onOpen={onOpenPost} />
+        </div>
+      ) : (
+      /* Grid */
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         {/* Weekday header */}
         <div className="grid grid-cols-7 border-b border-border">
@@ -1142,6 +1178,7 @@ function ScheduledCalendar({
           })}
         </div>
       </div>
+      )}
 
       {openExtra && (
         <ScheduledPostDialog
@@ -1590,6 +1627,7 @@ export function PostCreator({
   // ratios; Fit (contain) shows the true exported frame. Default to Fit when the
   // media carries a baked-in aspect so the preview never lies about cropping.
   const [previewFit, setPreviewFit] = useState<"cover" | "contain">("cover");
+  const [previewMode, setPreviewMode] = useState<"post" | "grid">("post"); // single post vs IG feed grid
   // Reset the fit default when the lock flips (baked-in aspect → Fit), using the
   // render-time "adjust state on prop change" pattern so a manual toggle still
   // sticks until the media changes again.
@@ -3767,7 +3805,43 @@ export function PostCreator({
 
           {/* ── RIGHT: sticky IG preview ── */}
           <div className="space-y-3 xl:sticky xl:top-6 xl:self-start">
-            <h2 className="text-center text-sm font-semibold text-foreground-subtle">Preview</h2>
+            <div className="flex items-center justify-center gap-2">
+              <h2 className="text-sm font-semibold text-foreground-subtle">Preview</h2>
+              {/* Post (single) ↔ Grade (how it sits in the feed) */}
+              <div className="inline-flex rounded-lg border border-border bg-surface p-0.5 text-[11px]">
+                {(["post", "grid"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setPreviewMode(v)}
+                    className={`rounded-md px-2 py-0.5 font-medium transition-colors ${previewMode === v ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`}
+                  >
+                    {v === "post" ? "Post" : "Grade"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {previewMode === "grid" ? (
+              // Phone-framed IG profile grid: the post being composed (highlighted)
+              // first, then the recent feed for context.
+              <div className="mx-auto w-full max-w-[340px] overflow-hidden rounded-[2rem] border-[6px] border-foreground/15 bg-surface p-1 shadow-sm">
+                <IgFeedGrid
+                  cells={[
+                    ...(uploads[0]
+                      ? [{ id: "__composing", thumb: uploads[0].previewUrl, isVideo: !!uploads[0].isVideo, isCarousel: uploads.length > 1, isReel: postType === "REELS", highlight: true } as FeedCell]
+                      : []),
+                    ...drafts
+                      .filter((d) => (d.status === "published" || d.status === "scheduled") && d.mediaUrls.length > 0)
+                      .sort((a, b) => {
+                        const ta = a.scheduledFor ? new Date(a.scheduledFor).getTime() : a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+                        const tb = b.scheduledFor ? new Date(b.scheduledFor).getTime() : b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+                        return tb - ta;
+                      })
+                      .map((d): FeedCell => ({ id: d.id, thumb: d.mediaUrls[0] ?? null, isVideo: /\.(mp4|mov|webm)(\?|$)/i.test(d.mediaUrls[0] ?? ""), isCarousel: d.mediaUrls.length > 1, isReel: d.type === "REELS", status: d.status === "published" ? "published" : "scheduled" })),
+                  ]}
+                />
+              </div>
+            ) : (
             <IgPreview
               handle={igHandle}
               caption={caption}
@@ -3782,7 +3856,8 @@ export function PostCreator({
               fit={previewFit}
               onToggleFit={toggleFit}
             />
-            {stepId === "tags" && postType === "IMAGE" && (
+            )}
+            {stepId === "tags" && postType === "IMAGE" && previewMode === "post" && (
               <p className="text-center text-[11px] text-foreground-faint">
                 {taggingActive
                   ? "Click on the photo above to drop a tag pin"
