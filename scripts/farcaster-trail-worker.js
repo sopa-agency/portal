@@ -27,6 +27,12 @@ const POLL_INTERVAL_MS = Number(process.env.FARCASTER_TRAIL_POLL_MS ?? 180_000);
 const FRESH_HOURS = Number(process.env.TRAIL_FRESH_HOURS ?? 6);
 const ENABLED = /^(1|true|yes)$/i.test(process.env.FARCASTER_TRAIL_ENABLED ?? "");
 const PER_ACCOUNT_LIMIT = 10;
+// Auto-likes are queued and drained with a RANDOM pause between each, so they
+// look human instead of a burst.
+const LIKE_MIN_MS = Number(process.env.TRAIL_LIKE_MIN_MS ?? 20_000); // 20s
+const LIKE_MAX_MS = Number(process.env.TRAIL_LIKE_MAX_MS ?? 120_000); // 2 min
+const LIKE_BATCH_PER_TICK = Number(process.env.TRAIL_LIKE_BATCH ?? 6);
+const rand = Math.random;
 
 // Participating brand accounts (each must have an approved signer).
 const PARTICIPANTS = [
@@ -101,24 +107,57 @@ async function tick(participants) {
 
       const others = participants.filter((p) => p.slug !== author.slug);
       for (const actor of others) {
-        // LIKE — auto. Skipped when not fresh, or recorded-only in dry mode.
-        let likeStatus = "pending", ref = null, err = null;
-        if (!fresh) likeStatus = "skipped";
-        else if (!ENABLED) likeStatus = "skipped"; // dry run
-        else {
-          const lr = await likeAs(actor, c.hash);
-          if (lr.ok) { likeStatus = "done"; ref = (lr.json.reaction && lr.json.reaction.hash) || "liked"; }
-          else { likeStatus = "failed"; err = `HTTP ${lr.status}: ${JSON.stringify(lr.json).slice(0, 140)}`; }
-        }
+        // LIKE — queued as pending; executed later, spaced out with a random
+        // interval (anti-spam / human-like). Stale or dry → skipped.
+        const likeStatus = !fresh || !ENABLED ? "skipped" : "pending";
         await prisma.farcasterTrailAction.create({
-          data: { castHash: c.hash, actorSlug: actor.slug, kind: "like", status: likeStatus, resultRef: ref, error: err },
+          data: { castHash: c.hash, actorSlug: actor.slug, kind: "like", status: likeStatus },
         });
-        // REPLY — HITL: always a pending action (UI fills the draft + posts).
+        // REPLY — HITL: always pending (UI fills the draft + posts). Never auto.
         await prisma.farcasterTrailAction.create({
           data: { castHash: c.hash, actorSlug: actor.slug, kind: "reply", status: fresh ? "pending" : "skipped" },
         });
       }
-      console.log(`[trail] ${author.slug} cast ${c.hash.slice(0, 10)} → ${others.length} actors ${fresh ? (ENABLED ? "(liked)" : "(dry)") : "(stale, skipped)"}`);
+      console.log(`[trail] ${author.slug} cast ${c.hash.slice(0, 10)} → ${others.length} actors queued ${fresh ? (ENABLED ? "(likes pending)" : "(dry)") : "(stale)"}`);
+    }
+  }
+}
+
+// Executes queued likes ONE at a time, with a random pause between each, so the
+// trail's auto-likes look human instead of a burst. Capped per tick; the rest
+// stay pending for the next cycle.
+async function processPendingLikes(participants) {
+  if (!ENABLED) return;
+  const bySlug = new Map(participants.map((p) => [p.slug, p]));
+  const pending = await prisma.farcasterTrailAction.findMany({
+    where: { kind: "like", status: "pending" },
+    orderBy: { createdAt: "asc" },
+    take: LIKE_BATCH_PER_TICK,
+  }).catch(() => []);
+  if (!pending.length) return;
+
+  for (let i = 0; i < pending.length; i++) {
+    const a = pending[i];
+    const actor = bySlug.get(a.actorSlug);
+    if (!actor) { continue; }
+    const lr = await likeAs(actor, a.castHash);
+    if (lr.ok) {
+      await prisma.farcasterTrailAction.update({
+        where: { id: a.id },
+        data: { status: "done", resultRef: (lr.json.reaction && lr.json.reaction.hash) || "liked", error: null },
+      }).catch(() => {});
+      console.log(`[trail] like ${a.actorSlug} → ${a.castHash.slice(0, 10)} ok`);
+    } else {
+      await prisma.farcasterTrailAction.update({
+        where: { id: a.id },
+        data: { status: "failed", error: `HTTP ${lr.status}: ${JSON.stringify(lr.json).slice(0, 140)}` },
+      }).catch(() => {});
+      console.log(`[trail] like ${a.actorSlug} → ${a.castHash.slice(0, 10)} FAILED ${lr.status}`);
+    }
+    // Random pause before the next like (skip after the last one).
+    if (i < pending.length - 1) {
+      const wait = LIKE_MIN_MS + Math.floor(rand() * (LIKE_MAX_MS - LIKE_MIN_MS));
+      await new Promise((r) => setTimeout(r, wait));
     }
   }
 }
@@ -131,6 +170,7 @@ async function main() {
   // run once immediately, then loop (unless --once)
   for (;;) {
     try { await tick(participants); } catch (e) { console.error("[trail] tick error:", e.message); }
+    try { await processPendingLikes(participants); } catch (e) { console.error("[trail] like-drain error:", e.message); }
     if (once) { await prisma.$disconnect(); return; }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
