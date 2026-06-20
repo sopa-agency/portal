@@ -44,7 +44,7 @@ import type { BountyDTO } from "@/app/actions/bounty";
 import { MarkdownContent } from "@/components/markdown-content";
 import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
 import { MemberModal, type TeamMember } from "@/components/team-view";
-import { solveIssueWithAgent } from "@/app/actions/kanban";
+import { solveIssueWithAgent, listCardNotes, addCardNote, deleteCardNote, type CardNote } from "@/app/actions/kanban";
 
 // ---------------------------------------------------------------------------
 // Column status color (mid-tone hues that read on both light & dark surfaces)
@@ -474,6 +474,77 @@ function AgentSolveProgress() {
       <p className="mt-1 font-mono text-[11px] tabular-nums text-foreground-faint">
         {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} · pode levar alguns minutos — pode fechar e voltar
       </p>
+    </div>
+  );
+}
+
+/** Portal-side comments on a card — works on ANY card (incl. drafts, which have
+ *  no GitHub issue). Stored in the portal DB, keyed by the board item id. */
+function CardNotes({ projectSlug, cardKey, label = "Comentários" }: { projectSlug: string; cardKey: string; label?: string }) {
+  const [notes, setNotes] = useState<CardNote[] | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    listCardNotes(projectSlug, cardKey).then((r) => { if (live) setNotes(r.ok ? r.notes : []); });
+    return () => { live = false; };
+  }, [projectSlug, cardKey]);
+
+  async function send() {
+    const text = draft.trim();
+    if (!text || busy) return;
+    setBusy(true); setErr(null);
+    const r = await addCardNote(projectSlug, cardKey, text);
+    setBusy(false);
+    if (r.ok) { setNotes((p) => [...(p ?? []), r.note]); setDraft(""); }
+    else setErr(r.error);
+  }
+  async function remove(id: string) {
+    const r = await deleteCardNote(id);
+    if (r.ok) setNotes((p) => (p ?? []).filter((n) => n.id !== id));
+    else setErr(r.error);
+  }
+
+  return (
+    <div className="mt-6 border-t border-border pt-4">
+      <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
+        <MessageSquare className="h-3.5 w-3.5" /> {label}{notes ? ` (${notes.length})` : ""}
+      </p>
+      {err && <p className="mb-2 text-xs text-danger">{err}</p>}
+      {notes === null ? (
+        <p className="flex items-center gap-2 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…</p>
+      ) : notes.length === 0 ? (
+        <p className="text-xs italic text-foreground-faint">Sem comentários ainda.</p>
+      ) : (
+        <div className="space-y-2">
+          {notes.map((n) => (
+            <div key={n.id} className="group rounded-xl border border-border bg-surface px-3 py-2">
+              <p className="mb-1 flex items-center gap-1.5 text-[11px] text-foreground-subtle">
+                <span className="font-semibold text-foreground-muted">@{n.author}</span> · {new Date(n.createdAt).toLocaleString()}
+                <button type="button" onClick={() => remove(n.id)} className="ml-auto opacity-0 transition-opacity group-hover:opacity-100" title="Apagar">
+                  <Trash2 className="h-3 w-3 text-foreground-faint hover:text-danger" />
+                </button>
+              </p>
+              <p className="whitespace-pre-wrap text-[13px] text-foreground">{n.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 flex items-end gap-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
+          placeholder="Comentar nesta tarefa… (⌘+Enter envia)"
+          rows={2}
+          className="min-h-[44px] flex-1 resize-y rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+        />
+        <button type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-50">
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Enviar
+        </button>
+      </div>
     </div>
   );
 }
@@ -993,6 +1064,9 @@ export function CardDetailDialog({
               </div>
             </div>
           )}
+
+          {/* Portal comments — work on any card (incl. drafts). */}
+          {!editing && projectSlug && <CardNotes projectSlug={projectSlug} cardKey={item.id} label={canComment ? "Notas internas (portal)" : "Comentários"} />}
         </div>
 
         {/* Footer */}

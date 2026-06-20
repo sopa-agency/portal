@@ -342,6 +342,19 @@ model BountyConfig {
   updatedAt    DateTime @updatedAt
 }
 
+// Portal-side comments on a Kanban card — works for ANY card (incl. drafts,
+// which have no GitHub issue to comment on). Keyed by the board item id.
+model CardNote {
+  id          String   @id @default(cuid())
+  projectSlug String
+  cardKey     String // GitHub Project item id (stable within a board)
+  author      String // portal username
+  body        String
+  createdAt   DateTime @default(now())
+
+  @@index([projectSlug, cardKey, createdAt])
+}
+
 // A saved design-studio template (the whole carousel doc) — reusable per project.
 model StudioTemplate {
   id          String   @id @default(cuid())

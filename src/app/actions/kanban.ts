@@ -46,6 +46,50 @@ export async function solveIssueWithAgent(input: { title: string; body?: string;
   }
 }
 
+// ── Portal-side card comments (work on any card, incl. drafts) ──────────────
+export type CardNote = { id: string; author: string; body: string; createdAt: string };
+
+async function noteGate(projectSlug: string) {
+  const project = getAllProjects().find((p) => p.slug === projectSlug);
+  if (!project) return { ok: false as const, error: "Portal inválido." };
+  const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
+  if (!session) return { ok: false as const, error: "Sem acesso a esse portal." };
+  return { ok: true as const, username: session.username };
+}
+
+export async function listCardNotes(projectSlug: string, cardKey: string): Promise<
+  { ok: true; notes: CardNote[] } | { ok: false; error: string }
+> {
+  const g = await noteGate(projectSlug);
+  if (!g.ok) return g;
+  const rows = await prisma.cardNote
+    .findMany({ where: { projectSlug, cardKey }, orderBy: { createdAt: "asc" } })
+    .catch(() => []);
+  return { ok: true, notes: rows.map((r) => ({ id: r.id, author: r.author, body: r.body, createdAt: r.createdAt.toISOString() })) };
+}
+
+export async function addCardNote(projectSlug: string, cardKey: string, body: string): Promise<
+  { ok: true; note: CardNote } | { ok: false; error: string }
+> {
+  const g = await noteGate(projectSlug);
+  if (!g.ok) return g;
+  const text = body.trim().slice(0, 4000);
+  if (!text) return { ok: false, error: "Comentário vazio." };
+  if (!cardKey.trim()) return { ok: false, error: "Card inválido." };
+  const r = await prisma.cardNote.create({ data: { projectSlug, cardKey, author: g.username, body: text } });
+  return { ok: true, note: { id: r.id, author: r.author, body: r.body, createdAt: r.createdAt.toISOString() } };
+}
+
+export async function deleteCardNote(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const note = await prisma.cardNote.findUnique({ where: { id } });
+  if (!note) return { ok: false, error: "Nota não encontrada." };
+  const g = await noteGate(note.projectSlug);
+  if (!g.ok) return g;
+  if (note.author !== g.username) return { ok: false, error: "Só o autor pode apagar." };
+  await prisma.cardNote.delete({ where: { id } });
+  return { ok: true };
+}
+
 export type Assignee = { login: string; avatarUrl: string; username: string | null };
 
 function normalizeGithubLogin(value: string): string {
