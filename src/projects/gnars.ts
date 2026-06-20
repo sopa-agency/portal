@@ -10,6 +10,7 @@ const gnars: ProjectConfig = {
   name: "Gnars",
   description: "Internal ops portal for Gnars DAO.",
   allowlist: [
+    "bielcx",
     "xvlad",
     "vaipraonde",
     "mengao",

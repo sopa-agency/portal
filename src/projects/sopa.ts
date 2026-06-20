@@ -8,6 +8,7 @@ const sopa: ProjectConfig = {
   name: "SOPA",
   description: "SOPA umbrella — every portal treasury in one place.",
   allowlist: [
+    "bielcx",
     "xvlad",
     "vaipraonde",
     "mengao",

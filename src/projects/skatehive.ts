@@ -8,6 +8,7 @@ const skatehive: ProjectConfig = {
   name: "SkateHive",
   description: "Internal marketing ops portal for SkateHive.",
   allowlist: [
+    "bielcx",
     "xvlad",
     "howdarylrolls",
     "skatehive",

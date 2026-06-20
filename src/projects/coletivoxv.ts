@@ -7,6 +7,7 @@ const coletivoxv: ProjectConfig = {
   name: "ColetivoXV",
   description: "Internal ops portal for ColetivoXV.",
   allowlist: [
+    "bielcx",
     "xvlad",
     "vaipraonde",
     "mengao",

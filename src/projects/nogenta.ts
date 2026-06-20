@@ -17,6 +17,7 @@ const nogenta: ProjectConfig = {
   name: "Nogenta",
   description: "Internal ops portal for Nogenta — skate editorial brand under the Reelflip family.",
   allowlist: [
+    "bielcx",
     "xvlad",
     "nogenta",
     "vaipraonde",
