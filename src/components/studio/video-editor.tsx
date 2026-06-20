@@ -2120,14 +2120,11 @@ export function VideoEditor({
     }
 
     setSelection(null); // don't bake the selection chrome into the export
-    // Manual-frame capture (captureStream(0)): we push each frame ourselves
-    // after drawing it, so recording never depends on the rAF compositor —
-    // it stays deterministic and survives the tab losing focus (which froze
-    // auto-capture and produced short/glitched exports).
-    const capture = canvas.captureStream(0);
-    const vTrack = capture.getVideoTracks()[0] as MediaStreamTrack & {
-      requestFrame?: () => void;
-    };
+    // Auto-sampled capture at 30fps. The export loop redraws the canvas on a
+    // 30ms setInterval (NOT rAF), so frames keep flowing even when the tab loses
+    // focus, and we don't depend on the flaky manual requestFrame() — which
+    // silently captured almost nothing in some browsers, producing tiny exports.
+    const capture = canvas.captureStream(30);
     const stream = new MediaStream([
       ...capture.getVideoTracks(),
       ...mixDestRef.current.stream.getAudioTracks(),
@@ -2192,7 +2189,6 @@ export function VideoEditor({
 
     recorder.start(500);
     draw(); // seed the first frame so the recording opens on frame 0
-    vTrack.requestFrame?.();
 
     let stopped = false;
     const finish = () => {
@@ -2238,9 +2234,8 @@ export function VideoEditor({
               setTime(t);
               setExporting((prev) => (prev ? { progress: Math.min(t / total, 1) } : prev));
               syncMedia(t, true); // audio items follow the derived clock
-              draw(); // render this frame…
-              vTrack.requestFrame?.(); // …and capture it deterministically
-            }, 33);
+              draw(); // render this frame — captureStream(30) samples it automatically
+            }, 30);
           });
           startAt += clip.out - clip.in;
         }
@@ -3092,7 +3087,7 @@ export function VideoEditor({
           )}
           {exportResult?.name.endsWith(".webm") && (
             <span className="text-[11px] text-warning">
-              WebM export — Instagram needs MP4 (use Chrome); Hive/Farcaster accept WebM.
+              Saiu em WebM — este navegador não grava MP4. Instagram exige MP4 (use Safari, ou Chrome/Edge 130+). Hive/Farcaster aceitam WebM.
             </span>
           )}
           {restoredNote && (
