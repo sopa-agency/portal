@@ -342,6 +342,21 @@ model BountyConfig {
   updatedAt    DateTime @updatedAt
 }
 
+// A saved design-studio template (the whole carousel doc) — reusable per project.
+model StudioTemplate {
+  id          String   @id @default(cuid())
+  projectSlug String
+  name        String
+  kind        String   @default("design") // design | spot
+  doc         Json // the serialized Carousel { meta, cards }
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectSlug, name])
+  @@index([projectSlug])
+}
+
 // Default Discord channel a project posts to (overrides the env DISCORD_CHANNEL_ID).
 // Same bot/guild can serve several portals (SOPA ↔ Reelflip) on different channels.
 model DiscordChannelConfig {

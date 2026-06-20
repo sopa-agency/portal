@@ -34,6 +34,7 @@ import { parseScript, newId, normalizeDoc } from "@/lib/studio/parse-script";
 import { SEED_DOC } from "@/lib/studio/seed";
 import { ZCarousel, type Card, type Carousel } from "@/lib/studio/schema";
 import { listSkateSpots, type SkateSpot } from "@/app/actions/skate-spots";
+import { listStudioTemplates, saveStudioTemplate, getStudioTemplate, deleteStudioTemplate, type StudioTemplateMeta } from "@/app/actions/studio-templates";
 
 const STORAGE_KEY = "reelflip-studio:doc:v1";
 const RENDER_CONCURRENCY = 3; // renders Satori em paralelo no export .zip
@@ -97,6 +98,40 @@ export function Editor({
   const [rects, setRects] = useState<Record<string, Rect>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  // Saved (server) templates — name + reuse the whole doc.
+  const [templates, setTemplates] = useState<StudioTemplateMeta[]>([]);
+  const [tplBusy, setTplBusy] = useState(false);
+  const refreshTemplates = useCallback(() => {
+    listStudioTemplates().then((r) => { if (r.ok) setTemplates(r.templates); });
+  }, []);
+  useEffect(() => { refreshTemplates(); }, [refreshTemplates]);
+  const saveTemplate = useCallback(async () => {
+    const name = window.prompt("Nome do template:");
+    if (!name?.trim()) return;
+    setTplBusy(true);
+    const r = await saveStudioTemplate(name.trim(), doc, spotMode ? "spot" : "design");
+    setTplBusy(false);
+    if (r.ok) { toast.success(`Template "${name.trim()}" salvo`); refreshTemplates(); }
+    else toast.error("Falha ao salvar template", { description: r.error });
+  }, [doc, spotMode, refreshTemplates]);
+  const loadTemplate = useCallback(async (id: string) => {
+    setTplBusy(true);
+    const r = await getStudioTemplate(id);
+    setTplBusy(false);
+    if (!r.ok) { toast.error("Falha ao carregar", { description: r.error }); return; }
+    const parsed = ZCarousel.safeParse(r.doc);
+    if (!parsed.success) { toast.error("Template inválido."); return; }
+    setDoc(parsed.data);
+    setActive(0);
+    setSelected(null);
+    toast.success(`Template "${r.name}" carregado`);
+  }, []);
+  const removeTemplate = useCallback(async (id: string, name: string) => {
+    if (!window.confirm(`Apagar o template "${name}"?`)) return;
+    const r = await deleteStudioTemplate(id);
+    if (r.ok) { toast.success("Template apagado"); refreshTemplates(); }
+    else toast.error("Falha ao apagar", { description: r.error });
+  }, [refreshTemplates]);
   const [busy, setBusy] = useState<null | "one" | "zip">(null);
   const [framing, setFraming] = useState(false); // modo "enquadrar imagem" (pan/zoom do fundo)
   const [grabbing, setGrabbing] = useState(false); // feedback de cursor durante o pan da imagem
@@ -701,6 +736,32 @@ export function Editor({
             <Button size="sm" variant="secondary" className="flex-1" onClick={saveJson}>Salvar JSON</Button>
           </div>
           <input ref={fileJson} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && loadJson(e.target.files[0])} />
+
+          {/* Saved templates (server) — reuse the whole layout */}
+          <div className="rounded-md border border-border/60 p-2">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-muted-foreground">Templates</span>
+              <Button size="sm" variant="secondary" disabled={tplBusy} onClick={saveTemplate} className="h-6 px-2 text-[11px]">
+                {tplBusy ? <Loader2 className="size-3 animate-spin" /> : "Salvar template"}
+              </Button>
+            </div>
+            {templates.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground">Nenhum template salvo ainda.</p>
+            ) : (
+              <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+                {templates.map((t) => (
+                  <div key={t.id} className="flex items-center gap-1">
+                    <button type="button" onClick={() => loadTemplate(t.id)} className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-[11px] text-foreground hover:bg-muted">
+                      {t.name}
+                    </button>
+                    <button type="button" aria-label="Apagar" onClick={() => removeTemplate(t.id, t.name)} className="shrink-0 rounded p-1 text-muted-foreground hover:text-red-500">
+                      <Trash2 className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <Separator className="my-1" />
           {onUseInPost && (
             <Button size="sm" onClick={useInPost} disabled={!!busy}>
