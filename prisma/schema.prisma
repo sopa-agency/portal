@@ -4,7 +4,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Runtime: the pooled connection (Supabase pgBouncer :6543 / Neon -pooler) —
+  // safe for Vercel serverless. Migrations use the direct connection (:5432).
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model RepoToSocialConfig {
