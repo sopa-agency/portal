@@ -82,6 +82,16 @@ const StudioVideoEditor = dynamic(
   () => import("@/components/studio/video-editor").then((m) => m.VideoEditor),
   { ssr: false },
 );
+import type { AspectKey } from "@/components/studio/video-editor";
+
+// Map the Post Creator's post format ↔ the video editor's aspect keys
+// (1.91:1 landscape feed ≈ 16:9 video).
+function ratioToAspectKey(r: AspectRatio): AspectKey {
+  return r === "1.91:1" ? "16:9" : (r as AspectKey);
+}
+function aspectKeyToRatio(a: AspectKey): AspectRatio {
+  return a === "16:9" ? "1.91:1" : (a as AspectRatio);
+}
 
 /**
  * Direct browser→Pinata upload: ask the server for a short-lived signed URL,
@@ -3383,7 +3393,7 @@ export function PostCreator({
       {/* -------------------------------------------------------------------- */}
       {viewTab === "studio" && (
         <div className="fixed inset-0 z-40 flex flex-col bg-background">
-          <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2">
             <button
               type="button"
               onClick={() => setViewTab("create")}
@@ -3392,34 +3402,66 @@ export function PostCreator({
               <ChevronLeft className="h-3.5 w-3.5" />
               Post Creator
             </button>
-            {/* Design (artwork) vs Video (timeline editor) */}
-            <div className="inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
-              {(["design", "video"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setStudioMode(m)}
-                  className={`rounded-md px-3 py-1 font-medium capitalize transition-colors ${
-                    studioMode === m ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Format-first: pick the post format — the studio + export follow it. */}
+              <div className="inline-flex items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Formato</span>
+                <div className="inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
+                  {(["1:1", "4:5", "9:16", "1.91:1"] as AspectRatio[]).map((fmt) => (
+                    <button
+                      key={fmt}
+                      type="button"
+                      onClick={() => { setAspectRatio(fmt); setAspectTouched(true); }}
+                      className={`rounded-md px-2 py-1 font-medium transition-colors ${
+                        aspectRatio === fmt ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
+                      }`}
+                    >
+                      {fmt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Design (artwork) vs Video (timeline editor) */}
+              <div className="inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
+                {(["design", "video"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setStudioMode(m)}
+                    className={`rounded-md px-3 py-1 font-medium capitalize transition-colors ${
+                      studioMode === m ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
             </div>
+
             <span className="font-mono text-[11px] uppercase tracking-[0.25em] text-foreground-subtle">
               Studio
             </span>
           </div>
           <div className="min-h-0 flex-1">
             {studioMode === "design" ? (
-              <StudioEditor onUseInPost={handleUseInPost} spotMode={spotStudio} />
+              <>
+                {aspectRatio !== "4:5" && (
+                  <div className="border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-[11px] text-warning">
+                    Os cards de design são 4:5. Para {aspectRatio}, use o <button type="button" onClick={() => setStudioMode("video")} className="font-semibold underline">Video</button> (ou volte o formato para 4:5).
+                  </div>
+                )}
+                <StudioEditor onUseInPost={handleUseInPost} spotMode={spotStudio} />
+              </>
             ) : (
               <StudioVideoEditor
                 onUseInPost={handleUseInPost}
                 cardStyles={cardStyles}
                 brandName={brandName}
                 brandAccent={brandAccent}
+                aspect={ratioToAspectKey(aspectRatio)}
+                onAspectChange={(a) => { setAspectRatio(aspectKeyToRatio(a)); setAspectTouched(true); }}
               />
             )}
           </div>

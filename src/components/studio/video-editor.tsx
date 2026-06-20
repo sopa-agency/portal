@@ -657,7 +657,7 @@ const ASPECTS = {
   "9:16": { w: 1080, h: 1920 },
   "16:9": { w: 1920, h: 1080 },
 } as const;
-type AspectKey = keyof typeof ASPECTS;
+export type AspectKey = keyof typeof ASPECTS;
 
 const MIN_CLIP = 0.2;
 const SNAP_PX = 8;
@@ -837,18 +837,29 @@ export function VideoEditor({
   cardStyles = [],
   brandName = "SkateHive",
   brandAccent = "#a3e635",
+  aspect: aspectProp,
+  onAspectChange,
 }: {
   onUseInPost?: (files: File[], caption: string, aspectHint?: number) => Promise<void>;
   cardStyles?: CardStyle[];
   brandName?: string;
   brandAccent?: string;
+  /** Controlled format (from the Post Creator's "format-first" picker). */
+  aspect?: AspectKey;
+  onAspectChange?: (a: AspectKey) => void;
 }) {
   const [bin, setBin] = useState<BinItem[]>([]);
   const [clips, setClips] = useState<Clip[]>([]);
   const [overlays, setOverlays] = useState<Overlay[]>([]);
   const [overlayTracks, setOverlayTracks] = useState<OverlayTrack[]>(DEFAULT_TRACKS);
   const [audios, setAudios] = useState<AudioItem[]>([]);
-  const [aspect, setAspect] = useState<AspectKey>("4:5");
+  // Controlled by the host (format-first) when aspectProp is set; else internal.
+  const [aspectInternal, setAspectInternal] = useState<AspectKey>(aspectProp ?? "4:5");
+  const aspect = aspectProp ?? aspectInternal;
+  const setAspect = useCallback((a: AspectKey) => {
+    setAspectInternal(a);
+    onAspectChange?.(a);
+  }, [onAspectChange]);
   const [selection, setSelection] = useState<Selection>(null);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
