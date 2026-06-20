@@ -119,6 +119,7 @@ const gnars: ProjectConfig = {
   ],
   // Gnars doesn't use the userbase (email) module.
   postCreator: true,
+  meetings: true,
   // Mirrors gnars.com/treasury — the DAO treasury on Base.
   treasury: {
     ethWallets: [

@@ -47,6 +47,7 @@ const skatehive: ProjectConfig = {
     ],
   },
   postCreator: true,
+  meetings: true,
   // Mirrors skatehive.app/dao "DAO Assets & Addresses" — same wallets, same sources.
   treasury: {
     ethWallets: [

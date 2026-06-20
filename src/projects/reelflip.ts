@@ -107,6 +107,7 @@ const reelflip: ProjectConfig = {
     },
   ],
   postCreator: true,
+  meetings: true,
   // GA4 property for reelflip.com (the public homepage — the gtag loads only
   // there). Read via the SkateHive service account (Viewer on the property).
   analytics: {

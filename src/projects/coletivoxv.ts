@@ -61,6 +61,7 @@ const coletivoxv: ProjectConfig = {
     },
   ],
   postCreator: true,
+  meetings: true,
   briefingAgents: [
     { slug: "municipela", label: "Municipela", tabLabel: "MUNI", workspace: "workspace-municipela" },
   ],
