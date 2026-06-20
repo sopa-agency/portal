@@ -89,16 +89,23 @@ function replyPrompt(
         current?.trim() ? `\nRefine this current draft accordingly: """${current.trim()}"""` : ""
       }`
     : "";
-  return `You are ${project.name}'s social account replying to a Farcaster cast from a partner brand (@${partnerSlug}).
+  return `You are replying to a Farcaster cast from a partner account (@${partnerSlug}) as ${project.name} — but you must sound like a REAL PERSON in the scene casually commenting, NOT a brand or a marketer.
 
-${project.name}'s voice: ${voice}
+${project.name}'s vibe (for reference, don't imitate corporate tone): ${voice}
 
 Their cast:
 """
 ${castText}
 """
 
-Write ONE short, genuine reply in that voice — supportive, specific to what they actually said, never generic hype. Skate/culture-native. No hashtags, at most one emoji (only if it fits). Max 220 characters. Output ONLY the reply text, nothing else.${steer}`;
+Rules:
+- VERY SHORT. One line. Usually under 80 characters. A few words is often perfect.
+- Human and natural — like texting a friend. Lowercase is fine. Relaxed, a little imperfect.
+- React to what they ACTUALLY said. No hype, no slogans, no marketing words ("incrível", "imperdível", "vamos juntos"...).
+- No hashtags. At most one emoji, and only if a real person would actually use it (often none).
+- Never sound like an announcement or an ad.
+
+Output ONLY the reply text, nothing else.${steer}`;
 }
 
 /** Generate an on-brand AI draft for a reply action. Optional `instruction`
