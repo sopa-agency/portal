@@ -94,9 +94,10 @@ export async function fetchSafeTokens(safeAddress: string, chainId: number): Pro
     if (!r.ok) return [];
     const arr = (await r.json()) as { tokenAddress: string | null; token: { symbol?: string; decimals?: number } | null; balance: string }[];
     const STABLES = new Set(["USDC", "USDT", "DAI", "USDBC", "EURC", "USDS"]);
-    // Native ETH first, then stablecoins, then the rest alphabetically — so the
-    // tokens people actually pay bounties in lead (not the DAO's misc holdings).
-    const rank = (t: SafeToken) => (t.address === null ? 0 : STABLES.has(t.symbol.toUpperCase()) ? 1 : 2);
+    // Stablecoins first, then native ETH, then the rest — so the canonical bounty
+    // currency leads and the default selection is meaningful (not ETH dust hiding
+    // a real USDC balance, e.g. nogenta's Safe holding 1 USDC + ~0 ETH).
+    const rank = (t: SafeToken) => (STABLES.has(t.symbol.toUpperCase()) ? 0 : t.address === null ? 1 : 2);
     return arr
       .map((b): SafeToken => {
         const decimals = b.token?.decimals ?? 18;
