@@ -586,7 +586,11 @@ export function CardDetailDialog({
 }) {
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignBusy, setAssignBusy] = useState(false);
-  const canAssign = item.contentId != null && team.length > 0;
+  const [manualLogin, setManualLogin] = useState("");
+  // Assignable on any item with a content node id. The list may be empty (e.g. a
+  // board whose repo collaborators aren't readable, or no configured repo) — the
+  // manual "@login" input still lets you assign anyone with access/in the org.
+  const canAssign = item.contentId != null;
 
   // --- edit mode (title/body — issues, PRs, drafts) ---
   const [editing, setEditing] = useState(false);
@@ -694,6 +698,19 @@ export function CardDetailDialog({
     setAssignBusy(true);
     try {
       await onSetAssignees(item, desired);
+    } finally {
+      setAssignBusy(false);
+    }
+  }
+
+  async function addManualAssignee() {
+    const login = manualLogin.trim().replace(/^@/, "").replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\/.*$/, "");
+    if (!login || assignBusy) return;
+    if (item.assignees.some((a) => a.login.toLowerCase() === login.toLowerCase())) { setManualLogin(""); return; }
+    setAssignBusy(true);
+    try {
+      await onSetAssignees(item, [...item.assignees.map((a) => a.login), login]);
+      setManualLogin("");
     } finally {
       setAssignBusy(false);
     }
@@ -1154,6 +1171,25 @@ export function CardDetailDialog({
                       </button>
                     );
                   })}
+                  {team.length === 0 && (
+                    <p className="px-3 py-1.5 text-[11px] text-foreground-faint">Lista de colaboradores indisponível — atribua por @login abaixo.</p>
+                  )}
+                  {/* Manual assign: any GitHub login (org member / repo access) */}
+                  <div className="border-t border-border px-2 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        value={manualLogin}
+                        onChange={(e) => setManualLogin(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addManualAssignee(); } }}
+                        placeholder="@login do GitHub"
+                        className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+                      />
+                      <button type="button" disabled={assignBusy || !manualLogin.trim()} onClick={() => void addManualAssignee()} className="shrink-0 rounded-md bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-50">
+                        {assignBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add"}
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[10px] text-foreground-faint">Atribui qualquer usuário com acesso ao repo (ou da org).</p>
+                  </div>
                 </div>
               </>
             )}
