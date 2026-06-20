@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
+import type { ZineBlogImage } from "@/lib/zine-blog-shared";
 
 // Blog-post images for the Zine Studio asset panel. Each Reelflip-family brand
 // publishes long-form somewhere different:
@@ -14,8 +15,6 @@ import { getActiveProject } from "@/projects/index";
 // assembled from real published content.
 
 const HIVE_API = "https://api.hive.blog";
-
-export type ZineBlogImage = { url: string; title: string };
 
 /** Brands whose blog lives on Paragraph → { handle }. Everything else uses Hive. */
 const PARAGRAPH_BLOGS: Record<string, string> = {
@@ -106,8 +105,6 @@ async function fetchHive(tagOrAccount: { tag?: string; account?: string }): Prom
   return out;
 }
 
-/** Hive authors selectable in the Zine blog image filter. */
-export const ZINE_BLOG_AUTHORS = ["xvlad", "nogenta", "web-gnar", "gnars", "coletivoxv", "reelflip"] as const;
 
 export async function listZineBlogImages(
   author?: string,

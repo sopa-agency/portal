@@ -30,7 +30,8 @@ import {
   X,
 } from "lucide-react";
 import { signZineMediaUpload } from "@/app/actions/zine";
-import { listZineBlogImages, ZINE_BLOG_AUTHORS, type ZineBlogImage } from "@/app/actions/zine-blog";
+import { listZineBlogImages } from "@/app/actions/zine-blog";
+import { ZINE_BLOG_AUTHORS, type ZineBlogImage } from "@/lib/zine-blog-shared";
 import { ZINE_FONTS, GRID, SNAP_TH, PAGE_SIZES, MINI8_ORDER, MINI8_PAGES, miniPageLabel, buildFilters, uid, blankPage, sanitizePages, sanitizeDrafts, type Element, type Page, type Draft, type PageSizeId } from "@/components/zine/lib";
 
 // ---------------------------------------------------------------------------
@@ -452,11 +453,13 @@ export function ZineStudio({
     setBlogErr(null);
     setBlog(null);
     setBlogAuthor(author);
-    const r = await listZineBlogImages(author ?? undefined);
-    if (r.ok) setBlog(r.images);
-    else {
+    try {
+      const r = await listZineBlogImages(author ?? undefined);
+      if (r.ok) setBlog(Array.isArray(r.images) ? r.images : []);
+      else { setBlog([]); setBlogErr(r.error); }
+    } catch (err) {
       setBlog([]);
-      setBlogErr(r.error);
+      setBlogErr(err instanceof Error ? err.message : "Falha ao carregar o blog.");
     }
   }
 
