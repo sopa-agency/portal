@@ -159,6 +159,19 @@ function CapaLayer({ card, assets }: { card: Extract<Card, { tipo: "capa" }>; as
 const SPOT_LIME = "#a3e635";
 // SkateHive's brand display font (loaded in globals.css + Satori loadFonts).
 const SPOT_DISPLAY_FONT = "Joystix";
+
+// The spot name is rendered on ONE line that shrinks to fit. Letting it wrap made
+// the live preview (browser) and the export (server Satori) break lines at
+// different points — two layout engines wrap differently. A single no-wrap line
+// sized deterministically here renders identically in both. Joystix is monospace,
+// so width ≈ chars · fontSize · ADVANCE; ADVANCE is set slightly generous so the
+// computed size never overflows the 960px box (CARD_W − 60·2).
+const SPOT_NAME_BOX = 960;
+const JOYSTIX_ADVANCE = 0.62;
+function fitSpotNameSize(text: string, base = 78, min = 34): number {
+  const chars = Math.max(1, text.length);
+  return Math.max(min, Math.min(base, Math.floor(SPOT_NAME_BOX / (chars * JOYSTIX_ADVANCE))));
+}
 function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
   return (
     <>
@@ -188,8 +201,9 @@ function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
       <div style={{ position: "absolute", left: 60, right: 60, bottom: 84, display: "flex", flexDirection: "column" }}>
         <div
           style={{
-            display: "flex", fontFamily: SPOT_DISPLAY_FONT, fontSize: 78, lineHeight: 1.1, color: "#ffffff",
-            textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
+            display: "flex", whiteSpace: "nowrap", fontFamily: SPOT_DISPLAY_FONT,
+            fontSize: fitSpotNameSize((card.spotName || "Spot sem nome").toUpperCase()),
+            lineHeight: 1.1, color: "#ffffff", textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
           }}
         >
           {(card.spotName || "Spot sem nome").toUpperCase()}
