@@ -18,8 +18,10 @@ for (const f of [".env.local", ".env.development", ".env"]) {
   try { require("dotenv").config({ path: path.join(__dirname, "..", f), override: false }); } catch {}
 }
 const { PrismaClient } = require("@prisma/client");
+const boost = require("./trail-userbase-boost.cjs");
 
 const prisma = new PrismaClient({ log: ["error"] });
+const COMPANY_KINDS = new Set(["company"]);
 const POLL_INTERVAL_MS = Number(process.env.FARCASTER_TRAIL_POLL_MS ?? 180_000); // 3 min
 const FRESH_HOURS = Number(process.env.TRAIL_FRESH_HOURS ?? 6);
 const ENABLED = /^(1|true|yes)$/i.test(process.env.FARCASTER_TRAIL_ENABLED ?? "");
@@ -146,6 +148,12 @@ async function recordTrigger(author, participants, { hash, platform, authorFid, 
     }
   }
   console.log(`[trail/${platform}] ${author.slug} ${hash.slice(0, 16)} → ${others.length} actors ${fresh ? (ENABLED ? "(queued)" : "(dry)") : "(stale)"}`);
+
+  // Pool B: a fresh COMPANY Hive post gets the community boost (random subset).
+  if (fresh && ENABLED && platform === "hive" && COMPANY_KINDS.has(author.kind) && boost.enabled()) {
+    const n = await boost.queueBoosts(prisma, hash).catch(() => 0);
+    if (n) console.log(`[boost] queued ${n} community upvotes for ${hash.slice(0, 18)}`);
+  }
   return true;
 }
 
@@ -236,11 +244,13 @@ async function main() {
   const fc = participants.filter((p) => p.fc).map((p) => p.slug);
   const hv = participants.filter((p) => p.hive && p.hive.key).map((p) => p.slug);
   console.log(`[trail] enabled=${ENABLED} | poll=${POLL_INTERVAL_MS}ms | fresh=${FRESH_HOURS}h | FC actors: ${fc.join(",")} | Hive actors: ${hv.join(",")}`);
+  console.log(`[trail] Pool B (community boost): ${boost.enabled() ? `ON — subset=${boost.SUBSET} weight=${(boost.WEIGHT / 100).toFixed(0)}%` : "off (set USERBASE_KEY_ENCRYPTION_SECRET + TRAIL_BOOST_ENABLED)"}`);
   if (participants.length < 2) { console.error("[trail] need >=2 participants. Exiting."); process.exit(1); }
   const once = process.argv.includes("--once");
   for (;;) {
     try { await tick(participants); } catch (e) { console.error("[trail] tick error:", e.message); }
     try { await processPendingLikes(participants); } catch (e) { console.error("[trail] drain error:", e.message); }
+    try { await boost.drainBoosts(prisma, (m) => console.log(m)); } catch (e) { console.error("[trail] boost error:", e.message); }
     if (once) { await prisma.$disconnect(); return; }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }

@@ -461,6 +461,24 @@ model FarcasterTrailAction {
   @@index([actorSlug, status])
 }
 
+// Pool B: community-key boost upvotes. When a COMPANY posts on Hive, a random
+// rotating subset of the SkateHive userbase posting keys (userbase_hive_keys,
+// decrypted with USERBASE_KEY_ENCRYPTION_SECRET) upvotes it at a low weight,
+// spread over time. One row per (company post × userbase voter).
+model TrailUserbaseBoost {
+  id           String   @id @default(cuid())
+  castHash     String // the company Hive post: "hive:author/permlink"
+  hiveUsername String // the userbase account doing the upvote
+  weight       Int      @default(1000) // 0..10000 = 0..100%
+  status       String   @default("pending") // pending | done | failed | skipped
+  error        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([castHash, hiveUsername])
+  @@index([status])
+}
+
 // A Farcaster signer a TEAM MEMBER approved via the Settings QR flow (managed
 // signer sponsored by FARCASTER_SPONSOR_*). One per portal member — lets the
 // person join the curation trail with their own account, approving in their

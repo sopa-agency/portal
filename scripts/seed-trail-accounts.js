@@ -33,6 +33,13 @@ async function main() {
       fid: 3338092, fcSignerUuid: null /* resolved from FarcasterSigner at runtime */, fcApiKeyEnv: "NEYNAR_API_KEY",
       hiveAccount: "reelflip", hiveKeyEnv: "REELFLIP_HIVE_POSTING_KEY",
     },
+    {
+      // nogenta posts to Hive as @nogenta — WATCHED so its posts get the Pool-B
+      // community boost. No posting key wired (it's a boost target, not an actor).
+      kind: "company", label: "nogenta", ownerSlug: "nogenta",
+      fid: null, fcSignerUuid: null, fcApiKeyEnv: "NEYNAR_API_KEY",
+      hiveAccount: "nogenta", hiveKeyEnv: null,
+    },
     // ── Agents ────────────────────────────────────────────────────────────-
     {
       kind: "agent", label: "bobgnarley", ownerSlug: "gnars",
