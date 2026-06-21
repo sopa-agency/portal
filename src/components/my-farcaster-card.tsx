@@ -48,12 +48,34 @@ export function MyFarcasterCard({ initial }: { initial: MyFarcaster }) {
   };
 
   return (
-    <section aria-labelledby="my-fc-heading" className="rounded-2xl border border-border bg-surface p-5">
-      <div className="mb-3 flex items-center gap-2.5">
-        <SocialBrandIcon platform="farcaster" className="h-5 w-5" />
+    <section aria-labelledby="my-fc-heading" className="rounded-2xl border border-accent-border bg-accent-bg/20 p-5">
+      <div className="mb-1 flex items-center gap-2">
         <h2 id="my-fc-heading" className="text-base font-semibold text-foreground">
-          Meu Farcaster
+          Minhas contas no trail
         </h2>
+        <span className="rounded-full bg-accent-bg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">você · membro</span>
+      </div>
+      <p className="mb-3 text-xs text-foreground-muted">
+        Suas contas pessoais pra ajudar no engajamento. As contas das marcas (skatehive, gnars, reelflip) são geridas por admins em <strong className="text-foreground">Connections</strong>, abaixo.
+      </p>
+
+      {/* Hive — already connected via the member's Keychain login. */}
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
+        <SocialBrandIcon platform="hive" className="h-4 w-4 shrink-0" />
+        <span className="text-sm text-foreground">Hive</span>
+        {initial.username ? (
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-success">
+            <Check className="h-3.5 w-3.5" /> @{initial.username} (login)
+          </span>
+        ) : (
+          <span className="ml-auto text-xs text-foreground-faint">faça login com Keychain</span>
+        )}
+      </div>
+
+      {/* Farcaster — connect via QR. */}
+      <div className="mb-2 flex items-center gap-2">
+        <SocialBrandIcon platform="farcaster" className="h-4 w-4 shrink-0" />
+        <span className="text-sm font-medium text-foreground">Farcaster</span>
       </div>
 
       {!initial.sponsorReady ? (

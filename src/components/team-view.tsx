@@ -978,14 +978,18 @@ export function ConnectionsView({ projectName, connections, envPrefix, repos, gi
 
   return (
     <section aria-labelledby="networks-heading">
-      <div className="mb-4 flex flex-wrap items-baseline gap-3">
+      <div className="mb-1 flex flex-wrap items-baseline gap-3">
         <h2 id="networks-heading" className="text-lg font-semibold tracking-tight text-foreground">
           Connections
         </h2>
+        <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-subtle">marca · admin</span>
         <span className="text-xs text-foreground-faint">
           {projectName} · {connectedCount}/{relevant} conectadas
         </span>
       </div>
+      <p className="mb-4 text-xs text-foreground-muted">
+        Contas oficiais da marca (posting key / signer do portal). Setup de admin. Sua conta pessoal fica em “Minhas contas no trail”, acima.
+      </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sorted.map((c) => (
           <ConnectionCard

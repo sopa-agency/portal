@@ -12,6 +12,7 @@ export type MyFarcaster = {
   connected: boolean;
   handle: string | null;
   status: string | null;
+  username: string | null; // the member's Hive login — they're already on Hive via Keychain
 };
 
 export async function getMyFarcaster(): Promise<MyFarcaster> {
@@ -19,7 +20,7 @@ export async function getMyFarcaster(): Promise<MyFarcaster> {
   const cookieStore = await cookies();
   const who = await authorize(cookieStore.get(SESSION_COOKIE)?.value, project);
   const sponsorReady = sponsorConfigured();
-  if (!who) return { sponsorReady, connected: false, handle: null, status: null };
+  if (!who) return { sponsorReady, connected: false, handle: null, status: null, username: null };
 
   const row = await prisma.farcasterMemberSigner.findUnique({ where: { username: who.username } }).catch(() => null);
   return {
@@ -27,6 +28,7 @@ export async function getMyFarcaster(): Promise<MyFarcaster> {
     connected: row?.status === "approved",
     handle: row?.handle ?? null,
     status: row?.status ?? null,
+    username: who.username,
   };
 }
 
