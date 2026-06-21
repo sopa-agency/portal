@@ -11,10 +11,31 @@ const crypto = require("node:crypto");
 
 const SUBSET = Number(process.env.TRAIL_BOOST_SUBSET ?? 40);
 const WEIGHT = Math.max(1, Math.min(10000, Number(process.env.TRAIL_BOOST_WEIGHT ?? 1000))); // ~10%
-const BATCH = Number(process.env.TRAIL_BOOST_BATCH ?? 8);
 const MIN_MS = Number(process.env.TRAIL_BOOST_MIN_MS ?? 60_000); // 1 min
 const MAX_MS = Number(process.env.TRAIL_BOOST_MAX_MS ?? 300_000); // 5 min
+// Proportional pacing: release boosts as REAL upvotes arrive, so growth feels organic.
+const RATIO = Number(process.env.TRAIL_BOOST_RATIO ?? 0.5); // boosts per real new vote
+const SEED = Number(process.env.TRAIL_BOOST_SEED ?? 2); // initial kickstart boosts
+const PER_TICK = Number(process.env.TRAIL_BOOST_PER_TICK ?? 3); // max releases per post per tick
+const TTL_H = Number(process.env.TRAIL_BOOST_TTL_H ?? 48); // stop releasing after this
 const HIVE_NODES = ["https://api.hive.blog", "https://api.deathwing.me", "https://hive-api.arcange.eu"];
+
+// Count current upvotes on a Hive post (no dhive needed).
+async function countVotes(author, permlink) {
+  for (const node of HIVE_NODES) {
+    try {
+      const r = await fetch(node, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "condenser_api.get_active_votes", params: [author, permlink], id: 1 }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const j = await r.json();
+      if (Array.isArray(j.result)) return j.result.length;
+    } catch { /* next node */ }
+  }
+  return null;
+}
 
 function enabled() {
   return /^(1|true|yes)$/i.test(process.env.TRAIL_BOOST_ENABLED ?? "") &&
@@ -82,42 +103,91 @@ async function queueBoosts(prisma, castHash) {
     })),
     skipDuplicates: true,
   });
+  // Record the pacing target with the post's CURRENT real-vote baseline.
+  const [author, permlink] = castHash.replace(/^hive:/, "").split("/");
+  const baseline = (await countVotes(author, permlink)) ?? 0;
+  await prisma.trailBoostTarget
+    .upsert({
+      where: { castHash },
+      create: { castHash, baselineVotes: baseline, budget: pick.length, released: 0, status: "active" },
+      update: {},
+    })
+    .catch(() => {});
   return pick.length;
 }
 
-// Drain a batch of pending boosts: decrypt key, upvote, space out randomly.
+// Cast a single boost vote for a pending row. Returns true on success.
+async function castOne(prisma, ub, client, b, log) {
+  const { PrivateKey } = require("@hiveio/dhive");
+  const [author, permlink] = b.castHash.replace(/^hive:/, "").split("/");
+  let status = "done", err = null;
+  try {
+    const { data } = await ub
+      .from("userbase_hive_keys")
+      .select("user_id, hive_username, encrypted_posting_key, encryption_iv, encryption_auth_tag")
+      .eq("hive_username", b.hiveUsername).limit(1);
+    const row = data && data[0];
+    if (!row) throw new Error("no key row");
+    const wif = decryptPostingKey(row);
+    await client.broadcast.sendOperations(
+      [["vote", { voter: b.hiveUsername, author, permlink, weight: b.weight }]],
+      PrivateKey.fromString(wif),
+    );
+  } catch (e) {
+    status = "failed"; err = (e && e.message ? e.message : String(e)).slice(0, 160);
+  }
+  await prisma.trailUserbaseBoost.update({ where: { id: b.id }, data: { status, error: err } }).catch(() => {});
+  if (log) log(`[boost] ${b.hiveUsername} → ${b.castHash.slice(0, 18)} ${status}${err ? " " + err : ""}`);
+  return status === "done";
+}
+
+// Proportional drain: for each active post, release boosts so the running total
+// tracks REAL upvote growth (SEED kickstart + RATIO per real new vote), capped
+// per tick, spaced randomly. Posts older than TTL_H stop and are marked done.
 async function drainBoosts(prisma, log) {
   if (!enabled()) return;
-  const pending = await prisma.trailUserbaseBoost.findMany({
-    where: { status: "pending" }, orderBy: { createdAt: "asc" }, take: BATCH,
+  const targets = await prisma.trailBoostTarget.findMany({
+    where: { status: "active" }, orderBy: { createdAt: "asc" }, take: 12,
   }).catch(() => []);
-  if (!pending.length) return;
+  if (!targets.length) return;
 
   const ub = userbaseClient();
-  const { Client, PrivateKey } = require("@hiveio/dhive");
+  const { Client } = require("@hiveio/dhive");
   const client = new Client(HIVE_NODES);
+  const now = Date.now();
 
-  for (let i = 0; i < pending.length; i++) {
-    const b = pending[i];
-    const [author, permlink] = b.castHash.replace(/^hive:/, "").split("/");
-    let status = "done", err = null;
-    try {
-      const { data } = await ub
-        .from("userbase_hive_keys")
-        .select("user_id, hive_username, encrypted_posting_key, encryption_iv, encryption_auth_tag")
-        .eq("hive_username", b.hiveUsername).limit(1);
-      const row = data && data[0];
-      if (!row) throw new Error("no key row");
-      const wif = decryptPostingKey(row);
-      const op = ["vote", { voter: b.hiveUsername, author, permlink, weight: b.weight }];
-      await client.broadcast.sendOperations([op], PrivateKey.fromString(wif));
-    } catch (e) {
-      status = "failed"; err = (e && e.message ? e.message : String(e)).slice(0, 160);
+  for (const t of targets) {
+    // Expire old targets.
+    if (now - new Date(t.createdAt).getTime() > TTL_H * 3_600_000) {
+      await prisma.trailBoostTarget.update({ where: { castHash: t.castHash }, data: { status: "done" } }).catch(() => {});
+      continue;
     }
-    await prisma.trailUserbaseBoost.update({ where: { id: b.id }, data: { status, error: err } }).catch(() => {});
-    if (log) log(`[boost] ${b.hiveUsername} → ${b.castHash.slice(0, 18)} ${status}${err ? " " + err : ""}`);
-    if (i < pending.length - 1) {
-      await new Promise((r) => setTimeout(r, MIN_MS + Math.floor(Math.random() * (MAX_MS - MIN_MS))));
+    const [author, permlink] = t.castHash.replace(/^hive:/, "").split("/");
+    const total = await countVotes(author, permlink);
+    if (total == null) continue;
+    const realGrowth = Math.max(0, total - t.released - t.baselineVotes); // exclude our own boosts
+    const allowed = Math.min(t.budget, SEED + Math.floor(realGrowth * RATIO));
+    const toRelease = Math.min(Math.max(0, allowed - t.released), PER_TICK);
+    if (toRelease <= 0) {
+      if (t.released >= t.budget) {
+        await prisma.trailBoostTarget.update({ where: { castHash: t.castHash }, data: { status: "done" } }).catch(() => {});
+      }
+      continue;
+    }
+    const batch = await prisma.trailUserbaseBoost.findMany({
+      where: { castHash: t.castHash, status: "pending" }, orderBy: { createdAt: "asc" }, take: toRelease,
+    }).catch(() => []);
+    let releasedNow = 0;
+    for (let i = 0; i < batch.length; i++) {
+      if (await castOne(prisma, ub, client, batch[i], log)) releasedNow++;
+      if (i < batch.length - 1) await new Promise((r) => setTimeout(r, MIN_MS + Math.floor(Math.random() * (MAX_MS - MIN_MS))));
+    }
+    if (releasedNow) {
+      const released = t.released + releasedNow;
+      await prisma.trailBoostTarget
+        .update({ where: { castHash: t.castHash }, data: { released, status: released >= t.budget ? "done" : "active" } })
+        .catch(() => {});
+      if (log) log(`[boost] ${t.castHash.slice(0, 18)} released ${releasedNow} (total ${released}/${t.budget}, real≈${total - released})`);
     }
   }
 }

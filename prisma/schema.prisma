@@ -461,6 +461,21 @@ model FarcasterTrailAction {
   @@index([actorSlug, status])
 }
 
+// Per-post boost pacing: the boost is released GRADUALLY, proportional to the
+// post's REAL upvote growth, so it feels organic. baselineVotes = real votes
+// when detected; released = boost upvotes cast so far; budget = subset size.
+model TrailBoostTarget {
+  castHash      String   @id // "hive:author/permlink"
+  baselineVotes Int      @default(0) // real votes at detection
+  budget        Int      @default(40) // max boost upvotes to release
+  released      Int      @default(0) // boost upvotes cast so far
+  status        String   @default("active") // active | done
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+}
+
 // Pool B: community-key boost upvotes. When a COMPANY posts on Hive, a random
 // rotating subset of the SkateHive userbase posting keys (userbase_hive_keys,
 // decrypted with USERBASE_KEY_ENCRYPTION_SECRET) upvotes it at a low weight,
