@@ -37,7 +37,7 @@ async function main() {
       // nogenta posts to Hive as @nogenta — WATCHED so its posts get the Pool-B
       // community boost. No posting key wired (it's a boost target, not an actor).
       kind: "company", label: "nogenta", ownerSlug: "nogenta",
-      fid: null, fcSignerUuid: null, fcApiKeyEnv: "NEYNAR_API_KEY",
+      fid: 814250, fcSignerUuid: null, fcApiKeyEnv: "NEYNAR_API_KEY",
       hiveAccount: "nogenta", hiveKeyEnv: null,
     },
     // ── Agents ────────────────────────────────────────────────────────────-

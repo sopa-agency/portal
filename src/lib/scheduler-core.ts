@@ -20,6 +20,7 @@ import {
   publishMarketingTweetToHive,
 } from "@/app/actions/marketing-suggestions";
 import { publishInstagramPost, type IgUserTag } from "@/lib/instagram-publish";
+import { publishFacebookPost, facebookCrosspostEnabled } from "@/lib/facebook-publish";
 import { publishLabChannel } from "@/lib/lab-publish";
 import { getProject } from "@/projects/index";
 
@@ -237,6 +238,14 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
             error: null,
           },
         });
+        // Cross-publish to the Facebook Page (best-effort, opt-in per project).
+        if (facebookCrosspostEnabled(project)) {
+          await publishFacebookPost(project, {
+            type: post.type as "IMAGE" | "CAROUSEL" | "REELS",
+            caption: post.caption,
+            mediaUrls,
+          }).catch(() => {});
+        }
         results.push({ id: post.id, projectSlug: post.projectSlug, ok: true, igMediaId: result.igMediaId });
       } else {
         await prisma.instagramPost.update({

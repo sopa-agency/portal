@@ -7,6 +7,7 @@ import { getActiveProject } from "@/projects/index";
 import { prisma, withDbRetry } from "@/lib/prisma";
 import { uploadMediaToPinata, createPinataSignedUploadUrl, normalizeMediaUrl } from "@/lib/social-publish";
 import { publishInstagramPost, fetchRecentInstagramMedia } from "@/lib/instagram-publish";
+import { publishFacebookPost, facebookCrosspostEnabled } from "@/lib/facebook-publish";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import {
   buildGenerateCaptionPrompt,
@@ -485,7 +486,7 @@ function validateForPublish(post: DraftRow): string | null {
 export async function publishDraft(
   id: string,
 ): Promise<
-  | { ok: true; igMediaId: string; permalink?: string; firstCommentPosted?: boolean }
+  | { ok: true; igMediaId: string; permalink?: string; firstCommentPosted?: boolean; facebook?: { ok: boolean; error?: string; permalink?: string } }
   | { ok: false; error: string }
 > {
   try {
@@ -535,11 +536,23 @@ export async function publishDraft(
           error: null,
         },
       }));
+      // Cross-publish to the Facebook Page (best-effort — never undo IG success).
+      // IG's native share-to-FB doesn't fire for API posts, so we post directly.
+      let facebook: { ok: boolean; error?: string; permalink?: string } | undefined;
+      if (facebookCrosspostEnabled(project)) {
+        const fb = await publishFacebookPost(project, {
+          type: post.type,
+          caption: post.caption,
+          mediaUrls: post.mediaUrls,
+        }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+        facebook = fb.ok ? { ok: true, permalink: fb.permalink } : { ok: false, error: fb.error };
+      }
       return {
         ok: true,
         igMediaId: result.igMediaId,
         permalink: result.permalink,
         firstCommentPosted: result.firstCommentPosted,
+        facebook,
       };
     } else {
       await withDbRetry(() => prisma.instagramPost.update({
