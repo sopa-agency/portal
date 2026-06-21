@@ -636,7 +636,8 @@ export function Editor({
       toast.loading("Enviando para o post…", { id: tid });
       // Reelflip cards render at a fixed 1080×1350 (4:5) — pass that so the post
       // creator locks the preview crop instead of re-probing each PNG.
-      await onUseInPost(files, doc.meta.legenda ?? "", 1080 / 1350);
+      // Caption is authored in the post creator, not the carousel studio.
+      await onUseInPost(files, "", 1080 / 1350);
       toast.success("Cards no post!", { id: tid });
     } catch (e) { toast.error("Falha ao usar no post.", { id: tid, description: "Tente novamente." }); console.error(e); }
     finally { setBusy(null); }
@@ -1036,10 +1037,6 @@ export function Editor({
             {card.tipo !== "spot" && (
               <Button size="sm" variant="ghost" className="mt-1 justify-start text-muted-foreground" onClick={() => patchActive(resetLayout)}><RotateCcw className="size-3.5" />Resetar posições</Button>
             )}
-
-            <Separator className="my-2" />
-            <Label className="text-muted-foreground">Legenda</Label>
-            <Textarea value={doc.meta.legenda} onChange={(e) => setDoc((d) => ({ ...d, meta: { ...d.meta, legenda: e.target.value } }))} rows={4} className="text-xs" />
           </div>
         </div>
       </aside>
