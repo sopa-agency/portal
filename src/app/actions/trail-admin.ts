@@ -148,10 +148,6 @@ export async function removeTrailAccount(id: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-export function trailSponsorReady(): boolean {
-  return sponsorConfigured();
-}
-
 /** Start connecting a trail account's Farcaster: mint a signer + approval QR.
  * The account's Farcaster owner scans + approves in their Warpcast. The client
  * holds the returned signer_uuid and calls finishTrailAccountFarcaster to poll. */

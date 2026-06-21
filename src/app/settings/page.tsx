@@ -12,7 +12,8 @@ import { MyFarcasterCard } from "@/components/my-farcaster-card";
 import { getMyFarcaster } from "@/app/actions/farcaster-member";
 import { isTrailParticipant } from "@/lib/farcaster-trail-config";
 import { TrailAdmin } from "@/components/trail-admin";
-import { listTrailAccounts, trailSponsorReady } from "@/app/actions/trail-admin";
+import { listTrailAccounts } from "@/app/actions/trail-admin";
+import { sponsorConfigured } from "@/lib/farcaster-sponsor";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -64,7 +65,7 @@ export default async function SettingsPage() {
         <TeamAdmin initial={team.members} viewerGlobal={team.viewerGlobal} projectName={project.name} />
       ) : null}
       {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
-      {trailAccounts?.ok ? <TrailAdmin initial={trailAccounts.accounts} sponsorReady={trailSponsorReady()} /> : null}
+      {trailAccounts?.ok ? <TrailAdmin initial={trailAccounts.accounts} sponsorReady={sponsorConfigured()} /> : null}
       {showAdmin ? <BountySetup /> : null}
       {showMyFarcaster && myFarcaster ? <MyFarcasterCard initial={myFarcaster} /> : null}
       <ConnectionsView
