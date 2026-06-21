@@ -189,24 +189,63 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
   );
 }
 
+const NETWORKS = [
+  { id: "all", label: "Todos", platform: null as string | null },
+  { id: "farcaster", label: "Farcaster", platform: "farcaster" },
+  { id: "hive", label: "Hive", platform: "hive" },
+];
+
 export function FarcasterTrailShell({ initial, projectName }: { initial: TrailItem[]; projectName: string }) {
   const [items, setItems] = useState(initial);
-  const pending = items.filter((i) => i.status !== "done");
+  const [net, setNet] = useState("all");
   const resolve = (id: string) => setItems((prev) => prev.filter((i) => i.actionId !== id));
+
+  const pending = items.filter((i) => i.status !== "done");
+  const countFor = (platform: string | null) =>
+    pending.filter((i) => (platform ? i.cast.platform === platform : true)).length;
+  const shown = pending.filter((i) => {
+    const p = NETWORKS.find((n) => n.id === net)?.platform;
+    return p ? i.cast.platform === p : true;
+  });
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-foreground-muted">
-        Quando um portal parceiro posta, o trail curte automaticamente e lista o post aqui pra{" "}
+        Quando um portal parceiro posta, o trail curte/upvota automaticamente e lista o post aqui pra{" "}
         <strong className="text-foreground">{projectName}</strong> responder. Gere um rascunho on-brand, edite e poste.
       </p>
-      {pending.length === 0 ? (
+
+      {/* Split by network */}
+      <div className="flex flex-wrap gap-1 border-b border-border" role="tablist">
+        {NETWORKS.map((n) => {
+          const on = n.id === net;
+          const c = countFor(n.platform);
+          return (
+            <button
+              key={n.id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setNet(n.id)}
+              className={`-mb-px flex items-center gap-1.5 rounded-t-lg border-b-2 px-3.5 py-2 text-sm font-medium transition-colors ${
+                on ? "border-accent text-accent" : "border-transparent text-foreground-muted hover:text-foreground"
+              }`}
+            >
+              {n.platform && <SocialBrandIcon platform={n.platform} className="h-3.5 w-3.5" />}
+              {n.label}
+              <span className="rounded-full bg-surface-elevated px-1.5 text-[10px] tabular-nums text-foreground-subtle">{c}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {shown.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-surface px-4 py-10 text-center text-sm text-foreground-faint">
-          Nada pendente. Quando um parceiro postar, aparece aqui.
+          Nada pendente nesta rede. Quando um parceiro postar, aparece aqui.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {pending.map((it) => (
+          {shown.map((it) => (
             <TrailCard key={it.actionId} item={it} onResolved={resolve} />
           ))}
         </div>
