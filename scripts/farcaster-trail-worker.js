@@ -31,28 +31,34 @@ const LIKE_BATCH_PER_TICK = Number(process.env.TRAIL_LIKE_BATCH ?? 6);
 const rand = Math.random;
 const HIVE_NODES = ["https://api.hive.blog", "https://api.deathwing.me", "https://hive-api.arcange.eu"];
 
-// Brand accounts. Each may act on Farcaster (signer+apiKey) and/or Hive (account+key).
-const PARTICIPANTS = [
-  { slug: "skatehive", fid: 538839, apiKeyEnv: "NEYNAR_API_KEY", signerEnv: "NEYNAR_SIGNER_UUID", hiveAccount: "skatehive", hiveKeyEnv: "HIVE_POSTING_KEY" },
-  { slug: "gnars", fid: 2808368, apiKeyEnv: "GNARS_NEYNAR_API_KEY", signerEnv: "GNARS_NEYNAR_SIGNER_UUID", hiveAccount: "gnars", hiveKeyEnv: "GNARS_HIVE_POSTING_KEY" },
-  { slug: "reelflip", fid: 3338092, apiKeyEnv: "NEYNAR_API_KEY", signerFromDb: true, hiveAccount: "reelflip", hiveKeyEnv: "REELFLIP_HIVE_POSTING_KEY" },
-];
-
+// Participants come from the TrailAccount registry (company/agent/member),
+// managed in the admin UI. Each row carries its own Farcaster signer + which
+// Neynar app key to use, and/or a Hive account + posting credential.
 async function resolveParticipants() {
+  const rows = await prisma.trailAccount.findMany({ where: { enabled: true } }).catch(() => []);
   const out = [];
-  for (const p of PARTICIPANTS) {
-    const apiKey = process.env[p.apiKeyEnv] || process.env.NEYNAR_API_KEY;
-    let signer = p.signerEnv ? process.env[p.signerEnv] : null;
-    if (!signer && p.signerFromDb) {
-      const row = await prisma.farcasterSigner.findUnique({ where: { projectSlug: p.slug } }).catch(() => null);
-      if (row && row.status === "approved") signer = row.signerUuid;
+  for (const r of rows) {
+    const apiKey = (r.fcApiKeyEnv && process.env[r.fcApiKeyEnv]) || process.env.NEYNAR_API_KEY;
+    let signer = r.fcSignerUuid;
+    // reelflip keeps its signer in FarcasterSigner; resolve when the row lacks one.
+    if (!signer && r.ownerSlug) {
+      const fs = await prisma.farcasterSigner.findUnique({ where: { projectSlug: r.ownerSlug } }).catch(() => null);
+      if (fs && fs.status === "approved") signer = fs.signerUuid;
     }
-    const hiveKey = p.hiveKeyEnv ? process.env[p.hiveKeyEnv] : null;
+    // Hive posting key: env (company/agent) or encrypted in DB (member).
+    let hiveKey = r.hiveKeyEnv ? process.env[r.hiveKeyEnv] : null;
+    if (!hiveKey && r.hiveKeyEnc) {
+      try { hiveKey = require("../src/lib/secret-box.cjs").decrypt(r.hiveKeyEnc); } catch { /* not yet supported */ }
+    }
     out.push({
-      slug: p.slug,
-      fid: p.fid,
+      slug: r.label,
+      kind: r.kind,
+      fid: r.fid,
+      autoLike: r.autoLike,
+      hiveVoteWeight: r.hiveVoteWeight,
+      watch: r.watch,
       fc: apiKey && signer ? { apiKey, signer } : null,
-      hive: p.hiveAccount && hiveKey ? { account: p.hiveAccount, key: hiveKey } : (p.hiveAccount ? { account: p.hiveAccount, key: null } : null),
+      hive: r.hiveAccount ? { account: r.hiveAccount, key: hiveKey } : null,
     });
   }
   return out;
@@ -110,7 +116,8 @@ async function hiveUpvote(actor, author, permlink) {
   try {
     const { Client, PrivateKey } = require("@hiveio/dhive");
     const client = new Client(HIVE_NODES);
-    const op = ["vote", { voter: actor.hive.account, author, permlink, weight: 10000 }];
+    const weight = Math.max(1, Math.min(10000, actor.hiveVoteWeight ?? 10000));
+    const op = ["vote", { voter: actor.hive.account, author, permlink, weight }];
     await client.broadcast.sendOperations([op], PrivateKey.fromString(actor.hive.key));
     return { ok: true };
   } catch (e) {
@@ -127,9 +134,16 @@ async function recordTrigger(author, participants, { hash, platform, authorFid, 
   });
   const others = participants.filter((p) => p.slug !== author.slug);
   for (const actor of others) {
-    const likeStatus = !fresh || !ENABLED ? "skipped" : "pending";
-    await prisma.farcasterTrailAction.create({ data: { castHash: hash, actorSlug: actor.slug, kind: "like", status: likeStatus } });
-    await prisma.farcasterTrailAction.create({ data: { castHash: hash, actorSlug: actor.slug, kind: "reply", status: fresh ? "pending" : "skipped" } });
+    // LIKE/UPVOTE — auto, only if this actor opted in (autoLike).
+    if (actor.autoLike) {
+      const likeStatus = !fresh || !ENABLED ? "skipped" : "pending";
+      await prisma.farcasterTrailAction.create({ data: { castHash: hash, actorSlug: actor.slug, kind: "like", status: likeStatus } });
+    }
+    // REPLY/COMMENT — HITL via the portal UI, so only for accounts with a human
+    // behind them (company + member). Agents have no UI author → no reply queued.
+    if (actor.kind !== "agent") {
+      await prisma.farcasterTrailAction.create({ data: { castHash: hash, actorSlug: actor.slug, kind: "reply", status: fresh ? "pending" : "skipped" } });
+    }
   }
   console.log(`[trail/${platform}] ${author.slug} ${hash.slice(0, 16)} → ${others.length} actors ${fresh ? (ENABLED ? "(queued)" : "(dry)") : "(stale)"}`);
   return true;
@@ -139,6 +153,7 @@ async function tick(participants) {
   const freshCutoff = Date.now() - FRESH_HOURS * 3_600_000;
 
   for (const author of participants) {
+    if (!author.watch) continue; // only accounts flagged to watch trigger the trail
     // Farcaster
     if (author.fc && author.fid) {
       const r = await neynar("GET", `/v2/farcaster/feed/user/casts?fid=${author.fid}&limit=${PER_ACCOUNT_LIMIT}`, author.fc.apiKey);

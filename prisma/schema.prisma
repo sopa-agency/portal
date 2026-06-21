@@ -383,6 +383,42 @@ model DiscordChannelConfig {
   updatedAt   DateTime @updatedAt
 }
 
+// ─── Curation-trail account registry ───────────────────────────────────────
+// Every account that participates in the trail, of three kinds:
+//   company — brand accounts (skatehive, gnars, reelflip): auto-engage
+//   agent   — brand bots (bobgnarley): auto-engage
+//   member  — team people (sopa): auto-UPVOTE only; replies stay manual
+// Self-contained: stores the signer/handle + which credential to use, so the
+// worker reads this table instead of a hardcoded list. Managed from admin UI.
+model TrailAccount {
+  id            String   @id @default(cuid())
+  kind          String   // company | agent | member
+  label         String   // display name
+  ownerSlug     String?  // brand this belongs to (company/agent) or member's portal
+  enabled       Boolean  @default(true)
+
+  // Farcaster identity + which Neynar app key signs for it
+  fid           Int?
+  fcSignerUuid  String?
+  fcApiKeyEnv   String?  @default("NEYNAR_API_KEY") // env var holding the signer's app key
+
+  // Hive identity + posting credential
+  hiveAccount   String?
+  hiveKeyEnv    String?  // env var with the posting key (company/agent)
+  hiveKeyEnc    String?  // encrypted posting key (member) — see lib/secret-box
+
+  // engagement prefs
+  autoLike      Boolean  @default(true)  // Farcaster like / Hive upvote on partner posts
+  hiveVoteWeight Int     @default(10000) // 0..10000 = 0..100% (member-tunable in settings)
+  watch         Boolean  @default(true)  // detect THIS account's posts as trail triggers
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([kind, label])
+  @@index([ownerSlug])
+}
+
 // ─── Farcaster cross-account curation trail ────────────────────────────────
 // When one of our brand accounts posts a top-level cast, the others auto-LIKE
 // it and (HITL) reply with an on-brand comment. One row per detected cast.
