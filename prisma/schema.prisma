@@ -387,15 +387,18 @@ model DiscordChannelConfig {
 // When one of our brand accounts posts a top-level cast, the others auto-LIKE
 // it and (HITL) reply with an on-brand comment. One row per detected cast.
 model FarcasterTrailCast {
-  hash        String   @id // cast hash
-  authorFid   Int
-  authorSlug  String // which of our portals posted it
-  text        String
-  embedsJson  String? // raw embeds for context
-  postedAt    DateTime
-  detectedAt  DateTime @default(now())
+  hash         String   @id // unique post id — Farcaster: cast hash; Hive: "hive:author/permlink"
+  platform     String   @default("farcaster") // farcaster | hive
+  authorFid    Int? // Farcaster only
+  authorSlug   String // which of our portals posted it
+  authorHandle String? // display handle / hive author
+  text         String
+  url          String? // link to the post
+  embedsJson   String? // raw embeds for context
+  postedAt     DateTime
+  detectedAt   DateTime @default(now())
 
-  actions     FarcasterTrailAction[]
+  actions      FarcasterTrailAction[]
 
   @@index([authorSlug])
   @@index([detectedAt])

@@ -7,6 +7,8 @@ import { authorize } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { resolveFarcasterSigner } from "@/lib/farcaster-signer";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
+import { brandEnv } from "@/lib/brand-env";
+import { HIVE_NODES } from "@/lib/social-publish";
 import type { ProjectConfig } from "@/projects/types";
 
 // Curation-trail HITL replies. Each portal sees the partner casts the trail
@@ -20,8 +22,8 @@ export type TrailItem = {
   actionId: string;
   status: string;
   draft: string | null;
-  cast: { hash: string; authorSlug: string; authorFid: number; text: string; postedAt: string; url: string };
-  liked: boolean; // did THIS portal already auto-like it
+  cast: { hash: string; platform: string; authorSlug: string; authorHandle: string | null; text: string; postedAt: string; url: string };
+  liked: boolean; // did THIS portal already auto-like/upvote it
 };
 
 async function gate() {
@@ -32,7 +34,7 @@ async function gate() {
   return { ok: true as const, project, who };
 }
 
-function castUrl(authorSlug: string, hash: string): string {
+function fcCastUrl(authorSlug: string, hash: string): string {
   return `https://warpcast.com/${authorSlug}/${hash.slice(0, 10)}`;
 }
 
@@ -66,11 +68,12 @@ export async function listTrailFeed(): Promise<
     liked: likedByCast.get(r.castHash) ?? false,
     cast: {
       hash: r.cast.hash,
+      platform: r.cast.platform,
       authorSlug: r.cast.authorSlug,
-      authorFid: r.cast.authorFid,
+      authorHandle: r.cast.authorHandle,
       text: r.cast.text,
       postedAt: r.cast.postedAt.toISOString(),
-      url: castUrl(r.cast.authorSlug, r.cast.hash),
+      url: r.cast.url ?? fcCastUrl(r.cast.authorSlug, r.cast.hash),
     },
   }));
   return { ok: true, items, project: g.project.name };
@@ -82,18 +85,20 @@ function replyPrompt(
   castText: string,
   instruction?: string,
   current?: string,
+  platform: string = "farcaster",
 ): string {
   const voice = project.socials.find((s) => s.voice)?.voice ?? `${project.name}'s authentic, culture-native voice`;
+  const noun = platform === "hive" ? "Hive post" : "Farcaster cast";
   const steer = instruction?.trim()
     ? `\n\nEXTRA INSTRUCTION (highest priority — follow it): ${instruction.trim()}${
         current?.trim() ? `\nRefine this current draft accordingly: """${current.trim()}"""` : ""
       }`
     : "";
-  return `You are replying to a Farcaster cast from a partner account (@${partnerSlug}) as ${project.name} — but you must sound like a REAL PERSON in the scene casually commenting, NOT a brand or a marketer.
+  return `You are replying to a ${noun} from a partner account (@${partnerSlug}) as ${project.name} — but you must sound like a REAL PERSON in the scene casually commenting, NOT a brand or a marketer.
 
 ${project.name}'s vibe (for reference, don't imitate corporate tone): ${voice}
 
-Their cast:
+Their ${noun}:
 """
 ${castText}
 """
@@ -128,7 +133,7 @@ export async function generateTrailReply(
   let draft: string;
   try {
     const raw = await callOpenClaw(
-      replyPrompt(g.project, action.cast.authorSlug, action.cast.text, instruction, current),
+      replyPrompt(g.project, action.cast.authorHandle ?? action.cast.authorSlug, action.cast.text, instruction, current, action.cast.platform),
       g.project.agent.id,
       { timeoutMs: AI_TIMEOUT_MS, project: g.project },
     );
@@ -141,7 +146,7 @@ export async function generateTrailReply(
   return { ok: true, draft };
 }
 
-/** Post the reply as this portal's Farcaster account (reply = parent set). */
+/** Post the reply/comment as this portal's account (Farcaster reply or Hive comment). */
 export async function postTrailReply(
   actionId: string,
   text: string,
@@ -158,30 +163,80 @@ export async function postTrailReply(
     return { ok: false, error: "Ação não encontrada." };
   }
 
-  const signer = await resolveFarcasterSigner(g.project);
-  const prefix = g.project.agent.gatewayEnvPrefix;
+  const result =
+    action.cast.platform === "hive"
+      ? await postHiveComment(g.project, action.cast.hash, body)
+      : await postFarcasterReply(g.project, action.cast.hash, body);
+
+  if (!result.ok) {
+    await prisma.farcasterTrailAction
+      .update({ where: { id: actionId }, data: { status: "failed", error: result.error } })
+      .catch(() => {});
+    return result;
+  }
+  await prisma.farcasterTrailAction
+    .update({ where: { id: actionId }, data: { status: "done", postedText: body, resultRef: result.ref, error: null } })
+    .catch(() => {});
+  return { ok: true, url: result.url };
+}
+
+async function postFarcasterReply(
+  project: ProjectConfig,
+  parentHash: string,
+  body: string,
+): Promise<{ ok: true; url: string; ref: string } | { ok: false; error: string }> {
+  const signer = await resolveFarcasterSigner(project);
+  const prefix = project.agent.gatewayEnvPrefix;
   const apiKey = (prefix && process.env[`${prefix}_NEYNAR_API_KEY`]) || process.env.NEYNAR_API_KEY;
   if (!signer || !apiKey) return { ok: false, error: "Farcaster não conectado neste portal." };
 
   const res = await fetch("https://api.neynar.com/v2/farcaster/cast", {
     method: "POST",
     headers: { "x-api-key": apiKey, "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ signer_uuid: signer.signerUuid, text: body, parent: action.cast.hash }),
+    body: JSON.stringify({ signer_uuid: signer.signerUuid, text: body, parent: parentHash }),
   });
   const j = (await res.json().catch(() => ({}))) as { cast?: { hash?: string } };
-  if (!res.ok || !j.cast?.hash) {
-    const err = `Neynar HTTP ${res.status}`;
-    await prisma.farcasterTrailAction
-      .update({ where: { id: actionId }, data: { status: "failed", error: err } })
-      .catch(() => {});
-    return { ok: false, error: err };
-  }
+  if (!res.ok || !j.cast?.hash) return { ok: false, error: `Neynar HTTP ${res.status}` };
+  return { ok: true, url: fcCastUrl(project.slug, j.cast.hash), ref: j.cast.hash };
+}
 
-  const hash = j.cast.hash;
-  await prisma.farcasterTrailAction
-    .update({ where: { id: actionId }, data: { status: "done", postedText: body, resultRef: hash, error: null } })
-    .catch(() => {});
-  return { ok: true, url: castUrl(g.project.slug, hash) };
+async function postHiveComment(
+  project: ProjectConfig,
+  castHash: string, // "hive:author/permlink"
+  body: string,
+): Promise<{ ok: true; url: string; ref: string } | { ok: false; error: string }> {
+  const account = brandEnv(project, "HIVE_POSTING_ACCOUNT");
+  const key = brandEnv(project, "HIVE_POSTING_KEY");
+  if (!account || !key) return { ok: false, error: "Hive não conectado neste portal (falta posting key)." };
+
+  const [parentAuthor, parentPermlink] = castHash.replace(/^hive:/, "").split("/");
+  if (!parentAuthor || !parentPermlink) return { ok: false, error: "Post Hive inválido." };
+
+  const permlink = `re-${parentPermlink}-${Date.now().toString(36)}`
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "")
+    .slice(0, 255);
+
+  try {
+    const { Client, PrivateKey } = await import("@hiveio/dhive");
+    const client = new Client(HIVE_NODES);
+    const op = [
+      "comment",
+      {
+        parent_author: parentAuthor,
+        parent_permlink: parentPermlink,
+        author: account,
+        permlink,
+        title: "",
+        body,
+        json_metadata: JSON.stringify({ app: `Marketing Portal ${project.name}`, tags: [project.hive.community ?? "hive"] }),
+      },
+    ] as const;
+    await client.broadcast.sendOperations([op as never], PrivateKey.fromString(key));
+    return { ok: true, url: `https://peakd.com/@${account}/${permlink}`, ref: `${account}/${permlink}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao comentar no Hive." };
+  }
 }
 
 /** Dismiss a reply (won't show in the actionable list). */

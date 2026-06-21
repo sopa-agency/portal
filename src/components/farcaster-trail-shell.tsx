@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Sparkles, Send, X, Check, ExternalLink, Heart, ChevronDown } from "lucide-react";
+import { SocialBrandIcon } from "@/components/social-brand-icon";
 import {
   generateTrailReply,
   postTrailReply,
@@ -47,16 +48,19 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
     onResolved(item.actionId);
   };
 
+  const isHive = item.cast.platform === "hive";
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
+          {/* Platform logo */}
+          <SocialBrandIcon platform={isHive ? "hive" : "farcaster"} className="h-4 w-4 shrink-0" />
           <span className="inline-flex items-center rounded-full bg-accent-bg px-2 py-0.5 text-[11px] font-semibold text-accent">
-            @{item.cast.authorSlug}
+            @{item.cast.authorHandle ?? item.cast.authorSlug}
           </span>
           {item.liked && (
             <span className="inline-flex items-center gap-1 text-[11px] text-danger">
-              <Heart className="h-3 w-3 fill-current" /> curtido
+              <Heart className="h-3 w-3 fill-current" /> {isHive ? "upvotado" : "curtido"}
             </span>
           )}
           <span className="text-[11px] text-foreground-faint">{timeAgo(item.cast.postedAt)} atrás</span>
@@ -67,7 +71,7 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
           rel="noreferrer"
           className="inline-flex items-center gap-1 text-[11px] text-foreground-subtle transition-colors hover:text-foreground"
         >
-          ver no Warpcast <ExternalLink className="h-3 w-3" />
+          {isHive ? "ver no PeakD" : "ver no Warpcast"} <ExternalLink className="h-3 w-3" />
         </a>
       </div>
 
@@ -77,7 +81,7 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
 
       {done ? (
         <p className="flex items-center gap-1.5 text-sm text-success">
-          <Check className="h-4 w-4" /> Reply postado.{" "}
+          <Check className="h-4 w-4" /> {isHive ? "Comentário postado" : "Reply postado"}.{" "}
           {done !== "posted" && (
             <a href={done} target="_blank" rel="noreferrer" className="underline">
               ver
