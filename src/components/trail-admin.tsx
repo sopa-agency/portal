@@ -1,19 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import { Loader2, Plus, Trash2, Check, KeyRound } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import {
   upsertTrailHiveAccount,
   setTrailAccountEnabled,
   removeTrailAccount,
+  startTrailAccountFarcaster,
+  finishTrailAccountFarcaster,
   type TrailAccountRow,
 } from "@/app/actions/trail-admin";
 
 const KIND_LABEL: Record<string, string> = { company: "empresa", agent: "agente", member: "membro" };
 
-export function TrailAdmin({ initial }: { initial: TrailAccountRow[] }) {
+export function TrailAdmin({ initial, sponsorReady }: { initial: TrailAccountRow[]; sponsorReady: boolean }) {
   const [rows, setRows] = useState(initial);
+  const [fcFor, setFcFor] = useState<{ id: string; qr: string; url: string } | null>(null);
+  const fcPoll = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => () => { if (fcPoll.current) clearInterval(fcPoll.current); }, []);
+
+  const connectFarcaster = async (row: TrailAccountRow) => {
+    setMsg(null);
+    const r = await startTrailAccountFarcaster(row.id);
+    if (!r.ok) { setMsg({ kind: "err", text: r.error }); return; }
+    setFcFor({ id: row.id, qr: r.qr, url: r.approvalUrl });
+    fcPoll.current = setInterval(async () => {
+      const s = await finishTrailAccountFarcaster(row.id, r.signerUuid);
+      if (s.ok && s.status === "approved") {
+        if (fcPoll.current) clearInterval(fcPoll.current);
+        setFcFor(null);
+        setRows((rs) => rs.map((x) => (x.id === row.id ? { ...x, hasFcSigner: true, fid: s.fid ?? x.fid } : x)));
+        setMsg({ kind: "ok", text: `Farcaster conectado${s.handle ? ` (@${s.handle})` : ""}.` });
+      }
+    }, 2500);
+  };
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ label: "", hiveAccount: "", postingKey: "", weight: 100, kind: "member" as "company" | "agent" | "member" });
   const [busy, setBusy] = useState(false);
@@ -67,38 +89,64 @@ export function TrailAdmin({ initial }: { initial: TrailAccountRow[] }) {
 
       <div className="space-y-2">
         {rows.map((r) => (
-          <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-elevated px-3 py-2">
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${r.kind === "company" ? "bg-accent-bg text-accent" : r.kind === "agent" ? "bg-warning/15 text-warning" : "bg-foreground/10 text-foreground-muted"}`}>
-              {KIND_LABEL[r.kind] ?? r.kind}
-            </span>
-            <span className="text-sm font-medium text-foreground">{r.label}</span>
-            <div className="flex items-center gap-2 text-[11px] text-foreground-subtle">
-              {r.fid && <span className="inline-flex items-center gap-1"><SocialBrandIcon platform="farcaster" className="h-3 w-3" /> {r.fid}</span>}
-              {r.hiveAccount && (
+          <div key={r.id} className="rounded-xl border border-border bg-surface-elevated px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${r.kind === "company" ? "bg-accent-bg text-accent" : r.kind === "agent" ? "bg-warning/15 text-warning" : "bg-foreground/10 text-foreground-muted"}`}>
+                {KIND_LABEL[r.kind] ?? r.kind}
+              </span>
+              <span className="text-sm font-medium text-foreground">{r.label}</span>
+              <div className="flex items-center gap-2 text-[11px] text-foreground-subtle">
                 <span className="inline-flex items-center gap-1">
-                  <SocialBrandIcon platform="hive" className="h-3 w-3" /> @{r.hiveAccount}
-                  {r.hasHiveKey ? <KeyRound className="h-3 w-3 text-success" /> : <span className="text-foreground-faint">sem key</span>}
+                  <SocialBrandIcon platform="farcaster" className="h-3 w-3" />
+                  {r.hasFcSigner ? (r.fid ?? "ok") : <span className="text-foreground-faint">não conectado</span>}
                 </span>
-              )}
-              <span className="text-foreground-faint">upvote {(r.hiveVoteWeight / 100).toFixed(0)}%</span>
+                {r.hiveAccount && (
+                  <span className="inline-flex items-center gap-1">
+                    <SocialBrandIcon platform="hive" className="h-3 w-3" /> @{r.hiveAccount}
+                    {r.hasHiveKey ? <KeyRound className="h-3 w-3 text-success" /> : <span className="text-foreground-faint">sem key</span>}
+                  </span>
+                )}
+                <span className="text-foreground-faint">upvote {(r.hiveVoteWeight / 100).toFixed(0)}%</span>
+              </div>
+              <div className="ml-auto flex items-center gap-1.5">
+                {!r.hasFcSigner && sponsorReady && r.kind !== "agent" && (
+                  <button
+                    type="button"
+                    onClick={() => connectFarcaster(r)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+                  >
+                    <SocialBrandIcon platform="farcaster" className="h-3 w-3" /> conectar FC
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => toggle(r)}
+                  className={`rounded-lg border px-2 py-1 text-[11px] transition-colors ${r.enabled ? "border-success/40 text-success" : "border-border text-foreground-faint"}`}
+                >
+                  {r.enabled ? "ativa" : "pausada"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => remove(r)}
+                  aria-label="Remover"
+                  className="rounded-lg border border-border p-1 text-foreground-muted transition-colors hover:border-danger/40 hover:text-danger"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
-            <div className="ml-auto flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => toggle(r)}
-                className={`rounded-lg border px-2 py-1 text-[11px] transition-colors ${r.enabled ? "border-success/40 text-success" : "border-border text-foreground-faint"}`}
-              >
-                {r.enabled ? "ativa" : "pausada"}
-              </button>
-              <button
-                type="button"
-                onClick={() => remove(r)}
-                aria-label="Remover"
-                className="rounded-lg border border-border p-1 text-foreground-muted transition-colors hover:border-danger/40 hover:text-danger"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
+
+            {/* Inline Farcaster QR for this account */}
+            {fcFor?.id === r.id && (
+              <div className="mt-2 flex items-center gap-3 rounded-lg border border-accent-border bg-accent-bg/20 p-2.5">
+                <Image src={fcFor.qr} alt="QR Farcaster" width={96} height={96} className="rounded border border-border bg-white p-1" unoptimized />
+                <div className="min-w-0 text-xs text-foreground-muted">
+                  <p>Peça pra @{r.label} escanear (logado no Warpcast) e aprovar. Confirma sozinho.</p>
+                  <a href={fcFor.url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 underline">abrir link</a>
+                  <p className="mt-1 flex items-center gap-1.5 text-foreground-faint"><Loader2 className="h-3 w-3 animate-spin" /> aguardando aprovação…</p>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

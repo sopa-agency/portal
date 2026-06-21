@@ -6,6 +6,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { encryptSecret } from "@/lib/secret-box";
+import { mintMemberSigner, checkSignerStatus, sponsorConfigured } from "@/lib/farcaster-sponsor";
 
 // Admin of the curation-trail account registry. Lives on the SOPA portal (team
 // hub). Lets a global admin accumulate accounts + Hive posting keys (stored
@@ -145,4 +146,46 @@ export async function removeTrailAccount(id: string): Promise<{ ok: boolean }> {
   if (!g.ok) return { ok: false };
   await prisma.trailAccount.delete({ where: { id } }).catch(() => {});
   return { ok: true };
+}
+
+export function trailSponsorReady(): boolean {
+  return sponsorConfigured();
+}
+
+/** Start connecting a trail account's Farcaster: mint a signer + approval QR.
+ * The account's Farcaster owner scans + approves in their Warpcast. The client
+ * holds the returned signer_uuid and calls finishTrailAccountFarcaster to poll. */
+export async function startTrailAccountFarcaster(
+  accountId: string,
+): Promise<{ ok: true; signerUuid: string; qr: string; approvalUrl: string } | { ok: false; error: string }> {
+  const g = await adminGate();
+  if (!g.ok) return g;
+  if (!sponsorConfigured()) return { ok: false, error: "Sponsor de Farcaster não configurado." };
+  const account = await prisma.trailAccount.findUnique({ where: { id: accountId } }).catch(() => null);
+  if (!account) return { ok: false, error: "Conta não encontrada." };
+
+  const minted = await mintMemberSigner();
+  if (!minted.ok) return { ok: false, error: minted.error };
+  return { ok: true, signerUuid: minted.data.signerUuid, qr: minted.data.qrDataUrl, approvalUrl: minted.data.approvalUrl };
+}
+
+/** Poll the signer; once approved, store it (+ fid/handle) on the trail account.
+ * Only an approved signer is committed, so a forged call can't wire a bad one. */
+export async function finishTrailAccountFarcaster(
+  accountId: string,
+  signerUuid: string,
+): Promise<{ ok: true; status: string; handle?: string; fid?: number } | { ok: false; error: string }> {
+  const g = await adminGate();
+  if (!g.ok) return g;
+  const st = await checkSignerStatus(signerUuid);
+  if (st.status !== "approved" || !st.fid) return { ok: true, status: st.status };
+
+  await prisma.trailAccount
+    .update({
+      where: { id: accountId },
+      // Signer is minted under the global (sponsor) Neynar app → use NEYNAR_API_KEY.
+      data: { fcSignerUuid: signerUuid, fid: st.fid, fcApiKeyEnv: "NEYNAR_API_KEY" },
+    })
+    .catch(() => {});
+  return { ok: true, status: "approved", handle: st.handle, fid: st.fid };
 }
