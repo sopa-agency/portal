@@ -9,7 +9,8 @@
 
 const crypto = require("node:crypto");
 
-const SUBSET = Number(process.env.TRAIL_BOOST_SUBSET ?? 40);
+const SUBSET = Number(process.env.TRAIL_BOOST_SUBSET ?? 40); // mag posts budget (full pool)
+const SNAP_SUBSET = Number(process.env.TRAIL_BOOST_SNAP_SUBSET ?? 15); // snaps budget (smaller)
 const WEIGHT = Math.max(1, Math.min(10000, Number(process.env.TRAIL_BOOST_WEIGHT ?? 1000))); // ~10%
 const MIN_MS = Number(process.env.TRAIL_BOOST_MIN_MS ?? 60_000); // 1 min
 const MAX_MS = Number(process.env.TRAIL_BOOST_MAX_MS ?? 300_000); // 5 min
@@ -72,8 +73,10 @@ function shuffle(a) {
 }
 
 // Queue a random subset of userbase voters for a fresh COMPANY Hive post.
-async function queueBoosts(prisma, castHash) {
+// Snaps get a smaller budget than mag posts (very different vote scales).
+async function queueBoosts(prisma, castHash, opts = {}) {
   if (!enabled()) return 0;
+  const budgetCap = opts.isSnap ? SNAP_SUBSET : SUBSET;
   const ub = userbaseClient();
   // Respect consent: exclude anyone who opted OUT of supporting official posts.
   // Default (column null/false) = opted in. Falls back gracefully if the
@@ -91,7 +94,7 @@ async function queueBoosts(prisma, castHash) {
   } else {
     data = filtered.data;
   }
-  const pick = shuffle((data || []).filter((r) => r.hive_username)).slice(0, SUBSET);
+  const pick = shuffle((data || []).filter((r) => r.hive_username)).slice(0, budgetCap);
   if (!pick.length) return 0;
   await prisma.trailUserbaseBoost.createMany({
     // Each voter's own weight (default 50% once migrated); WEIGHT is the fallback.

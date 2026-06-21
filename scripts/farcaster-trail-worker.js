@@ -137,7 +137,7 @@ async function hiveUpvote(actor, author, permlink) {
 }
 
 // ── Detection ────────────────────────────────────────────────────────────--
-async function recordTrigger(author, participants, { hash, platform, authorFid, authorHandle, text, url, postedAt, fresh }) {
+async function recordTrigger(author, participants, { hash, platform, authorFid, authorHandle, text, url, postedAt, fresh, isSnap }) {
   const exists = await prisma.farcasterTrailCast.findUnique({ where: { hash } }).catch(() => null);
   if (exists) return false;
   await prisma.farcasterTrailCast.create({
@@ -160,8 +160,8 @@ async function recordTrigger(author, participants, { hash, platform, authorFid, 
 
   // Pool B: a fresh COMPANY Hive post gets the community boost (random subset).
   if (fresh && ENABLED && platform === "hive" && COMPANY_KINDS.has(author.kind) && boost.enabled()) {
-    const n = await boost.queueBoosts(prisma, hash).catch(() => 0);
-    if (n) console.log(`[boost] queued ${n} community upvotes for ${hash.slice(0, 18)}`);
+    const n = await boost.queueBoosts(prisma, hash, { isSnap: !!isSnap }).catch(() => 0);
+    if (n) console.log(`[boost] queued ${n} ${isSnap ? "snap" : "post"} upvotes for ${hash.slice(0, 18)}`);
   }
   return true;
 }
@@ -213,7 +213,7 @@ async function tick(participants) {
             hash, platform: "hive", authorFid: null, authorHandle: s.author,
             text: (s.body || "").slice(0, 140),
             url: `https://peakd.com/@${s.author}/${s.permlink}`,
-            postedAt, fresh: postedAt.getTime() >= freshCutoff,
+            postedAt, fresh: postedAt.getTime() >= freshCutoff, isSnap: true,
           });
         }
       }
