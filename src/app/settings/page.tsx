@@ -14,6 +14,7 @@ import { isTrailParticipant } from "@/lib/farcaster-trail-config";
 import { TrailAdmin } from "@/components/trail-admin";
 import { listTrailAccounts } from "@/app/actions/trail-admin";
 import { sponsorConfigured } from "@/lib/farcaster-sponsor";
+import { SettingsTabs, type SettingsTab } from "@/components/settings-tabs";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -54,19 +55,8 @@ export default async function SettingsPage() {
   // Trail registry admin — SOPA global admins only.
   const trailAccounts = isTeamHub && team?.ok && team.viewerGlobal ? await listTrailAccounts().catch(() => null) : null;
 
-  return (
-    <div className="space-y-10">
-      <PageHeader
-        eyebrow={project.name}
-        title="Settings"
-        description="Portal connections, team & roles."
-      />
-      {showAdmin && team?.ok ? (
-        <TeamAdmin initial={team.members} viewerGlobal={team.viewerGlobal} projectName={project.name} />
-      ) : null}
-      {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
-      {trailAccounts?.ok ? <TrailAdmin initial={trailAccounts.accounts} sponsorReady={sponsorConfigured()} /> : null}
-      {showAdmin ? <BountySetup /> : null}
+  const connectionsSection = (
+    <div className="space-y-6">
       {showMyFarcaster && myFarcaster ? <MyFarcasterCard initial={myFarcaster} /> : null}
       <ConnectionsView
         projectName={project.name}
@@ -79,6 +69,40 @@ export default async function SettingsPage() {
           process.env.NEYNAR_CLIENT_ID
         }
       />
+    </div>
+  );
+
+  const teamSection =
+    (showAdmin && team?.ok) || portalAccess?.ok ? (
+      <div className="space-y-6">
+        {showAdmin && team?.ok ? (
+          <TeamAdmin initial={team.members} viewerGlobal={team.viewerGlobal} projectName={project.name} />
+        ) : null}
+        {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
+      </div>
+    ) : null;
+
+  const trailSection = trailAccounts?.ok ? (
+    <TrailAdmin initial={trailAccounts.accounts} sponsorReady={sponsorConfigured()} />
+  ) : null;
+
+  const bountiesSection = showAdmin ? <BountySetup /> : null;
+
+  const tabs: SettingsTab[] = [
+    { id: "connections", label: "Conexões", content: connectionsSection },
+    { id: "team", label: "Equipe", content: teamSection },
+    { id: "trail", label: "Curation Trail", content: trailSection },
+    { id: "bounties", label: "Bounties", content: bountiesSection },
+  ];
+
+  return (
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow={project.name}
+        title="Settings"
+        description="Portal connections, team & roles."
+      />
+      <SettingsTabs tabs={tabs} />
     </div>
   );
 }
