@@ -110,8 +110,17 @@ async function hiveCall(method, params) {
 }
 
 async function fetchHivePosts(account, limit) {
-  // bridge.get_account_posts sort "posts" = the account's own root posts (no reblogs).
+  // bridge.get_account_posts sort "posts" = the account's own root MAG posts (blog).
   return (await hiveCall("bridge.get_account_posts", { sort: "posts", account, limit })) || [];
+}
+
+const SNAPS_CONTAINER = process.env.TRAIL_SNAPS_CONTAINER || "peak.snaps";
+const BOOST_SNAPS = !/^(0|false|no)$/i.test(process.env.TRAIL_BOOST_SNAPS ?? "1");
+
+async function fetchHiveSnaps(account, limit) {
+  // SkateHive snaps are the account's comments into the peak.snaps container.
+  const comments = (await hiveCall("bridge.get_account_posts", { sort: "comments", account, limit })) || [];
+  return comments.filter((c) => c && c.parent_author === SNAPS_CONTAINER);
 }
 
 async function hiveUpvote(actor, author, permlink) {
@@ -192,6 +201,21 @@ async function tick(participants) {
           url: `https://peakd.com/@${post.author}/${post.permlink}`,
           postedAt, fresh: postedAt.getTime() >= freshCutoff,
         });
+      }
+      // Hive SNAPS — the account's comments into the peak.snaps container.
+      if (BOOST_SNAPS) {
+        const snaps = await fetchHiveSnaps(author.hive.account, PER_ACCOUNT_LIMIT);
+        for (const s of snaps) {
+          if (!s || s.author !== author.hive.account) continue;
+          const hash = `hive:${s.author}/${s.permlink}`;
+          const postedAt = new Date((s.created || "") + "Z");
+          await recordTrigger(author, participants, {
+            hash, platform: "hive", authorFid: null, authorHandle: s.author,
+            text: (s.body || "").slice(0, 140),
+            url: `https://peakd.com/@${s.author}/${s.permlink}`,
+            postedAt, fresh: postedAt.getTime() >= freshCutoff,
+          });
+        }
       }
     }
   }
