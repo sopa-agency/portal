@@ -3,7 +3,6 @@ import type { ProjectConfig } from "./types";
 import skatehive from "./skatehive";
 import gnars from "./gnars";
 import reelflip from "./reelflip";
-import coletivoxv from "./coletivoxv";
 import sopa from "./sopa";
 import keepkey from "./keepkey";
 import nogenta from "./nogenta";
@@ -16,7 +15,6 @@ export const PROJECT_REGISTRY: Record<string, ProjectConfig> = {
   skatehive,
   gnars,
   reelflip,
-  coletivoxv,
   sopa,
   keepkey,
   nogenta,
@@ -120,4 +118,4 @@ export async function getActiveProject(): Promise<ProjectConfig> {
 
 // Re-export types and individual project configs for convenience.
 export type { ProjectConfig } from "./types";
-export { skatehive, gnars, reelflip, coletivoxv, sopa, keepkey };
+export { skatehive, gnars, reelflip, sopa, keepkey };

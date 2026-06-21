@@ -7,4 +7,4 @@
 export type ZineBlogImage = { url: string; title: string };
 
 /** Hive authors selectable in the Zine blog image filter. */
-export const ZINE_BLOG_AUTHORS = ["xvlad", "nogenta", "web-gnar", "gnars", "coletivoxv", "reelflip"] as const;
+export const ZINE_BLOG_AUTHORS = ["xvlad", "nogenta", "web-gnar", "gnars", "reelflip"] as const;

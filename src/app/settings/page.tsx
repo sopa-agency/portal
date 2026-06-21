@@ -3,11 +3,9 @@ export const dynamic = "force-dynamic";
 import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { ConnectionsView } from "@/components/team-view";
-import { TeamAdmin } from "@/components/team-admin";
-import { PortalAccessManager } from "@/components/portal-access-manager";
 import { BountySetup } from "@/components/bounty-setup";
 import { getPortalConnections, verifyDiscordConnection, verifyFarcasterConnection } from "@/lib/portal-connections";
-import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
+import { listTeamMembers } from "@/app/actions/team-admin";
 import { MyFarcasterCard } from "@/components/my-farcaster-card";
 import { getMyFarcaster } from "@/app/actions/farcaster-member";
 import { isTrailParticipant } from "@/lib/farcaster-trail-config";
@@ -45,8 +43,6 @@ export default async function SettingsPage() {
   const isTeamHub = project.slug === "sopa";
   const team = isTeamHub ? await listTeamMembers().catch(() => null) : null;
   const showAdmin = isTeamHub && team?.ok && team.viewerRole === "admin";
-  // Cross-portal access — global admins only.
-  const portalAccess = isTeamHub && team?.ok && team.viewerGlobal ? await listAllPortalAccess().catch(() => null) : null;
 
   // Per-member Farcaster connection (QR) — only on trail portals.
   const showMyFarcaster = isTrailParticipant(project.slug);
@@ -72,16 +68,6 @@ export default async function SettingsPage() {
     </div>
   );
 
-  const teamSection =
-    (showAdmin && team?.ok) || portalAccess?.ok ? (
-      <div className="space-y-6">
-        {showAdmin && team?.ok ? (
-          <TeamAdmin initial={team.members} viewerGlobal={team.viewerGlobal} projectName={project.name} />
-        ) : null}
-        {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
-      </div>
-    ) : null;
-
   const trailSection = trailAccounts?.ok ? (
     <TrailAdmin initial={trailAccounts.accounts} sponsorReady={sponsorConfigured()} />
   ) : null;
@@ -90,7 +76,6 @@ export default async function SettingsPage() {
 
   const tabs: SettingsTab[] = [
     { id: "connections", label: "Conexões", content: connectionsSection },
-    { id: "team", label: "Equipe", content: teamSection },
     { id: "trail", label: "Curation Trail", content: trailSection },
     { id: "bounties", label: "Bounties", content: bountiesSection },
   ];

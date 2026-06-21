@@ -845,7 +845,7 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
   for (const p of getAllProjects()) {
     if (!p.githubProject) continue;
     const key = `${p.githubProject.org}#${p.githubProject.number}`;
-    if (seen.has(key)) continue; // shared boards (e.g. reelflip + coletivoxv) once
+    if (seen.has(key)) continue; // shared boards counted once
     seen.add(key);
     const r = await fetchGitHubProject(p).catch(() => null);
     if (!r || !r.ok) {
