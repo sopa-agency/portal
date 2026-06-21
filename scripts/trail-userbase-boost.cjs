@@ -60,21 +60,26 @@ async function queueBoosts(prisma, castHash) {
   let data;
   const filtered = await ub
     .from("userbase_hive_keys")
-    .select("hive_username")
+    .select("hive_username, trail_vote_weight")
     .or("trail_opt_out.is.null,trail_opt_out.eq.false")
     .limit(2000);
   if (filtered.error) {
     const all = await ub.from("userbase_hive_keys").select("hive_username").limit(2000);
     data = all.data;
-    console.warn("[boost] trail_opt_out column missing — using all keys (run the skatehive3.0 migration to enable opt-out).");
+    console.warn("[boost] trail_opt_out/weight columns missing — using all keys at default weight (run the skatehive3.0 migration).");
   } else {
     data = filtered.data;
   }
-  const names = shuffle((data || []).map((r) => r.hive_username).filter(Boolean));
-  const pick = names.slice(0, SUBSET);
+  const pick = shuffle((data || []).filter((r) => r.hive_username)).slice(0, SUBSET);
   if (!pick.length) return 0;
   await prisma.trailUserbaseBoost.createMany({
-    data: pick.map((u) => ({ castHash, hiveUsername: u, weight: WEIGHT, status: "pending" })),
+    // Each voter's own weight (default 50% once migrated); WEIGHT is the fallback.
+    data: pick.map((r) => ({
+      castHash,
+      hiveUsername: r.hive_username,
+      weight: typeof r.trail_vote_weight === "number" ? r.trail_vote_weight : WEIGHT,
+      status: "pending",
+    })),
     skipDuplicates: true,
   });
   return pick.length;
