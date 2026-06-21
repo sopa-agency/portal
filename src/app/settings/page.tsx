@@ -11,6 +11,8 @@ import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
 import { MyFarcasterCard } from "@/components/my-farcaster-card";
 import { getMyFarcaster } from "@/app/actions/farcaster-member";
 import { isTrailParticipant } from "@/lib/farcaster-trail-config";
+import { TrailAdmin } from "@/components/trail-admin";
+import { listTrailAccounts } from "@/app/actions/trail-admin";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -48,6 +50,9 @@ export default async function SettingsPage() {
   const showMyFarcaster = isTrailParticipant(project.slug);
   const myFarcaster = showMyFarcaster ? await getMyFarcaster().catch(() => null) : null;
 
+  // Trail registry admin — SOPA global admins only.
+  const trailAccounts = isTeamHub && team?.ok && team.viewerGlobal ? await listTrailAccounts().catch(() => null) : null;
+
   return (
     <div className="space-y-10">
       <PageHeader
@@ -59,6 +64,7 @@ export default async function SettingsPage() {
         <TeamAdmin initial={team.members} viewerGlobal={team.viewerGlobal} projectName={project.name} />
       ) : null}
       {portalAccess?.ok ? <PortalAccessManager initial={portalAccess.portals} /> : null}
+      {trailAccounts?.ok ? <TrailAdmin initial={trailAccounts.accounts} /> : null}
       {showAdmin ? <BountySetup /> : null}
       {showMyFarcaster && myFarcaster ? <MyFarcasterCard initial={myFarcaster} /> : null}
       <ConnectionsView
