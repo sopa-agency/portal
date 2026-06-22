@@ -4,15 +4,31 @@ import { elPos as pos } from "@/lib/studio/layout";
 import { imgBox } from "@/lib/studio/img-fit";
 import type { Card } from "@/lib/studio/schema";
 
-export type Assets = { seloReel: string; seloPreco: string; barcode: string };
+// Capa: todo o chrome fixo do topo (barra azul + REELFLIP + kicker + quadrinho + selo) é um único
+// PNG transparente (capaHeader) — texto Chalets vem renderizado do Figma, então não precisa da fonte.
+export type Assets = { capaHeader: string; barcode: string };
+
+// Subtítulo (rich): *palavra* vira amarelo (Figma usa "MEMÓRIA"). Satori não faz texto
+// inline-colorido com quebra de linha; o jeito Satori-safe é 1 item flex por palavra +
+// flexWrap, com as palavras marcadas pintadas de amarelo.
+function splitWords(text: string): { w: string; hot: boolean }[] {
+  const out: { w: string; hot: boolean }[] = [];
+  for (const seg of (text || "").split(/(\*[^*]+\*)/g)) {
+    if (!seg) continue;
+    const hot = seg.length > 2 && seg.startsWith("*") && seg.endsWith("*");
+    for (const w of (hot ? seg.slice(1, -1) : seg).split(/\s+/)) if (w) out.push({ w, hot });
+  }
+  return out;
+}
 
 // Caixa de texto (pill). Usa flex + inline-style (subset suportado pelo Satori).
+// rich=true → layout por palavras (flexWrap) com destaque *amarelo*; senão, texto simples.
 function Pill(props: {
   el?: string; x: number; y: number; w: number; text: string; fontSize: number;
   bg: string; color: string; border: number; radius: number; font?: string; padY?: number;
-  weight?: 400 | 700; lineHeight?: number;
+  weight?: 400 | 700; lineHeight?: number; rich?: boolean;
 }) {
-  const { el, x, y, w, text, fontSize, bg, color, border, radius, font = FONT_DISPLAY, padY = 16, weight = 700, lineHeight = 1.33 } = props;
+  const { el, x, y, w, text, fontSize, bg, color, border, radius, font = FONT_DISPLAY, padY = 16, weight = 700, lineHeight = 1.33, rich } = props;
   return (
     <div
       data-el={el}
@@ -21,9 +37,17 @@ function Pill(props: {
         padding: `${padY}px 18px`, backgroundColor: bg, border: `${border}px solid #000`, borderRadius: radius,
       }}
     >
-      <div style={{ width: "100%", textAlign: "center", fontFamily: font, fontWeight: weight, fontSize, color, lineHeight }}>
-        {text || " "}
-      </div>
+      {rich ? (
+        <div style={{ width: "100%", display: "flex", flexWrap: "wrap", justifyContent: "center", alignContent: "center", columnGap: Math.round(fontSize * 0.28), rowGap: Math.round(fontSize * 0.2), fontFamily: font, fontWeight: weight, fontSize, color, lineHeight }}>
+          {splitWords(text).map((t, i) => (
+            <div key={i} style={{ display: "flex", color: t.hot ? COLORS.yellow : color }}>{t.w}</div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ width: "100%", textAlign: "center", fontFamily: font, fontWeight: weight, fontSize, color, lineHeight }}>
+          {text || " "}
+        </div>
+      )}
     </div>
   );
 }
@@ -99,10 +123,13 @@ function BlocoBox({ b }: { b: Card["blocos"][number] }) {
 function CapaLayer({ card, assets }: { card: Extract<Card, { tipo: "capa" }>; assets: Assets }) {
   // editáveis (arrastáveis no editor → têm data-el)
   const tp = pos(card, "titulo");
-  // grupo "Fixo" (Figma 27:532): chrome estático, posições travadas no DEF, SEM data-el (não editável)
-  const kk = DEF.kicker, sr = DEF.seloReel, sp = DEF.seloPreco, bp = DEF.barcode;
+  const bp = DEF.barcode;
   return (
     <>
+      {/* chrome FIXO do topo (barra azul + REELFLIP + kicker + quadrinho + selo) pré-renderizado
+          como PNG transparente (Chalets real do Figma) — antes do título p/ o título ficar por cima. */}
+      <img src={assets.capaHeader} width={1080} height={322} style={{ position: "absolute", left: 0, top: 0, width: 1080, height: 322 }} />
+
       {/* título: técnica do Figma (nós 1:323/1:324) — cópia PRETA deslocada (sombra dura)
           atrás de uma cópia AMARELA, ambas com contorno preto (stroke wt5 + drop shadow). */}
       {(() => {
@@ -114,8 +141,8 @@ function CapaLayer({ card, assets }: { card: Extract<Card, { tipo: "capa" }>; as
         return (
           <div data-el="titulo" style={{ position: "absolute", left: tp.x, top: tp.y, width: tp.w, display: "flex" }}>
             <div style={{ position: "relative", width: "100%", display: "flex" }}>
-              {/* sombra dura: cópia preta deslocada p/ baixo-esquerda */}
-              <div style={{ ...titleBase, ...stroke, position: "absolute", left: -14, top: 18, color: "#000" }}>
+              {/* sombra dura: cópia AZUL deslocada p/ baixo-esquerda (Figma 119:544 — antes era preta) */}
+              <div style={{ ...titleBase, ...stroke, position: "absolute", left: -14, top: 18, color: COLORS.blue }}>
                 {card.titulo}
               </div>
               {/* fill amarelo com contorno preto */}
@@ -127,21 +154,8 @@ function CapaLayer({ card, assets }: { card: Extract<Card, { tipo: "capa" }>; as
         );
       })()}
 
-      {/* caption (caixa vinho, texto branco) — Figma usa TOOM Regular, não bold */}
-      <Pill el="hook" {...pos(card, "hook")} text={card.subtitulo} fontSize={32} bg={COLORS.wine} color="#f5f5f5" border={7} radius={0} padY={18} weight={400} lineHeight={1.0} />
-
-      {/* ===== grupo Fixo (chrome estático, não editável) ===== */}
-      {/* kicker */}
-      <div style={{ position: "absolute", left: kk.x, top: kk.y, width: kk.w, height: 81, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: COLORS.wine, border: "6px solid #000" }}>
-        <div style={{ fontFamily: FONT_GROTESK, fontSize: 32, fontWeight: 400, color: "#000" }}>UM ‘FLIP’ NA PERSPECTIVA</div>
-      </div>
-
-      {/* linha divisória vertical na barra do topo (Figma 27:527) */}
-      <div style={{ position: "absolute", left: 151, top: 0, width: 6, height: 81, backgroundColor: "#000" }} />
-
-      {/* selos reais */}
-      <img src={assets.seloReel} width={sr.w} height={sr.h} style={{ position: "absolute", left: sr.x, top: sr.y }} />
-      <img src={assets.seloPreco} width={sp.w} height={sp.h} style={{ position: "absolute", left: sp.x, top: sp.y }} />
+      {/* caption (caixa AZUL, texto branco) — Figma 119:539/543: TOOM Regular, *destaque* em amarelo */}
+      <Pill el="hook" {...pos(card, "hook")} text={card.subtitulo} rich fontSize={32} bg={COLORS.blue} color="#f5f5f5" border={7} radius={0} padY={18} weight={400} lineHeight={1.0} />
 
       {/* código de barras (Figma 27:535): caixa branca + barras que transbordam + número fake */}
       {/* caixa branca de fundo (Figma 27:519): w=202, atrás das barras */}

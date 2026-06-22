@@ -41,8 +41,7 @@ const RENDER_CONCURRENCY = 3; // renders Satori em paralelo no export .zip
 const THUMB_W = 36; // largura do thumbnail na lista de cards (px)
 
 const CLIENT_ASSETS: Assets = {
-  seloReel: "/studio/assets/selo-reelflip.png",
-  seloPreco: "/studio/assets/selo-preco.png",
+  capaHeader: "/studio/assets/capa-header.png?v=1", // chrome fixo do topo da capa (Figma 119:540/547/549/550)
   barcode: "/studio/assets/barcode.png?v=3", // ?v= força refetch quando o asset muda (browser cacheia por URL)
 };
 
@@ -1009,6 +1008,7 @@ export function Editor({
               <>
                 <Label className="text-muted-foreground">Subtítulo / gancho</Label>
                 <Textarea value={card.subtitulo} onChange={(e) => patchActive((c) => ({ ...c, subtitulo: e.target.value }) as Card)} rows={2} />
+                <p className="text-xs text-foreground-subtle">Envolva uma palavra em <code>*asteriscos*</code> para destacá-la em amarelo.</p>
               </>
             )}
 

@@ -72,11 +72,10 @@ export async function loadAssets(): Promise<Assets> {
   const dir = path.join(root, "public", "studio", "assets");
   const du = async (file: string) =>
     "data:image/png;base64," + (await readFile(path.join(dir, file))).toString("base64");
-  const [seloReel, seloPreco, barcode] = await Promise.all([
-    du("selo-reelflip.png"),
-    du("selo-preco.png"),
+  const [capaHeader, barcode] = await Promise.all([
+    du("capa-header.png"),
     du("barcode.png"),
   ]);
-  _assets = { seloReel, seloPreco, barcode };
+  _assets = { capaHeader, barcode };
   return _assets;
 }
