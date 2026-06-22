@@ -51,6 +51,43 @@ function toLocalInput(d: Date): string {
 
 type Occurrence = { meeting: MeetingDTO; start: Date; end: Date; dayIndex: number };
 
+// Lay out a day's events into side-by-side lanes only where they OVERLAP in
+// time. A lone event in its time-slot fills the full cell width; a cluster of
+// N overlapping events splits the width into N. Returns fractional left/width
+// (0..1) per meeting id.
+function computeLanes(occs: Occurrence[]): Map<string, { left: number; width: number }> {
+  const out = new Map<string, { left: number; width: number }>();
+  const sorted = [...occs].sort((a, b) => a.start.getTime() - b.start.getTime() || a.end.getTime() - b.end.getTime());
+  const laneEnd: number[] = [];
+  const lane = new Map<string, number>();
+  let cluster: Occurrence[] = [];
+  let clusterMaxEnd = -Infinity;
+  const flush = () => {
+    if (!cluster.length) return;
+    const total = Math.max(...cluster.map((o) => (lane.get(o.meeting.id) ?? 0) + 1));
+    for (const o of cluster) {
+      const l = lane.get(o.meeting.id) ?? 0;
+      out.set(o.meeting.id, { left: l / total, width: 1 / total });
+    }
+    cluster = [];
+  };
+  for (const o of sorted) {
+    if (cluster.length && o.start.getTime() >= clusterMaxEnd) {
+      flush();
+      laneEnd.length = 0;
+      clusterMaxEnd = -Infinity;
+    }
+    let placed = laneEnd.findIndex((end) => end <= o.start.getTime());
+    if (placed === -1) { placed = laneEnd.length; laneEnd.push(0); }
+    laneEnd[placed] = o.end.getTime();
+    lane.set(o.meeting.id, placed);
+    cluster.push(o);
+    clusterMaxEnd = Math.max(clusterMaxEnd, o.end.getTime());
+  }
+  flush();
+  return out;
+}
+
 // Where (if anywhere) a meeting shows in the visible week.
 function occurrenceInWeek(m: MeetingDTO, weekStart: Date): Occurrence | null {
   const s = new Date(m.startsAt);
@@ -494,18 +531,29 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
                   </div>
                 );
               })}
-              {/* events for this day */}
-              {occurrences.filter((o) => o.dayIndex === di).map((o) => {
+              {/* events for this day — lane-split only where they overlap */}
+              {(() => {
+                const dayOccs = occurrences.filter((o) => o.dayIndex === di);
+                const lanes = computeLanes(dayOccs);
+                return dayOccs.map((o) => {
                 const top = ((o.start.getHours() + o.start.getMinutes() / 60) - DAY_START) * HOUR_H;
                 const height = Math.max(20, ((o.end.getTime() - o.start.getTime()) / 3600000) * HOUR_H);
                 const c = o.meeting.color ?? accent;
+                const pos = lanes.get(o.meeting.id) ?? { left: 0, width: 1 };
                 return (
                   <button
                     key={o.meeting.id}
                     type="button"
                     onClick={(e) => { e.stopPropagation(); openEdit(o.meeting); }}
-                    style={{ top: Math.max(0, top), height, backgroundColor: `${c}22`, borderColor: c }}
-                    className="absolute left-[44%] right-1 z-10 overflow-hidden rounded-md border-l-2 px-1.5 py-0.5 text-left hover:brightness-110"
+                    style={{
+                      top: Math.max(0, top),
+                      height,
+                      left: `calc(${pos.left * 100}% + 2px)`,
+                      width: `calc(${pos.width * 100}% - 4px)`,
+                      backgroundColor: `${c}22`,
+                      borderColor: c,
+                    }}
+                    className="absolute z-10 overflow-hidden rounded-md border-l-2 px-1.5 py-0.5 text-left hover:brightness-110"
                   >
                     <div className="flex items-center gap-1 truncate text-[11px] font-semibold text-foreground">
                       {o.meeting.weekly && <Repeat className="h-2.5 w-2.5 shrink-0 text-foreground-subtle" />}
@@ -518,7 +566,8 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
                     </div>
                   </button>
                 );
-              })}
+                });
+              })()}
             </div>
           ))}
         </div>
