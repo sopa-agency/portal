@@ -5,6 +5,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma, withDbRetry } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { uploadMediaToPinata, createPinataSignedUploadUrl, normalizeMediaUrl } from "@/lib/social-publish";
 import { publishInstagramPost, fetchRecentInstagramMedia } from "@/lib/instagram-publish";
 import { publishFacebookPost, facebookCrosspostEnabled } from "@/lib/facebook-publish";
@@ -48,6 +49,7 @@ export type DraftRow = {
   musicNote: string;
   brandedPartner: string;
   locationNote: string;
+  studioDoc: unknown | null; // Zine Studio carousel doc (rehydrates the studio on reload)
 };
 
 // ---------------------------------------------------------------------------
@@ -106,6 +108,7 @@ function rowToPlain(row: {
   musicNote?: string | null;
   brandedPartner?: string | null;
   locationNote?: string | null;
+  studioDoc?: unknown;
 }): DraftRow {
   return {
     id: row.id,
@@ -131,6 +134,7 @@ function rowToPlain(row: {
     musicNote: row.musicNote ?? "",
     brandedPartner: row.brandedPartner ?? "",
     locationNote: row.locationNote ?? "",
+    studioDoc: row.studioDoc ?? null,
   };
 }
 
@@ -187,6 +191,7 @@ export async function listDrafts(): Promise<
     const rows = await prisma.instagramPost.findMany({
       where: { projectSlug: project.slug },
       orderBy: [{ updatedAt: "desc" }],
+      omit: { studioDoc: true }, // doc pesado (data-URIs) só é buscado on-demand via getPost
     });
     // Sort: scheduled first (by scheduledFor asc), then draft/failed, then published
     const sorted = [...rows].sort((a, b) => {
@@ -246,6 +251,7 @@ export async function createDraft(params: {
   musicNote?: string;
   brandedPartner?: string;
   locationNote?: string;
+  studioDoc?: unknown;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const { project, username } = await authGate();
@@ -267,6 +273,7 @@ export async function createDraft(params: {
         musicNote: params.musicNote?.trim() ?? null,
         brandedPartner: params.brandedPartner?.trim() ?? null,
         locationNote: params.locationNote?.trim() ?? null,
+        ...(params.studioDoc != null ? { studioDoc: params.studioDoc as Prisma.InputJsonValue } : {}),
         publishMode,
       },
     }));
@@ -295,6 +302,7 @@ export async function updateDraft(
     musicNote?: string;
     brandedPartner?: string;
     locationNote?: string;
+    studioDoc?: unknown;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
@@ -328,6 +336,7 @@ export async function updateDraft(
         ...(params.musicNote !== undefined ? { musicNote: params.musicNote.trim() || null } : {}),
         ...(params.brandedPartner !== undefined ? { brandedPartner: params.brandedPartner.trim() || null } : {}),
         ...(params.locationNote !== undefined ? { locationNote: params.locationNote.trim() || null } : {}),
+        ...(params.studioDoc != null ? { studioDoc: params.studioDoc as Prisma.InputJsonValue } : {}),
         publishMode,
       },
     }));

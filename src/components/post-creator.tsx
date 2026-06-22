@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import {
   listDrafts,
+  getPost,
   createDraft,
   updateDraft,
   deleteDraft,
@@ -1653,6 +1654,13 @@ export function PostCreator({
   const [topic, setTopic] = useState("");
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
 
+  // Zine Studio ↔ draft: the editable carousel doc travels with the post.
+  // studioDocRef holds the latest doc (kept fresh by the editor's onDocChange);
+  // studioInitialDoc seeds the editor on load; studioKey remounts it on new/load.
+  const studioDocRef = useRef<unknown>(null);
+  const [studioInitialDoc, setStudioInitialDoc] = useState<unknown>(null);
+  const [studioKey, setStudioKey] = useState(0);
+
   // Prefill from a "Take action" hand-off (Morning Briefing → post): seed the
   // caption once on mount, then clear the stash so a reload starts blank.
   useEffect(() => {
@@ -2093,7 +2101,10 @@ export function PostCreator({
   // Studio → post: upload the rendered cards and seed the wizard
   // ---------------------------------------------------------------------------
 
-  async function handleUseInPost(files: File[], legenda: string, aspectHint?: number) {
+  async function handleUseInPost(files: File[], legenda: string, aspectHint?: number, doc?: unknown) {
+    // Capture the editable studio doc so saving the draft persists it (carousel only;
+    // the video editor passes no doc → clears it).
+    studioDocRef.current = doc ?? null;
     const capped = files.slice(0, 10); // Instagram carousel hard limit
     const seeded: UploadState[] = [];
     // Real media probing — the Studio video editor sends videos through here
@@ -2183,6 +2194,7 @@ export function PostCreator({
       musicNote,
       brandedPartner,
       locationNote,
+      studioDoc: studioDocRef.current ?? undefined,
     };
   }
 
@@ -2264,6 +2276,18 @@ export function PostCreator({
     setPublishResult(null);
     setSaveMsg(null);
 
+    // Rehydrate the Zine Studio from this post's saved doc (fetched on demand —
+    // kept out of the drafts list to stay lean). Remount the editor either way.
+    studioDocRef.current = null;
+    setStudioInitialDoc(null);
+    void getPost(d.id).then((r) => {
+      if (r.ok && r.post.studioDoc) {
+        studioDocRef.current = r.post.studioDoc;
+        setStudioInitialDoc(r.post.studioDoc);
+      }
+      setStudioKey((k) => k + 1);
+    });
+
     // Jump to Review step after loading
     setViewTab("create");
     navigate("review", "forward");
@@ -2299,6 +2323,10 @@ export function PostCreator({
     setPendingTag(null);
     setScheduleValue("");
     setScheduleMsg(null);
+    // Fresh post → clean studio.
+    studioDocRef.current = null;
+    setStudioInitialDoc(null);
+    setStudioKey((k) => k + 1);
     setViewTab("create");
     navigate("type", "back");
   }
@@ -3539,7 +3567,13 @@ export function PostCreator({
                     Os cards de design são 4:5. Para {aspectRatio}, use o <button type="button" onClick={() => setStudioMode("video")} className="font-semibold underline">Video</button> (ou volte o formato para 4:5).
                   </div>
                 )}
-                <StudioEditor onUseInPost={handleUseInPost} spotMode={spotStudio} />
+                <StudioEditor
+                  key={studioKey}
+                  initialDoc={studioInitialDoc}
+                  onUseInPost={handleUseInPost}
+                  onDocChange={(d) => { studioDocRef.current = d; }}
+                  spotMode={spotStudio}
+                />
               </>
             ) : (
               <StudioVideoEditor

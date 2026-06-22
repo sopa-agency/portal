@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import JSZip from "jszip";
 import { toast } from "sonner";
 import {
-  Plus, Copy, Trash2, Download, Upload, FileJson, ChevronLeft, ChevronRight,
+  Plus, Trash2, Download, ChevronLeft, ChevronRight,
   ZoomIn, ZoomOut, RotateCcw, ArrowUp, ArrowDown, Image as ImageIcon, Loader2, Crop, Check,
   Heart, MessageCircle, Send, Bookmark, MoreVertical, Undo2, Redo2, Pipette, MapPin,
 } from "lucide-react";
@@ -20,7 +20,7 @@ import {
   Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
 } from "@/components/studio/ui/tooltip";
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/studio/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -30,13 +30,12 @@ import { CardArtwork, type Assets } from "@/components/studio/card-artwork";
 import { CARD_W, CARD_H, COLORS, type ElKey } from "@/lib/studio/tokens";
 import { elPos, withLayout, resetLayout } from "@/lib/studio/layout";
 import { type ImgFit, type ImgNat, DEFAULT_FIT, MIN_SCALE, MAX_SCALE, clampFit, zoomAt } from "@/lib/studio/img-fit";
-import { parseScript, newId, normalizeDoc } from "@/lib/studio/parse-script";
+import { newId, normalizeDoc } from "@/lib/studio/parse-script";
 import { SEED_DOC } from "@/lib/studio/seed";
 import { ZCarousel, type Card, type Carousel } from "@/lib/studio/schema";
 import { listSkateSpots, type SkateSpot } from "@/app/actions/skate-spots";
-import { listStudioTemplates, saveStudioTemplate, getStudioTemplate, deleteStudioTemplate, type StudioTemplateMeta } from "@/app/actions/studio-templates";
 
-const STORAGE_KEY = "reelflip-studio:doc:v1";
+const STORAGE_KEY = "reelflip-studio:doc:v2";
 const RENDER_CONCURRENCY = 3; // renders Satori em paralelo no export .zip
 const THUMB_W = 36; // largura do thumbnail na lista de cards (px)
 
@@ -74,6 +73,12 @@ function makeSpotSeed(): Carousel {
   return { meta: { handle: "skatehive", local: "", legenda: "" }, cards: [newCard("spot")] };
 }
 
+// Studio começa LIMPO: 1 capa em branco (sem o roteiro-exemplo de 10 cards).
+// meta da marca vem do SEED_DOC (handle/local), legenda zerada.
+function makeBlankDoc(): Carousel {
+  return { meta: { ...SEED_DOC.meta, legenda: "" }, cards: [newCard("capa")] };
+}
+
 type Rect = { x: number; y: number; w: number; h: number };
 
 // Portal adaptation: optional hook — when set, a "Usar no post" CTA renders
@@ -81,56 +86,37 @@ type Rect = { x: number; y: number; w: number; h: number };
 // (the Post Creator wizard). Standalone behavior is unchanged when absent.
 export function Editor({
   onUseInPost,
+  onDocChange,
+  initialDoc,
   spotMode = false,
 }: {
-  onUseInPost?: (files: File[], caption: string, aspectHint?: number) => Promise<void>;
+  onUseInPost?: (files: File[], caption: string, aspectHint?: number, doc?: Carousel) => Promise<void>;
+  /** Persistência por draft: quando setado, o host gerencia o doc (sem localStorage).
+   *  Chamado (debounced) a cada mudança p/ o host guardar junto do draft. */
+  onDocChange?: (doc: Carousel) => void;
+  /** Doc inicial vindo do draft carregado (JSON validado via Zod). Ausente = studio limpo. */
+  initialDoc?: unknown;
   /** SkateHive "Skate Spot Found!" mode: seeds a spot card + spot-map picker
    *  instead of the default reelflip card template. */
   spotMode?: boolean;
 } = {}) {
   const storageKey = spotMode ? "skatehive-spot-studio:doc:v1" : STORAGE_KEY;
   const filePrefix = spotMode ? "skatespot" : "reelflip";
-  const [doc, setDoc] = useState<Carousel>(() => (spotMode ? makeSpotSeed() : structuredClone(SEED_DOC)));
+  // managed = host (Post Creator) cuida da persistência via draft → ignora localStorage.
+  const managed = !!onDocChange;
+  const onDocChangeRef = useRef(onDocChange); onDocChangeRef.current = onDocChange;
+  const [doc, setDoc] = useState<Carousel>(() => {
+    if (spotMode) return makeSpotSeed();
+    if (initialDoc) {
+      const p = ZCarousel.safeParse(initialDoc);
+      if (p.success && p.data.cards.length) return normalizeDoc(p.data);
+    }
+    return makeBlankDoc();
+  });
   const [active, setActive] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
-  const [scale, setScale] = useState(0.42);
+  const [scale, setScale] = useState(0.30);
   const [rects, setRects] = useState<Record<string, Rect>>({});
-  const [importOpen, setImportOpen] = useState(false);
-  const [importText, setImportText] = useState("");
-  // Saved (server) templates — name + reuse the whole doc.
-  const [templates, setTemplates] = useState<StudioTemplateMeta[]>([]);
-  const [tplBusy, setTplBusy] = useState(false);
-  const refreshTemplates = useCallback(() => {
-    listStudioTemplates().then((r) => { if (r.ok) setTemplates(r.templates); });
-  }, []);
-  useEffect(() => { refreshTemplates(); }, [refreshTemplates]);
-  const saveTemplate = useCallback(async () => {
-    const name = window.prompt("Nome do template:");
-    if (!name?.trim()) return;
-    setTplBusy(true);
-    const r = await saveStudioTemplate(name.trim(), doc, spotMode ? "spot" : "design");
-    setTplBusy(false);
-    if (r.ok) { toast.success(`Template "${name.trim()}" salvo`); refreshTemplates(); }
-    else toast.error("Falha ao salvar template", { description: r.error });
-  }, [doc, spotMode, refreshTemplates]);
-  const loadTemplate = useCallback(async (id: string) => {
-    setTplBusy(true);
-    const r = await getStudioTemplate(id);
-    setTplBusy(false);
-    if (!r.ok) { toast.error("Falha ao carregar", { description: r.error }); return; }
-    const parsed = ZCarousel.safeParse(r.doc);
-    if (!parsed.success) { toast.error("Template inválido."); return; }
-    setDoc(parsed.data);
-    setActive(0);
-    setSelected(null);
-    toast.success(`Template "${r.name}" carregado`);
-  }, []);
-  const removeTemplate = useCallback(async (id: string, name: string) => {
-    if (!window.confirm(`Apagar o template "${name}"?`)) return;
-    const r = await deleteStudioTemplate(id);
-    if (r.ok) { toast.success("Template apagado"); refreshTemplates(); }
-    else toast.error("Falha ao apagar", { description: r.error });
-  }, [refreshTemplates]);
   const [busy, setBusy] = useState<null | "one" | "zip">(null);
   const [framing, setFraming] = useState(false); // modo "enquadrar imagem" (pan/zoom do fundo)
   const [grabbing, setGrabbing] = useState(false); // feedback de cursor durante o pan da imagem
@@ -144,7 +130,6 @@ export function Editor({
 
   const innerRef = useRef<HTMLDivElement>(null);
   const fileImg = useRef<HTMLInputElement>(null);
-  const fileJson = useRef<HTMLInputElement>(null);
   const drag = useRef<null | { key: string; mode: "move" | "resize"; cardIdx: number; sx: number; sy: number; ox: number; oy: number; ow: number }>(null);
   const imgDrag = useRef<null | { sx: number; sy: number; ox: number; oy: number; cardIdx: number }>(null);
   const inspectorRef = useRef<HTMLDivElement>(null);
@@ -166,17 +151,6 @@ export function Editor({
     });
     setActive((a) => a + 1);
     setSelected(null);
-  };
-  const dupCard = () => {
-    setDoc((d) => {
-      const clone = JSON.parse(JSON.stringify(d.cards[active])) as Card;
-      clone.id = newId();
-      clone.blocos = clone.blocos.map((b) => ({ ...b, id: newId() }));
-      const cards = [...d.cards];
-      cards.splice(active + 1, 0, clone);
-      return { ...d, cards };
-    });
-    setActive((a) => a + 1);
   };
   const delCard = (i: number) => {
     if (doc.cards.length === 1) return toast.error("Precisa de ao menos 1 card.");
@@ -397,27 +371,31 @@ export function Editor({
     }));
   }, []);
 
-  // ---- autosave (localStorage, debounced + best-effort) ----
+  // ---- autosave (debounced) ----
+  // managed → entrega o doc ao host (Post Creator) p/ salvar junto do draft.
+  // standalone → localStorage best-effort.
   const quotaWarned = useRef(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const t = setTimeout(() => {
+      if (managed) { onDocChangeRef.current?.(doc); return; }
       try {
         window.localStorage.setItem(storageKey, JSON.stringify(doc));
       } catch {
         // QuotaExceeded: imagens data-URI estouram o limite do navegador → autosave best-effort.
         if (!quotaWarned.current) {
           quotaWarned.current = true;
-          toast.warning("Autosave pausado", { description: "Documento grande p/ o navegador guardar (imagens). Use Salvar JSON." });
+          toast.warning("Autosave pausado", { description: "Documento grande p/ o navegador guardar (imagens)." });
         }
       }
     }, 600);
     return () => clearTimeout(t);
-  }, [doc, storageKey]);
+  }, [doc, storageKey, managed]);
 
   // restaura do localStorage 1x no mount (pós-hidratação → sem mismatch). Zod migra docs antigos.
+  // managed → o doc vem do draft (initialDoc), não do localStorage.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (managed || typeof window === "undefined") return;
     let raw: string | null = null;
     try { raw = window.localStorage.getItem(storageKey); } catch { return; }
     if (!raw) return;
@@ -429,7 +407,7 @@ export function Editor({
       if (!parsed.success || !parsed.data.cards.length) return;
       replaceDoc(normalizeDoc(parsed.data));
     } catch { /* ignora restauro corrompido — segue com o seed */ }
-  }, [replaceDoc, storageKey]);
+  }, [replaceDoc, storageKey, managed]);
 
   // ---- enquadramento da imagem de fundo (pan + zoom, estilo Figma) ----
   // o fn recebe (fit, nat) — nat = dimensões naturais da foto, derivadas do card aqui dentro
@@ -569,36 +547,6 @@ export function Editor({
     return () => window.removeEventListener("keydown", onKey);
   }, [doc.cards.length, active, undo, redo, nudgeSelected, cancelFraming, commitFraming]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---- import / json ----
-  const doImport = () => {
-    try {
-      const parsed = normalizeDoc(parseScript(importText.trim()));
-      if (!parsed.cards.length) throw new Error("nenhum slide reconhecido");
-      replaceDoc(parsed); setImportOpen(false);
-      toast.success(`Importado: ${parsed.cards.length} cards`);
-    } catch (err) {
-      toast.error("Não consegui ler o script.", { description: "Verifique o formato e tente de novo." });
-      console.error(err);
-    }
-  };
-  const loadJson = (file: File) => {
-    const r = new FileReader();
-    r.onload = () => {
-      try {
-        // Zod = validação + migração: docs antigos ganham defaults (imgFit/imgW/id) em vez de quebrar o editor.
-        const parsed = ZCarousel.safeParse(JSON.parse(r.result as string));
-        if (!parsed.success || !parsed.data.cards.length) throw new Error("estrutura inválida");
-        replaceDoc(normalizeDoc(parsed.data));
-        toast.success(`JSON carregado: ${parsed.data.cards.length} cards`);
-      } catch (err) { toast.error("JSON inválido.", { description: "O arquivo não pôde ser lido." }); console.error(err); }
-    };
-    r.readAsText(file);
-  };
-  const saveJson = () => {
-    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
-    downloadBlob(blob, "carrossel.json");
-  };
-
   // ---- export (server Satori) ----
   const renderPng = async (c: Card): Promise<Blob> => {
     const res = await fetch("/api/studio/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: c }) });
@@ -636,7 +584,8 @@ export function Editor({
       // Reelflip cards render at a fixed 1080×1350 (4:5) — pass that so the post
       // creator locks the preview crop instead of re-probing each PNG.
       // Caption is authored in the post creator, not the carousel studio.
-      await onUseInPost(files, "", 1080 / 1350);
+      // passa o doc editável junto → o Post Creator salva no draft (studio ↔ post).
+      await onUseInPost(files, "", 1080 / 1350, doc);
       toast.success("Cards no post!", { id: tid });
     } catch (e) { toast.error("Falha ao usar no post.", { id: tid, description: "Tente novamente." }); console.error(e); }
     finally { setBusy(null); }
@@ -729,40 +678,6 @@ export function Editor({
         </div>
         <Separator />
         <div className="flex flex-col gap-1.5 p-3">
-          <Button size="sm" variant="secondary" onClick={dupCard}><Copy className="size-3.5" />Duplicar card</Button>
-          <Button size="sm" onClick={() => setImportOpen(true)}><Upload className="size-3.5" />Importar script</Button>
-          <div className="flex gap-1.5">
-            <Button size="sm" variant="secondary" className="flex-1" onClick={() => fileJson.current?.click()}><FileJson className="size-3.5" />Carregar</Button>
-            <Button size="sm" variant="secondary" className="flex-1" onClick={saveJson}>Salvar JSON</Button>
-          </div>
-          <input ref={fileJson} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && loadJson(e.target.files[0])} />
-
-          {/* Saved templates (server) — reuse the whole layout */}
-          <div className="rounded-md border border-border/60 p-2">
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-muted-foreground">Templates</span>
-              <Button size="sm" variant="secondary" disabled={tplBusy} onClick={saveTemplate} className="h-6 px-2 text-[11px]">
-                {tplBusy ? <Loader2 className="size-3 animate-spin" /> : "Salvar template"}
-              </Button>
-            </div>
-            {templates.length === 0 ? (
-              <p className="text-[10px] text-muted-foreground">Nenhum template salvo ainda.</p>
-            ) : (
-              <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
-                {templates.map((t) => (
-                  <div key={t.id} className="flex items-center gap-1">
-                    <button type="button" onClick={() => loadTemplate(t.id)} className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-[11px] text-foreground hover:bg-muted">
-                      {t.name}
-                    </button>
-                    <button type="button" aria-label="Apagar" onClick={() => removeTemplate(t.id, t.name)} className="shrink-0 rounded p-1 text-muted-foreground hover:text-red-500">
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <Separator className="my-1" />
           {onUseInPost && (
             <Button size="sm" onClick={useInPost} disabled={!!busy}>
               {busy === "zip" ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
@@ -1040,18 +955,6 @@ export function Editor({
           </div>
         </div>
       </aside>
-
-      <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>Importar script</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground">Formato: <code>### [ SLIDE N — CAPA/CTA ]</code> + <code>**TÍTULO:** **SUBTÍTULO:** **TEXTO:**</code> · <code>## LEGENDA</code></p>
-          <Textarea value={importText} onChange={(e) => setImportText(e.target.value)} rows={14} className="font-mono text-xs" placeholder="cole o script aqui…" />
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setImportOpen(false)}>Cancelar</Button>
-            <Button onClick={doImport}>Importar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* SkateHive spot map picker */}
       <Dialog open={spotsOpen} onOpenChange={setSpotsOpen}>
