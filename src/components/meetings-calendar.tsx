@@ -106,6 +106,24 @@ function occurrenceInWeek(m: MeetingDTO, weekStart: Date): Occurrence | null {
   return null;
 }
 
+// Does a meeting occur on a specific calendar day? Used by the month view.
+function occurrenceOnDay(m: MeetingDTO, day: Date): { start: Date; end: Date } | null {
+  const s = new Date(m.startsAt);
+  const e = new Date(m.endsAt);
+  const durMs = Math.max(15 * 60000, e.getTime() - s.getTime());
+  const sameYMD = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (m.weekly) {
+    if (day.getDay() !== s.getDay()) return null;
+    const sDay = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+    if (day.getTime() < sDay.getTime()) return null; // series starts later
+    const start = new Date(day);
+    start.setHours(s.getHours(), s.getMinutes(), 0, 0);
+    return { start, end: new Date(start.getTime() + durMs) };
+  }
+  return sameYMD(s, day) ? { start: s, end: e } : null;
+}
+
 type ProjectOption = { slug: string; name: string; members: RosterMember[] };
 type Editor = {
   id: string | null;
@@ -130,7 +148,20 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
   const invitable = useMemo(() => membersWithEmail(defaultProject), [projects, defaultProject]);
   const teamEmails = useMemo(() => invitable.map((m) => m.email), [invitable]);
   const [meetings, setMeetings] = useState<MeetingDTO[]>(initialMeetings);
-  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
+  const [view, setView] = useState<"day" | "week" | "month">("week");
+  const [cursor, setCursor] = useState<Date>(() => new Date());
+  const weekStart = useMemo(() => startOfWeek(cursor), [cursor]);
+  // Step the cursor by the active view's unit.
+  const goTo = (dir: -1 | 0 | 1) => {
+    if (dir === 0) { setCursor(new Date()); return; }
+    setCursor((c) => {
+      const n = new Date(c);
+      if (view === "day") n.setDate(n.getDate() + dir);
+      else if (view === "week") n.setDate(n.getDate() + dir * 7);
+      else n.setMonth(n.getMonth() + dir);
+      return n;
+    });
+  };
   const [editor, setEditor] = useState<null | Editor>(null);
   // Members selectable as attendees for the meeting being edited (its project).
   const editorMembers = useMemo(() => (editor ? membersWithEmail(editor.forProject) : []), [editor, projects]);
@@ -200,7 +231,18 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
     });
   }, [calPanel, serviceEmail]);
 
-  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  // Visible day columns for the time-grid (day = 1, week = 7).
+  const days = useMemo(
+    () => (view === "day" ? [new Date(cursor)] : Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))),
+    [view, cursor, weekStart],
+  );
+  // Month grid: 6 weeks × 7 days covering the cursor's month (leading/trailing
+  // days from adjacent months included for a full grid).
+  const monthGrid = useMemo(() => {
+    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+    const gridStart = startOfWeek(first);
+    return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+  }, [cursor]);
   const today = new Date();
 
   // Refetch availability (team roster auto-loads server-side + manual calendars)
@@ -368,7 +410,12 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
     setSaving(false);
   }
 
-  const weekLabel = `${days[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} – ${days[6].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}`;
+  const rangeLabel =
+    view === "day"
+      ? cursor.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" })
+      : view === "month"
+        ? cursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+        : `${days[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} – ${days[6].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}`;
 
   return (
     <div className="flex h-[calc(100dvh-3rem)] flex-col gap-3 md:h-[calc(100dvh-4rem)]">
@@ -393,11 +440,24 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setWeekStart(startOfWeek(new Date()))} className="rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground">Hoje</button>
+          {/* View switcher */}
+          <div className="flex items-center rounded-lg border border-border text-xs">
+            {(["day", "week", "month"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                className={`px-2.5 py-1.5 font-medium transition-colors ${view === v ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`}
+              >
+                {v === "day" ? "Dia" : v === "week" ? "Semana" : "Mês"}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => goTo(0)} className="rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground">Hoje</button>
           <div className="flex items-center rounded-lg border border-border">
-            <button type="button" onClick={() => setWeekStart((w) => addDays(w, -7))} aria-label="Semana anterior" className="px-2 py-1.5 text-foreground-muted hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="w-32 text-center text-xs font-medium text-foreground">{weekLabel}</span>
-            <button type="button" onClick={() => setWeekStart((w) => addDays(w, 7))} aria-label="Próxima semana" className="px-2 py-1.5 text-foreground-muted hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
+            <button type="button" onClick={() => goTo(-1)} aria-label="Anterior" className="px-2 py-1.5 text-foreground-muted hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
+            <span className="w-36 text-center text-xs font-medium capitalize text-foreground">{rangeLabel}</span>
+            <button type="button" onClick={() => goTo(1)} aria-label="Próximo" className="px-2 py-1.5 text-foreground-muted hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
           </div>
           <div className="relative">
             <button type="button" onClick={() => setCalPanel((o) => !o)} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"><CalendarClock className="h-3.5 w-3.5" /> Disponibilidade{(() => { const n = teamAvail.filter((t) => t.status === "ok").length + calendars.length; return n ? ` (${n})` : ""; })()}{availBusy && <Loader2 className="h-3 w-3 animate-spin" />}</button>
@@ -478,14 +538,16 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
 
       {/* Grid */}
       <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-surface">
+        {view !== "month" ? (
+        <>
         {/* Day header */}
-        <div className="sticky top-0 z-10 grid grid-cols-[3rem_repeat(7,1fr)] border-b border-border bg-surface">
+        <div className="sticky top-0 z-10 grid border-b border-border bg-surface" style={{ gridTemplateColumns: `3rem repeat(${days.length}, 1fr)` }}>
           <div />
           {days.map((d, i) => {
             const isToday = sameDay(d, today);
             return (
               <div key={i} className={`border-l border-border px-1 py-1.5 text-center ${isToday ? "bg-accent-bg" : ""}`}>
-                <div className="text-[10px] uppercase tracking-wide text-foreground-subtle">{DAY_NAMES[i]}</div>
+                <div className="text-[10px] uppercase tracking-wide text-foreground-subtle">{DAY_NAMES[d.getDay()]}</div>
                 <div className={`text-sm font-semibold ${isToday ? "text-accent" : "text-foreground"}`}>{d.getDate()}</div>
               </div>
             );
@@ -493,7 +555,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
         </div>
 
         {/* Time grid */}
-        <div className="grid grid-cols-[3rem_repeat(7,1fr)]">
+        <div className="grid" style={{ gridTemplateColumns: `3rem repeat(${days.length}, 1fr)` }}>
           {/* hour gutter */}
           <div>
             {HOURS.map((h) => (
@@ -514,7 +576,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
                 />
               ))}
               {/* availability (busy) blocks behind meetings — no titles, just busy */}
-              {showAvail && (busyByDay[di] ?? []).map((b, bi) => {
+              {showAvail && (busyByDay[days[di].getDay()] ?? []).map((b, bi) => {
                 const s = new Date(b.start);
                 const e = new Date(b.end);
                 const top = ((s.getHours() + s.getMinutes() / 60) - DAY_START) * HOUR_H;
@@ -525,7 +587,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
                     key={`busy-${bi}`}
                     title={b.title ? `${b.name}: ${b.title}` : `${b.name} · ocupado`}
                     style={{ top: Math.max(0, top), height, backgroundColor: `${c}1f`, borderColor: `${c}66` }}
-                    className="pointer-events-none absolute left-1 right-[58%] z-0 overflow-hidden rounded-md border border-dashed px-1 text-[9px] leading-tight text-foreground-faint"
+                    className="pointer-events-none absolute left-1 right-1 z-0 overflow-hidden rounded-md border border-dashed px-1 text-[9px] leading-tight text-foreground-faint"
                   >
                     {b.title ? `${b.name}: ${b.title}` : b.name}
                   </div>
@@ -533,7 +595,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
               })}
               {/* events for this day — lane-split only where they overlap */}
               {(() => {
-                const dayOccs = occurrences.filter((o) => o.dayIndex === di);
+                const dayOccs = occurrences.filter((o) => o.dayIndex === days[di].getDay());
                 const lanes = computeLanes(dayOccs);
                 return dayOccs.map((o) => {
                 const top = ((o.start.getHours() + o.start.getMinutes() / 60) - DAY_START) * HOUR_H;
@@ -571,6 +633,62 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
             </div>
           ))}
         </div>
+        </>
+        ) : (
+          /* MONTH VIEW — day cells with event chips */
+          <div>
+            <div className="grid grid-cols-7 border-b border-border bg-surface">
+              {DAY_NAMES.map((n) => (
+                <div key={n} className="border-l border-border px-1 py-1.5 text-center text-[10px] uppercase tracking-wide text-foreground-subtle">{n}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {monthGrid.map((day, i) => {
+                const inMonth = day.getMonth() === cursor.getMonth();
+                const isToday = sameDay(day, today);
+                const dayMeetings = visibleMeetings
+                  .map((m) => { const o = occurrenceOnDay(m, day); return o ? { m, start: o.start } : null; })
+                  .filter((x): x is { m: MeetingDTO; start: Date } => x !== null)
+                  .sort((a, b) => a.start.getTime() - b.start.getTime());
+                return (
+                  <div
+                    key={i}
+                    onClick={() => openNew(day, 9)}
+                    className={`min-h-[88px] cursor-pointer border-b border-l border-border p-1 transition-colors hover:bg-accent-bg/40 ${inMonth ? "" : "bg-surface-elevated/40"}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setView("day"); setCursor(new Date(day)); }}
+                      className={`mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-accent text-accent-foreground" : inMonth ? "text-foreground hover:bg-foreground/10" : "text-foreground-faint"}`}
+                    >
+                      {day.getDate()}
+                    </button>
+                    <div className="space-y-0.5">
+                      {dayMeetings.slice(0, 3).map(({ m, start }) => {
+                        const c = m.color ?? accent;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); openEdit(m); }}
+                            style={{ backgroundColor: `${c}22`, borderColor: c }}
+                            className="flex w-full items-center gap-1 overflow-hidden rounded border-l-2 px-1 py-0.5 text-left text-[10px] leading-tight text-foreground hover:brightness-110"
+                          >
+                            <span className="shrink-0 text-foreground-subtle">{start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                            <span className="min-w-0 flex-1 truncate">{m.title}</span>
+                          </button>
+                        );
+                      })}
+                      {dayMeetings.length > 3 && (
+                        <div className="px-1 text-[10px] text-foreground-faint">+{dayMeetings.length - 3} mais</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Editor */}
