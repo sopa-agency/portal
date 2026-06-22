@@ -42,10 +42,9 @@ const sopa: ProjectConfig = {
   },
   repos: [],
   socials: [],
-  // Treasury-only: hide every other module from the sidebar; "/" redirects
-  // to /treasury (see src/app/page.tsx).
+  // "/" is the SOPA home: an aggregated morning briefing with every project's
+  // next actions (see src/app/page.tsx + components/sopa-briefing.tsx).
   hiddenRoutes: [
-    "/",
     "/marketing-suggestions",
     "/campaign-creator",
     "/userbase",

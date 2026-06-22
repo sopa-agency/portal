@@ -14,7 +14,8 @@ import { ChannelStrategy } from "@/components/social-dashboard";
 import { HomeSplit, type SplitTab } from "@/components/home-split";
 import { loadLatestBriefing, todayIsoDate } from "@/lib/morning-briefing";
 import { fetchChannelMetrics } from "@/lib/social-metrics";
-import { getActiveProject } from "@/projects";
+import { getActiveProject, getAllProjects } from "@/projects";
+import { SopaBriefing, type SopaActionGroup } from "@/components/sopa-briefing";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
@@ -91,6 +92,37 @@ export default async function Home() {
   // when enabled, otherwise the treasury.
   if (project.hiddenRoutes?.includes("/")) redirect(project.about ? "/about" : "/treasury");
   const today = todayIsoDate();
+
+  // SOPA home: an aggregated morning briefing — every project's next actions in
+  // one view (SOPA has no briefing agent of its own).
+  if (project.slug === "sopa") {
+    const refs = getAllProjects()
+      .filter((p) => p.slug !== "sopa")
+      .flatMap((p) => p.briefingAgents.map((agent) => ({ p, agent })));
+    const results = await Promise.all(refs.map(({ agent }) => loadLatestBriefing(agent)));
+    const groups: SopaActionGroup[] = refs.map(({ p, agent }, i) => {
+      const r = results[i];
+      if (!r.ok) {
+        return { projectSlug: p.slug, projectName: p.name, agentLabel: agent.label, date: null, fresh: false, actions: [], error: r.error };
+      }
+      const sec = r.briefing.sections.find((s) => s.kind === "actions");
+      const actions = (sec?.body ?? "")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => /^[-*•]\s+/.test(l))
+        .map((l) => l.replace(/^[-*•]\s+/, "").replace(/[`*_]/g, "").trim())
+        .filter(Boolean)
+        .slice(0, 6);
+      return { projectSlug: p.slug, projectName: p.name, agentLabel: agent.label, date: r.briefing.date, fresh: r.briefing.date === today, actions };
+    });
+    return (
+      <div className="space-y-7">
+        <PageHeader eyebrow={`Daily · ${today}`} title="SOPA" description="Resumo de next actions de todos os portais." />
+        <SopaBriefing groups={groups} today={today} />
+      </div>
+    );
+  }
+
   const briefingAgents = project.briefingAgents;
   // Instagram leads the socials pane (and the band) — it's the primary channel.
   const socials = [...project.socials].sort((a, b) => {
