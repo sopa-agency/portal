@@ -16,6 +16,7 @@ import { loadLatestBriefing, todayIsoDate } from "@/lib/morning-briefing";
 import { fetchChannelMetrics } from "@/lib/social-metrics";
 import { getActiveProject, getAllProjects } from "@/projects";
 import { SopaBriefing, type SopaActionGroup } from "@/components/sopa-briefing";
+import { ForYou, type ForYouMention } from "@/components/for-you";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
@@ -115,9 +116,37 @@ export default async function Home() {
         .slice(0, 6);
       return { projectSlug: p.slug, projectName: p.name, agentLabel: agent.label, date: r.briefing.date, fresh: r.briefing.date === today, actions };
     });
+
+    // --- "For You": the logged-in member's tasks + briefing mentions ---------
+    const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
+    let forYou: { username: string; tasks: MemberTask[]; mentions: ForYouMention[] } | null = null;
+    if (session) {
+      const uname = session.username.toLowerCase();
+      const me = (await getTeamRoster(project).catch(() => [])).find((m) => m.username === uname);
+      const gh = me?.contacts.find((c) => c.label === "GitHub")?.value;
+      let tasks: MemberTask[] = [];
+      if (gh) {
+        const r = await getMemberTasks(gh);
+        if (r.ok) tasks = r.tasks;
+      }
+      // Briefing next-actions that name this user (by username or GitHub handle).
+      const ghNorm = gh?.toLowerCase().replace(/^@/, "").replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/\/.*$/, "");
+      const needles = [uname, ghNorm].filter((x): x is string => !!x && x.length >= 3);
+      const mentions: ForYouMention[] = [];
+      for (const g of groups) {
+        for (const a of g.actions) {
+          if (needles.some((n) => new RegExp(`(^|[^a-z0-9])${n}([^a-z0-9]|$)`, "i").test(a))) {
+            mentions.push({ agentLabel: g.agentLabel, text: a });
+          }
+        }
+      }
+      forYou = { username: session.username, tasks, mentions };
+    }
+
     return (
       <div className="space-y-7">
         <PageHeader eyebrow={`Daily · ${today}`} title="SOPA" description="Resumo de next actions de todos os portais." />
+        {forYou ? <ForYou username={forYou.username} tasks={forYou.tasks} mentions={forYou.mentions} /> : null}
         <SopaBriefing groups={groups} today={today} />
       </div>
     );
