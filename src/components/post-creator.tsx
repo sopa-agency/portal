@@ -6,6 +6,7 @@ import {
   ImagePlus,
   Loader2,
   Copy,
+  Save,
   Download,
   Send,
   Trash2,
@@ -1134,7 +1135,7 @@ function ScheduledCalendar({
                       <button
                         key={d.id}
                         type="button"
-                        aria-label={`View ${chipIsPublished ? "published" : "scheduled"} post: ${d.caption?.slice(0, 40) ?? d.type}${chipTime ? ` at ${chipTime}` : ""}`}
+                        aria-label={`View ${chipIsPublished ? "published" : "scheduled"} post: ${(d.title || d.caption)?.slice(0, 40) || d.type}${chipTime ? ` at ${chipTime}` : ""}`}
                         onClick={() => onOpenPost(d.id)}
                         className={`flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-elevated ${
                           chipDue ? "ring-1 ring-warning/40" : ""
@@ -1372,7 +1373,7 @@ function ScheduledSection({
                   onClick={() => onOpenPost(d.id)}
                   className="mt-0.5 w-full text-left text-[13px] text-foreground-muted hover:text-foreground truncate"
                 >
-                  {d.caption || <span className="text-foreground-faint italic">No caption</span>}
+                  {d.title || d.caption || <span className="text-foreground-faint italic">No caption</span>}
                 </button>
 
                 {/* Manual+due: in-app checklist */}
@@ -1533,7 +1534,7 @@ function DraftStrip({
                 )}
               </div>
               <p className="mt-0.5 truncate text-[13px] text-foreground-muted">
-                {d.caption || <span className="text-foreground-faint italic">No caption</span>}
+                {d.title || d.caption || <span className="text-foreground-faint italic">No caption</span>}
               </p>
             </div>
 
@@ -1620,6 +1621,24 @@ function TagUsernameInput({
 // ---------------------------------------------------------------------------
 
 /** Compute the ordered list of steps to show, given the current post type. */
+
+/**
+ * Pull the cover ("capa") title out of a Zine Studio carousel doc, ignoring the
+ * "TÍTULO" placeholder. Used to prefill the post title when handing off from the
+ * studio so the draft is identifiable without retyping.
+ */
+function studioCapaTitle(doc: unknown): string {
+  if (!doc || typeof doc !== "object") return "";
+  const cards = (doc as { cards?: unknown }).cards;
+  if (!Array.isArray(cards)) return "";
+  const capa = cards.find(
+    (c) => c && typeof c === "object" && (c as { tipo?: unknown }).tipo === "capa",
+  );
+  const t = capa && typeof capa === "object" ? (capa as { titulo?: unknown }).titulo : undefined;
+  const trimmed = typeof t === "string" ? t.trim() : "";
+  return trimmed === "TÍTULO" ? "" : trimmed;
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -1643,13 +1662,14 @@ export function PostCreator({
   // ── View state ──────────────────────────────────────────────────────────
   const [viewTab, setViewTab] = useState<ViewTab>("create");
   const [studioMode, setStudioMode] = useState<"design" | "video">("design");
-  const [stepId, setStepId] = useState<StepId>("type");
+  const [stepId, setStepId] = useState<StepId>("title");
   const [scheduledView, setScheduledView] = useState<"calendar" | "list">("calendar");
   const [dialogPostId, setDialogPostId] = useState<string | null>(null);
 
   // ── Post state ───────────────────────────────────────────────────────────
   const [postType, setPostType] = useState<PostType>("IMAGE");
   const [uploads, setUploads] = useState<UploadState[]>([]);
+  const [title, setTitle] = useState(""); // short internal name — identifies the draft in lists
   const [caption, setCaption] = useState("");
   const [topic, setTopic] = useState("");
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
@@ -2103,8 +2123,10 @@ export function PostCreator({
 
   async function handleUseInPost(files: File[], legenda: string, aspectHint?: number, doc?: unknown) {
     // Capture the editable studio doc so saving the draft persists it (carousel only;
-    // the video editor passes no doc → clears it).
+    // the video editor passes no doc → clears it). Mirror it into the seed so
+    // re-opening the studio rehydrates these edits instead of a stale/blank doc.
     studioDocRef.current = doc ?? null;
+    setStudioInitialDoc(doc ?? null);
     const capped = files.slice(0, 10); // Instagram carousel hard limit
     const seeded: UploadState[] = [];
     // Real media probing — the Studio video editor sends videos through here
@@ -2147,6 +2169,9 @@ export function PostCreator({
     setPostType(nextType);
     setUploads(seeded);
     if (legenda.trim()) setCaption(legenda.trim());
+    // Prefill the post title from the cover card so the draft is identifiable.
+    const capaTitle = studioCapaTitle(doc);
+    if (capaTitle) setTitle(capaTitle);
     // Pick the allowed ratio closest to the actual media.
     const mediaRatio = seeded[0]?.aspect ?? 1080 / 1350;
     const RATIOS: [string, number][] = [
@@ -2182,7 +2207,11 @@ export function PostCreator({
 
   function gatherDraftParams() {
     return {
+      // Fall back to the cover title when the field is empty (e.g. saving
+      // straight from the studio, where the title step was never visited) so the
+      // draft is still identifiable in the list.
       type: postType,
+      title: title.trim() || studioCapaTitle(studioDocRef.current) || undefined,
       caption,
       mediaUrls: uploads.map((u) => u.url),
       firstComment,
@@ -2232,6 +2261,7 @@ export function PostCreator({
 
   function handleLoadDraft(d: DraftRow) {
     setPostType(d.type);
+    setTitle(d.title ?? "");
     setCaption(d.caption);
     setCurrentDraftId(d.id);
     setLoadedStatus(d.status);
@@ -2284,13 +2314,20 @@ export function PostCreator({
       if (r.ok && r.post.studioDoc) {
         studioDocRef.current = r.post.studioDoc;
         setStudioInitialDoc(r.post.studioDoc);
+        // Back-fill the title for drafts saved before the title field existed.
+        if (!d.title?.trim()) {
+          const capaTitle = studioCapaTitle(r.post.studioDoc);
+          if (capaTitle) setTitle(capaTitle);
+        }
       }
       setStudioKey((k) => k + 1);
     });
 
-    // Jump to Review step after loading
+    // Land on the first step after loading — a draft may be incomplete (e.g.
+    // saved straight from the studio with no caption/media yet), so dumping the
+    // user on Review with empty fields is confusing. Walk them through instead.
     setViewTab("create");
-    navigate("review", "forward");
+    navigate(visibleSteps(d.type)[0], "forward");
   }
 
   // Clear the composer to start a fresh post.
@@ -2300,6 +2337,7 @@ export function PostCreator({
     });
     setPostType("IMAGE");
     setUploads([]);
+    setTitle("");
     setCaption("");
     setTopic("");
     setCurrentDraftId(null);
@@ -2328,7 +2366,7 @@ export function PostCreator({
     setStudioInitialDoc(null);
     setStudioKey((k) => k + 1);
     setViewTab("create");
-    navigate("type", "back");
+    navigate("title", "back");
   }
 
   // ---------------------------------------------------------------------------
@@ -2544,7 +2582,40 @@ export function PostCreator({
 
   function renderStepContent() {
     switch (stepId) {
-      // ── Step 1: Type ──────────────────────────────────────────────────────
+      // ── Step 1: Title ─────────────────────────────────────────────────────
+      case "title":
+        return (
+          <div className="space-y-5">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground">Name this post.</h2>
+              <p className="mt-1.5 text-sm text-foreground-muted">
+                A short internal title to find it later in your drafts. Not posted to Instagram.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-foreground-muted">Title</span>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    goNext();
+                  }
+                }}
+                placeholder="e.g. Memória muscular"
+                maxLength={120}
+                className="w-full rounded-xl border border-border bg-surface-elevated px-4 py-3 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
+              />
+              <p className="text-xs text-foreground-faint">
+                Optional — drafts without a title fall back to the caption in the list.
+              </p>
+            </div>
+          </div>
+        );
+
+      // ── Step 2: Type ──────────────────────────────────────────────────────
       case "type":
         return (
           <div className="space-y-5">
@@ -2562,9 +2633,9 @@ export function PostCreator({
                   aria-current={postType === pt.value ? "true" : undefined}
                   onClick={() => {
                     setPostType(pt.value);
-                    // Auto-advance (Typeform feel)
+                    // Auto-advance (Typeform feel) to the step right after "type".
                     const seq = computeSteps(pt.value);
-                    navigate(seq[1], "forward");
+                    navigate(seq[seq.indexOf("type") + 1], "forward");
                   }}
                   className={`flex flex-col items-start gap-0.5 rounded-2xl border px-5 py-4 text-left transition-all duration-150 ${
                     postType === pt.value
@@ -3511,7 +3582,13 @@ export function PostCreator({
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2">
             <button
               type="button"
-              onClick={() => setViewTab("create")}
+              onClick={() => {
+                // Leaving the studio unmounts the editor. Persist the live doc into
+                // the seed so re-entering rehydrates the latest edits (the editor
+                // re-seeds from initialDoc, not from the in-memory ref).
+                if (studioDocRef.current) setStudioInitialDoc(studioDocRef.current);
+                setViewTab("create");
+              }}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
@@ -3555,9 +3632,34 @@ export function PostCreator({
               </div>
             </div>
 
-            <span className="font-mono text-[11px] uppercase tracking-[0.25em] text-foreground-subtle">
-              Studio
-            </span>
+            <div className="flex items-center gap-3">
+              {saveMsg && (
+                <span
+                  className={`text-[11px] font-medium ${
+                    saveMsg.startsWith("Error") ? "text-danger" : "text-success"
+                  }`}
+                >
+                  {saveMsg}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={savePending}
+                title="Salva o post como draft (inclui o doc editável do studio) sem sair daqui"
+                className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {savePending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+                {savePending ? "Salvando…" : currentDraftId ? "Salvar draft" : "Salvar como draft"}
+              </button>
+              <span className="hidden font-mono text-[11px] uppercase tracking-[0.25em] text-foreground-subtle sm:inline">
+                Studio
+              </span>
+            </div>
           </div>
           <div className="min-h-0 flex-1">
             {studioMode === "design" ? (
@@ -3740,7 +3842,7 @@ export function PostCreator({
                                 onClick={() => setDialogPostId(d.id)}
                                 className="mt-0.5 w-full text-left text-[13px] text-foreground-muted hover:text-foreground truncate"
                               >
-                                {d.caption || <span className="text-foreground-faint italic">No caption</span>}
+                                {d.title || d.caption || <span className="text-foreground-faint italic">No caption</span>}
                               </button>
                             </div>
 
@@ -3820,6 +3922,7 @@ export function PostCreator({
                   const isCompleted = idx < stepIndex;
                   const isCurrent = idx === stepIndex;
                   const labels: Record<StepId, string> = {
+                    title: "Title",
                     type: "Type",
                     media: "Media",
                     format: "Format",

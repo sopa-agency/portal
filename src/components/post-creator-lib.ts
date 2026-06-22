@@ -15,6 +15,7 @@ export type ViewTab = "create" | "studio" | "drafts" | "calendar";
 
 // Step IDs — used to compute the visible sequence.
 export type StepId =
+  | "title"
   | "type"
   | "media"
   | "format"
@@ -42,8 +43,9 @@ export function formatLocalDatetime(iso: string): string {
 }
 
 export function computeSteps(postType: PostType): StepId[] {
+  // "title" leads: naming the post first makes drafts identifiable in lists.
   // "format" applies to every type — for REELS it's the preview-crop control.
-  const steps: StepId[] = ["type", "media", "format"];
+  const steps: StepId[] = ["title", "type", "media", "format"];
   steps.push("caption", "firstComment");
   if (postType === "IMAGE") steps.push("tags");
   steps.push("collaborators", "more", "review");

@@ -27,6 +27,7 @@ export type UserTag = { username: string; x: number; y: number };
 export type DraftRow = {
   id: string;
   type: PostType;
+  title: string; // short internal name — identifies the draft in lists
   caption: string;
   mediaUrls: string[];
   status: PostStatus;
@@ -87,6 +88,7 @@ async function authGate() {
 function rowToPlain(row: {
   id: string;
   type: string;
+  title?: string | null;
   caption: string;
   mediaUrls: unknown;
   status: string;
@@ -113,6 +115,7 @@ function rowToPlain(row: {
   return {
     id: row.id,
     type: row.type as PostType,
+    title: row.title ?? "",
     caption: row.caption,
     mediaUrls: Array.isArray(row.mediaUrls) ? (row.mediaUrls as string[]).map(normalizeMediaUrl) : [],
     status: row.status as PostStatus,
@@ -240,6 +243,7 @@ export async function getPost(
 
 export async function createDraft(params: {
   type: PostType;
+  title?: string;
   caption: string;
   mediaUrls: string[];
   firstComment?: string;
@@ -260,6 +264,7 @@ export async function createDraft(params: {
       data: {
         projectSlug: project.slug,
         type: params.type,
+        title: params.title?.trim() || null,
         caption: params.caption,
         mediaUrls: params.mediaUrls,
         status: "draft",
@@ -291,6 +296,7 @@ export async function updateDraft(
   id: string,
   params: {
     type?: PostType;
+    title?: string;
     caption?: string;
     mediaUrls?: string[];
     firstComment?: string;
@@ -325,6 +331,7 @@ export async function updateDraft(
       where: { id },
       data: {
         ...(params.type !== undefined ? { type: params.type } : {}),
+        ...(params.title !== undefined ? { title: params.title.trim() || null } : {}),
         ...(params.caption !== undefined ? { caption: params.caption } : {}),
         ...(params.mediaUrls !== undefined ? { mediaUrls: params.mediaUrls } : {}),
         ...(params.firstComment !== undefined ? { firstComment: params.firstComment.trim() || null } : {}),

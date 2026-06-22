@@ -262,6 +262,7 @@ model InstagramPost {
   id              String    @id @default(cuid())
   projectSlug     String
   type            String    @default("IMAGE") // IMAGE | CAROUSEL | REELS
+  title           String? // short internal name for the post — identifies the draft in lists (not sent to IG)
   caption         String    @default("") @db.Text
   mediaUrls       Json? // ordered array of public media URLs
   status          String    @default("draft") // draft | scheduled | publishing | published | failed
