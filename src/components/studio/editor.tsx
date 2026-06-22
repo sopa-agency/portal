@@ -34,6 +34,7 @@ import { newId, normalizeDoc } from "@/lib/studio/parse-script";
 import { SEED_DOC } from "@/lib/studio/seed";
 import { ZCarousel, type Card, type Carousel } from "@/lib/studio/schema";
 import { listSkateSpots, type SkateSpot } from "@/app/actions/skate-spots";
+import { uploadMediaDirectClient } from "@/lib/upload-media-client";
 
 const STORAGE_KEY = "reelflip-studio:doc:v2";
 const RENDER_CONCURRENCY = 3; // renders Satori em paralelo no export .zip
@@ -181,17 +182,38 @@ export function Editor({
       return { tipo: "conteudo", imagem: ("imagem" in c ? c.imagem : null) ?? null, ...common };
     });
 
+  // Troca o data-URI de um card pela URL (Pinata) — só se a imagem atual ainda for o
+  // data-URI (não clobbar uma troca mais nova). Mantém dims/enquadramento.
+  const setCardImageUrl = (id: string, url: string) => {
+    setDoc((d) => ({
+      ...d,
+      cards: d.cards.map((c) =>
+        c.id === id && "imagem" in c && typeof c.imagem === "string" && c.imagem.startsWith("data:")
+          ? ({ ...c, imagem: url } as Card)
+          : c,
+      ),
+    }));
+  };
   const onImage = (file: File) => {
+    const targetId = doc.cards[active]?.id;
     const r = new FileReader();
     r.onload = () => {
-      const src = r.result as string;
-      // mede a proporção real da foto p/ enquadrar corretamente (preview + Satori)
+      const src = r.result as string; // data-URI: preview instantâneo + medir dims
       const im = new window.Image();
       im.onload = () => patchActive((c) => ({ ...c, imagem: src, imgW: im.naturalWidth, imgH: im.naturalHeight, imgFit: DEFAULT_FIT }) as Card);
       im.onerror = () => patchActive((c) => ({ ...c, imagem: src, imgW: null, imgH: null, imgFit: DEFAULT_FIT }) as Card);
       im.src = src;
     };
     r.readAsDataURL(file);
+    // sobe pro Pinata em paralelo e troca o data-URI pela URL → doc leve (não base64 no banco).
+    // mantém o data-URI como fallback se o upload falhar.
+    void uploadMediaDirectClient(file).then((up) => {
+      if (!up.ok) {
+        toast.warning("Imagem mantida localmente", { description: "Upload falhou — o card fica pesado até reenviar." });
+        return;
+      }
+      if (targetId) setCardImageUrl(targetId, up.url);
+    });
   };
 
   // ---- SkateHive spot map ----
