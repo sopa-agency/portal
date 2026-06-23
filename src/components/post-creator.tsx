@@ -55,7 +55,7 @@ import {
   type CalendarExtra,
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
-import { CAPTION_MAX, COMMENT_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, type ViewTab, type StepId } from "@/components/post-creator-lib";
+import { CAPTION_MAX, COMMENT_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, stepsInPhase, phaseForStep, PHASES, type ViewTab, type StepId, type PhaseId } from "@/components/post-creator-lib";
 import { IgPreview } from "@/components/post/ig-preview";
 import { IgFeedGrid, type FeedCell } from "@/components/post/ig-feed-grid";
 import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
@@ -1667,7 +1667,7 @@ export function PostCreator({
   // ── View state ──────────────────────────────────────────────────────────
   const [viewTab, setViewTab] = useState<ViewTab>("create");
   const [studioMode, setStudioMode] = useState<"design" | "video">("design");
-  const [stepId, setStepId] = useState<StepId>("title");
+  const [phaseId, setPhaseId] = useState<PhaseId>("brief");
   const [scheduledView, setScheduledView] = useState<"calendar" | "list">("calendar");
   const [dialogPostId, setDialogPostId] = useState<string | null>(null);
 
@@ -1843,51 +1843,46 @@ export function PostCreator({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postType]);
 
-  // Sync step to valid sequence when postType OR the lock changes (locking
-  // removes "format", so if we're sitting on it, move on).
-  useEffect(() => {
-    const seq = visibleSteps(postType);
-    if (!seq.includes(stepId)) {
-      setStepId(seq[0]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postType, aspectLocked]);
-
-  // Focus first focusable element when step changes
+  // Focus first focusable element when the phase changes
   useEffect(() => {
     const el = stepContentRef.current?.querySelector<HTMLElement>(
       "button, input, textarea, select, [tabindex]:not([tabindex='-1'])"
     );
     el?.focus();
-  }, [stepId]);
+  }, [phaseId]);
 
   // ---------------------------------------------------------------------------
-  // Step navigation helpers
+  // Phase navigation helpers
   // ---------------------------------------------------------------------------
 
-  function navigate(targetId: StepId, dir: "forward" | "back") {
+  function goToPhase(target: PhaseId, dir: "forward" | "back") {
     setStepDir(dir);
     setStepAnimKey((k) => k + 1);
-    setStepId(targetId);
+    setPhaseId(target);
+  }
+
+  // Land on the phase that owns a given step section. Kept as a thin shim so
+  // existing call sites (studio seed, draft load, reset) can keep aiming at a
+  // step without knowing about phases.
+  function navigate(targetStep: StepId, dir: "forward" | "back") {
+    goToPhase(phaseForStep(targetStep), dir);
   }
 
   function goNext() {
-    const seq = visibleSteps(postType);
-    const idx = seq.indexOf(stepId);
-    if (idx < seq.length - 1) navigate(seq[idx + 1], "forward");
+    const idx = PHASES.findIndex((p) => p.id === phaseId);
+    if (idx < PHASES.length - 1) goToPhase(PHASES[idx + 1].id, "forward");
   }
 
   function goPrev() {
-    const seq = visibleSteps(postType);
-    const idx = seq.indexOf(stepId);
-    if (idx > 0) navigate(seq[idx - 1], "back");
+    const idx = PHASES.findIndex((p) => p.id === phaseId);
+    if (idx > 0) goToPhase(PHASES[idx - 1].id, "back");
   }
 
-  function jumpTo(id: StepId) {
-    const seq = visibleSteps(postType);
-    const cur = seq.indexOf(stepId);
-    const target = seq.indexOf(id);
-    navigate(id, target > cur ? "forward" : "back");
+  function jumpToPhase(id: PhaseId) {
+    const cur = PHASES.findIndex((p) => p.id === phaseId);
+    const target = PHASES.findIndex((p) => p.id === id);
+    if (target === cur) return;
+    goToPhase(id, target > cur ? "forward" : "back");
   }
 
   // ---------------------------------------------------------------------------
@@ -2579,20 +2574,21 @@ export function PostCreator({
       (d.status === "published" && d.publishedAt),
   );
 
-  // Current step sequence for the selected post type
+  // Current visible step sections for the selected post type, plus the phase
+  // we're on (the 4-stop top-level flow).
   const stepSeq = visibleSteps(postType);
-  const stepIndex = stepSeq.indexOf(stepId);
-  const totalSteps = stepSeq.length;
+  const phaseIndex = PHASES.findIndex((p) => p.id === phaseId);
+  const totalPhases = PHASES.length;
 
-  // Whether tagging is active on the preview (only on tag step)
-  const previewTaggingActive = taggingActive && stepId === "tags" && postType === "IMAGE";
+  // Whether tagging is active on the preview (tags live in the Distribution phase)
+  const previewTaggingActive = taggingActive && phaseId === "distribution" && postType === "IMAGE";
 
   // ---------------------------------------------------------------------------
   // Step content renderer
   // ---------------------------------------------------------------------------
 
-  function renderStepContent() {
-    switch (stepId) {
+  function renderStep(id: StepId) {
+    switch (id) {
       // ── Step 1: Title ─────────────────────────────────────────────────────
       case "title":
         return (
@@ -2642,12 +2638,7 @@ export function PostCreator({
                   key={pt.value}
                   type="button"
                   aria-current={postType === pt.value ? "true" : undefined}
-                  onClick={() => {
-                    setPostType(pt.value);
-                    // Auto-advance (Typeform feel) to the step right after "type".
-                    const seq = computeSteps(pt.value);
-                    navigate(seq[seq.indexOf("type") + 1], "forward");
-                  }}
+                  onClick={() => setPostType(pt.value)}
                   className={`flex flex-col items-start gap-0.5 rounded-2xl border px-5 py-4 text-left transition-all duration-150 ${
                     postType === pt.value
                       ? "border-accent-border bg-accent-bg ring-2 ring-accent/30"
@@ -2732,33 +2723,49 @@ export function PostCreator({
               </div>
             )}
 
-            {/* Add file button */}
-            {(postType !== "IMAGE" || uploads.length < 1) &&
-              (postType !== "REELS" || uploads.length < 1) &&
-              (postType !== "CAROUSEL" || uploads.length < 10) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (postType === "REELS") videoInputRef.current?.click();
-                    else fileInputRef.current?.click();
-                  }}
-                  disabled={uploadingIndex !== null}
-                  className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
-                >
-                  {uploadingIndex !== null ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <ImagePlus className="h-4 w-4" />
-                  )}
-                  {uploadingIndex !== null
-                    ? "Uploading…"
-                    : postType === "REELS"
-                    ? "Add video"
-                    : postType === "CAROUSEL"
-                    ? "Add photo / video"
-                    : "Add image"}
-                </button>
-              )}
+            {/* Add media — upload a file, or build it in the Studio */}
+            <div className="flex flex-wrap gap-3">
+              {(postType !== "IMAGE" || uploads.length < 1) &&
+                (postType !== "REELS" || uploads.length < 1) &&
+                (postType !== "CAROUSEL" || uploads.length < 10) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (postType === "REELS") videoInputRef.current?.click();
+                      else fileInputRef.current?.click();
+                    }}
+                    disabled={uploadingIndex !== null}
+                    className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                  >
+                    {uploadingIndex !== null ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ImagePlus className="h-4 w-4" />
+                    )}
+                    {uploadingIndex !== null
+                      ? "Uploading…"
+                      : postType === "REELS"
+                      ? "Add video"
+                      : postType === "CAROUSEL"
+                      ? "Add photo / video"
+                      : "Add image"}
+                  </button>
+                )}
+
+              {/* Build the media from scratch in the Studio (design/video editor).
+                  "Usar no post" there renders straight back into this composer. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setStudioMode(postType === "REELS" ? "video" : "design");
+                  setViewTab("studio");
+                }}
+                className="flex items-center gap-2 rounded-xl border border-accent-border bg-accent-bg px-4 py-3 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
+              >
+                <Sparkles className="h-4 w-4" />
+                Create on Studio
+              </button>
+            </div>
 
             <input
               ref={fileInputRef}
@@ -3920,85 +3927,77 @@ export function PostCreator({
         <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_360px]">
           {/* ── LEFT: stepped flow ── */}
           <div className="min-w-0 space-y-5">
-            {/* Progress bar + step dots */}
+            {/* Phase progress + nav */}
             <div className="space-y-3">
               {/* Thin progress bar */}
               <div className="h-1 w-full overflow-hidden rounded-full bg-surface-elevated">
                 <div
                   className="h-full rounded-full bg-accent transition-all duration-300 ease-out motion-reduce:transition-none"
-                  style={{ width: `${((stepIndex + 1) / totalSteps) * 100}%` }}
+                  style={{ width: `${((phaseIndex + 1) / totalPhases) * 100}%` }}
                 />
               </div>
 
-              {/* Step indicator row */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-1">
-                {stepSeq.map((sid, idx) => {
-                  const isCompleted = idx < stepIndex;
-                  const isCurrent = idx === stepIndex;
-                  const labels: Record<StepId, string> = {
-                    title: "Title",
-                    type: "Type",
-                    media: "Media",
-                    format: "Format",
-                    caption: "Caption",
-                    firstComment: "Comment",
-                    tags: "Tags",
-                    collaborators: "Collabs",
-                    more: "More",
-                    review: "Review",
-                  };
+              {/* Phase indicator row — the 4 top-level stops */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                {PHASES.map((p, idx) => {
+                  const isCompleted = idx < phaseIndex;
+                  const isCurrent = idx === phaseIndex;
                   return (
                     <button
-                      key={sid}
+                      key={p.id}
                       type="button"
                       aria-current={isCurrent ? "step" : undefined}
-                      aria-label={`Go to step ${idx + 1}: ${labels[sid]}`}
-                      onClick={() => {
-                        if (isCompleted || isCurrent) jumpTo(sid);
-                      }}
-                      disabled={!isCompleted && !isCurrent}
-                      className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all duration-150 ${
+                      aria-label={`Go to phase ${idx + 1}: ${p.label}`}
+                      onClick={() => jumpToPhase(p.id)}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-all duration-150 ${
                         isCurrent
                           ? "bg-accent text-accent-foreground"
                           : isCompleted
                           ? "bg-accent-bg text-accent hover:bg-accent/20"
-                          : "text-foreground-faint disabled:cursor-not-allowed"
+                          : "text-foreground-muted hover:text-foreground"
                       }`}
                     >
                       <span className="tabular-nums">{idx + 1}</span>
-                      <span className="hidden sm:inline">{labels[sid]}</span>
+                      <span>{p.label}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Step content with fade+translate animation */}
+            {/* Phase content — its step sections stacked, with fade+translate */}
             <div
               ref={stepContentRef}
-              key={`step-${stepAnimKey}`}
-              className={`step-enter-${stepDir}`}
+              key={`phase-${stepAnimKey}`}
+              className={`step-enter-${stepDir} space-y-10`}
             >
-              {renderStepContent()}
+              {stepsInPhase(phaseId, stepSeq).map((sid, i) => (
+                <section
+                  key={sid}
+                  className={i > 0 ? "border-t border-border pt-8" : undefined}
+                >
+                  {renderStep(sid)}
+                </section>
+              ))}
             </div>
 
-            {/* Step footer: Back + Continue */}
+            {/* Phase footer: Back + Continue */}
             <div className="flex items-center justify-between border-t border-border pt-4">
               <button
                 type="button"
                 onClick={goPrev}
-                disabled={stepIndex === 0}
+                disabled={phaseIndex === 0}
                 className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-0"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Back
               </button>
 
-              {stepId !== "review" && (
+              {phaseId !== "review" && (
                 <button
                   type="button"
                   onClick={goNext}
-                  disabled={stepId === "media" && !mediaReady}
+                  disabled={phaseId === "creative" && !mediaReady}
                   className="flex items-center gap-1.5 rounded-xl bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
                 >
                   Continue
@@ -4062,7 +4061,7 @@ export function PostCreator({
               onToggleFit={toggleFit}
             />
             )}
-            {stepId === "tags" && postType === "IMAGE" && previewMode === "post" && (
+            {phaseId === "distribution" && postType === "IMAGE" && previewMode === "post" && (
               <p className="text-center text-[11px] text-foreground-faint">
                 {taggingActive
                   ? "Click on the photo above to drop a tag pin"
