@@ -5,10 +5,15 @@ import { SetupGuide, CodeBlock } from "@/components/setup-guide";
 import { TreasuryViews } from "@/components/treasury-views";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
+import { FixedCostsPanel } from "@/components/fixed-costs-panel";
 import { fetchTreasuryGroups } from "@/lib/treasury";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
+import { fetchCostScope } from "@/lib/fixed-costs-data";
 import { getActiveProject, getAllProjects } from "@/projects";
 import { prisma } from "@/lib/prisma";
+import { cookies } from "next/headers";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 
 const usd = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -115,6 +120,16 @@ treasury: {
     )
   ).filter((b): b is ProjectBudget => b !== null);
 
+  // Fixed costs + runway. Costs are scoped to the treasuries actually shown
+  // (each group's slug), so a brand portal sees only its own and SOPA the lot.
+  // `canEdit` = any allowlisted member of the active portal.
+  const costGroups = groups.map((g) => ({ slug: g.slug, name: g.name, treasuryUsd: g.report.grandTotalUsd }));
+  const [costScope, session] = await Promise.all([
+    fetchCostScope(costGroups.map((g) => g.slug)),
+    verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
+  ]);
+  const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -126,6 +141,12 @@ treasury: {
             : "The same wallets and data sources the native app shows — live balances across chains."
         }
         status={usd(combined)}
+      />
+      <FixedCostsPanel
+        groups={costGroups}
+        initialCosts={initialCosts}
+        usdBrl={costScope.usdBrl}
+        canEdit={!!session}
       />
       <MultisigBudgets budgets={budgets} />
       <div className="space-y-3">

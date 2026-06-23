@@ -745,3 +745,24 @@ model SharedCalendar {
 
   @@index([projectSlug])
 }
+
+// A recurring fixed cost for a project (infra, salaries, tooling, services).
+// Normalized to a monthly USD burn so it can be compared against the live
+// treasury balance to derive runway. `amount` is stored in `currency`; yearly
+// costs are divided by 12 for the monthly burn.
+model FixedCost {
+  id          String   @id @default(cuid())
+  projectSlug String
+  label       String
+  amount      Float // in `currency`
+  currency    String   @default("USD") // USD | BRL
+  cadence     String   @default("monthly") // monthly | yearly
+  category    String? // infra | salary | tooling | service | other
+  notes       String?
+  active      Boolean  @default(true)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug])
+}
