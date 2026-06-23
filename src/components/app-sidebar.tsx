@@ -93,7 +93,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     const base = knownLabels.includes(labels[0]) ? labels.slice(1) : labels;
     const targetLabel = target.subdomain ?? target.slug;
     const host = [targetLabel, ...base].join(".");
-    window.location.href = `${protocol}//${host}${port ? `:${port}` : ""}/`;
+    window.location.assign(`${protocol}//${host}${port ? `:${port}` : ""}/`);
   }
 
   const nav = NAV.filter((item) => {

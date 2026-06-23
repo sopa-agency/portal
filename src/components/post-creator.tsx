@@ -999,6 +999,9 @@ function ScheduledCalendar({
 
   const monthLabel = calendarMonth.toLocaleString(undefined, { month: "long", year: "numeric" });
   const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  // Reading the wall clock here is intentional: the calendar highlights "today"
+  // and must reflect the current time on each render.
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const CHIP_LIMIT = 3;
 
@@ -1291,6 +1294,9 @@ function ScheduledSection({
   onMarkPosted: (id: string) => void;
   onOpenPost: (id: string) => void;
 }) {
+  // Intentional clock read: each scheduled item compares its time against "now"
+  // to flag whether it's due, which must reflect the current render time.
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
 
   if (items.length === 0)

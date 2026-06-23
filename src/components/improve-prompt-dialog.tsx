@@ -260,8 +260,9 @@ function PendingBlock({
 }) {
   const [elapsed, setElapsed] = useState(0);
   const [step, setStep] = useState(0);
-  const startRef = useRef(Date.now());
+  const startRef = useRef(0);
   useEffect(() => {
+    if (startRef.current === 0) startRef.current = Date.now();
     const t = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
     const s = steps && steps.length > 1
       ? setInterval(() => setStep((i) => (i + 1) % steps.length), 3000)

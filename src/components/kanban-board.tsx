@@ -459,8 +459,9 @@ function AgentSolveProgress() {
   ];
   const [elapsed, setElapsed] = useState(0);
   const [step, setStep] = useState(0);
-  const startRef = useRef(Date.now());
+  const startRef = useRef(0);
   useEffect(() => {
+    if (startRef.current === 0) startRef.current = Date.now();
     const t = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
     const s = setInterval(() => setStep((i) => (i + 1) % STEPS.length), 4000);
     return () => { clearInterval(t); clearInterval(s); };

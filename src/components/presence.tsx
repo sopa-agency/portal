@@ -74,7 +74,11 @@ export function PresenceProvider({
   const [cursors, setCursors] = useState<Record<string, CursorState>>({});
   const wsRef = useRef<WebSocket | null>(null);
   const pathRef = useRef(pathname);
-  pathRef.current = pathname;
+  // Keep the latest path in a ref for the WebSocket callbacks (which fire after
+  // commit) without re-running the connection effect on every navigation.
+  useEffect(() => {
+    pathRef.current = pathname;
+  }, [pathname]);
 
   useEffect(() => {
     const target = relayUrl(projectSlug, username);

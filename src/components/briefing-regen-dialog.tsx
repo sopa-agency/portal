@@ -43,10 +43,11 @@ export function BriefingRegenDialog({
   const [elapsed, setElapsed] = useState(0);
   const [step, setStep] = useState(0);
   const [allDone, setAllDone] = useState(false);
-  const startRef = useRef(Date.now());
+  const startRef = useRef(0);
 
   // Elapsed timer + rotating running caption.
   useEffect(() => {
+    if (startRef.current === 0) startRef.current = Date.now();
     const t = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
     const s = setInterval(() => setStep((i) => (i + 1) % RUNNING_STEPS.length), 3000);
     return () => {
