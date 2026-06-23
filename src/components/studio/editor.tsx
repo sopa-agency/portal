@@ -65,13 +65,28 @@ function newCard(tipo: Card["tipo"]): Card {
   if (tipo === "fundo")
     return { tipo: "fundo", bgColor: "#ffffff", ...base, subtitulo: "CONTEXTO…", blocos: [{ id: newId(), texto: "Texto de contexto / explicação.", x: 73, y: 740, w: 934, fontSize: 30 }] };
   if (tipo === "spot")
-    return { tipo: "spot", imagem: null, spotName: "", spotLocation: "", spotAuthor: "", ...base, blocos: [] };
+    return { tipo: "spot", imagem: null, spotName: "", spotLocation: "", spotAuthor: "", spotDescription: "", ...base, blocos: [] };
   return { tipo: "conteudo", imagem: null, ...base, subtitulo: "NOVA CHAMADA…", blocos: [{ id: newId(), texto: "Texto do card.", x: 90, y: 950, w: 900, fontSize: 30 }] };
 }
 
 // Seed doc for SkateHive spot mode: one blank "Skate Spot Found!" card.
 function makeSpotSeed(): Carousel {
   return { meta: { handle: "skatehive", local: "", legenda: "" }, cards: [newCard("spot")] };
+}
+
+// Compose the post caption from a spot card so the post carries the spot's
+// description + credit alongside the design. "" for non-spot docs.
+function spotCaption(doc: Carousel): string {
+  const spot = doc.cards.find(
+    (c): c is Extract<Card, { tipo: "spot" }> => c.tipo === "spot" && (!!c.spotDescription?.trim() || !!c.spotName?.trim()),
+  );
+  if (!spot) return "";
+  const parts: string[] = [];
+  if (spot.spotDescription?.trim()) parts.push(spot.spotDescription.trim());
+  const loc = [spot.spotName?.trim(), spot.spotLocation?.trim()].filter(Boolean).join(" — ");
+  if (loc) parts.push(`📍 ${loc}`);
+  if (spot.spotAuthor?.trim()) parts.push(`🛹 spot por @${spot.spotAuthor.trim()}`);
+  return parts.join("\n\n");
 }
 
 // Studio começa LIMPO: 1 capa em branco (sem o roteiro-exemplo de 10 cards).
@@ -238,7 +253,7 @@ export function Editor({
     const apply = (w: number | null, h: number | null) =>
       patchActive((c) => ({
         ...c, tipo: "spot", imagem: spot.photo, imgW: w, imgH: h, imgFit: DEFAULT_FIT,
-        spotName: spot.name, spotLocation: spot.location, spotAuthor: spot.author,
+        spotName: spot.name, spotLocation: spot.location, spotAuthor: spot.author, spotDescription: spot.description,
       }) as Card);
     if (spot.photo) {
       const im = new window.Image();
@@ -605,9 +620,10 @@ export function Editor({
       toast.loading("Enviando para o post…", { id: tid });
       // Reelflip cards render at a fixed 1080×1350 (4:5) — pass that so the post
       // creator locks the preview crop instead of re-probing each PNG.
-      // Caption is authored in the post creator, not the carousel studio.
+      // Spot template: seed the caption from the spot's description + credit so
+      // the post carries it alongside the design (other templates pass "").
       // passa o doc editável junto → o Post Creator salva no draft (studio ↔ post).
-      await onUseInPost(files, "", 1080 / 1350, doc);
+      await onUseInPost(files, spotCaption(doc), 1080 / 1350, doc);
       toast.success("Cards no post!", { id: tid });
     } catch (e) { toast.error("Falha ao usar no post.", { id: tid, description: "Tente novamente." }); console.error(e); }
     finally { setBusy(null); }
@@ -932,6 +948,13 @@ export function Editor({
                 <Input value={card.spotLocation} onChange={(e) => patchActive((c) => ({ ...c, spotLocation: e.target.value }) as Card)} placeholder="Minneapolis, MN" />
                 <Label className="text-muted-foreground">Crédito (autor)</Label>
                 <Input value={card.spotAuthor} onChange={(e) => patchActive((c) => ({ ...c, spotAuthor: e.target.value }) as Card)} placeholder="web-gnar" />
+                <Label className="text-muted-foreground">Descrição (vai pra legenda do post)</Label>
+                <Textarea
+                  value={card.spotDescription}
+                  onChange={(e) => patchActive((c) => ({ ...c, spotDescription: e.target.value }) as Card)}
+                  rows={4}
+                  placeholder="Descrição do spot — vira a legenda quando você usa no post."
+                />
               </>
             )}
 

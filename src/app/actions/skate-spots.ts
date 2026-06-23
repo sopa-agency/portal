@@ -24,6 +24,8 @@ export type SkateSpot = {
   location: string;
   coords: string | null;
   photo: string | null;
+  /** The spot post's prose description (body minus name/coords/images). */
+  description: string;
   author: string;
   permlink: string;
   created: string;
@@ -55,12 +57,26 @@ function parseSpot(post: RawSpot): SkateSpot | null {
     /!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/.exec(body)?.[1] ||
     /<img[^>]+src=["'](https?:\/\/[^"']+)["']/i.exec(body)?.[1] ||
     null;
+  // Description = the prose: body minus the "Spot Name:" line, the coords line,
+  // and any images/embeds. What's left is the human caption for the spot.
+  const description = body
+    .replace(/^.*Spot Name:.*$/gim, "")
+    .replace(/^.*🌐.*$/gm, "")
+    .replace(/^\s*-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+\s*$/gm, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/<img[^>]*>/gi, "")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 600);
   return {
     id: `${post.author}/${post.permlink}`,
     name,
     location: coords ?? "",
     coords,
     photo,
+    description,
     author: post.author,
     permlink: post.permlink,
     created: post.created ?? "",
