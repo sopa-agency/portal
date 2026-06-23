@@ -18,18 +18,46 @@ export const COST_CATEGORIES: { value: CostCategory; label: string }[] = [
   { value: "other", label: "Outro" },
 ];
 
+/** A manually-logged actual billed amount for a variable cost in one month. */
+export type MonthActual = {
+  month: string; // "YYYY-MM"
+  amount: number; // raw, in `currency`
+  currency: Currency;
+  note: string | null;
+  /** This actual normalized to monthly USD. */
+  monthlyUsd: number;
+};
+
 export type FixedCostDTO = {
   id: string;
   projectSlug: string;
   label: string;
-  amount: number; // raw, in `currency`
+  amount: number; // raw, in `currency` — for variable costs, the plan base / estimate
   currency: Currency;
   cadence: Cadence;
   category: CostCategory | null;
   notes: string | null;
   active: boolean;
-  /** Amount normalized to a monthly USD burn (cadence + currency applied). */
+  /** Variable cost (flat plan + quota overage) — real value edited per month. */
+  variable: boolean;
+  /** Server's notion of the current month ("YYYY-MM"). */
+  currentMonth: string;
+  /** This month's logged actual, if any (for highlighting the current column). */
+  actual: MonthActual | null;
+  /** All logged actuals, most recent month first (history). */
+  actuals: MonthActual[];
+  /** The plan base estimate normalized to monthly USD. */
+  estimateUsd: number;
+  /** Number of recent months averaged into monthlyUsd (0 for fixed/un-logged). */
+  avgCount: number;
+  /**
+   * The figure shown in the display and summed into the runway burn: for a
+   * variable cost it's the AVERAGE of recent logged actuals (or the plan
+   * estimate when none logged yet); for a fixed cost it's the estimate.
+   */
   monthlyUsd: number;
+  /** True when monthlyUsd falls back to the plan estimate (no actuals logged). */
+  isEstimate: boolean;
 };
 
 /** Per-project costs + the USD/BRL rate used to normalize them. */
@@ -104,6 +132,22 @@ export function runway(treasuryUsd: number, costs: FixedCostDTO[]): RunwayStat {
 const CURRENCIES: Currency[] = ["USD", "BRL"];
 const CADENCES: Cadence[] = ["monthly", "yearly"];
 
+const asCurrency = (c: string): Currency => (CURRENCIES.includes(c as Currency) ? (c as Currency) : "USD");
+
+/** Current month key ("YYYY-MM") in São Paulo time, where the org operates. */
+export function currentMonthKey(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  return `${y}-${m}`;
+}
+
+type ActualRow = { month: string; amount: number; currency: string; note: string | null };
+
 export function toCostDTO(
   row: {
     id: string;
@@ -115,15 +159,40 @@ export function toCostDTO(
     category: string | null;
     notes: string | null;
     active: boolean;
+    variable: boolean;
+    actuals?: ActualRow[];
   },
   usdBrl: number,
+  currentMonth: string = currentMonthKey(),
 ): FixedCostDTO {
-  const currency: Currency = CURRENCIES.includes(row.currency as Currency)
-    ? (row.currency as Currency)
-    : "USD";
-  const cadence: Cadence = CADENCES.includes(row.cadence as Cadence)
-    ? (row.cadence as Cadence)
-    : "monthly";
+  const currency = asCurrency(row.currency);
+  const cadence: Cadence = CADENCES.includes(row.cadence as Cadence) ? (row.cadence as Cadence) : "monthly";
+  // Variable costs are inherently monthly (you get billed every month, overage
+  // and all), so the estimate ignores yearly cadence for them.
+  const estCadence: Cadence = row.variable ? "monthly" : cadence;
+  const estimateUsd = normalizeMonthlyUsd(row.amount, currency, estCadence, usdBrl);
+
+  const actuals: MonthActual[] = (row.actuals ?? [])
+    .map((a) => {
+      const ac = asCurrency(a.currency);
+      return {
+        month: a.month,
+        amount: a.amount,
+        currency: ac,
+        note: a.note,
+        monthlyUsd: normalizeMonthlyUsd(a.amount, ac, "monthly", usdBrl),
+      };
+    })
+    .sort((a, b) => (a.month < b.month ? 1 : -1));
+
+  const actual = row.variable ? actuals.find((a) => a.month === currentMonth) ?? null : null;
+  // The display / burn figure for a variable cost is the average of its recent
+  // (up to 6) logged actuals — Vercel/Pinata fluctuate, so the mean of real
+  // invoices is a steadier monthly number than any single month.
+  const recent = actuals.slice(0, 6);
+  const averageUsd = recent.length ? recent.reduce((s, a) => s + a.monthlyUsd, 0) / recent.length : null;
+  const monthlyUsd = row.variable ? averageUsd ?? estimateUsd : estimateUsd;
+
   return {
     id: row.id,
     projectSlug: row.projectSlug,
@@ -134,6 +203,13 @@ export function toCostDTO(
     category: (row.category as CostCategory | null) ?? null,
     notes: row.notes,
     active: row.active,
-    monthlyUsd: normalizeMonthlyUsd(row.amount, currency, cadence, usdBrl),
+    variable: row.variable,
+    currentMonth,
+    actual,
+    actuals,
+    estimateUsd,
+    avgCount: row.variable && averageUsd !== null ? recent.length : 0,
+    monthlyUsd,
+    isEstimate: row.variable ? averageUsd === null : false,
   };
 }

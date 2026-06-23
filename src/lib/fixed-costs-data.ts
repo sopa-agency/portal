@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { fetchUsdBrl, toCostDTO, type CostScope, type FixedCostDTO } from "@/lib/fixed-costs";
+import { currentMonthKey, fetchUsdBrl, toCostDTO, type CostScope, type FixedCostDTO } from "@/lib/fixed-costs";
 
 /**
  * Fetch every project's costs in `slugs`, grouped by slug, with each cost
@@ -8,14 +8,19 @@ import { fetchUsdBrl, toCostDTO, type CostScope, type FixedCostDTO } from "@/lib
  */
 export async function fetchCostScope(slugs: string[]): Promise<CostScope> {
   const uniq = [...new Set(slugs)];
+  const month = currentMonthKey();
   const [usdBrl, rows] = await Promise.all([
     fetchUsdBrl(),
     prisma.fixedCost
-      .findMany({ where: { projectSlug: { in: uniq } }, orderBy: [{ active: "desc" }, { createdAt: "asc" }] })
+      .findMany({
+        where: { projectSlug: { in: uniq } },
+        orderBy: [{ active: "desc" }, { createdAt: "asc" }],
+        include: { actuals: true },
+      })
       .catch(() => []),
   ]);
   const bySlug: Record<string, FixedCostDTO[]> = {};
   for (const slug of uniq) bySlug[slug] = [];
-  for (const r of rows) (bySlug[r.projectSlug] ??= []).push(toCostDTO(r, usdBrl));
+  for (const r of rows) (bySlug[r.projectSlug] ??= []).push(toCostDTO(r, usdBrl, month));
   return { usdBrl, bySlug };
 }

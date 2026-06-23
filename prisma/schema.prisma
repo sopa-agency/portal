@@ -754,15 +754,39 @@ model FixedCost {
   id          String   @id @default(cuid())
   projectSlug String
   label       String
-  amount      Float // in `currency`
+  amount      Float // in `currency` — for variable costs this is the plan base / estimate
   currency    String   @default("USD") // USD | BRL
   cadence     String   @default("monthly") // monthly | yearly
   category    String? // infra | salary | tooling | service | other
   notes       String?
   active      Boolean  @default(true)
+  // Variable costs (Vercel, Pinata…) bill a flat plan but spike on quota
+  // overage. `amount` is the pre-filled estimate; the real value per month is
+  // logged in FixedCostActual and is what the runway uses for the current month.
+  variable    Boolean  @default(false)
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  actuals FixedCostActual[]
+
   @@index([projectSlug])
+}
+
+// The actual billed amount of a (variable) fixed cost in a given month —
+// manually edited as the real invoice lands. One row per cost per month.
+model FixedCostActual {
+  id        String    @id @default(cuid())
+  costId    String
+  cost      FixedCost @relation(fields: [costId], references: [id], onDelete: Cascade)
+  month     String // "YYYY-MM"
+  amount    Float
+  currency  String    @default("USD") // USD | BRL
+  note      String?
+  createdBy String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([costId, month])
+  @@index([costId])
 }

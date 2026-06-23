@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ExternalLink, Layers, Wallet } from "lucide-react";
 import type { TreasuryGroup, EvmWalletReport, HiveAccountReport } from "@/lib/treasury";
+import { TokenLogo } from "@/components/token-logo";
 
 const usd = (n: number, max = 0) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < 1 ? 4 : max });
@@ -63,15 +64,7 @@ function toSegments(items: { label: string; valueUsd: number }[], topN = 6): Seg
 // ---------------------------------------------------------------------------
 
 function Monogram({ symbol, color }: { symbol: string; color: string }) {
-  return (
-    <span
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-      style={{ backgroundColor: color }}
-      aria-hidden
-    >
-      {symbol.slice(0, 3).toUpperCase()}
-    </span>
-  );
+  return <TokenLogo symbol={symbol} color={color} size={28} />;
 }
 
 function AllocationBar({ segments, total }: { segments: Segment[]; total: number }) {
