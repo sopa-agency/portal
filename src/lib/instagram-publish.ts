@@ -232,12 +232,15 @@ function normalizeComment(c: RawComment): IgComment {
 export async function fetchInstagramCommentThreads(
   project: ProjectConfig,
   mediaLimit = 8,
-): Promise<{ ok: true; threads: IgPostThread[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; threads: IgPostThread[]; selfUsername: string } | { ok: false; error: string }> {
   const { token, igid } = resolveIgCredentials(project);
   if (!token || !igid) return { ok: false, error: "Instagram não conectado neste portal (falta token/business id)." };
   const mediaRes = await fetchRecentInstagramMedia(project, mediaLimit);
   if (!mediaRes.ok) return mediaRes;
   try {
+    // Our own handle — used to tell whether the last message in a thread is ours
+    // (handled) or the commenter replied again (needs attention).
+    const me = await graphGet<{ username?: string }>(`/${igid}`, { fields: "username" }, token).catch(() => ({ username: "" }));
     const fields = "id,text,username,timestamp,like_count,hidden,replies{id,text,username,timestamp}";
     const threads = await Promise.all(
       mediaRes.media.map(async (media): Promise<IgPostThread> => {
@@ -249,7 +252,7 @@ export async function fetchInstagramCommentThreads(
         }
       }),
     );
-    return { ok: true, threads: threads.filter((t) => t.comments.length > 0) };
+    return { ok: true, threads: threads.filter((t) => t.comments.length > 0), selfUsername: me.username ?? "" };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

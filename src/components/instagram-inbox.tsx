@@ -17,9 +17,23 @@ function ago(iso: string): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+/**
+ * A comment needs attention unless WE sent the last message in its thread.
+ * - our own top-level comment → handled
+ * - the last reply (by time) is ours → handled (ball in their court)
+ * - no replies, or the commenter replied after us → needs attention
+ */
+function needsAttention(c: IgComment, self: string): boolean {
+  if (self && c.username === self) return false;
+  if (c.replies.length === 0) return true;
+  const last = c.replies.reduce((a, b) => (a.timestamp >= b.timestamp ? a : b));
+  return !(self && last.username === self);
+}
+
 export function InstagramInbox() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [threads, setThreads] = useState<IgPostThread[]>([]);
+  const [self, setSelf] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [reloading, startReload] = useTransition();
 
@@ -28,6 +42,7 @@ export function InstagramInbox() {
       const res = await listInstagramComments();
       if (res.ok) {
         setThreads(res.threads);
+        setSelf(res.selfUsername);
         setStatus("ready");
       } else {
         setError(res.error);
@@ -43,6 +58,11 @@ export function InstagramInbox() {
         t.media.igMediaId !== mediaId ? t : { ...t, comments: t.comments.map((c) => (c.id === next.id ? next : c)) },
       ),
     );
+
+  // Only show threads with at least one comment still needing a reply.
+  const pending = threads
+    .map((t) => ({ ...t, comments: t.comments.filter((c) => needsAttention(c, self)) }))
+    .filter((t) => t.comments.length > 0);
 
   if (status === "loading") {
     return (
@@ -76,12 +96,12 @@ export function InstagramInbox() {
     );
   }
 
-  if (threads.length === 0) {
+  if (pending.length === 0) {
     return (
       <div className="space-y-3">
         <Toolbar onReload={load} reloading={reloading} />
         <p className="rounded-xl border border-border bg-surface px-4 py-8 text-center text-sm text-foreground-faint">
-          Nenhum comentário recente nos seus posts. 🎉
+          Tudo respondido — nenhum comentário aguardando. 🎉
         </p>
       </div>
     );
@@ -90,8 +110,8 @@ export function InstagramInbox() {
   return (
     <div className="space-y-4">
       <Toolbar onReload={load} reloading={reloading} />
-      {threads.map((t) => (
-        <PostThread key={t.media.igMediaId} thread={t} onChange={(c) => replaceComment(t.media.igMediaId, c)} />
+      {pending.map((t) => (
+        <PostThread key={t.media.igMediaId} thread={t} self={self} onChange={(c) => replaceComment(t.media.igMediaId, c)} />
       ))}
     </div>
   );
@@ -115,7 +135,7 @@ function Toolbar({ onReload, reloading }: { onReload: () => void; reloading: boo
   );
 }
 
-function PostThread({ thread, onChange }: { thread: IgPostThread; onChange: (c: IgComment) => void }) {
+function PostThread({ thread, self, onChange }: { thread: IgPostThread; self: string; onChange: (c: IgComment) => void }) {
   const { media, comments } = thread;
   const cover = media.coverUrl ?? media.mediaUrls[0] ?? null;
   return (
@@ -141,14 +161,14 @@ function PostThread({ thread, onChange }: { thread: IgPostThread; onChange: (c: 
       </header>
       <ul className="divide-y divide-border">
         {comments.map((c) => (
-          <CommentRow key={c.id} comment={c} onChange={onChange} />
+          <CommentRow key={c.id} comment={c} self={self} onChange={onChange} />
         ))}
       </ul>
     </section>
   );
 }
 
-function CommentRow({ comment, onChange }: { comment: IgComment; onChange: (c: IgComment) => void }) {
+function CommentRow({ comment, self, onChange }: { comment: IgComment; self: string; onChange: (c: IgComment) => void }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
@@ -158,9 +178,11 @@ function CommentRow({ comment, onChange }: { comment: IgComment; onChange: (c: I
       setError(null);
       const res = await postInstagramReply(comment.id, text);
       if (res.ok) {
+        // Mark our reply as the last message → the comment leaves the inbox
+        // until the user replies again.
         onChange({
           ...comment,
-          replies: [...comment.replies, { id: res.id || `tmp-${Date.now()}`, text: text.trim(), username: "you", timestamp: new Date().toISOString() }],
+          replies: [...comment.replies, { id: res.id || `tmp-${Date.now()}`, text: text.trim(), username: self || "you", timestamp: new Date().toISOString() }],
         });
         setText("");
       } else setError(res.error);

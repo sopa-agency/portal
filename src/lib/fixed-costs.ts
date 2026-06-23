@@ -21,10 +21,12 @@ export const COST_CATEGORIES: { value: CostCategory; label: string }[] = [
 /** A manually-logged actual billed amount for a variable cost in one month. */
 export type MonthActual = {
   month: string; // "YYYY-MM"
-  amount: number; // raw, in `currency`
+  amount: number; // raw, in `currency` — may be negative (refund/credit)
   currency: Currency;
   note: string | null;
-  /** This actual normalized to monthly USD. */
+  /** Whether this month's invoice was actually paid. */
+  paid: boolean;
+  /** This actual normalized to monthly USD (signed). */
   monthlyUsd: number;
 };
 
@@ -146,7 +148,7 @@ export function currentMonthKey(now: Date = new Date()): string {
   return `${y}-${m}`;
 }
 
-type ActualRow = { month: string; amount: number; currency: string; note: string | null };
+type ActualRow = { month: string; amount: number; currency: string; note: string | null; paid?: boolean };
 
 export function toCostDTO(
   row: {
@@ -180,6 +182,7 @@ export function toCostDTO(
         amount: a.amount,
         currency: ac,
         note: a.note,
+        paid: a.paid ?? true,
         monthlyUsd: normalizeMonthlyUsd(a.amount, ac, "monthly", usdBrl),
       };
     })

@@ -199,7 +199,7 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export async function setMonthlyActual(
   costId: string,
-  input: { month?: string; amount: number; currency?: string; note?: string | null },
+  input: { month?: string; amount: number; currency?: string; note?: string | null; paid?: boolean },
 ): Promise<{ ok: true; cost: FixedCostDTO } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
@@ -208,14 +208,16 @@ export async function setMonthlyActual(
 
   const month = input.month && MONTH_RE.test(input.month) ? input.month : currentMonthKey();
   const amount = Number(input.amount);
-  if (!Number.isFinite(amount) || amount < 0) return { ok: false, error: "Valor inválido." };
+  // Negatives are allowed — a refund/credit month nets below zero.
+  if (!Number.isFinite(amount)) return { ok: false, error: "Valor inválido." };
   const currency = asCurrency(input.currency ?? cost.currency);
   const note = input.note?.trim().slice(0, 300) || null;
+  const paid = input.paid ?? true;
 
   await prisma.fixedCostActual.upsert({
     where: { costId_month: { costId, month } },
-    create: { costId, month, amount, currency, note, createdBy: g.username },
-    update: { amount, currency, note },
+    create: { costId, month, amount, currency, note, paid, createdBy: g.username },
+    update: { amount, currency, note, paid },
   });
   const usdBrl = await fetchUsdBrl();
   const dto = await reload(costId, usdBrl);

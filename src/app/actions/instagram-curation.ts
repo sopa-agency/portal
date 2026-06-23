@@ -20,13 +20,13 @@ async function gate() {
 }
 
 export async function listInstagramComments(): Promise<
-  { ok: true; threads: IgPostThread[]; project: string } | { ok: false; error: string }
+  { ok: true; threads: IgPostThread[]; project: string; selfUsername: string } | { ok: false; error: string }
 > {
   const g = await gate();
   if (!g.ok) return g;
   const res = await fetchInstagramCommentThreads(g.project);
   if (!res.ok) return res;
-  return { ok: true, threads: res.threads, project: g.project.name };
+  return { ok: true, threads: res.threads, project: g.project.name, selfUsername: res.selfUsername };
 }
 
 export async function postInstagramReply(

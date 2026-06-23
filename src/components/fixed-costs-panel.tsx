@@ -434,18 +434,28 @@ function MonthCell({
 }) {
   const { usd: v, actual } = monthValue(cost, month);
   const isReal = cost.variable && actual !== null;
+  const isCredit = isReal && v < 0;
+  const unpaid = isReal && actual!.paid === false;
+  const title = editable
+    ? [
+        isReal ? `${monthLabel(month)} — real (clique p/ editar)` : `${monthLabel(month)} — lançar valor real`,
+        unpaid ? "PENDENTE (não pago)" : null,
+        actual?.note || null,
+      ].filter(Boolean).join(" · ")
+    : undefined;
   return (
     <td className={`px-1 py-1 text-right align-top ${isCurrent ? "bg-accent-bg/30" : ""}`}>
       <button
         type="button"
         disabled={!editable}
         onClick={editable ? onClick : undefined}
-        title={editable ? (isReal ? `${monthLabel(month)} — real (clique p/ editar)` : `${monthLabel(month)} — lançar valor real`) : undefined}
-        className={`w-full rounded px-1.5 py-1 text-right text-xs tabular-nums transition-colors ${
+        title={title}
+        className={`flex w-full items-center justify-end gap-1 rounded px-1.5 py-1 text-right text-xs tabular-nums transition-colors ${
           editable ? "cursor-pointer hover:bg-surface-elevated hover:ring-1 hover:ring-accent-border" : "cursor-default"
-        } ${isReal ? "font-semibold text-foreground" : "text-foreground-faint"}`}
+        } ${isCredit ? "font-semibold text-success" : isReal ? "font-semibold text-foreground" : "text-foreground-faint"}`}
       >
-        {v > 0 ? cellUsd(v) : "—"}
+        {unpaid && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-label="pendente" />}
+        {isReal ? cellUsd(v) : v > 0 ? cellUsd(v) : "—"}
       </button>
     </td>
   );
@@ -525,17 +535,19 @@ function MonthActualEditor({
   const [amount, setAmount] = useState(String(seed?.amount ?? cost.amount));
   const [currency, setCurrency] = useState<Currency>(seed?.currency ?? cost.currency);
   const [note, setNote] = useState(monthActual?.note ?? "");
+  const [paid, setPaid] = useState(monthActual?.paid ?? true);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   const amountNum = Number(amount);
-  const previewUsd = amountNum > 0 ? normalizeMonthlyUsd(amountNum, currency, "monthly", usdBrl) : 0;
+  const valid = amount.trim() !== "" && amount.trim() !== "-" && Number.isFinite(amountNum);
+  const previewUsd = valid ? normalizeMonthlyUsd(amountNum, currency, "monthly", usdBrl) : 0;
   const deltaUsd = previewUsd - cost.estimateUsd;
 
   const save = () =>
     start(async () => {
       setError(null);
-      const res = await setMonthlyActual(cost.id, { month, amount: amountNum, currency, note: note || null });
+      const res = await setMonthlyActual(cost.id, { month, amount: amountNum, currency, note: note || null, paid });
       if (res.ok) onChange(res.cost);
       else setError(res.error);
     });
@@ -556,9 +568,9 @@ function MonthActualEditor({
         <input
           autoFocus
           value={amount}
-          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-          inputMode="decimal"
-          placeholder="Valor da fatura"
+          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.\-]/g, "").replace(/(?!^)-/g, ""))}
+          inputMode="text"
+          placeholder="Valor (negativo = refund)"
           className={`${inputCls} tabular-nums`}
         />
         <select value={currency} onChange={(e) => setCurrency(e.target.value as Currency)} className={inputCls}>
@@ -568,16 +580,21 @@ function MonthActualEditor({
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Nota (ex: overage)"
+          placeholder="Nota (ex: overage, refund)"
           className={`${inputCls} col-span-2 sm:col-span-1`}
         />
       </div>
+
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-[11px] text-foreground-muted">
+        <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--color-accent)]" />
+        Pago {paid ? "" : "— pendente"}
+      </label>
 
       {error && <p className="text-[11px] text-danger">{error}</p>}
 
       <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
         <p className="text-[11px] text-foreground-faint">
-          {previewUsd > 0 ? (
+          {valid ? (
             <>
               ≈ <span className="font-semibold tabular-nums text-foreground-muted">{usd(previewUsd)}/mês</span>
               {Math.abs(deltaUsd) >= 0.5 && (
@@ -614,7 +631,7 @@ function MonthActualEditor({
           <button
             type="button"
             onClick={save}
-            disabled={pending || !(amountNum > 0)}
+            disabled={pending || !valid}
             className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent/90 disabled:opacity-40"
           >
             {pending ? "Salvando…" : "Salvar mês"}

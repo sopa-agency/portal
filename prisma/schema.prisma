@@ -780,9 +780,10 @@ model FixedCostActual {
   costId    String
   cost      FixedCost @relation(fields: [costId], references: [id], onDelete: Cascade)
   month     String // "YYYY-MM"
-  amount    Float
+  amount    Float // real billed amount; may be negative (refund/credit)
   currency  String    @default("USD") // USD | BRL
   note      String?
+  paid      Boolean   @default(true) // whether this month's invoice was actually paid
   createdBy String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

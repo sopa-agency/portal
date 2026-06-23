@@ -35,6 +35,14 @@ export type HiveAccountReport = {
   error?: string;
 };
 
+/**
+ * Live Hive yields. `hbdSavings` is authoritative (the chain's hbd_interest_rate
+ * — exactly what HBD in savings earns). `hp` is an estimate: the inflation share
+ * routed to the vesting fund (≈15%), which passively grows every HP holder's
+ * HIVE-per-VESTS — actual yield from curation varies.
+ */
+export type HiveApr = { hp: number; hbdSavings: number };
+
 export type TreasuryReport = {
   evm: EvmWalletReport[];
   hive: HiveAccountReport[];
@@ -42,6 +50,7 @@ export type TreasuryReport = {
   hiveTotalUsd: number;
   grandTotalUsd: number;
   prices: { hive: number; hbd: number };
+  hiveApr: HiveApr | null;
 };
 
 // --- prices -----------------------------------------------------------------
@@ -168,14 +177,38 @@ async function hiveRpc<T>(method: string, params: unknown): Promise<T> {
 const amount = (v: unknown): number =>
   typeof v === "string" ? parseFloat(v.split(" ")[0]) : parseFloat(String((v as { amount?: string })?.amount ?? "0"));
 
+/** Network inflation rate (%) at a given head block: 9.5% declining 0.01% per
+ * 250k blocks, floored at 0.95%. */
+function inflationPct(headBlock: number): number {
+  return Math.max(0.95, 9.5 - (headBlock / 250000) * 0.01);
+}
+
+function computeHiveApr(props: {
+  total_vesting_fund_hive: string;
+  virtual_supply?: string;
+  head_block_number?: number;
+  hbd_interest_rate?: number;
+}): HiveApr {
+  const hbdSavings = (props.hbd_interest_rate ?? 0) / 100; // basis points → %
+  const fund = amount(props.total_vesting_fund_hive);
+  const supply = amount(props.virtual_supply ?? "0");
+  const head = props.head_block_number ?? 0;
+  // ≈15% of yearly inflation grows the vesting fund (passive HP yield).
+  const VESTING_SHARE = 0.15;
+  const hp = fund > 0 && supply > 0 && head > 0
+    ? (supply * (inflationPct(head) / 100) * VESTING_SHARE) / fund * 100
+    : 0;
+  return { hp, hbdSavings };
+}
+
 async function fetchHiveAccounts(
   accounts: { label: string; account: string }[],
   prices: { hive: number; hbd: number },
-): Promise<HiveAccountReport[]> {
+): Promise<{ reports: HiveAccountReport[]; apr: HiveApr | null }> {
   try {
     const [rows, props] = await Promise.all([
       hiveRpc<Array<Record<string, unknown>>>("condenser_api.get_accounts", [accounts.map((a) => a.account)]),
-      hiveRpc<{ total_vesting_fund_hive: string; total_vesting_shares: string }>(
+      hiveRpc<{ total_vesting_fund_hive: string; total_vesting_shares: string; virtual_supply: string; head_block_number: number; hbd_interest_rate: number }>(
         "condenser_api.get_dynamic_global_properties",
         [],
       ),
@@ -183,7 +216,7 @@ async function fetchHiveAccounts(
     const vestToHive =
       amount(props.total_vesting_fund_hive) / amount(props.total_vesting_shares);
 
-    return accounts.map(({ label, account }) => {
+    const reports = accounts.map(({ label, account }) => {
       const row = rows.find((r) => r.name === account);
       if (!row) return { label, account, hive: 0, hp: 0, hbd: 0, hbdSavings: 0, usd: 0, error: "account not found" };
       const hive = amount(row.balance);
@@ -193,18 +226,22 @@ async function fetchHiveAccounts(
       const usd = (hive + hp) * prices.hive + (hbd + hbdSavings) * prices.hbd;
       return { label, account, hive, hp, hbd, hbdSavings, usd };
     });
+    return { reports, apr: computeHiveApr(props) };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    return accounts.map(({ label, account }) => ({
-      label,
-      account,
-      hive: 0,
-      hp: 0,
-      hbd: 0,
-      hbdSavings: 0,
-      usd: 0,
-      error,
-    }));
+    return {
+      reports: accounts.map(({ label, account }) => ({
+        label,
+        account,
+        hive: 0,
+        hp: 0,
+        hbd: 0,
+        hbdSavings: 0,
+        usd: 0,
+        error,
+      })),
+      apr: null,
+    };
   }
 }
 
@@ -245,12 +282,15 @@ export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryRep
   if (!cfg) return null;
 
   const prices = await getPrices();
-  const [evm, hive] = await Promise.all([
+  const [evm, hiveRes] = await Promise.all([
     Promise.all(cfg.ethWallets.map((w) => fetchEvmWallet(w.label, w.address, prices.eth))),
-    cfg.hiveAccounts?.length ? fetchHiveAccounts(cfg.hiveAccounts, prices) : Promise.resolve([]),
+    cfg.hiveAccounts?.length
+      ? fetchHiveAccounts(cfg.hiveAccounts, prices)
+      : Promise.resolve({ reports: [] as HiveAccountReport[], apr: null as HiveApr | null }),
   ]);
+  const hive = hiveRes.reports;
 
   const evmTotalUsd = evm.reduce((s, w) => s + w.totalUsd, 0);
   const hiveTotalUsd = hive.reduce((s, a) => s + a.usd, 0);
-  return { evm, hive, evmTotalUsd, hiveTotalUsd, grandTotalUsd: evmTotalUsd + hiveTotalUsd, prices };
+  return { evm, hive, evmTotalUsd, hiveTotalUsd, grandTotalUsd: evmTotalUsd + hiveTotalUsd, prices, hiveApr: hiveRes.apr };
 }

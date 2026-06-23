@@ -125,6 +125,17 @@ function Overview({ groups, title }: { groups: TreasuryGroup[]; title: string })
   );
   const multi = groups.length > 1;
 
+  // Live Hive yields (first treasury that carries them). HP APR is an estimate
+  // (inflation→vesting); HBD savings APR is authoritative (chain rate).
+  const hiveApr = groups.find((g) => g.report.hiveApr)?.report.hiveApr ?? null;
+  const aprFor = (symbol: string): { text: string; est: boolean } | null => {
+    if (!hiveApr) return null;
+    const s = symbol.toUpperCase();
+    if (s === "HIVE" && hiveApr.hp > 0) return { text: `HP ~${hiveApr.hp.toFixed(1)}% APR`, est: true };
+    if (s === "HBD" && hiveApr.hbdSavings > 0) return { text: `savings ${hiveApr.hbdSavings.toFixed(0)}% APR`, est: false };
+    return null;
+  };
+
   return (
     <div className="overflow-hidden rounded-3xl border border-border bg-surface">
       {/* Hero */}
@@ -167,7 +178,7 @@ function Overview({ groups, title }: { groups: TreasuryGroup[]; title: string })
               <li key={a.symbol} className="flex items-center gap-3 px-6 py-3">
                 <Monogram symbol={a.symbol} color={color} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-foreground">{a.symbol}</span>
                     {a.chains.map((c) => (
                       <span
@@ -177,6 +188,17 @@ function Overview({ groups, title }: { groups: TreasuryGroup[]; title: string })
                         {c}
                       </span>
                     ))}
+                    {(() => {
+                      const apr = aprFor(a.symbol);
+                      return apr ? (
+                        <span
+                          className="rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success"
+                          title={apr.est ? "Estimativa — rendimento do HP via inflação (vesting); curadoria varia." : "Taxa de juros do HBD em savings (on-chain)."}
+                        >
+                          {apr.text}{apr.est ? "*" : ""}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                   <p className="mt-0.5 text-[11px] tabular-nums text-foreground-faint">{num(a.balance, 4)} {a.symbol}</p>
                 </div>
@@ -379,7 +401,7 @@ export function TreasuryViews({ groups }: { groups: TreasuryGroup[] }) {
       {prices && (
         <p className="text-[11px] text-foreground-faint">
           HIVE {usd(prices.hive, 2)} · HBD {usd(prices.hbd, 2)} via CoinGecko. HP = owned vesting shares
-          (incl. delegated out), same math as skatehive.app/dao. Sources cached 5 min.
+          (incl. delegated out), same math as skatehive.app/dao. Sources cached 5 min. <span className="text-foreground-faint">* APR do HP é estimativa (inflação → vesting); o do HBD savings é a taxa on-chain.</span>
         </p>
       )}
     </div>
