@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Loader2, Send, RefreshCw, Heart, Rocket, Check, ExternalLink, FileText, BookUp } from "lucide-react";
+import { Loader2, Send, RefreshCw, Heart, Rocket, Check, ExternalLink, FileText, BookUp, Sparkles } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { HiveBoostButton } from "@/components/hive-boost-button";
-import { listBlogPostsForCuration, replyToSnap, sendBlogPostToParagraph } from "@/app/actions/snap-curation";
+import { listBlogPostsForCuration, replyToSnap, sendBlogPostToParagraph, generateHivePostReply } from "@/app/actions/snap-curation";
 import { type CurationSnap } from "@/lib/snap-curation-shared";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -77,12 +77,21 @@ function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canPara
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
   const [paraBusy, startPara] = useTransition();
+  const [genBusy, startGen] = useTransition();
 
   const reply = () =>
     startBusy(async () => {
       setError(null);
       const res = await replyToSnap(post.author, post.permlink, text);
       if (res.ok) { setReplied(res.url); setText(""); }
+      else setError(res.error);
+    });
+
+  const generate = () =>
+    startGen(async () => {
+      setError(null);
+      const res = await generateHivePostReply({ author: post.author, title: post.title, kind: "blog" });
+      if (res.ok) setText(res.draft);
       else setError(res.error);
     });
 
@@ -153,6 +162,9 @@ function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canPara
               disabled={busy}
               className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
             />
+            <button type="button" onClick={generate} disabled={genBusy} title="Gerar resposta com IA" className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border p-1.5 text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-50">
+              {genBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            </button>
             <button type="button" onClick={reply} disabled={busy || !text.trim()} title="Comentar" className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border p-1.5 text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-40">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             </button>

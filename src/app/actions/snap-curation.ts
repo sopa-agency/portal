@@ -10,6 +10,8 @@ import { HIVE_NODES } from "@/lib/social-publish";
 import { getUserbaseClient } from "@/lib/supabase-userbase";
 import { listSkatehiveVideos } from "@/app/actions/skatehive-media";
 import { buildPostUrl } from "@/lib/skatehive-content";
+import { callOpenClaw } from "@/lib/openclaw-gateway";
+import type { ProjectConfig } from "@/projects/types";
 import { BOOST_LEVELS, type BoostLevel, type CurationSnap } from "@/lib/snap-curation-shared";
 
 async function gate() {
@@ -229,6 +231,47 @@ export async function replyToSnap(
     return { ok: true, url: `https://peakd.com/@${account}/${childPermlink}` };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Falha ao comentar no Hive." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI reply suggestion — a short, human, on-brand draft for a snap or blog post.
+// ---------------------------------------------------------------------------
+
+const AI_TIMEOUT_MS = 30_000;
+
+function hiveReplyPrompt(project: ProjectConfig, kind: "snap" | "blog", author: string, title: string): string {
+  const voice = project.socials.find((s) => s.voice)?.voice ?? `${project.name}'s authentic, culture-native voice`;
+  const noun = kind === "blog" ? "blog post" : "snap (short skate clip)";
+  return `You are commenting on a community member's ${noun} on Hive, as ${project.name} — but sound like a REAL person in the skate scene, NOT a brand or a marketer.
+
+${project.name}'s vibe (reference, don't imitate corporate tone): ${voice}
+
+By @${author}${title ? `, about: "${title}"` : ""}.
+
+Rules:
+- Reply in the SAME language as the context (likely pt-BR or en).
+- VERY short — one line, usually under 80 chars. React genuinely (hype the trick / spot / post).
+- Human, casual, supportive. Lowercase is fine. At most one emoji. No hashtags, no marketing words.
+
+Output ONLY the reply text, nothing else.`;
+}
+
+export async function generateHivePostReply(input: {
+  author: string;
+  title: string;
+  kind: "snap" | "blog";
+}): Promise<{ ok: true; draft: string } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  try {
+    const raw = await callOpenClaw(hiveReplyPrompt(g.project, input.kind, input.author, input.title), g.project.agent.id, {
+      timeoutMs: AI_TIMEOUT_MS,
+      project: g.project,
+    });
+    return { ok: true, draft: raw.trim().replace(/^["']|["']$/g, "").slice(0, 300) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha na IA." };
   }
 }
 

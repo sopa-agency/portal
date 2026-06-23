@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Loader2, Send, RefreshCw, Heart, Rocket, Check, Play } from "lucide-react";
+import { Loader2, Send, RefreshCw, Heart, Rocket, Check, Play, Sparkles } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { HiveBoostButton } from "@/components/hive-boost-button";
-import { listSnapsForCuration, replyToSnap } from "@/app/actions/snap-curation";
+import { listSnapsForCuration, replyToSnap, generateHivePostReply } from "@/app/actions/snap-curation";
 import { type CurationSnap } from "@/lib/snap-curation-shared";
 
 export function SnapsInbox() {
@@ -72,12 +72,21 @@ function SnapCard({ snap, onPatch }: { snap: CurationSnap; onPatch: (p: Partial<
   const [replied, setReplied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
+  const [genBusy, startGen] = useTransition();
 
   const reply = () =>
     startBusy(async () => {
       setError(null);
       const res = await replyToSnap(snap.author, snap.permlink, text);
       if (res.ok) { setReplied(res.url); setText(""); }
+      else setError(res.error);
+    });
+
+  const generate = () =>
+    startGen(async () => {
+      setError(null);
+      const res = await generateHivePostReply({ author: snap.author, title: snap.title, kind: "snap" });
+      if (res.ok) setText(res.draft);
       else setError(res.error);
     });
 
@@ -126,6 +135,9 @@ function SnapCard({ snap, onPatch }: { snap: CurationSnap; onPatch: (p: Partial<
               disabled={busy}
               className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
             />
+            <button type="button" onClick={generate} disabled={genBusy} title="Gerar resposta com IA" className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border p-1.5 text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-50">
+              {genBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            </button>
             <button type="button" onClick={reply} disabled={busy || !text.trim()} title="Responder" className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border p-1.5 text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-40">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             </button>
