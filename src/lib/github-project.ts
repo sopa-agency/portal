@@ -864,3 +864,66 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
   }
   return { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };
 }
+
+// ---------------------------------------------------------------------------
+// Recent commits — portal-side code delta for the morning briefing, so the dev
+// agent never needs a local clone or `git pull`. Uses the same token as the
+// board; cached briefly so multiple agents in one tick share the fetch.
+// ---------------------------------------------------------------------------
+
+export type RepoCommit = { repo: string; sha: string; message: string; author: string; date: string };
+
+const commitsCache = new Map<string, { data: RepoCommit[]; expires: number }>();
+
+export async function fetchRecentCommits(
+  project: ProjectConfig,
+  sinceIso: string | null,
+): Promise<RepoCommit[]> {
+  const token = resolveGitHubToken(project);
+  if (!token || !project.repos?.length) return [];
+  const since = sinceIso ?? new Date(Date.now() - 7 * 864e5).toISOString(); // fallback: last 7 days
+  const key = `${project.slug}:${since}`;
+  const hit = commitsCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.data;
+
+  const out: RepoCommit[] = [];
+  await Promise.all(
+    project.repos.slice(0, 6).map(async (full) => {
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/${full}/commits?since=${encodeURIComponent(since)}&per_page=30`,
+          {
+            headers: {
+              Authorization: `bearer ${token}`,
+              Accept: "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+            next: { revalidate: 300 },
+          },
+        );
+        if (!res.ok) return;
+        const arr = (await res.json()) as Array<{
+          sha: string;
+          commit: { message: string; author?: { name?: string; date?: string } };
+          author?: { login?: string } | null;
+        }>;
+        for (const c of arr) {
+          const msg = (c.commit?.message ?? "").split("\n")[0].trim();
+          if (/^merge (branch|pull request|remote)/i.test(msg)) continue; // skip noise
+          out.push({
+            repo: full,
+            sha: c.sha.slice(0, 7),
+            message: msg.slice(0, 100),
+            author: c.author?.login ?? c.commit?.author?.name ?? "?",
+            date: c.commit?.author?.date ?? "",
+          });
+        }
+      } catch {
+        // best-effort per repo
+      }
+    }),
+  );
+  out.sort((a, b) => (a.date < b.date ? 1 : -1));
+  commitsCache.set(key, { data: out, expires: Date.now() + 300_000 });
+  return out;
+}

@@ -10,8 +10,14 @@ import { fetchGitHubProject } from "@/lib/github-project";
 const ACTIONABLE = ["in progress", "in review", "ready", "in review/testing", "testing"];
 const ITEMS_PER_COLUMN = 6;
 
+// Short cache so when both briefing agents assemble in the same cron tick they
+// share one board fetch instead of hitting GitHub twice.
+const ctxCache = new Map<string, { data: string; expires: number }>();
+
 export async function getProjectKanbanContext(project: ProjectConfig): Promise<string> {
   if (!project.githubProject) return "";
+  const cached = ctxCache.get(project.slug);
+  if (cached && Date.now() < cached.expires) return cached.data;
   try {
     const board = await fetchGitHubProject(project);
     if (!board.ok) return "";
@@ -40,7 +46,9 @@ export async function getProjectKanbanContext(project: ProjectConfig): Promise<s
       blocks.push(`${col.name}:\n${lines.join("\n")}${more}`);
     }
 
-    return blocks.join("\n");
+    const out = blocks.join("\n");
+    ctxCache.set(project.slug, { data: out, expires: Date.now() + 5 * 60_000 });
+    return out;
   } catch {
     return "";
   }

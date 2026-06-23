@@ -229,6 +229,14 @@ export type ProjectConfig = {
     /** Short label for the tab strip; defaults to `label`. */
     tabLabel?: string;
     workspace: string;
+    /**
+     * Tailors the briefing input to the agent's objective (cheaper + sharper):
+     * - "dev": gets the portal-fetched code-commit delta ([commits]); skips the
+     *   marketing social analysis.
+     * - "marketing": gets the social analysis; skips [commits].
+     * Unset = general agent (social analysis, no commits).
+     */
+    role?: "dev" | "marketing";
   }[];
   agent: {
     /**

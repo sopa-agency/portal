@@ -158,12 +158,13 @@ const skatehive: ProjectConfig = {
     },
   ],
   briefingAgents: [
-    { slug: "skate-dev", label: "SkateHive Dev", tabLabel: "DEV", workspace: "workspace-skate-dev" },
+    { slug: "skate-dev", label: "SkateHive Dev", tabLabel: "DEV", workspace: "workspace-skate-dev", role: "dev" },
     {
       slug: "skatehive-marketing",
       label: "SkateHive Marketing",
       tabLabel: "MKT",
       workspace: "workspace-skatehive-marketing",
+      role: "marketing",
     },
   ],
   agent: {

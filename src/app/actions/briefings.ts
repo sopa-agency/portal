@@ -16,6 +16,7 @@ import {
   getProjectSocialMetricsContext,
 } from "@/lib/social-insights-core";
 import { getProjectKanbanContext } from "@/lib/kanban-context";
+import { fetchRecentCommits } from "@/lib/github-project";
 
 // Abort the agent call a hair before the 300s function budget so the action
 // returns a clean error instead of a raw 504 if a run goes long.
@@ -89,10 +90,15 @@ async function assembleBriefingPrompt(
       "including the top-level title. Keep the same structural format (## headings, bullet lists).";
   }
 
-  const ctx = await getProjectSocialInsightsContext(project.slug);
-  if (ctx) {
-    prompt +=
-      "\n\n=== Social analytics context — the agent's prior AI analysis per channel (use when relevant) ===\n" + ctx;
+  // Per-agent tailoring: the dev agent doesn't need the marketing social
+  // analysis — cut it to save tokens and keep its briefing on-objective.
+  const role = project.briefingAgents.find((a) => a.slug === agentSlug)?.role;
+  if (role !== "dev") {
+    const ctx = await getProjectSocialInsightsContext(project.slug);
+    if (ctx) {
+      prompt +=
+        "\n\n=== Social analytics context — the agent's prior AI analysis per channel (use when relevant) ===\n" + ctx;
+    }
   }
 
   // Live social numbers + GitHub Project board, in parallel — grounding the
@@ -126,8 +132,22 @@ async function assembleBriefingPrompt(
   prompt +=
     "\n\n=== [since] Last briefing for this agent ===\n" +
     (since
-      ? `${since}\nOnly inspect what changed since this instant. For any code/repo source, run a bounded delta since this timestamp (e.g. \`git log --since='${since}'\`) instead of scanning from scratch — use the exact path/command your own prompt specifies.`
+      ? `${since}\nOnly inspect what changed since this instant — focus on the delta, don't re-scan from scratch.`
       : "No prior briefing — this is the first run, so a fuller pass is fine.");
+
+  // Dev agent: the portal fetches the code-commit delta via the GitHub API and
+  // injects it here — no local clone / `git pull` needed (that was failing).
+  if (role === "dev") {
+    const commits = await fetchRecentCommits(project, since);
+    const body = commits.length
+      ? commits
+          .map((c) => `- ${c.repo.split("/")[1] ?? c.repo} ${c.sha} ${c.message} (@${c.author})`)
+          .join("\n")
+      : "No commits in any tracked repo since the last briefing.";
+    prompt +=
+      "\n\n=== [commits] Code delta since [since], fetched THIS run via the GitHub API — ground all code/ship claims in this; do NOT run git locally ===\n" +
+      body;
+  }
 
   if (feedback) {
     prompt +=
