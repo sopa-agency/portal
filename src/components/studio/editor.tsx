@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   Plus, Trash2, Download, ChevronLeft, ChevronRight,
   ZoomIn, ZoomOut, RotateCcw, ArrowUp, ArrowDown, Image as ImageIcon, Loader2, Crop, Check,
-  Heart, MessageCircle, Send, Bookmark, MoreVertical, Undo2, Redo2, Pipette, MapPin,
+  Heart, MessageCircle, Send, Bookmark, MoreVertical, Undo2, Redo2, Pipette, MapPin, Flame,
 } from "lucide-react";
 
 import { Button } from "@/components/studio/ui/button";
@@ -136,6 +136,11 @@ export function Editor({
   const [busy, setBusy] = useState<null | "one" | "zip">(null);
   const [framing, setFraming] = useState(false); // modo "enquadrar imagem" (pan/zoom do fundo)
   const [grabbing, setGrabbing] = useState(false); // feedback de cursor durante o pan da imagem
+  // "Burn" preview: show the REAL rendered PNG (same Satori pipeline as the post)
+  // so the preview matches the exported card exactly, not the browser DOM approx.
+  const [burn, setBurn] = useState(false);
+  const [burnUrl, setBurnUrl] = useState<string | null>(null);
+  const [burnBusy, setBurnBusy] = useState(false);
   // SkateHive spot map picker (spotMode only)
   const [spotsOpen, setSpotsOpen] = useState(false);
   const [spots, setSpots] = useState<SkateSpot[] | null>(null);
@@ -152,6 +157,34 @@ export function Editor({
   const framingSnap = useRef<ImgFit | null>(null); // imgFit ao entrar no enquadramento → Esc reverte
 
   const card = doc.cards[active];
+
+  // Burn preview: (re)render the active card to a real PNG, debounced, whenever
+  // it changes while burn mode is on. The object URL is the exact post output.
+  const cardHash = JSON.stringify(card);
+  useEffect(() => {
+    if (!burn) { setBurnUrl(null); return; }
+    let alive = true;
+    setBurnBusy(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/studio/render", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ card }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const url = URL.createObjectURL(await res.blob());
+        if (!alive) { URL.revokeObjectURL(url); return; }
+        setBurnUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+      } catch {
+        if (alive) setBurnUrl(null);
+      } finally {
+        if (alive) setBurnBusy(false);
+      }
+    }, 500);
+    return () => { alive = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [burn, cardHash]);
 
   // ---- updaters (imutáveis) ----
   const updateCard = useCallback((i: number, fn: (c: Card) => Card) => {
@@ -770,6 +803,15 @@ export function Editor({
               <TooltipContent>Aumentar zoom</TooltipContent>
             </Tooltip>
           </div>
+          <Separator orientation="vertical" className="h-6" />
+          <Tooltip>
+            <TooltipTrigger render={
+              <Button size="icon" variant={burn ? "default" : "secondary"} aria-label="Preview real (burn)" aria-pressed={burn} onClick={() => setBurn((b) => !b)}>
+                {burnBusy ? <Loader2 className="size-4 animate-spin" /> : <Flame className="size-4" />}
+              </Button>
+            } />
+            <TooltipContent>Preview real — exatamente como vai pro post (PNG renderizado)</TooltipContent>
+          </Tooltip>
         </div>
 
         {/* mockup do feed (chrome FIXO — não exporta) */}
@@ -793,6 +835,13 @@ export function Editor({
               >
                 <CardArtwork card={card} assets={CLIENT_ASSETS} />
               </div>
+
+              {/* Burn preview — the real rendered PNG laid over the DOM preview,
+                  so what you see is exactly what gets posted. */}
+              {burn && burnUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={burnUrl} alt="" width={CARD_W} height={CARD_H} style={{ position: "absolute", inset: 0, width: CARD_W, height: CARD_H }} />
+              )}
 
               {/* modo enquadramento: captura arraste (pan) + scroll (zoom) sobre a imagem de fundo */}
               {framing && cardImg && (
