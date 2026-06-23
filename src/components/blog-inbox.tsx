@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Loader2, Send, RefreshCw, Heart, Rocket, Check, ExternalLink, FileText } from "lucide-react";
+import { Loader2, Send, RefreshCw, Heart, Rocket, Check, ExternalLink, FileText, BookUp } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { HiveBoostButton } from "@/components/hive-boost-button";
-import { listBlogPostsForCuration, replyToSnap } from "@/app/actions/snap-curation";
+import { listBlogPostsForCuration, replyToSnap, sendBlogPostToParagraph } from "@/app/actions/snap-curation";
 import { type CurationSnap } from "@/lib/snap-curation-shared";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -12,13 +12,14 @@ const usd = (n: number) => `$${n.toFixed(2)}`;
 export function BlogInbox() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [posts, setPosts] = useState<CurationSnap[]>([]);
+  const [canParagraph, setCanParagraph] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloading, startReload] = useTransition();
 
   function load() {
     startReload(async () => {
       const res = await listBlogPostsForCuration();
-      if (res.ok) { setPosts(res.posts); setStatus("ready"); }
+      if (res.ok) { setPosts(res.posts); setCanParagraph(res.canParagraph); setStatus("ready"); }
       else { setError(res.error); setStatus("error"); }
     });
   }
@@ -61,7 +62,7 @@ export function BlogInbox() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {posts.map((p) => (
-            <BlogCard key={p.id} post={p} onPatch={(x) => patch(p.id, x)} />
+            <BlogCard key={p.id} post={p} canParagraph={canParagraph} onPatch={(x) => patch(p.id, x)} />
           ))}
         </div>
       )}
@@ -69,17 +70,27 @@ export function BlogInbox() {
   );
 }
 
-function BlogCard({ post, onPatch }: { post: CurationSnap; onPatch: (p: Partial<CurationSnap>) => void }) {
+function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canParagraph: boolean; onPatch: (p: Partial<CurationSnap>) => void }) {
   const [text, setText] = useState("");
   const [replied, setReplied] = useState<string | null>(null);
+  const [paragraphUrl, setParagraphUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
+  const [paraBusy, startPara] = useTransition();
 
   const reply = () =>
     startBusy(async () => {
       setError(null);
       const res = await replyToSnap(post.author, post.permlink, text);
       if (res.ok) { setReplied(res.url); setText(""); }
+      else setError(res.error);
+    });
+
+  const toParagraph = () =>
+    startPara(async () => {
+      setError(null);
+      const res = await sendBlogPostToParagraph(post.author, post.permlink);
+      if (res.ok) setParagraphUrl(res.url);
       else setError(res.error);
     });
 
@@ -107,7 +118,26 @@ function BlogCard({ post, onPatch }: { post: CurationSnap; onPatch: (p: Partial<
         <a href={post.url} target="_blank" rel="noreferrer" className="line-clamp-2 text-sm font-semibold text-foreground hover:text-accent">
           {post.title} <ExternalLink className="inline h-3 w-3 align-baseline text-foreground-subtle" />
         </a>
-        <HiveBoostButton post={post} onBoosted={(b) => onPatch({ boost: b })} />
+        <div className="flex items-center gap-1.5">
+          <HiveBoostButton post={post} onBoosted={(b) => onPatch({ boost: b })} />
+          {canParagraph && (
+            paragraphUrl ? (
+              <a href={paragraphUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-success/40 bg-success/10 px-2.5 py-1.5 text-xs font-medium text-success">
+                <Check className="h-3.5 w-3.5" /> draft no Paragraph
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={toParagraph}
+                disabled={paraBusy}
+                title="Enviar como rascunho pro Paragraph (teste — admin)"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+              >
+                {paraBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookUp className="h-3.5 w-3.5" />} Paragraph
+              </button>
+            )
+          )}
+        </div>
         {replied ? (
           <p className="flex items-center gap-1 text-[11px] text-success">
             <Check className="h-3 w-3" /> comentário postado. <a href={replied} target="_blank" rel="noreferrer" className="underline">ver</a>

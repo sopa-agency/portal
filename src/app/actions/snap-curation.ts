@@ -17,7 +17,7 @@ async function gate() {
   const cookieStore = await cookies();
   const who = await authorize(cookieStore.get(SESSION_COOKIE)?.value, project);
   if (!who) return { ok: false as const, error: "Não autorizado." };
-  return { ok: true as const, project };
+  return { ok: true as const, project, who };
 }
 
 const castHashOf = (author: string, permlink: string) => `hive:${author}/${permlink}`;
@@ -74,7 +74,7 @@ export async function listSnapsForCuration(): Promise<
 /** Recent top-level blog/magazine posts from the project's Hive community,
  * with any boost status. Same reply/boost actions as snaps (generic Hive post). */
 export async function listBlogPostsForCuration(): Promise<
-  { ok: true; posts: CurationSnap[]; project: string } | { ok: false; error: string }
+  { ok: true; posts: CurationSnap[]; project: string; canParagraph: boolean } | { ok: false; error: string }
 > {
   const g = await gate();
   if (!g.ok) return g;
@@ -120,7 +120,63 @@ export async function listBlogPostsForCuration(): Promise<
       boost: t ? { budget: t.budget, released: t.released, status: t.status } : null,
     };
   });
-  return { ok: true, posts, project: g.project.name };
+  return { ok: true, posts, project: g.project.name, canParagraph: g.who.global };
+}
+
+/**
+ * Send a Hive blog post to the portal's Paragraph publication as a DRAFT.
+ * Gated to global admins ("only for me" while testing). Pulls the post's
+ * markdown body + cover via Hive, then creates an unpublished Paragraph draft.
+ */
+export async function sendBlogPostToParagraph(
+  author: string,
+  permlink: string,
+): Promise<{ ok: true; url: string; id: string } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  if (!g.who.global) return { ok: false, error: "Apenas admins globais (teste)." };
+
+  const { paragraphApiKey, createPost, getPublication } = await import("@/lib/paragraph");
+  const apiKey = paragraphApiKey(g.project);
+  if (!apiKey) return { ok: false, error: "Paragraph não conectado neste portal (falta API key)." };
+
+  // Pull the full Hive post (markdown body + metadata cover).
+  let post: { title?: string; body?: string; json_metadata?: string };
+  try {
+    const res = await fetch("https://api.hive.blog", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "condenser_api.get_content", params: [author, permlink], id: 1 }),
+      cache: "no-store",
+    });
+    post = ((await res.json()) as { result?: typeof post }).result ?? {};
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao buscar o post na Hive." };
+  }
+  if (!post.body?.trim()) return { ok: false, error: "Post sem corpo / não encontrado." };
+
+  let imageUrl: string | undefined;
+  try {
+    const meta = JSON.parse(post.json_metadata ?? "{}") as { image?: string[] };
+    imageUrl = meta.image?.[0];
+  } catch { /* no cover */ }
+
+  const sourceUrl = buildPostUrl(author, permlink, g.project.hive.frontend);
+  const markdown = `${post.body.trim()}\n\n---\n*Originalmente publicado por @${author} na Hive — [ver original](${sourceUrl}).*`;
+
+  try {
+    const created = await createPost(apiKey, {
+      title: (post.title || `@${author}`).slice(0, 200),
+      markdown,
+      imageUrl,
+      status: "draft",
+    });
+    const pub = await getPublication(apiKey).catch(() => null);
+    const url = pub ? `https://paragraph.com/@${pub.slug}/${created.id}` : `https://paragraph.com`;
+    return { ok: true, url, id: created.id };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao criar o draft no Paragraph." };
+  }
 }
 
 type HiveRankedPost = {

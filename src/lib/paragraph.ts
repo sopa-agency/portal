@@ -125,6 +125,21 @@ export async function removeSubscriber(apiKey: string, email: string): Promise<v
 }
 
 /**
+ * Create a post on the publication. Content is markdown. `status: "draft"`
+ * keeps it unpublished (safe for tests / human review). Verified against the
+ * alpha API 2026-06-23: POST /posts → { id, status }.
+ */
+export async function createPost(
+  apiKey: string,
+  params: { title: string; subtitle?: string; markdown: string; imageUrl?: string; status?: "draft" | "published" },
+): Promise<{ id: string; status: string }> {
+  return call(apiKey, "/posts", {
+    method: "POST",
+    body: JSON.stringify({ status: "draft", ...params }),
+  });
+}
+
+/**
  * Send a custom email to explicit recipients (max 10k). Markdown body.
  * GATED: requires Paragraph approval for the publication; throws the 403
  * "not eligible" message until granted. dryRun validates without sending.
