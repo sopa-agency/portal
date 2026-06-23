@@ -229,33 +229,73 @@ function normalizeComment(c: RawComment): IgComment {
  * Recent posts with their comment threads — the curation inbox. Pulls the last
  * `mediaLimit` posts, then each post's comments (top-level + one reply level).
  */
+// Economy knobs — keep Meta Graph API calls + payload small. Scan only the most
+// recent posts and pull the latest N comments each; cache so tab switches and
+// reloads don't re-hit Meta.
+const IG_COMMENTS_MEDIA_LIMIT = 5; // recent posts to scan for comments
+const IG_COMMENTS_PER_POST = 10; // latest comments fetched per post
+const IG_COMMENTS_TTL_MS = 5 * 60_000;
+
+type CommentThreadsResult = { ok: true; threads: IgPostThread[]; selfUsername: string };
+const igCommentsCache = new Map<string, { data: CommentThreadsResult; expires: number }>();
+// Self handle rarely changes — cache it for a day to drop one call per load.
+const igSelfCache = new Map<string, { username: string; expires: number }>();
+
+async function fetchSelfUsername(igid: string, token: string): Promise<string> {
+  const hit = igSelfCache.get(igid);
+  if (hit && Date.now() < hit.expires) return hit.username;
+  const me = await graphGet<{ username?: string }>(`/${igid}`, { fields: "username" }, token).catch(() => ({ username: "" }));
+  const username = me.username ?? "";
+  if (username) igSelfCache.set(igid, { username, expires: Date.now() + 24 * 3600_000 });
+  return username;
+}
+
 export async function fetchInstagramCommentThreads(
   project: ProjectConfig,
-  mediaLimit = 8,
-): Promise<{ ok: true; threads: IgPostThread[]; selfUsername: string } | { ok: false; error: string }> {
+  mediaLimit = IG_COMMENTS_MEDIA_LIMIT,
+): Promise<CommentThreadsResult | { ok: false; error: string }> {
   const { token, igid } = resolveIgCredentials(project);
   if (!token || !igid) return { ok: false, error: "Instagram não conectado neste portal (falta token/business id)." };
+
+  const cacheKey = `${project.slug}:${igid}`;
+  const cached = igCommentsCache.get(cacheKey);
+  if (cached && Date.now() < cached.expires) return cached.data;
+
   const mediaRes = await fetchRecentInstagramMedia(project, mediaLimit);
   if (!mediaRes.ok) return mediaRes;
   try {
     // Our own handle — used to tell whether the last message in a thread is ours
     // (handled) or the commenter replied again (needs attention).
-    const me = await graphGet<{ username?: string }>(`/${igid}`, { fields: "username" }, token).catch(() => ({ username: "" }));
+    const selfUsername = await fetchSelfUsername(igid, token);
     const fields = "id,text,username,timestamp,like_count,hidden,replies{id,text,username,timestamp}";
     const threads = await Promise.all(
       mediaRes.media.map(async (media): Promise<IgPostThread> => {
         try {
-          const data = await graphGet<{ data?: RawComment[] }>(`/${media.igMediaId}/comments`, { fields, limit: "50" }, token);
+          // Latest comments only — reverse_chronological keeps the newest N.
+          const data = await graphGet<{ data?: RawComment[] }>(
+            `/${media.igMediaId}/comments`,
+            { fields, limit: String(IG_COMMENTS_PER_POST) },
+            token,
+          );
           return { media, comments: (data.data ?? []).map(normalizeComment) };
         } catch {
           return { media, comments: [] };
         }
       }),
     );
-    return { ok: true, threads: threads.filter((t) => t.comments.length > 0), selfUsername: me.username ?? "" };
+    const result: CommentThreadsResult = { ok: true, threads: threads.filter((t) => t.comments.length > 0), selfUsername };
+    igCommentsCache.set(cacheKey, { data: result, expires: Date.now() + IG_COMMENTS_TTL_MS });
+    return result;
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/** Drop the cached comment threads for a project so the next fetch is fresh
+ * (call after replying/hiding so the inbox reflects the change). */
+export function invalidateInstagramComments(project: ProjectConfig): void {
+  const { igid } = resolveIgCredentials(project);
+  if (igid) igCommentsCache.delete(`${project.slug}:${igid}`);
 }
 
 /** Reply to a specific comment (creates a threaded reply under it). */

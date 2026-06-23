@@ -8,6 +8,7 @@ import {
   fetchInstagramCommentThreads,
   replyToInstagramComment,
   setInstagramCommentHidden,
+  invalidateInstagramComments,
   type IgPostThread,
 } from "@/lib/instagram-publish";
 
@@ -35,7 +36,9 @@ export async function postInstagramReply(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
-  return replyToInstagramComment(g.project, commentId, message);
+  const res = await replyToInstagramComment(g.project, commentId, message);
+  if (res.ok) invalidateInstagramComments(g.project);
+  return res;
 }
 
 export async function toggleInstagramCommentHidden(
@@ -44,5 +47,7 @@ export async function toggleInstagramCommentHidden(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
-  return setInstagramCommentHidden(g.project, commentId, hidden);
+  const res = await setInstagramCommentHidden(g.project, commentId, hidden);
+  if (res.ok) invalidateInstagramComments(g.project);
+  return res;
 }
