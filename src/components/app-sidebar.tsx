@@ -13,7 +13,7 @@ const NAV = [
   { href: "/lab", label: "Lab", icon: FlaskConical, requiresLab: true },
   { href: "/zine", label: "Zine Studio", icon: BookOpenText, requiresZine: true },
   { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles },
-  { href: "/curadoria", label: "Curadoria FC", icon: Heart, requiresFarcasterTrail: true },
+  { href: "/curadoria", label: "Engagement", icon: Heart, requiresFarcasterTrail: true },
   { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone },
   { href: "/userbase", label: "Userbase", icon: Users },
   { href: "/brain", label: "Brain", icon: Brain },

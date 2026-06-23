@@ -10,9 +10,9 @@ export default async function CuradoriaPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Curadoria"
-        title="Curadoria"
-        description="Trail entre nossas contas (Farcaster/Hive) + comentários do Instagram — tudo com reply HITL."
+        eyebrow="Engagement"
+        title="Engagement"
+        description="Curadoria e interação entre as redes — trail Farcaster/Hive, snaps da SkateHive e comentários do Instagram, tudo com aprovação humana (HITL)."
       />
       {feed.ok ? (
         <CuradoriaShell trail={feed.items} trailProject={feed.project} />

@@ -30,7 +30,18 @@ export async function listSnapsForCuration(): Promise<
 
   const res = await listSkatehiveVideos();
   if (!res.ok) return res;
-  const snaps = res.videos.filter((v) => v.source === "snap").slice(0, 40);
+  // One card per snap post (a post can yield several video entries → dedupe,
+  // keeping the first clip as the thumbnail).
+  const seen = new Set<string>();
+  const snaps = res.videos
+    .filter((v) => v.source === "snap")
+    .filter((v) => {
+      const k = `${v.author}/${v.permlink}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0, 40);
 
   const hashes = snaps.map((s) => castHashOf(s.author, s.permlink));
   const targets = await prisma.trailBoostTarget
@@ -50,7 +61,8 @@ export async function listSnapsForCuration(): Promise<
         title: s.title,
         votes: s.votes,
         payout: s.payout,
-        url: s.url,
+        url: `https://peakd.com/@${s.author}/${s.permlink}`,
+        thumbnail: s.url, // IPFS video URL → first frame as reference
         created: s.created,
         boost: t ? { budget: t.budget, released: t.released, status: t.status } : null,
       };

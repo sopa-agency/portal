@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition, useRef } from "react";
-import { ExternalLink, Loader2, Send, RefreshCw, Heart, Rocket, ChevronDown, Check } from "lucide-react";
+import { Loader2, Send, RefreshCw, Heart, Rocket, ChevronDown, Check, Play } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { listSnapsForCuration, replyToSnap, boostSnap } from "@/app/actions/snap-curation";
 import { BOOST_LEVELS, type CurationSnap, type BoostLevel } from "@/lib/snap-curation-shared";
-
-const usd = (n: number) => `$${n.toFixed(2)}`;
 
 export function SnapsInbox() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -58,17 +56,17 @@ export function SnapsInbox() {
       {snaps.length === 0 ? (
         <p className="rounded-xl border border-border bg-surface px-4 py-8 text-center text-sm text-foreground-faint">Nenhum snap recente.</p>
       ) : (
-        <ul className="space-y-2.5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {snaps.map((s) => (
-            <SnapRow key={s.id} snap={s} onPatch={(p) => patch(s.id, p)} />
+            <SnapCard key={s.id} snap={s} onPatch={(p) => patch(s.id, p)} />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
 }
 
-function SnapRow({ snap, onPatch }: { snap: CurationSnap; onPatch: (p: Partial<CurationSnap>) => void }) {
+function SnapCard({ snap, onPatch }: { snap: CurationSnap; onPatch: (p: Partial<CurationSnap>) => void }) {
   const [text, setText] = useState("");
   const [replied, setReplied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,49 +81,58 @@ function SnapRow({ snap, onPatch }: { snap: CurationSnap; onPatch: (p: Partial<C
     });
 
   return (
-    <li className="rounded-2xl border border-border bg-surface p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <a href={snap.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-foreground hover:text-accent">
-            <span className="font-semibold">@{snap.author}</span>
-            <ExternalLink className="h-3 w-3 shrink-0 text-foreground-subtle" />
-          </a>
-          {snap.title && <p className="mt-0.5 line-clamp-2 text-sm text-foreground-muted">{snap.title}</p>}
-          <p className="mt-1 flex items-center gap-3 text-[11px] tabular-nums text-foreground-faint">
-            <span className="inline-flex items-center gap-1"><Heart className="h-3 w-3" /> {snap.votes}</span>
-            <span>{usd(snap.payout)}</span>
-            {snap.boost && (
-              <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium ${snap.boost.status === "active" ? "bg-accent-bg text-accent" : "bg-success/15 text-success"}`}>
-                <Rocket className="h-3 w-3" /> boost {snap.boost.released}/{snap.boost.budget}
-              </span>
-            )}
-          </p>
-        </div>
-        <BoostButton snap={snap} onBoosted={(b) => onPatch({ boost: b })} />
-      </div>
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface">
+      {/* Thumbnail — first frame of the snap clip, links to the post */}
+      <a href={snap.url} target="_blank" rel="noreferrer" className="group relative block aspect-[4/5] overflow-hidden bg-surface-elevated">
+        <video
+          src={`${snap.thumbnail}#t=0.1`}
+          muted
+          playsInline
+          preload="metadata"
+          className="h-full w-full object-cover"
+        />
+        <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/20">
+          <Play className="h-7 w-7 text-white/85 drop-shadow" />
+        </span>
+        <span className="absolute left-1.5 top-1.5 max-w-[80%] truncate rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
+          @{snap.author}
+        </span>
+        <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur">
+          <Heart className="h-3 w-3 fill-current" /> {snap.votes}
+        </span>
+        {snap.boost && (
+          <span className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-accent-foreground">
+            <Rocket className="h-3 w-3" /> {snap.boost.released}/{snap.boost.budget}
+          </span>
+        )}
+      </a>
 
-      {replied ? (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-success">
-          <Check className="h-3.5 w-3.5" /> Comentário postado. <a href={replied} target="_blank" rel="noreferrer" className="underline">ver</a>
-        </p>
-      ) : (
-        <div className="mt-2 flex items-center gap-2">
-          <input
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) reply(); }}
-            placeholder="Comentar no snap…"
-            maxLength={500}
-            disabled={busy}
-            className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
-          />
-          <button type="button" onClick={reply} disabled={busy || !text.trim()} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-40">
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Responder
-          </button>
-        </div>
-      )}
-      {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
-    </li>
+      {/* Footer — boost + reply */}
+      <div className="flex flex-1 flex-col gap-2 p-2">
+        <BoostButton snap={snap} onBoosted={(b) => onPatch({ boost: b })} />
+        {replied ? (
+          <p className="flex items-center gap-1 text-[11px] text-success">
+            <Check className="h-3 w-3" /> postado. <a href={replied} target="_blank" rel="noreferrer" className="underline">ver</a>
+          </p>
+        ) : (
+          <div className="mt-auto flex items-center gap-1.5">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) reply(); }}
+              placeholder="Comentar…"
+              maxLength={500}
+              disabled={busy}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
+            />
+            <button type="button" onClick={reply} disabled={busy || !text.trim()} title="Responder" className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border p-1.5 text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-40">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        )}
+        {error && <p className="text-[11px] text-danger">{error}</p>}
+      </div>
+    </div>
   );
 }
 
