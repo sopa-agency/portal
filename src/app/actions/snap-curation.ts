@@ -9,6 +9,7 @@ import { brandEnv } from "@/lib/brand-env";
 import { HIVE_NODES } from "@/lib/social-publish";
 import { getUserbaseClient } from "@/lib/supabase-userbase";
 import { listSkatehiveVideos } from "@/app/actions/skatehive-media";
+import { buildPostUrl } from "@/lib/skatehive-content";
 import { BOOST_LEVELS, type BoostLevel, type CurationSnap } from "@/lib/snap-curation-shared";
 
 async function gate() {
@@ -69,6 +70,69 @@ export async function listSnapsForCuration(): Promise<
     }),
   };
 }
+
+/** Recent top-level blog/magazine posts from the project's Hive community,
+ * with any boost status. Same reply/boost actions as snaps (generic Hive post). */
+export async function listBlogPostsForCuration(): Promise<
+  { ok: true; posts: CurationSnap[]; project: string } | { ok: false; error: string }
+> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const community = g.project.hive.community;
+  if (!community) return { ok: false, error: "Sem comunidade Hive configurada neste portal." };
+
+  let raw: HiveRankedPost[];
+  try {
+    const res = await fetch("https://api.hive.blog", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "bridge.get_ranked_posts", params: { sort: "created", tag: community, limit: 20, observer: "" }, id: 1 }),
+      cache: "no-store",
+    });
+    raw = ((await res.json()) as { result?: HiveRankedPost[] }).result ?? [];
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao buscar posts da Hive." };
+  }
+
+  const frontend = g.project.hive.frontend;
+  const hashes = raw.map((p) => castHashOf(p.author, p.permlink));
+  const targets = await prisma.trailBoostTarget.findMany({ where: { castHash: { in: hashes } } }).catch(() => []);
+  const byHash = new Map(targets.map((t) => [t.castHash, t]));
+
+  const posts: CurationSnap[] = raw.map((p) => {
+    let meta: { image?: string[] } = {};
+    try {
+      meta = typeof p.json_metadata === "string" ? JSON.parse(p.json_metadata) : (p.json_metadata ?? {});
+    } catch {
+      meta = {};
+    }
+    const t = byHash.get(castHashOf(p.author, p.permlink));
+    return {
+      id: `${p.author}/${p.permlink}`,
+      author: p.author,
+      permlink: p.permlink,
+      title: p.title || "(sem título)",
+      votes: p.stats?.total_votes ?? p.net_votes ?? 0,
+      payout: parseFloat(p.pending_payout_value ?? "0") || 0,
+      url: buildPostUrl(p.author, p.permlink, frontend),
+      thumbnail: meta.image?.[0] ?? "",
+      created: p.created ?? "",
+      boost: t ? { budget: t.budget, released: t.released, status: t.status } : null,
+    };
+  });
+  return { ok: true, posts, project: g.project.name };
+}
+
+type HiveRankedPost = {
+  author: string;
+  permlink: string;
+  title?: string;
+  created?: string;
+  net_votes?: number;
+  stats?: { total_votes?: number };
+  pending_payout_value?: string;
+  json_metadata?: string | { image?: string[] };
+};
 
 /** Reply to a snap as this portal's Hive account (HITL — never automatic). */
 export async function replyToSnap(
