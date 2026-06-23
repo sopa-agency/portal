@@ -122,21 +122,23 @@ export async function listBlogPostsForCuration(): Promise<
       boost: t ? { budget: t.budget, released: t.released, status: t.status } : null,
     };
   });
-  return { ok: true, posts, project: g.project.name, canParagraph: g.who.global };
+  return { ok: true, posts, project: g.project.name, canParagraph: true };
 }
 
 /**
- * Send a Hive blog post to the portal's Paragraph publication as a DRAFT.
- * Gated to global admins ("only for me" while testing). Pulls the post's
- * markdown body + cover via Hive, then creates an unpublished Paragraph draft.
+ * Send a Hive blog post to the portal's Paragraph publication.
+ * Open to any allowlisted portal member (session-gated). Pulls the post's
+ * markdown body + cover via Hive, then creates either an unpublished draft
+ * (default) or a live published post (publish: true) on Paragraph.
  */
 export async function sendBlogPostToParagraph(
   author: string,
   permlink: string,
-): Promise<{ ok: true; url: string; id: string } | { ok: false; error: string }> {
+  opts?: { publish?: boolean },
+): Promise<{ ok: true; url: string; id: string; published: boolean } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
-  if (!g.who.global) return { ok: false, error: "Apenas admins globais (teste)." };
+  const publish = opts?.publish === true;
 
   const { paragraphApiKey, createPost, getPublication } = await import("@/lib/paragraph");
   const apiKey = paragraphApiKey(g.project);
@@ -171,13 +173,13 @@ export async function sendBlogPostToParagraph(
       title: (post.title || `@${author}`).slice(0, 200),
       markdown,
       imageUrl,
-      status: "draft",
+      status: publish ? "published" : "draft",
     });
     const pub = await getPublication(apiKey).catch(() => null);
     const url = pub ? `https://paragraph.com/@${pub.slug}/${created.id}` : `https://paragraph.com`;
-    return { ok: true, url, id: created.id };
+    return { ok: true, url, id: created.id, published: publish };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Falha ao criar o draft no Paragraph." };
+    return { ok: false, error: e instanceof Error ? e.message : `Falha ao ${publish ? "publicar" : "criar o draft"} no Paragraph.` };
   }
 }
 

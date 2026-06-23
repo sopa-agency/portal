@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { Loader2, Send, RefreshCw, Heart, Rocket, Check, ExternalLink, FileText, BookUp, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { Loader2, Send, RefreshCw, Heart, Rocket, Check, ExternalLink, FileText, BookUp, Sparkles, ChevronDown, Globe } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { HiveBoostButton } from "@/components/hive-boost-button";
 import { listBlogPostsForCuration, replyToSnap, sendBlogPostToParagraph, generateHivePostReply } from "@/app/actions/snap-curation";
@@ -74,10 +74,26 @@ function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canPara
   const [text, setText] = useState("");
   const [replied, setReplied] = useState<string | null>(null);
   const [paragraphUrl, setParagraphUrl] = useState<string | null>(null);
+  const [paragraphPublished, setParagraphPublished] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
   const [paraBusy, startPara] = useTransition();
   const [genBusy, startGen] = useTransition();
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+        setConfirming(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menuOpen]);
 
   const reply = () =>
     startBusy(async () => {
@@ -95,13 +111,16 @@ function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canPara
       else setError(res.error);
     });
 
-  const toParagraph = () =>
+  const toParagraph = (publish: boolean) => {
+    setMenuOpen(false);
+    setConfirming(false);
     startPara(async () => {
       setError(null);
-      const res = await sendBlogPostToParagraph(post.author, post.permlink);
-      if (res.ok) setParagraphUrl(res.url);
+      const res = await sendBlogPostToParagraph(post.author, post.permlink, { publish });
+      if (res.ok) { setParagraphUrl(res.url); setParagraphPublished(res.published); }
       else setError(res.error);
     });
+  };
 
   return (
     <div className="flex flex-col rounded-2xl border border-border bg-surface">
@@ -132,18 +151,40 @@ function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canPara
           {canParagraph && (
             paragraphUrl ? (
               <a href={paragraphUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-success/40 bg-success/10 px-2.5 py-1.5 text-xs font-medium text-success">
-                <Check className="h-3.5 w-3.5" /> draft no Paragraph
+                <Check className="h-3.5 w-3.5" /> {paragraphPublished ? "publicado no Paragraph" : "rascunho no Paragraph"}
               </a>
             ) : (
-              <button
-                type="button"
-                onClick={toParagraph}
-                disabled={paraBusy}
-                title="Enviar como rascunho pro Paragraph (teste — admin)"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
-              >
-                {paraBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookUp className="h-3.5 w-3.5" />} Paragraph
-              </button>
+              <div ref={menuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen((o) => !o); setConfirming(false); }}
+                  disabled={paraBusy}
+                  title="Enviar pro Paragraph"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                >
+                  {paraBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookUp className="h-3.5 w-3.5" />} Paragraph
+                  <ChevronDown className={`h-3 w-3 transition-transform ${menuOpen ? "rotate-180" : ""}`} />
+                </button>
+                {menuOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-lg">
+                    <button
+                      type="button"
+                      onClick={() => toParagraph(false)}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground hover:bg-foreground/5"
+                    >
+                      <BookUp className="h-3.5 w-3.5 text-foreground-muted" /> Salvar rascunho
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => (confirming ? toParagraph(true) : setConfirming(true))}
+                      className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-xs hover:bg-foreground/5 ${confirming ? "text-warning" : "text-foreground"}`}
+                    >
+                      <Globe className="h-3.5 w-3.5 text-foreground-muted" />
+                      {confirming ? "Confirmar publicação?" : "Publicar agora"}
+                    </button>
+                  </div>
+                )}
+              </div>
             )
           )}
         </div>
