@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { ExternalLink, Loader2, Send, EyeOff, Eye, RefreshCw, MessageCircle } from "lucide-react";
+import { ExternalLink, Loader2, Send, EyeOff, Eye, RefreshCw, MessageCircle, Sparkles } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { EmojiPicker } from "@/components/emoji-picker";
 import type { IgComment, IgPostThread } from "@/lib/instagram-publish";
-import { listInstagramComments, postInstagramReply, toggleInstagramCommentHidden } from "@/app/actions/instagram-curation";
+import {
+  listInstagramComments,
+  postInstagramReply,
+  toggleInstagramCommentHidden,
+  generateInstagramReply,
+} from "@/app/actions/instagram-curation";
 
 function ago(iso: string): string {
   const d = Date.now() - new Date(iso).getTime();
@@ -34,6 +40,8 @@ export function InstagramInbox() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [threads, setThreads] = useState<IgPostThread[]>([]);
   const [self, setSelf] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [genAllBusy, setGenAllBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloading, startReload] = useTransition();
 
@@ -52,6 +60,8 @@ export function InstagramInbox() {
   }
   useEffect(() => { load(); }, []);
 
+  const setDraft = (id: string, text: string) => setDrafts((p) => ({ ...p, [id]: text }));
+
   const replaceComment = (mediaId: string, next: IgComment) =>
     setThreads((prev) =>
       prev.map((t) =>
@@ -63,6 +73,23 @@ export function InstagramInbox() {
   const pending = threads
     .map((t) => ({ ...t, comments: t.comments.filter((c) => needsAttention(c, self)) }))
     .filter((t) => t.comments.length > 0);
+
+  const pendingFlat = pending.flatMap((t) => t.comments.map((c) => ({ comment: c, caption: t.media.caption })));
+  const toGenerate = pendingFlat.filter(({ comment }) => !(drafts[comment.id]?.trim()));
+
+  // Pre-fill an AI draft for every pending comment without one yet (HITL: the
+  // user still reads, edits and clicks post).
+  async function generateAll() {
+    if (toGenerate.length === 0) return;
+    setGenAllBusy(true);
+    await Promise.all(
+      toGenerate.map(async ({ comment, caption }) => {
+        const res = await generateInstagramReply(comment.text, caption);
+        if (res.ok) setDraft(comment.id, res.draft);
+      }),
+    );
+    setGenAllBusy(false);
+  }
 
   if (status === "loading") {
     return (
@@ -99,7 +126,7 @@ export function InstagramInbox() {
   if (pending.length === 0) {
     return (
       <div className="space-y-3">
-        <Toolbar onReload={load} reloading={reloading} />
+        <Toolbar onReload={load} reloading={reloading} onGenAll={generateAll} genAllBusy={genAllBusy} toGenerate={0} />
         <p className="rounded-xl border border-border bg-surface px-4 py-8 text-center text-sm text-foreground-faint">
           Tudo respondido — nenhum comentário aguardando. 🎉
         </p>
@@ -109,33 +136,77 @@ export function InstagramInbox() {
 
   return (
     <div className="space-y-4">
-      <Toolbar onReload={load} reloading={reloading} />
+      <Toolbar onReload={load} reloading={reloading} onGenAll={generateAll} genAllBusy={genAllBusy} toGenerate={toGenerate.length} />
       {pending.map((t) => (
-        <PostThread key={t.media.igMediaId} thread={t} self={self} onChange={(c) => replaceComment(t.media.igMediaId, c)} />
+        <PostThread
+          key={t.media.igMediaId}
+          thread={t}
+          self={self}
+          drafts={drafts}
+          onDraft={setDraft}
+          onChange={(c) => replaceComment(t.media.igMediaId, c)}
+        />
       ))}
     </div>
   );
 }
 
-function Toolbar({ onReload, reloading }: { onReload: () => void; reloading: boolean }) {
+function Toolbar({
+  onReload,
+  reloading,
+  onGenAll,
+  genAllBusy,
+  toGenerate,
+}: {
+  onReload: () => void;
+  reloading: boolean;
+  onGenAll: () => void;
+  genAllBusy: boolean;
+  toGenerate: number;
+}) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="flex items-center gap-1.5 text-[11px] text-foreground-faint">
         <SocialBrandIcon platform="instagram" className="h-3.5 w-3.5" /> comentários dos seus posts · responda direto daqui
       </p>
-      <button
-        type="button"
-        onClick={onReload}
-        disabled={reloading}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-muted hover:border-border-strong disabled:opacity-50"
-      >
-        <RefreshCw className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""}`} /> Atualizar
-      </button>
+      <div className="flex items-center gap-1.5">
+        {toGenerate > 0 && (
+          <button
+            type="button"
+            onClick={onGenAll}
+            disabled={genAllBusy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/15 disabled:opacity-50"
+          >
+            {genAllBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Gerar todas ({toGenerate})
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onReload}
+          disabled={reloading}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-muted hover:border-border-strong disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""}`} /> Atualizar
+        </button>
+      </div>
     </div>
   );
 }
 
-function PostThread({ thread, self, onChange }: { thread: IgPostThread; self: string; onChange: (c: IgComment) => void }) {
+function PostThread({
+  thread,
+  self,
+  drafts,
+  onDraft,
+  onChange,
+}: {
+  thread: IgPostThread;
+  self: string;
+  drafts: Record<string, string>;
+  onDraft: (id: string, text: string) => void;
+  onChange: (c: IgComment) => void;
+}) {
   const { media, comments } = thread;
   const cover = media.coverUrl ?? media.mediaUrls[0] ?? null;
   return (
@@ -161,31 +232,61 @@ function PostThread({ thread, self, onChange }: { thread: IgPostThread; self: st
       </header>
       <ul className="divide-y divide-border">
         {comments.map((c) => (
-          <CommentRow key={c.id} comment={c} self={self} onChange={onChange} />
+          <CommentRow
+            key={c.id}
+            comment={c}
+            self={self}
+            caption={media.caption}
+            draft={drafts[c.id] ?? ""}
+            onDraft={(text) => onDraft(c.id, text)}
+            onChange={onChange}
+          />
         ))}
       </ul>
     </section>
   );
 }
 
-function CommentRow({ comment, self, onChange }: { comment: IgComment; self: string; onChange: (c: IgComment) => void }) {
-  const [text, setText] = useState("");
+function CommentRow({
+  comment,
+  self,
+  caption,
+  draft,
+  onDraft,
+  onChange,
+}: {
+  comment: IgComment;
+  self: string;
+  caption: string;
+  draft: string;
+  onDraft: (text: string) => void;
+  onChange: (c: IgComment) => void;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
+  const [genBusy, startGen] = useTransition();
 
   const reply = () =>
     startBusy(async () => {
       setError(null);
-      const res = await postInstagramReply(comment.id, text);
+      const res = await postInstagramReply(comment.id, draft);
       if (res.ok) {
         // Mark our reply as the last message → the comment leaves the inbox
         // until the user replies again.
         onChange({
           ...comment,
-          replies: [...comment.replies, { id: res.id || `tmp-${Date.now()}`, text: text.trim(), username: self || "you", timestamp: new Date().toISOString() }],
+          replies: [...comment.replies, { id: res.id || `tmp-${Date.now()}`, text: draft.trim(), username: self || "you", timestamp: new Date().toISOString() }],
         });
-        setText("");
+        onDraft("");
       } else setError(res.error);
+    });
+
+  const generate = () =>
+    startGen(async () => {
+      setError(null);
+      const res = await generateInstagramReply(comment.text, caption);
+      if (res.ok) onDraft(res.draft);
+      else setError(res.error);
     });
 
   const toggleHide = () =>
@@ -231,20 +332,30 @@ function CommentRow({ comment, self, onChange }: { comment: IgComment; self: str
         </ul>
       )}
 
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-1.5">
         <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) reply(); }}
+          value={draft}
+          onChange={(e) => onDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) reply(); }}
           placeholder="Responder…"
           maxLength={300}
           disabled={busy}
           className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
         />
+        <EmojiPicker onPick={(e) => onDraft(draft + e)} align="right" />
+        <button
+          type="button"
+          onClick={generate}
+          disabled={genBusy}
+          title="Gerar resposta com IA"
+          className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border p-1.5 text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
+        >
+          {genBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+        </button>
         <button
           type="button"
           onClick={reply}
-          disabled={busy || !text.trim()}
+          disabled={busy || !draft.trim()}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent/90 disabled:opacity-40"
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}

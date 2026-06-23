@@ -81,9 +81,9 @@ function SnapCard({ snap, onPatch }: { snap: CurationSnap; onPatch: (p: Partial<
     });
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface">
+    <div className="flex flex-col rounded-2xl border border-border bg-surface">
       {/* Thumbnail — first frame of the snap clip, links to the post */}
-      <a href={snap.url} target="_blank" rel="noreferrer" className="group relative block aspect-[4/5] overflow-hidden bg-surface-elevated">
+      <a href={snap.url} target="_blank" rel="noreferrer" className="group relative block aspect-[4/5] overflow-hidden rounded-t-2xl bg-surface-elevated">
         <video
           src={`${snap.thumbnail}#t=0.1`}
           muted
@@ -185,7 +185,7 @@ function BoostButton({ snap, onBoosted }: { snap: CurationSnap; onBoosted: (b: C
       </div>
 
       {open && (
-        <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-xl">
+        <div className="absolute right-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-xl">
           <p className="border-b border-border px-3 py-1.5 text-[10px] uppercase tracking-wider text-foreground-subtle">Hiveboost</p>
           {BOOST_LEVELS.map((l) => (
             <button
