@@ -135,9 +135,11 @@ async function assembleBriefingPrompt(
       ? `${since}\nOnly inspect what changed since this instant — focus on the delta, don't re-scan from scratch.`
       : "No prior briefing — this is the first run, so a fuller pass is fine.");
 
-  // Dev agent: the portal fetches the code-commit delta via the GitHub API and
-  // injects it here — no local clone / `git pull` needed (that was failing).
-  if (role === "dev") {
+  // Code-commit delta via the GitHub API, injected by the portal — no local
+  // clone / `git pull` needed (that was failing). Goes to any agent that owns
+  // code (the dev agent, or a single all-in-one agent) — i.e. everyone except a
+  // pure marketing agent — as long as the portal lists repos.
+  if (role !== "marketing" && (project.repos?.length ?? 0) > 0) {
     const commits = await fetchRecentCommits(project, since);
     const body = commits.length
       ? commits
