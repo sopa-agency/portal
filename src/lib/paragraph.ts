@@ -128,14 +128,25 @@ export async function removeSubscriber(apiKey: string, email: string): Promise<v
  * Create a post on the publication. Content is markdown. `status: "draft"`
  * keeps it unpublished (safe for tests / human review). Verified against the
  * alpha API 2026-06-23: POST /posts → { id, status }.
+ *
+ * Email is OPT-IN and orthogonal to publishing: `status: "published"` alone
+ * only puts the post on the web/feed. Subscribers are emailed ONLY when
+ * `sendNewsletter: true` (default false) — confirmed against the API docs.
  */
 export async function createPost(
   apiKey: string,
-  params: { title: string; subtitle?: string; markdown: string; imageUrl?: string; status?: "draft" | "published" },
+  params: {
+    title: string;
+    subtitle?: string;
+    markdown: string;
+    imageUrl?: string;
+    status?: "draft" | "published";
+    sendNewsletter?: boolean;
+  },
 ): Promise<{ id: string; status: string }> {
   return call(apiKey, "/posts", {
     method: "POST",
-    body: JSON.stringify({ status: "draft", ...params }),
+    body: JSON.stringify({ status: "draft", sendNewsletter: false, ...params }),
   });
 }
 

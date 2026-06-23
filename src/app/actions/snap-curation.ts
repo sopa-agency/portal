@@ -126,25 +126,15 @@ export async function listBlogPostsForCuration(): Promise<
 }
 
 /**
- * Send a Hive blog post to the portal's Paragraph publication.
- * Open to any allowlisted portal member (session-gated). Pulls the post's
- * markdown body + cover via Hive, then creates either an unpublished draft
- * (default) or a live published post (publish: true) on Paragraph.
+ * Pull a Hive post and shape the exact payload that goes to Paragraph
+ * (title, markdown body with attribution, cover). Shared by the preview wall
+ * and the send action so what you preview is byte-for-byte what gets posted.
  */
-export async function sendBlogPostToParagraph(
+async function buildParagraphPayload(
+  project: ProjectConfig,
   author: string,
   permlink: string,
-  opts?: { publish?: boolean },
-): Promise<{ ok: true; url: string; id: string; published: boolean } | { ok: false; error: string }> {
-  const g = await gate();
-  if (!g.ok) return g;
-  const publish = opts?.publish === true;
-
-  const { paragraphApiKey, createPost, getPublication } = await import("@/lib/paragraph");
-  const apiKey = paragraphApiKey(g.project);
-  if (!apiKey) return { ok: false, error: "Paragraph não conectado neste portal (falta API key)." };
-
-  // Pull the full Hive post (markdown body + metadata cover).
+): Promise<{ ok: true; title: string; markdown: string; imageUrl?: string; sourceUrl: string } | { ok: false; error: string }> {
   let post: { title?: string; body?: string; json_metadata?: string };
   try {
     const res = await fetch("https://api.hive.blog", {
@@ -165,19 +155,86 @@ export async function sendBlogPostToParagraph(
     imageUrl = meta.image?.[0];
   } catch { /* no cover */ }
 
-  const sourceUrl = buildPostUrl(author, permlink, g.project.hive.frontend);
+  const sourceUrl = buildPostUrl(author, permlink, project.hive.frontend);
   const markdown = `${post.body.trim()}\n\n---\n*Originalmente publicado por @${author} na Hive — [ver original](${sourceUrl}).*`;
+  return { ok: true, title: (post.title || `@${author}`).slice(0, 200), markdown, imageUrl, sourceUrl };
+}
+
+/**
+ * Build the confirmation preview for the Paragraph publish wall: exactly what
+ * will be posted (title, cover, body markdown) plus the email blast radius
+ * (publication + active subscriber count). Read-only.
+ */
+export async function previewBlogPostForParagraph(
+  author: string,
+  permlink: string,
+): Promise<
+  | { ok: true; title: string; markdown: string; imageUrl?: string; sourceUrl: string; publication: string; publicationSlug: string; subscribers: number }
+  | { ok: false; error: string }
+> {
+  const g = await gate();
+  if (!g.ok) return g;
+
+  const { paragraphApiKey, getPublication, getSubscriberCount } = await import("@/lib/paragraph");
+  const apiKey = paragraphApiKey(g.project);
+  if (!apiKey) return { ok: false, error: "Paragraph não conectado neste portal (falta API key)." };
+
+  const payload = await buildParagraphPayload(g.project, author, permlink);
+  if (!payload.ok) return payload;
+
+  const pub = await getPublication(apiKey).catch(() => null);
+  const subscribers = pub ? await getSubscriberCount(pub.id).catch(() => 0) : 0;
+
+  return {
+    ok: true,
+    title: payload.title,
+    markdown: payload.markdown,
+    imageUrl: payload.imageUrl,
+    sourceUrl: payload.sourceUrl,
+    publication: pub?.name ?? "Paragraph",
+    publicationSlug: pub?.slug ?? "",
+    subscribers,
+  };
+}
+
+/**
+ * Send a Hive blog post to the portal's Paragraph publication.
+ * Open to any allowlisted portal member (session-gated).
+ *
+ * Two orthogonal switches:
+ *   - publish: false → draft (invisible), true → published (live on the web).
+ *   - sendNewsletter: emails ALL active subscribers (only meaningful when
+ *     publishing). Default false; gated behind the confirmation wall in the UI.
+ */
+export async function sendBlogPostToParagraph(
+  author: string,
+  permlink: string,
+  opts?: { publish?: boolean; sendNewsletter?: boolean },
+): Promise<{ ok: true; url: string; id: string; published: boolean; emailed: boolean } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const publish = opts?.publish === true;
+  // Email only ever goes out on a real publish.
+  const sendNewsletter = publish && opts?.sendNewsletter === true;
+
+  const { paragraphApiKey, createPost, getPublication } = await import("@/lib/paragraph");
+  const apiKey = paragraphApiKey(g.project);
+  if (!apiKey) return { ok: false, error: "Paragraph não conectado neste portal (falta API key)." };
+
+  const payload = await buildParagraphPayload(g.project, author, permlink);
+  if (!payload.ok) return payload;
 
   try {
     const created = await createPost(apiKey, {
-      title: (post.title || `@${author}`).slice(0, 200),
-      markdown,
-      imageUrl,
+      title: payload.title,
+      markdown: payload.markdown,
+      imageUrl: payload.imageUrl,
       status: publish ? "published" : "draft",
+      sendNewsletter,
     });
     const pub = await getPublication(apiKey).catch(() => null);
     const url = pub ? `https://paragraph.com/@${pub.slug}/${created.id}` : `https://paragraph.com`;
-    return { ok: true, url, id: created.id, published: publish };
+    return { ok: true, url, id: created.id, published: publish, emailed: sendNewsletter };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : `Falha ao ${publish ? "publicar" : "criar o draft"} no Paragraph.` };
   }
