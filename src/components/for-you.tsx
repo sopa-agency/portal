@@ -1,6 +1,11 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { Sparkles, AtSign } from "lucide-react";
 import type { MemberTask } from "@/app/actions/team-admin";
+import type { AggregatedItem } from "@/lib/github-project";
+import { CardDialogHost } from "@/components/card-dialog-host";
 
 // Personalized "For You" band on the SOPA home: the logged-in member's own
 // tasks across every portal + any briefing next-actions that name them.
@@ -26,6 +31,7 @@ export function ForYou({
 }) {
   const open = tasks.filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED");
   const shown = open.slice(0, 8);
+  const [card, setCard] = useState<AggregatedItem | null>(null);
 
   return (
     <section className="rounded-2xl border border-accent-border bg-accent-bg/20 p-4">
@@ -54,21 +60,38 @@ export function ForYou({
       ) : (
         <div className="space-y-1.5">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-subtle">Suas tasks (todos os portais)</p>
-          {shown.map((t) => (
-            <Link
-              key={t.id}
-              href={`/kanban?open=${t.id}`}
-              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm transition-colors hover:border-border-strong"
-            >
-              {t.board && (
-                <span className="shrink-0 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">{t.board}</span>
-              )}
-              <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_TONE[t.status.toLowerCase()] ?? "bg-foreground/10 text-foreground-muted"}`}>
-                {t.status}
-              </span>
-            </Link>
-          ))}
+          {shown.map((t) =>
+            t.card ? (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setCard(t.card!)}
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-left text-sm transition-colors hover:border-border-strong"
+              >
+                {t.board && (
+                  <span className="shrink-0 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">{t.board}</span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_TONE[t.status.toLowerCase()] ?? "bg-foreground/10 text-foreground-muted"}`}>
+                  {t.status}
+                </span>
+              </button>
+            ) : (
+              <Link
+                key={t.id}
+                href={`/kanban?open=${t.id}`}
+                className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm transition-colors hover:border-border-strong"
+              >
+                {t.board && (
+                  <span className="shrink-0 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">{t.board}</span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_TONE[t.status.toLowerCase()] ?? "bg-foreground/10 text-foreground-muted"}`}>
+                  {t.status}
+                </span>
+              </Link>
+            ),
+          )}
           {open.length > shown.length && (
             <Link href="/kanban" className="block pt-1 text-xs text-foreground-subtle underline hover:text-foreground">
               ver todas as {open.length} →
@@ -76,6 +99,8 @@ export function ForYou({
           )}
         </div>
       )}
+
+      {card && <CardDialogHost item={card} onClose={() => setCard(null)} />}
     </section>
   );
 }

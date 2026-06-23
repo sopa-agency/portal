@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE, GLOBAL_ALLOWLIST } from "@/lib/auth";
 import { getActiveProject, getAllProjects, getProject } from "@/projects/index";
 import { authorize, getRoles, ensureSeeded, ROLES, GLOBAL_SLUG, type Role } from "@/lib/team-access";
+import type { AggregatedItem } from "@/lib/github-project";
 
 export type ManagedMember = { username: string; role: Role; global: boolean; lastLoginAt: string | null };
 
@@ -92,6 +93,10 @@ export type MemberTask = {
   labels?: { name: string; color: string }[];
   /** Project/board name — set on the SOPA aggregated view (tasks across portals). */
   board?: string;
+  /** Owning portal slug. */
+  projectSlug?: string;
+  /** Full card payload to open the Kanban dialog in place (no navigation). */
+  card?: AggregatedItem;
 };
 
 /** Kanban tasks (GitHub Project items) assigned to a member's GitHub login. */
@@ -119,6 +124,7 @@ export async function getMemberTasks(
       const board = await fetchGitHubProject(p).catch(() => null);
       if (!board || !board.ok) continue;
       const boardName = board.title || p.name;
+      const statusOptions = board.columns.filter((c) => c.optionId).map((c) => ({ name: c.name, optionId: c.optionId! }));
       for (const col of board.columns) {
         for (const it of col.items) {
           if (it.assignees.some((a) => a.login.toLowerCase() === login)) {
@@ -133,6 +139,8 @@ export async function getMemberTasks(
               assignees: it.assignees,
               labels: it.labels.map((l) => ({ name: l.name, color: l.color })),
               board: boardName,
+              projectSlug: p.slug,
+              card: { ...it, board: boardName, projectSlug: p.slug, projectId: board.projectId, statusFieldId: board.statusFieldId, statusOptions },
             });
           }
         }
@@ -143,6 +151,8 @@ export async function getMemberTasks(
 
   const board = await fetchGitHubProject(g.project);
   if (!board.ok) return { ok: false, error: board.error };
+  const boardName = board.title || g.project.name;
+  const statusOptions = board.columns.filter((c) => c.optionId).map((c) => ({ name: c.name, optionId: c.optionId! }));
   const tasks: MemberTask[] = [];
   for (const col of board.columns) {
     for (const it of col.items) {
@@ -157,6 +167,8 @@ export async function getMemberTasks(
           body: it.body,
           assignees: it.assignees,
           labels: it.labels.map((l) => ({ name: l.name, color: l.color })),
+          projectSlug: g.project.slug,
+          card: { ...it, board: boardName, projectSlug: g.project.slug, projectId: board.projectId, statusFieldId: board.statusFieldId, statusOptions },
         });
       }
     }

@@ -30,6 +30,8 @@ import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connection
 import type { TeamMessageOption } from "@/lib/team-messaging";
 import { resolveDiscordUser, sendTeamMessage, updateTeamMemberContact } from "@/app/actions/team";
 import { setMemberRole, removeMember, getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
+import { CardDialogHost } from "@/components/card-dialog-host";
+import type { AggregatedItem } from "@/lib/github-project";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -559,10 +561,11 @@ function ContactsEditor({
   );
 }
 
-function MemberTasks({ githubLogin }: { githubLogin: string | null }) {
+function MemberTasks({ githubLogin, canManage }: { githubLogin: string | null; canManage?: boolean }) {
   const router = useRouter();
   const [tasks, setTasks] = useState<MemberTask[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [card, setCard] = useState<AggregatedItem | null>(null);
   useEffect(() => {
     if (!githubLogin) { setTasks([]); return; }
     let cancelled = false;
@@ -589,7 +592,7 @@ function MemberTasks({ githubLogin }: { githubLogin: string | null }) {
             <button
               key={i}
               type="button"
-              onClick={() => router.push(`/kanban?open=${encodeURIComponent(t.id)}`)}
+              onClick={() => (t.card ? setCard(t.card) : router.push(`/kanban?open=${encodeURIComponent(t.id)}`))}
               className="block w-full rounded-xl border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong"
             >
               <div className="flex items-center gap-2">
@@ -602,6 +605,7 @@ function MemberTasks({ githubLogin }: { githubLogin: string | null }) {
           ))}
         </div>
       )}
+      {card && <CardDialogHost item={card} canManage={canManage} onClose={() => setCard(null)} />}
     </div>
   );
 }
@@ -819,7 +823,7 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
           </div>
 
           <div className="space-y-5">
-            <MemberTasks githubLogin={githubLoginOf(current)} />
+            <MemberTasks githubLogin={githubLoginOf(current)} canManage={canManage} />
             <MessageComposer
               key={current.messageOptions.map((o) => `${o.channel}:${o.target}`).join("|")}
               member={current}
