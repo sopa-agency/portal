@@ -177,6 +177,119 @@ export async function fetchRecentInstagramMedia(
 }
 
 // ---------------------------------------------------------------------------
+// Comments — read + reply on the brand's OWN media (HITL curation inbox).
+// Requires the token to carry `instagram_manage_comments`. The IG Graph API
+// only exposes comments on the authenticated account's own media.
+// ---------------------------------------------------------------------------
+
+export type IgCommentReply = {
+  id: string;
+  text: string;
+  username: string;
+  timestamp: string;
+};
+export type IgComment = IgCommentReply & {
+  likeCount: number;
+  hidden: boolean;
+  replies: IgCommentReply[];
+};
+export type IgPostThread = {
+  media: ImportedMedia;
+  comments: IgComment[];
+};
+
+type RawComment = {
+  id: string;
+  text?: string;
+  username?: string;
+  timestamp?: string;
+  like_count?: number;
+  hidden?: boolean;
+  replies?: { data?: RawComment[] };
+};
+
+function normalizeComment(c: RawComment): IgComment {
+  return {
+    id: c.id,
+    text: c.text ?? "",
+    username: c.username ?? "",
+    timestamp: c.timestamp ?? new Date().toISOString(),
+    likeCount: c.like_count ?? 0,
+    hidden: !!c.hidden,
+    replies: (c.replies?.data ?? []).map((r) => ({
+      id: r.id,
+      text: r.text ?? "",
+      username: r.username ?? "",
+      timestamp: r.timestamp ?? "",
+    })),
+  };
+}
+
+/**
+ * Recent posts with their comment threads — the curation inbox. Pulls the last
+ * `mediaLimit` posts, then each post's comments (top-level + one reply level).
+ */
+export async function fetchInstagramCommentThreads(
+  project: ProjectConfig,
+  mediaLimit = 8,
+): Promise<{ ok: true; threads: IgPostThread[] } | { ok: false; error: string }> {
+  const { token, igid } = resolveIgCredentials(project);
+  if (!token || !igid) return { ok: false, error: "Instagram não conectado neste portal (falta token/business id)." };
+  const mediaRes = await fetchRecentInstagramMedia(project, mediaLimit);
+  if (!mediaRes.ok) return mediaRes;
+  try {
+    const fields = "id,text,username,timestamp,like_count,hidden,replies{id,text,username,timestamp}";
+    const threads = await Promise.all(
+      mediaRes.media.map(async (media): Promise<IgPostThread> => {
+        try {
+          const data = await graphGet<{ data?: RawComment[] }>(`/${media.igMediaId}/comments`, { fields, limit: "50" }, token);
+          return { media, comments: (data.data ?? []).map(normalizeComment) };
+        } catch {
+          return { media, comments: [] };
+        }
+      }),
+    );
+    return { ok: true, threads: threads.filter((t) => t.comments.length > 0) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Reply to a specific comment (creates a threaded reply under it). */
+export async function replyToInstagramComment(
+  project: ProjectConfig,
+  commentId: string,
+  message: string,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const { token } = resolveIgCredentials(project);
+  if (!token) return { ok: false, error: "Instagram não conectado." };
+  const msg = message.trim();
+  if (!msg) return { ok: false, error: "Resposta vazia." };
+  try {
+    const r = await graphPost(`/${commentId}/replies`, { message: msg }, token);
+    return { ok: true, id: r.id ?? "" };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Hide/unhide a comment on our media. */
+export async function setInstagramCommentHidden(
+  project: ProjectConfig,
+  commentId: string,
+  hidden: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { token } = resolveIgCredentials(project);
+  if (!token) return { ok: false, error: "Instagram não conectado." };
+  try {
+    await graphPost(`/${commentId}`, { hide: hidden }, token);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Reel container polling — poll until FINISHED or ERROR, ~3s cadence, 90s max
 // ---------------------------------------------------------------------------
 
