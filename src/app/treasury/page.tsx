@@ -142,18 +142,17 @@ treasury: {
         }
         status={usd(combined)}
       />
-      <FixedCostsPanel
-        groups={costGroups}
-        initialCosts={initialCosts}
-        usdBrl={costScope.usdBrl}
-        canEdit={!!session}
-      />
+      <TreasuryViews groups={groups} />
       <MultisigBudgets budgets={budgets} />
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground-subtle">Tesouro do DAO</h2>
-        <TreasuryViews groups={groups} />
-      </div>
       <SafeActivity safes={safes} />
+      <div className="border-t border-border pt-8">
+        <FixedCostsPanel
+          groups={costGroups}
+          initialCosts={initialCosts}
+          usdBrl={costScope.usdBrl}
+          canEdit={!!session}
+        />
+      </div>
     </div>
   );
 }
