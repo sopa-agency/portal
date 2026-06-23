@@ -3,14 +3,8 @@
 import { useEffect, useState, useTransition, useRef } from "react";
 import { ExternalLink, Loader2, Send, RefreshCw, Heart, Rocket, ChevronDown, Check } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
-import {
-  listSnapsForCuration,
-  replyToSnap,
-  boostSnap,
-  BOOST_LEVELS,
-  type CurationSnap,
-  type BoostLevel,
-} from "@/app/actions/snap-curation";
+import { listSnapsForCuration, replyToSnap, boostSnap } from "@/app/actions/snap-curation";
+import { BOOST_LEVELS, type CurationSnap, type BoostLevel } from "@/lib/snap-curation-shared";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 

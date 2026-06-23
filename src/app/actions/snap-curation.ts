@@ -9,6 +9,7 @@ import { brandEnv } from "@/lib/brand-env";
 import { HIVE_NODES } from "@/lib/social-publish";
 import { getUserbaseClient } from "@/lib/supabase-userbase";
 import { listSkatehiveVideos } from "@/app/actions/skatehive-media";
+import { BOOST_LEVELS, type BoostLevel, type CurationSnap } from "@/lib/snap-curation-shared";
 
 async function gate() {
   const project = await getActiveProject();
@@ -17,19 +18,6 @@ async function gate() {
   if (!who) return { ok: false as const, error: "Não autorizado." };
   return { ok: true as const, project };
 }
-
-export type CurationSnap = {
-  id: string; // "author/permlink"
-  author: string;
-  permlink: string;
-  title: string;
-  votes: number;
-  payout: number;
-  url: string;
-  created: string;
-  /** Boost pacing state, if this snap is/was boosted. */
-  boost: { budget: number; released: number; status: string } | null;
-};
 
 const castHashOf = (author: string, permlink: string) => `hive:${author}/${permlink}`;
 
@@ -117,13 +105,6 @@ export async function replyToSnap(
 // existing Pool B worker (trail-userbase-boost) drains the queue proportionally
 // to real upvote growth, spaced with random pauses (organic pacing).
 // ---------------------------------------------------------------------------
-
-export type BoostLevel = "light" | "medium" | "strong";
-export const BOOST_LEVELS: { value: BoostLevel; label: string; voters: number; hint: string }[] = [
-  { value: "light", label: "Leve", voters: 10, hint: "~10 contas" },
-  { value: "medium", label: "Médio", voters: 25, hint: "~25 contas" },
-  { value: "strong", label: "Forte", voters: 50, hint: "~50 contas" },
-];
 
 const DEFAULT_WEIGHT = Math.max(1, Math.min(10000, Number(process.env.TRAIL_BOOST_WEIGHT ?? 1000)));
 
