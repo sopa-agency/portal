@@ -97,6 +97,11 @@ function aspectKeyToRatio(a: AspectKey): AspectRatio {
   return a === "16:9" ? "1.91:1" : (a as AspectRatio);
 }
 
+const STUDIO_DEFAULT_ASPECT: Record<"design" | "video", AspectRatio> = {
+  design: "4:5",
+  video: "1:1",
+};
+
 /**
  * Direct browser→Pinata upload: ask the server for a short-lived signed URL,
  * then POST the file straight to Pinata. The media never flows through the
@@ -1801,6 +1806,12 @@ export function PostCreator({
   // Studio seeding sets postType + uploads together — the type-reset effect
   // below must skip exactly that one transition.
   const studioSeedRef = useRef(false);
+
+  function selectStudioMode(mode: "design" | "video") {
+    setStudioMode(mode);
+    setAspectRatio(STUDIO_DEFAULT_ASPECT[mode]);
+    setAspectTouched(false);
+  }
 
   // The actually-visible step sequence: drops "format" when the aspect is
   // locked to the media (Studio/Figma export or video) so there's no redundant
@@ -3533,7 +3544,10 @@ export function PostCreator({
           />
           <TabButton
             active={viewTab === "studio"}
-            onClick={() => setViewTab("studio")}
+            onClick={() => {
+              selectStudioMode(studioMode);
+              setViewTab("studio");
+            }}
             icon={<Sparkles className="h-3.5 w-3.5" />}
             label="Studio"
           />
@@ -3621,7 +3635,7 @@ export function PostCreator({
                   <button
                     key={m}
                     type="button"
-                    onClick={() => setStudioMode(m)}
+                    onClick={() => selectStudioMode(m)}
                     className={`rounded-md px-3 py-1 font-medium capitalize transition-colors ${
                       studioMode === m ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"
                     }`}
@@ -3666,7 +3680,7 @@ export function PostCreator({
               <>
                 {aspectRatio !== "4:5" && (
                   <div className="border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-[11px] text-warning">
-                    Os cards de design são 4:5. Para {aspectRatio}, use o <button type="button" onClick={() => setStudioMode("video")} className="font-semibold underline">Video</button> (ou volte o formato para 4:5).
+                    Os cards de design são 4:5. Para {aspectRatio}, use o <button type="button" onClick={() => selectStudioMode("video")} className="font-semibold underline">Video</button> (ou volte o formato para 4:5).
                   </div>
                 )}
                 <StudioEditor

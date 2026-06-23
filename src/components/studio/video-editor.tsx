@@ -854,7 +854,7 @@ export function VideoEditor({
   const [overlayTracks, setOverlayTracks] = useState<OverlayTrack[]>(DEFAULT_TRACKS);
   const [audios, setAudios] = useState<AudioItem[]>([]);
   // Controlled by the host (format-first) when aspectProp is set; else internal.
-  const [aspectInternal, setAspectInternal] = useState<AspectKey>(aspectProp ?? "4:5");
+  const [aspectInternal, setAspectInternal] = useState<AspectKey>(aspectProp ?? "1:1");
   const aspect = aspectProp ?? aspectInternal;
   const setAspect = useCallback((a: AspectKey) => {
     setAspectInternal(a);
@@ -1962,7 +1962,7 @@ export function VideoEditor({
           setOverlayTracks(a.overlayTracks?.length ? a.overlayTracks : DEFAULT_TRACKS);
           setOverlays(migrateOverlays(a.overlays ?? []).filter((o) => !o.binId || keep.has(o.binId)));
           setAudios((a.audios ?? []).filter((x) => keep.has(x.binId)));
-          setAspect(a.aspect ?? "4:5");
+          setAspect(a.aspect ?? "1:1");
           setProjectName(a.name ?? "Untitled");
           setCurrentProjectId(a.id ?? null);
           setRestoredNote(true);
