@@ -186,12 +186,20 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
     const xSocial = project.socials.find(
       (s) => s.platform.toLowerCase() === "x" || s.platform.toLowerCase() === "twitter",
     );
-    connections.push({
-      network: "X / Twitter",
-      handle: xSocial?.handle,
-      status: "manual",
-      detail: "Posts via the X composer (intent) — no API auto-post.",
-    });
+    if (xSocial) {
+      connections.push({
+        network: "X / Twitter",
+        handle: xSocial.handle,
+        status: "manual",
+        detail: "Posts via the X composer (intent) — no API auto-post.",
+      });
+    } else {
+      connections.push({
+        network: "X / Twitter",
+        status: "na",
+        detail: "No X / Twitter account configured for this project.",
+      });
+    }
   }
 
   // ── Discord ───────────────────────────────────────────────────────────────
@@ -320,6 +328,15 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
         network: "Google Drive",
         status: "connected",
         detail: "Service account + folder configured — Drive tab on the Brain page.",
+      });
+    } else if (hasOwn("GOOGLE_SERVICE_ACCOUNT_JSON") && !folderPresent) {
+      // This brand wired its own service account but is missing the folder ID,
+      // so Drive features can't resolve — surface it as a fixable gap, not "na".
+      connections.push({
+        network: "Google Drive",
+        status: "missing",
+        detail: "Service account is set for this brand, but the Drive folder ID is missing — Drive features won't resolve until it's set.",
+        fixHint: `Set ${prefix}_GOOGLE_DRIVE_FOLDER_ID`,
       });
     } else {
       connections.push({
