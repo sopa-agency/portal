@@ -307,7 +307,7 @@ function buildTasksEmailDraft(username: string, tasks: MemberTask[]): string {
   return `Oi @${username}, aqui estão suas tarefas abertas no Kanban (${open.length}):\n\n${lines.join("\n")}`;
 }
 
-function MessageComposer({ member }: { member: TeamMember }) {
+function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; tasks: MemberTask[] | null; selectedIds: Set<string> }) {
   // Default to a private channel when the member has one.
   const [selected, setSelected] = useState<TeamMessageOption | null>(
     member.messageOptions.find((o) => o.visibility === "private") ??
@@ -316,30 +316,23 @@ function MessageComposer({ member }: { member: TeamMember }) {
   );
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const [drafting, setDrafting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
 
-  // Fill the composer with the member's open tasks (no AI). Prefers the email
-  // channel since this is a tasks digest.
-  async function draftTasks() {
+  const openTasks = (tasks ?? []).filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED");
+
+  // Fill the composer with the member's tasks (no AI). Uses the SELECTED tasks
+  // (checkboxes in the list above); if none are checked, falls back to all open.
+  // Prefers the email channel since this is a tasks digest.
+  function draftTasks() {
     setResult(null);
-    const gh = githubLoginOf(member);
-    if (!gh) {
-      setResult({ ok: false, text: "Sem GitHub vinculado — não dá pra puxar as tarefas." });
+    const chosen = selectedIds.size > 0 ? openTasks.filter((t) => selectedIds.has(t.id)) : openTasks;
+    if (chosen.length === 0) {
+      setResult({ ok: false, text: "Sem tarefas abertas pra rascunhar." });
       return;
     }
-    setDrafting(true);
-    try {
-      const r = await getMemberTasks(gh);
-      if (!r.ok) { setResult({ ok: false, text: r.error }); return; }
-      setMessage(buildTasksEmailDraft(member.username, r.tasks));
-      const emailOpt = member.messageOptions.find((o) => o.channel === "email");
-      if (emailOpt) setSelected(emailOpt);
-    } catch (e) {
-      setResult({ ok: false, text: e instanceof Error ? e.message : "Falhou ao puxar tarefas." });
-    } finally {
-      setDrafting(false);
-    }
+    setMessage(buildTasksEmailDraft(member.username, chosen));
+    const emailOpt = member.messageOptions.find((o) => o.channel === "email");
+    if (emailOpt) setSelected(emailOpt);
   }
 
   if (member.messageOptions.length === 0) {
@@ -421,12 +414,12 @@ function MessageComposer({ member }: { member: TeamMember }) {
         <button
           type="button"
           onClick={draftTasks}
-          disabled={drafting}
-          title="Preenche o email com as tarefas abertas deste membro (sem IA)"
+          disabled={openTasks.length === 0}
+          title="Preenche o email com as tarefas deste membro (sem IA). Marque tarefas na lista acima pra escolher quais; sem seleção, usa todas as abertas."
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
         >
-          {drafting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <ListChecks className="h-3.5 w-3.5" aria-hidden />}
-          {drafting ? "Puxando tarefas…" : "Rascunhar email com tarefas"}
+          <ListChecks className="h-3.5 w-3.5" aria-hidden />
+          {selectedIds.size > 0 ? `Rascunhar email (${selectedIds.size} selecionada${selectedIds.size > 1 ? "s" : ""})` : "Rascunhar email com tarefas"}
         </button>
       </div>
 
@@ -614,48 +607,63 @@ function ContactsEditor({
   );
 }
 
-function MemberTasks({ githubLogin, canManage }: { githubLogin: string | null; canManage?: boolean }) {
+function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, canManage }: {
+  githubLogin: string | null;
+  tasks: MemberTask[] | null;
+  err: string | null;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  canManage?: boolean;
+}) {
   const router = useRouter();
-  const [tasks, setTasks] = useState<MemberTask[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
   const [card, setCard] = useState<AggregatedItem | null>(null);
-  useEffect(() => {
-    if (!githubLogin) { setTasks([]); return; }
-    let cancelled = false;
-    getMemberTasks(githubLogin).then((r) => {
-      if (cancelled) return;
-      if (r.ok) setTasks(r.tasks);
-      else { setTasks([]); setErr(r.error); }
-    });
-    return () => { cancelled = true; };
-  }, [githubLogin]);
+  // Hide Done/closed — the dialog is for live work + drafting follow-up emails.
+  const openTasks = (tasks ?? []).filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED");
 
   return (
     <div>
-      <h4 className="mb-2 text-sm font-semibold text-foreground">Tarefas no Kanban</h4>
+      <h4 className="mb-2 text-sm font-semibold text-foreground">
+        Tarefas no Kanban
+        {selectedIds.size > 0 && (
+          <span className="ml-1.5 text-xs font-normal text-accent">{selectedIds.size} selecionada{selectedIds.size > 1 ? "s" : ""}</span>
+        )}
+      </h4>
       {!githubLogin ? (
         <p className="text-xs text-foreground-faint">Sem GitHub vinculado — adicione o contato GitHub pra ver as tarefas atribuídas.</p>
       ) : tasks === null ? (
         <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…</p>
-      ) : tasks.length === 0 ? (
-        <p className="text-xs text-foreground-faint">{err ?? "Nenhuma tarefa atribuída no board."}</p>
+      ) : openTasks.length === 0 ? (
+        <p className="text-xs text-foreground-faint">{err ?? "Nenhuma tarefa aberta atribuída no board."}</p>
       ) : (
         <div className="space-y-1.5">
-          {tasks.map((t, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => (t.card ? setCard(t.card) : router.push(`/kanban?open=${encodeURIComponent(t.id)}`))}
-              className="block w-full rounded-xl border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong"
-            >
-              <div className="flex items-center gap-2">
-                {t.board && <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">{t.board}</span>}
-                <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-foreground-muted">{t.status}</span>
-                {t.number ? <span className="text-[10px] text-foreground-faint">#{t.number}</span> : null}
+          <p className="text-[10px] text-foreground-faint">Marque pra incluir no rascunho de email ↓</p>
+          {openTasks.map((t) => {
+            const checked = selectedIds.has(t.id);
+            return (
+              <div key={t.id} className={`flex items-start gap-2 rounded-xl border px-3 py-2 transition-colors ${checked ? "border-accent-border bg-accent-bg/30" : "border-border bg-surface hover:border-border-strong"}`}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggle(t.id)}
+                  className="mt-1 h-3.5 w-3.5 shrink-0 accent-[var(--color-accent)]"
+                  aria-label={`Selecionar ${t.title}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => (t.card ? setCard(t.card) : router.push(`/kanban?open=${encodeURIComponent(t.id)}`))}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    {t.board && <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">{t.board}</span>}
+                    <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-foreground-muted">{t.status}</span>
+                    {t.priority && <span className="rounded-full bg-foreground/10 px-1.5 py-0.5 text-[9px] text-foreground-subtle">{t.priority}</span>}
+                    {t.number ? <span className="text-[10px] text-foreground-faint">#{t.number}</span> : null}
+                  </div>
+                  <p className="mt-0.5 line-clamp-2 text-sm text-foreground">{t.title}</p>
+                </button>
               </div>
-              <p className="mt-0.5 line-clamp-2 text-sm text-foreground">{t.title}</p>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
       {card && <CardDialogHost item={card} canManage={canManage} onClose={() => setCard(null)} />}
@@ -683,6 +691,29 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
   const [editingContact, setEditingContact] = useState<{ label: string; value: string } | null>(
     null,
   );
+  // Member's Kanban tasks + which are selected for the email draft. Lifted here
+  // so the task list (MemberTasks) and the composer (MessageComposer) share them.
+  const ghLogin = githubLoginOf(current);
+  const [tasks, setTasks] = useState<MemberTask[] | null>(null);
+  const [tasksErr, setTasksErr] = useState<string | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!ghLogin) { setTasks([]); return; }
+    let cancelled = false;
+    getMemberTasks(ghLogin).then((r) => {
+      if (cancelled) return;
+      if (r.ok) setTasks(r.tasks);
+      else { setTasks([]); setTasksErr(r.error); }
+    });
+    return () => { cancelled = true; };
+  }, [ghLogin]);
+  const toggleTask = (id: string) =>
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   // Full setup: Hive (always), then EVERY contact platform — set ones with their
   // value, unset ones flagged `missing` so the whole setup is visible at a glance.
   const byLabel = new Map(current.contacts.map((c) => [c.label, c]));
@@ -876,10 +907,19 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
           </div>
 
           <div className="space-y-5">
-            <MemberTasks githubLogin={githubLoginOf(current)} canManage={canManage} />
+            <MemberTasks
+              githubLogin={ghLogin}
+              tasks={tasks}
+              err={tasksErr}
+              selectedIds={selectedTaskIds}
+              onToggle={toggleTask}
+              canManage={canManage}
+            />
             <MessageComposer
               key={current.messageOptions.map((o) => `${o.channel}:${o.target}`).join("|")}
               member={current}
+              tasks={tasks}
+              selectedIds={selectedTaskIds}
             />
           </div>
         </div>
