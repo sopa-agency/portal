@@ -263,3 +263,86 @@ export async function sendTeamMessage(input: {
     return { ok: false, error: err instanceof Error ? err.message : "Failed to send." };
   }
 }
+
+/**
+ * Send a member a *beautiful* branded HTML tasks digest (vs the plain text path
+ * in sendTeamMessage). Renders the project assets/accent, the sender+recipient
+ * Hive avatars, a starred "most important" hero task, the personal note, and a
+ * card link per task. Email channel only — the recipient must have an email
+ * contact. Tasks/links are validated + rebuilt server-side from the project
+ * board so the client can't inject arbitrary links.
+ */
+export async function sendTeamTasksEmail(input: {
+  username: string;
+  intro: string;
+  origin: string;
+  tasks: {
+    id: string;
+    title: string;
+    status: string;
+    board?: string;
+    priority?: string;
+    number?: number;
+    url?: string;
+    important?: boolean;
+  }[];
+}): Promise<SendTeamMessageResult> {
+  try {
+    const project = await getActiveProject();
+    const cookieStore = await cookies();
+    const session = await verifySession(cookieStore.get(SESSION_COOKIE)?.value, project);
+    if (!session) return { ok: false, error: "Unauthorized" };
+
+    const username = input.username.toLowerCase().trim();
+    const access = await getAccess(username, project);
+    if (!access.allowed) return { ok: false, error: "Unknown team member." };
+
+    const intro = (input.intro ?? "").trim().slice(0, MAX_MESSAGE_LENGTH);
+    const tasks = (input.tasks ?? []).slice(0, 30);
+    if (tasks.length === 0) return { ok: false, error: "No tasks selected." };
+
+    const contacts = await loadMemberContacts(project, username);
+    const option = getTeamMessageOptions(project, username, { contacts }).find(
+      (o) => o.channel === "email",
+    );
+    if (!option) return { ok: false, error: "This member has no email contact." };
+
+    // Only trust same-origin http(s) links from the client; otherwise rebuild
+    // the shareable Kanban-card link from the (validated) item id.
+    const origin = /^https?:\/\/[^\s]+$/.test(input.origin) ? input.origin.replace(/\/+$/, "") : "";
+    const emailTasks = tasks.map((t) => {
+      const safe = t.url && origin && t.url.startsWith(origin) ? t.url : "";
+      const url = safe || (origin ? `${origin}/kanban?open=${encodeURIComponent(t.id)}` : t.url || "");
+      return {
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        board: t.board,
+        priority: t.priority,
+        number: t.number,
+        url,
+        important: !!t.important,
+      };
+    });
+
+    const { renderTasksEmail } = await import("@/lib/team-email");
+    const { html, text } = renderTasksEmail({
+      project,
+      origin,
+      senderUsername: session.username,
+      recipientUsername: username,
+      intro,
+      tasks: emailTasks,
+    });
+
+    const hero = emailTasks.find((t) => t.important);
+    const subject = hero
+      ? `⭐ ${hero.title.slice(0, 60)} — suas tarefas no ${project.name}`
+      : `Suas tarefas no ${project.name} (${emailTasks.length})`;
+
+    const r = await sendProjectEmail(project, { to: option.target, subject, html, text });
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Failed to send." };
+  }
+}

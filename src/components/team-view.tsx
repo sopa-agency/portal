@@ -20,6 +20,7 @@ import {
   Plus,
   Phone,
   ListChecks,
+  Star,
   Trash2,
 } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
@@ -29,7 +30,7 @@ import { useRouter } from "next/navigation";
 import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
 import type { TeamMessageOption } from "@/lib/team-messaging";
-import { resolveDiscordUser, sendTeamMessage, updateTeamMemberContact } from "@/app/actions/team";
+import { resolveDiscordUser, sendTeamMessage, sendTeamTasksEmail, updateTeamMemberContact } from "@/app/actions/team";
 import { setMemberRole, removeMember, getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
 import { CardDialogHost } from "@/components/card-dialog-host";
 import type { AggregatedItem } from "@/lib/github-project";
@@ -312,7 +313,7 @@ function buildTasksEmailDraft(username: string, tasks: MemberTask[]): string {
   return `Oi @${username}, aqui estão suas tarefas no Kanban (${open.length}):\n\n${lines.join("\n")}`;
 }
 
-function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; tasks: MemberTask[] | null; selectedIds: Set<string> }) {
+function MessageComposer({ member, tasks, selectedIds, importantId }: { member: TeamMember; tasks: MemberTask[] | null; selectedIds: Set<string>; importantId: string | null }) {
   // Default to a private channel when the member has one.
   const [selected, setSelected] = useState<TeamMessageOption | null>(
     member.messageOptions.find((o) => o.visibility === "private") ??
@@ -325,9 +326,15 @@ function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; t
 
   const openTasks = (tasks ?? []).filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED");
 
-  // Fill the composer with the member's tasks (no AI). Uses the SELECTED tasks
-  // (checkboxes in the list above); if none are checked, falls back to all open.
-  // Prefers the email channel since this is a tasks digest.
+  const emailOpt = member.messageOptions.find((o) => o.channel === "email");
+  // True when Send will deliver the rich HTML tasks digest (email + ≥1 task).
+  const chosenForEmail = selectedIds.size > 0 ? openTasks.filter((t) => selectedIds.has(t.id)) : openTasks;
+  const isTasksEmail = selected?.channel === "email" && chosenForEmail.length > 0;
+
+  // Prepare the tasks email: switch to the email channel and seed an editable
+  // personal note. The tasks themselves render server-side as a branded card
+  // grid (with the ⭐ hero), so the textarea is just the note — no text dump.
+  // If the member has no email channel, fall back to the plain-text digest.
   function draftTasks() {
     setResult(null);
     const chosen = selectedIds.size > 0 ? openTasks.filter((t) => selectedIds.has(t.id)) : openTasks;
@@ -335,9 +342,12 @@ function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; t
       setResult({ ok: false, text: "Sem tarefas abertas pra rascunhar." });
       return;
     }
-    setMessage(buildTasksEmailDraft(member.username, chosen));
-    const emailOpt = member.messageOptions.find((o) => o.channel === "email");
-    if (emailOpt) setSelected(emailOpt);
+    if (emailOpt) {
+      setSelected(emailOpt);
+      setMessage((prev) => (prev.trim() ? prev : "Separei o que importa pra essa semana — bora fazer acontecer! 🚀"));
+    } else {
+      setMessage(buildTasksEmailDraft(member.username, chosen));
+    }
   }
 
   if (member.messageOptions.length === 0) {
@@ -354,20 +364,49 @@ function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; t
   async function send() {
     if (!selected || sending) return;
     const text = message.trim();
-    if (!text) return;
+    if (!isTasksEmail && !text) return; // tasks email can go with just the cards
     setSending(true);
     setResult(null);
     try {
-      const r = await sendTeamMessage({
-        username: member.username,
-        channel: selected.channel,
-        message: text,
-      });
-      if (r.ok) {
-        setMessage("");
-        setResult({ ok: true, text: `Sent via ${CHANNEL_LABEL[selected.channel]}.`, url: r.url });
+      if (isTasksEmail) {
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
+        // Include the starred task even if it wasn't checked, then order
+        // priority-first so the digest reads top-down by urgency.
+        const ids = new Set(chosenForEmail.map((t) => t.id));
+        const withStar = importantId && !ids.has(importantId)
+          ? [...openTasks.filter((t) => t.id === importantId), ...chosenForEmail]
+          : chosenForEmail;
+        const payload = [...withStar]
+          .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+          .map((t) => ({
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            board: t.board,
+            priority: t.priority,
+            number: t.number,
+            url: origin ? `${origin}/kanban?open=${encodeURIComponent(t.id)}` : t.url,
+            important: t.id === importantId,
+          }));
+        const r = await sendTeamTasksEmail({ username: member.username, intro: text, origin, tasks: payload });
+        if (r.ok) {
+          setMessage("");
+          setResult({ ok: true, text: `Email enviado pra @${member.username} ✨` });
+        } else {
+          setResult({ ok: false, text: r.error });
+        }
       } else {
-        setResult({ ok: false, text: r.error });
+        const r = await sendTeamMessage({
+          username: member.username,
+          channel: selected.channel,
+          message: text,
+        });
+        if (r.ok) {
+          setMessage("");
+          setResult({ ok: true, text: `Sent via ${CHANNEL_LABEL[selected.channel]}.`, url: r.url });
+        } else {
+          setResult({ ok: false, text: r.error });
+        }
       }
     } catch (err) {
       setResult({ ok: false, text: err instanceof Error ? err.message : "Failed to send." });
@@ -420,7 +459,7 @@ function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; t
           type="button"
           onClick={draftTasks}
           disabled={openTasks.length === 0}
-          title="Preenche o email com as tarefas deste membro (sem IA). Marque tarefas na lista acima pra escolher quais; sem seleção, usa todas as abertas."
+          title="Prepara um email visual com as tarefas do membro. Marque tarefas na lista acima pra escolher quais (sem seleção, usa todas as abertas) e ⭐ a mais importante. O texto abaixo vira a sua mensagem pessoal."
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
         >
           <ListChecks className="h-3.5 w-3.5" aria-hidden />
@@ -428,12 +467,20 @@ function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; t
         </button>
       </div>
 
+      {isTasksEmail && (
+        <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-foreground-subtle">
+          <Star className={`h-3 w-3 ${importantId ? "fill-amber-400 text-amber-500" : "text-foreground-faint"}`} aria-hidden />
+          Email visual com {chosenForEmail.length} tarefa{chosenForEmail.length > 1 ? "s" : ""}
+          {importantId ? " · 1 em destaque ⭐" : " · escolha uma ⭐ pra destacar"} · o texto abaixo é a sua mensagem pessoal.
+        </p>
+      )}
+
       <textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         rows={3}
         maxLength={2000}
-        placeholder={`Write to @${member.username}…`}
+        placeholder={isTasksEmail ? `Mensagem pessoal pra @${member.username} (opcional)…` : `Write to @${member.username}…`}
         className="mt-2 w-full resize-none rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:border-accent-border focus:ring-1 focus:ring-accent-border"
       />
 
@@ -460,7 +507,7 @@ function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; t
         <button
           type="button"
           onClick={send}
-          disabled={sending || !message.trim() || !selected}
+          disabled={sending || !selected || (!message.trim() && !isTasksEmail)}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-semibold text-background transition-opacity disabled:opacity-50"
         >
           {sending ? (
@@ -468,7 +515,7 @@ function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; t
           ) : (
             <Send className="h-3.5 w-3.5" aria-hidden />
           )}
-          {sending ? "Sending…" : "Send"}
+          {sending ? "Sending…" : isTasksEmail ? "Enviar email" : "Send"}
         </button>
       </div>
     </div>
@@ -612,12 +659,14 @@ function ContactsEditor({
   );
 }
 
-function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, canManage }: {
+function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, importantId, onToggleImportant, canManage }: {
   githubLogin: string | null;
   tasks: MemberTask[] | null;
   err: string | null;
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
+  importantId: string | null;
+  onToggleImportant: (id: string) => void;
   canManage?: boolean;
 }) {
   const router = useRouter();
@@ -641,11 +690,12 @@ function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, canManage
         <p className="text-xs text-foreground-faint">{err ?? "Nenhuma tarefa aberta atribuída no board."}</p>
       ) : (
         <div className="space-y-1.5">
-          <p className="text-[10px] text-foreground-faint">Marque pra incluir no rascunho de email ↓</p>
+          <p className="text-[10px] text-foreground-faint">Marque pra incluir no email · ⭐ define a tarefa mais importante ↓</p>
           {openTasks.map((t) => {
             const checked = selectedIds.has(t.id);
+            const starred = importantId === t.id;
             return (
-              <div key={t.id} className={`flex items-start gap-2 rounded-xl border px-3 py-2 transition-colors ${checked ? "border-accent-border bg-accent-bg/30" : "border-border bg-surface hover:border-border-strong"}`}>
+              <div key={t.id} className={`flex items-start gap-2 rounded-xl border px-3 py-2 transition-colors ${starred ? "border-amber-400/70 bg-amber-400/10" : checked ? "border-accent-border bg-accent-bg/30" : "border-border bg-surface hover:border-border-strong"}`}>
                 <input
                   type="checkbox"
                   checked={checked}
@@ -653,6 +703,16 @@ function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, canManage
                   className="mt-1 h-3.5 w-3.5 shrink-0 accent-[var(--color-accent)]"
                   aria-label={`Selecionar ${t.title}`}
                 />
+                <button
+                  type="button"
+                  onClick={() => onToggleImportant(t.id)}
+                  className={`mt-0.5 shrink-0 rounded-md p-0.5 transition-colors ${starred ? "text-amber-500" : "text-foreground-faint hover:text-amber-500"}`}
+                  title={starred ? "Tarefa mais importante (clique pra remover)" : "Marcar como a tarefa mais importante"}
+                  aria-label={starred ? "Remover destaque de mais importante" : "Marcar como mais importante"}
+                  aria-pressed={starred}
+                >
+                  <Star className={`h-3.5 w-3.5 ${starred ? "fill-current" : ""}`} aria-hidden />
+                </button>
                 <button
                   type="button"
                   onClick={() => (t.card ? setCard(t.card) : router.push(`/kanban?open=${encodeURIComponent(t.id)}`))}
@@ -702,6 +762,8 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
   const [tasks, setTasks] = useState<MemberTask[] | null>(null);
   const [tasksErr, setTasksErr] = useState<string | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  // The one ⭐ task — the "most important" task, rendered as the email's hero.
+  const [importantTaskId, setImportantTaskId] = useState<string | null>(null);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!ghLogin) { setTasks([]); return; }
@@ -716,9 +778,19 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
   const toggleTask = (id: string) =>
     setSelectedTaskIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
+  // Starring a task makes it the hero AND ensures it's included in the digest.
+  const toggleImportant = (id: string) => {
+    setImportantTaskId((prev) => (prev === id ? null : id));
+    setSelectedTaskIds((prev) => {
+      if (importantTaskId === id) return prev; // un-starring: leave selection as-is
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
   // Full setup: Hive (always), then EVERY contact platform — set ones with their
   // value, unset ones flagged `missing` so the whole setup is visible at a glance.
   const byLabel = new Map(current.contacts.map((c) => [c.label, c]));
@@ -918,6 +990,8 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
               err={tasksErr}
               selectedIds={selectedTaskIds}
               onToggle={toggleTask}
+              importantId={importantTaskId}
+              onToggleImportant={toggleImportant}
               canManage={canManage}
             />
             <MessageComposer
@@ -925,6 +999,7 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
               member={current}
               tasks={tasks}
               selectedIds={selectedTaskIds}
+              importantId={importantTaskId}
             />
           </div>
         </div>
