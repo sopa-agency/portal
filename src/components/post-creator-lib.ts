@@ -43,10 +43,10 @@ export const PHASES: { id: PhaseId; label: string }[] = [
 // Which phase each step section belongs to.
 const STEP_PHASE: Record<StepId, PhaseId> = {
   title: "brief",
+  caption: "brief",
   type: "brief",
   media: "creative",
   format: "creative",
-  caption: "creative",
   firstComment: "creative",
   tags: "distribution",
   collaborators: "distribution",
@@ -83,9 +83,11 @@ export function formatLocalDatetime(iso: string): string {
 
 export function computeSteps(postType: PostType): StepId[] {
   // "title" leads: naming the post first makes drafts identifiable in lists.
+  // "caption" follows the title in the Brief phase — the legenda is the core of
+  // the post, captured up front before format/media decisions.
   // "format" applies to every type — for REELS it's the preview-crop control.
-  const steps: StepId[] = ["title", "type", "media", "format"];
-  steps.push("caption", "firstComment");
+  const steps: StepId[] = ["title", "caption", "type", "media", "format"];
+  steps.push("firstComment");
   if (postType === "IMAGE") steps.push("tags");
   steps.push("collaborators", "more", "review");
   return steps;
