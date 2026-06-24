@@ -20,6 +20,28 @@ const STATUS_TONE: Record<string, string> = {
   done: "bg-success/15 text-success",
 };
 
+/** Lower = higher priority; unset sorts last. Handles P0–P3 and Urgent/High/Medium/Low (+ PT). */
+function priorityRank(p?: string): number {
+  if (!p) return 99;
+  const s = p.toLowerCase();
+  const pn = s.match(/\bp\s*(\d)\b/);
+  if (pn) return Number(pn[1]);
+  if (/urgent|critical|cr[ií]tic/.test(s)) return 0;
+  if (/high|alta/.test(s)) return 1;
+  if (/med/.test(s)) return 2;
+  if (/low|baixa/.test(s)) return 3;
+  return 90; // known-but-unrecognized value, still before "no priority"
+}
+
+/** Badge tone for a priority value. */
+function priorityTone(p: string): string {
+  const r = priorityRank(p);
+  if (r <= 0) return "bg-danger/15 text-danger";
+  if (r === 1) return "bg-warning/15 text-warning";
+  if (r === 2) return "bg-accent-bg text-accent";
+  return "bg-foreground/10 text-foreground-subtle";
+}
+
 export function ForYou({
   username,
   tasks,
@@ -29,7 +51,10 @@ export function ForYou({
   tasks: MemberTask[];
   mentions: ForYouMention[];
 }) {
-  const open = tasks.filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED");
+  // Open tasks, highest priority first (stable: equal priority keeps board order).
+  const open = tasks
+    .filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED")
+    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
   const shown = open.slice(0, 8);
   const [card, setCard] = useState<AggregatedItem | null>(null);
 
@@ -72,6 +97,11 @@ export function ForYou({
                   <span className="shrink-0 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">{t.board}</span>
                 )}
                 <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
+                {t.priority && (
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${priorityTone(t.priority)}`}>
+                    {t.priority}
+                  </span>
+                )}
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_TONE[t.status.toLowerCase()] ?? "bg-foreground/10 text-foreground-muted"}`}>
                   {t.status}
                 </span>
@@ -86,6 +116,11 @@ export function ForYou({
                   <span className="shrink-0 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">{t.board}</span>
                 )}
                 <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
+                {t.priority && (
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${priorityTone(t.priority)}`}>
+                    {t.priority}
+                  </span>
+                )}
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_TONE[t.status.toLowerCase()] ?? "bg-foreground/10 text-foreground-muted"}`}>
                   {t.status}
                 </span>

@@ -89,6 +89,8 @@ export type MemberTask = {
   state?: string;
   number?: number;
   body?: string;
+  /** Board "Priority" single-select value (e.g. "P0", "High"), if set. */
+  priority?: string;
   assignees?: { login: string; avatarUrl: string }[];
   labels?: { name: string; color: string }[];
   /** Project/board name — set on the SOPA aggregated view (tasks across portals). */
@@ -136,6 +138,7 @@ export async function getMemberTasks(
               state: it.state,
               number: it.number,
               body: it.body,
+              priority: it.priority,
               assignees: it.assignees,
               labels: it.labels.map((l) => ({ name: l.name, color: l.color })),
               board: boardName,

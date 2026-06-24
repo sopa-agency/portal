@@ -19,6 +19,8 @@ export type KanbanItem = {
   contentId: string | null;
   assignees: { login: string; avatarUrl: string }[];
   labels: { id?: string; name: string; color: string }[];
+  /** Value of the board's "Priority" single-select field (e.g. "P0", "High"), if any. */
+  priority?: string;
 };
 
 export type KanbanColumn = {
@@ -323,7 +325,11 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       }));
 
       const contentId = content?.id ?? null;
-      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, body, contentId, assignees, labels };
+      // Priority single-select value (board's "Priority" field), if the project has one.
+      const priority = node.fieldValues.nodes.find(
+        (fv) => fv.field?.name === "Priority" && fv.name != null,
+      )?.name ?? undefined;
+      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, body, contentId, assignees, labels, priority };
 
       // Find the Status field value for this item
       const statusValue = node.fieldValues.nodes.find(
