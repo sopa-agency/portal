@@ -242,10 +242,14 @@ export async function sendTeamMessage(input: {
       }
       case "email": {
         const subject = `Message from @${session.username} — ${project.name} portal`;
-        const html = `<p style="white-space:pre-wrap;">${message
+        // Escape, then autolink http(s) URLs so Kanban-card / post links in the
+        // draft are clickable in the delivered email (plain text isn't).
+        const escaped = message
           .replace(/&/g, "&amp;")
           .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")}</p><p style="color:#888;font-size:13px;">${signature}</p>`;
+          .replace(/>/g, "&gt;")
+          .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
+        const html = `<p style="white-space:pre-wrap;">${escaped}</p><p style="color:#888;font-size:13px;">${signature}</p>`;
         const r = await sendProjectEmail(project, {
           to: option.target,
           subject,
