@@ -6,6 +6,7 @@ import { Sparkles, AtSign } from "lucide-react";
 import type { MemberTask } from "@/app/actions/team-admin";
 import type { AggregatedItem } from "@/lib/github-project";
 import { CardDialogHost } from "@/components/card-dialog-host";
+import { priorityRank } from "@/lib/kanban-priority";
 
 // Personalized "For You" band on the SOPA home: the logged-in member's own
 // tasks across every portal + any briefing next-actions that name them.
@@ -19,19 +20,6 @@ const STATUS_TONE: Record<string, string> = {
   "ready": "bg-success/15 text-success",
   done: "bg-success/15 text-success",
 };
-
-/** Lower = higher priority; unset sorts last. Handles P0–P3 and Urgent/High/Medium/Low (+ PT). */
-function priorityRank(p?: string): number {
-  if (!p) return 99;
-  const s = p.toLowerCase();
-  const pn = s.match(/\bp\s*(\d)\b/);
-  if (pn) return Number(pn[1]);
-  if (/urgent|critical|cr[ií]tic/.test(s)) return 0;
-  if (/high|alta/.test(s)) return 1;
-  if (/med/.test(s)) return 2;
-  if (/low|baixa/.test(s)) return 3;
-  return 90; // known-but-unrecognized value, still before "no priority"
-}
 
 /** Badge tone for a priority value. */
 function priorityTone(p: string): string {

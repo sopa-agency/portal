@@ -19,6 +19,7 @@ import {
   Check,
   Plus,
   Phone,
+  ListChecks,
   Trash2,
 } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
@@ -33,6 +34,7 @@ import { setMemberRole, removeMember, getMemberTasks, type MemberTask } from "@/
 import { CardDialogHost } from "@/components/card-dialog-host";
 import type { AggregatedItem } from "@/lib/github-project";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
+import { priorityRank } from "@/lib/kanban-priority";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -291,6 +293,20 @@ function deliveryHint(option: TeamMessageOption, username: string): string {
   }
 }
 
+/** Plain-text email body (no AI) listing a member's open Kanban tasks, priority-first. */
+function buildTasksEmailDraft(username: string, tasks: MemberTask[]): string {
+  const open = tasks
+    .filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED")
+    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+  if (open.length === 0) return `Oi @${username}, você não tem tarefas abertas no Kanban no momento. 🎉`;
+  const lines = open.map((t, i) => {
+    const tags = [t.board, t.priority].filter(Boolean).join(" · ");
+    const head = `${i + 1}. ${tags ? `[${tags}] ` : ""}${t.title} — ${t.status}`;
+    return t.url ? `${head}\n   ${t.url}` : head;
+  });
+  return `Oi @${username}, aqui estão suas tarefas abertas no Kanban (${open.length}):\n\n${lines.join("\n")}`;
+}
+
 function MessageComposer({ member }: { member: TeamMember }) {
   // Default to a private channel when the member has one.
   const [selected, setSelected] = useState<TeamMessageOption | null>(
@@ -300,7 +316,31 @@ function MessageComposer({ member }: { member: TeamMember }) {
   );
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
+
+  // Fill the composer with the member's open tasks (no AI). Prefers the email
+  // channel since this is a tasks digest.
+  async function draftTasks() {
+    setResult(null);
+    const gh = githubLoginOf(member);
+    if (!gh) {
+      setResult({ ok: false, text: "Sem GitHub vinculado — não dá pra puxar as tarefas." });
+      return;
+    }
+    setDrafting(true);
+    try {
+      const r = await getMemberTasks(gh);
+      if (!r.ok) { setResult({ ok: false, text: r.error }); return; }
+      setMessage(buildTasksEmailDraft(member.username, r.tasks));
+      const emailOpt = member.messageOptions.find((o) => o.channel === "email");
+      if (emailOpt) setSelected(emailOpt);
+    } catch (e) {
+      setResult({ ok: false, text: e instanceof Error ? e.message : "Falhou ao puxar tarefas." });
+    } finally {
+      setDrafting(false);
+    }
+  }
 
   if (member.messageOptions.length === 0) {
     return (
@@ -376,6 +416,19 @@ function MessageComposer({ member }: { member: TeamMember }) {
           {deliveryHint(selected, member.username)}
         </p>
       )}
+
+      <div className="mt-2.5">
+        <button
+          type="button"
+          onClick={draftTasks}
+          disabled={drafting}
+          title="Preenche o email com as tarefas abertas deste membro (sem IA)"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+        >
+          {drafting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <ListChecks className="h-3.5 w-3.5" aria-hidden />}
+          {drafting ? "Puxando tarefas…" : "Rascunhar email com tarefas"}
+        </button>
+      </div>
 
       <textarea
         value={message}
