@@ -1280,8 +1280,8 @@ export function KanbanBoard() {
     void load();
   }, [load]);
 
-  // Deep-link: /kanban?open=<itemId> (from Team member dialog / "Minhas tarefas")
-  // opens that card once the board has loaded, then strips the param.
+  // Deep-link: /kanban?open=<itemId> opens that card once the board has loaded.
+  // We keep the param (don't strip) so the open card stays shareable.
   const openedFromUrl = useRef(false);
   useEffect(() => {
     if (!board || openedFromUrl.current) return;
@@ -1290,10 +1290,19 @@ export function KanbanBoard() {
     if (!id) return;
     const item = board.columns.flatMap((c) => c.items).find((it) => it.id === id);
     if (item) setDetailItem(item);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("open");
-    window.history.replaceState(null, "", url.pathname + url.search);
   }, [board]);
+
+  // Keep ?open=<id> in sync with the open card so any open card has a copyable,
+  // shareable URL (and closing clears it). Guarded until the deep-link above ran
+  // so the initial ?open isn't stripped before the board loads.
+  useEffect(() => {
+    if (!openedFromUrl.current || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (detailItem) params.set("open", detailItem.id);
+    else params.delete("open");
+    const qs = params.toString();
+    window.history.replaceState(window.history.state, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }, [detailItem]);
 
   useEffect(() => {
     const onOpenMember = (event: Event) => {

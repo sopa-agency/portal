@@ -46,8 +46,8 @@ export function AggregatedKanban({
   useEffect(() => setCols(columns), [columns]);
   const [active, setActive] = useState<AggregatedItem | null>(null);
 
-  // Deep-link: /kanban?open=<itemId> (Team dialog / "Minhas tarefas" on SOPA)
-  // opens that card once, then strips the param.
+  // Deep-link: /kanban?open=<itemId> opens that card once the board has loaded.
+  // We keep the param (don't strip) so the open card stays shareable.
   const openedFromUrl = useRef(false);
   useEffect(() => {
     if (openedFromUrl.current) return;
@@ -56,10 +56,19 @@ export function AggregatedKanban({
     if (!id) return;
     const item = columns.flatMap((c) => c.items).find((it) => it.id === id);
     if (item) setActive(item);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("open");
-    window.history.replaceState(null, "", url.pathname + url.search);
   }, [columns]);
+
+  // Keep ?open=<id> in sync with the open card so any open card has a copyable,
+  // shareable URL (and closing clears it). Guarded until the deep-link above ran
+  // so the initial ?open isn't stripped before columns arrive.
+  useEffect(() => {
+    if (!openedFromUrl.current || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (active) params.set("open", active.id);
+    else params.delete("open");
+    const qs = params.toString();
+    window.history.replaceState(window.history.state, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }, [active]);
   const [team, setTeam] = useState<Assignee[] | null>(null);
   const [dragging, setDragging] = useState<AggregatedItem | null>(null);
   const [board, setBoard] = useState<string | null>(null);
