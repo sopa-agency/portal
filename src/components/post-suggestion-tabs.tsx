@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Sparkles, GitBranch, CalendarDays } from "lucide-react";
+import { useUrlTab } from "@/lib/use-url-tab";
 
 // Tab switch for the consolidated Post Suggestions page: community-driven
 // drafts vs commit-driven drafts (the former Repo to Social route).
@@ -16,7 +17,9 @@ export function PostSuggestionTabs({
   repo: ReactNode;
   calendar?: ReactNode;
 }) {
-  const [tab, setTab] = useState<"community" | "repo" | "calendar">(initial);
+  // Shareable: active tab in ?tab=.
+  const [rawTab, setTab] = useUrlTab("tab", initial);
+  const tab = (["community", "repo", "calendar"].includes(rawTab) ? rawTab : initial) as "community" | "repo" | "calendar";
   const tabs = [
     { key: "community" as const, label: "Community", icon: Sparkles },
     { key: "repo" as const, label: "Repo to Social", icon: GitBranch },

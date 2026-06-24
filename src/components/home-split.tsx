@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { FileText, Megaphone } from "lucide-react";
+import { useUrlTab } from "@/lib/use-url-tab";
 
 // Direction B ("Split Desk") home layout, from the Claude Design handoff:
 // the brief and the socials live SIDE BY SIDE instead of behind top-level
@@ -49,12 +50,15 @@ function Pane({
   icon,
   title,
   tabs,
+  paramKey,
 }: {
   icon: ReactNode;
   title: string;
   tabs: SplitTab[];
+  paramKey: string;
 }) {
-  const [active, setActive] = useState(tabs[0]?.slug ?? "");
+  // Shareable: each pane's active tab lives in its own query param.
+  const [active, setActive] = useUrlTab(paramKey, tabs[0]?.slug ?? "");
   const current = tabs.find((t) => t.slug === active) ?? tabs[0];
 
   return (
@@ -86,10 +90,10 @@ export function HomeSplit({
     <div className="grid gap-8 lg:grid-cols-2 lg:gap-0">
       <div className="min-w-0 lg:border-r lg:border-border lg:pr-7">
         {briefAbove ? <div className="mb-6">{briefAbove}</div> : null}
-        <Pane icon={<FileText className="h-[17px] w-[17px]" />} title="Morning brief" tabs={briefTabs} />
+        <Pane icon={<FileText className="h-[17px] w-[17px]" />} title="Morning brief" tabs={briefTabs} paramKey="brief" />
       </div>
       <div className="min-w-0 lg:pl-7">
-        <Pane icon={<Megaphone className="h-[17px] w-[17px]" />} title="Socials" tabs={channelTabs} />
+        <Pane icon={<Megaphone className="h-[17px] w-[17px]" />} title="Socials" tabs={channelTabs} paramKey="social" />
       </div>
     </div>
   );

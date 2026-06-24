@@ -35,6 +35,7 @@ import { CardDialogHost } from "@/components/card-dialog-host";
 import type { AggregatedItem } from "@/lib/github-project";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
 import { priorityRank } from "@/lib/kanban-priority";
+import { useUrlTab } from "@/lib/use-url-tab";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1038,7 +1039,10 @@ function ConnectionCard({
 // ── Main export ────────────────────────────────────────────────────────────
 
 export function TeamView({ projectName, members, canManage }: TeamViewProps) {
-  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+  // Shareable: the open member lives in ?member=<username> so a copied link
+  // opens that member's dialog directly.
+  const [memberParam, setMemberParam] = useUrlTab("member", "");
+  const selectedMember = members.find((m) => m.username === memberParam) ?? null;
 
   return (
     <div className="space-y-8">
@@ -1053,13 +1057,13 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
         </div>
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {members.map((m) => (
-            <MemberCard key={m.username} member={m} onOpen={setSelectedMember} />
+            <MemberCard key={m.username} member={m} onOpen={(mem) => setMemberParam(mem.username)} />
           ))}
         </div>
       </section>
 
       {selectedMember && (
-        <MemberModal member={selectedMember} canManage={canManage} onClose={() => setSelectedMember(null)} />
+        <MemberModal member={selectedMember} canManage={canManage} onClose={() => setMemberParam(null)} />
       )}
     </div>
   );
