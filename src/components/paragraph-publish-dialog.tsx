@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Loader2, X, ExternalLink, ImageOff, BookUp, Globe, Mail, Users, Check, AlertTriangle } from "lucide-react";
+import { Loader2, X, ExternalLink, ImageOff, BookUp, Globe, Mail, Users, Check, AlertTriangle, Languages } from "lucide-react";
 import { MarkdownContent } from "@/components/markdown-content";
 
 export type ParagraphPreview = {
@@ -11,22 +11,31 @@ export type ParagraphPreview = {
   publication: string;
   publicationSlug: string;
   subscribers: number;
+  /** False when this language's publication has no API key yet (e.g. PT not wired). */
+  connected?: boolean;
+  /** Env var to set to connect this language's publication (shown when !connected). */
+  envName?: string;
 };
 export type ParagraphSendResult = { url: string; published: boolean; emailed: boolean };
 
 type Preview = ParagraphPreview;
 type SendResult = ParagraphSendResult;
+type Lang = { code: string; label: string };
 
 type Props = {
-  /** Loads the preview (title/cover/body + subscriber count). Source-agnostic:
-   *  a Hive post (blog tab) or a campaign document (campaign creator). */
-  loadPreview: () => Promise<({ ok: true } & ParagraphPreview) | { ok: false; error: string }>;
-  onSend: (opts: { publish: boolean; sendNewsletter: boolean }) => Promise<({ ok: true } & ParagraphSendResult) | { ok: false; error: string }>;
+  /** Loads the preview for a language (title/cover/body + which publication &
+   *  subscriber count). Source-agnostic: a Hive post or a campaign document. */
+  loadPreview: (lang: string) => Promise<({ ok: true } & ParagraphPreview) | { ok: false; error: string }>;
+  onSend: (opts: { publish: boolean; sendNewsletter: boolean; lang: string }) => Promise<({ ok: true } & ParagraphSendResult) | { ok: false; error: string }>;
+  /** Language options. Omit (or single) → no selector. Multiple → segmented control. */
+  languages?: Lang[];
   onClose: () => void;
   onDone: (r: SendResult) => void;
 };
 
-export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }: Props) {
+export function ParagraphPublishDialog({ loadPreview, onSend, languages, onClose, onDone }: Props) {
+  const langs = languages && languages.length > 0 ? languages : [{ code: "en", label: "EN" }];
+  const [lang, setLang] = useState(langs[0].code);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,13 +43,21 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
   const [sendError, setSendError] = useState<string | null>(null);
   const [done, setDone] = useState<SendResult | null>(null);
   const [busy, startSend] = useTransition();
-  // Which action is in flight (so we can show the spinner on the right button).
   const [pending, setPending] = useState<"draft" | "publish" | null>(null);
 
-  // Load the preview once when the dialog mounts (it is mounted fresh per open).
+  // Reload the preview whenever the language changes (mounted fresh per open).
   useEffect(() => {
     let cancelled = false;
-    loadPreview()
+    // Resetting on language change is intentional (re-fetch the other publication).
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setLoading(true);
+    setPreview(null);
+    setLoadError(null);
+    setSendError(null);
+    setDone(null);
+    setSendNewsletter(false);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    loadPreview(lang)
       .then((r) => {
         if (cancelled) return;
         if (r.ok) setPreview(r);
@@ -50,13 +67,13 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [lang]);
 
   const send = (publish: boolean) => {
     setPending(publish ? "publish" : "draft");
     startSend(async () => {
       setSendError(null);
-      const res = await onSend({ publish, sendNewsletter });
+      const res = await onSend({ publish, sendNewsletter, lang });
       if (res.ok) { setDone(res); onDone(res); }
       else setSendError(res.error);
       setPending(null);
@@ -64,7 +81,9 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
   };
 
   const subs = preview?.subscribers ?? 0;
-  const willEmail = sendNewsletter && subs > 0;
+  const connected = preview?.connected !== false;
+  const willEmail = sendNewsletter && connected && subs > 0;
+  const canSend = !busy && !loading && !loadError && connected;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -86,6 +105,26 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
             <X className="h-4 w-4" />
           </button>
         </header>
+
+        {/* Language selector — each language is a separate publication / list */}
+        {langs.length > 1 && (
+          <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+            <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle"><Languages className="h-3.5 w-3.5" /> Idioma</span>
+            <div className="inline-flex rounded-lg border border-border bg-surface p-0.5">
+              {langs.map((l) => (
+                <button
+                  key={l.code}
+                  type="button"
+                  onClick={() => !busy && setLang(l.code)}
+                  disabled={busy}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${lang === l.code ? "bg-accent text-accent-foreground" : "text-foreground-muted hover:text-foreground"}`}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {loading && (
@@ -115,6 +154,16 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
                 </div>
               )}
 
+              {/* Not-connected warning (e.g. PT publication has no API key yet) */}
+              {!connected && (
+                <div className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
+                  <p className="flex items-center gap-1.5 font-medium text-foreground"><AlertTriangle className="h-4 w-4 text-warning" /> Publicação {lang.toUpperCase()} não conectada</p>
+                  <p className="mt-1 text-xs text-foreground-muted">
+                    Crie a publicação {lang.toUpperCase()} no Paragraph e adicione a key <code className="rounded bg-foreground/10 px-1 py-0.5 font-mono text-[11px]">{preview.envName}</code> no env. O conteúdo abaixo é o que será enviado quando conectar.
+                  </p>
+                </div>
+              )}
+
               {/* Cover */}
               {preview.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -127,15 +176,15 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
 
               <h3 className="text-xl font-bold leading-tight text-foreground">{preview.title}</h3>
 
-              {/* Destination summary */}
+              {/* Destination summary — which publication + who gets the email */}
               <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface p-4 text-sm">
                 <div className="flex flex-col gap-0.5">
-                  <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle"><Globe className="h-3.5 w-3.5" /> Publicação</span>
-                  <span className="text-foreground">@{preview.publicationSlug || preview.publication}</span>
+                  <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle"><Globe className="h-3.5 w-3.5" /> Publicação ({lang.toUpperCase()})</span>
+                  <span className="text-foreground">{connected ? `@${preview.publicationSlug || preview.publication}` : "— não conectada"}</span>
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle"><Users className="h-3.5 w-3.5" /> Inscritos</span>
-                  <span className="text-foreground">{subs.toLocaleString("pt-BR")}</span>
+                  <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle"><Users className="h-3.5 w-3.5" /> Inscritos (email)</span>
+                  <span className="text-foreground">{connected ? subs.toLocaleString("pt-BR") : "—"}</span>
                 </div>
               </div>
 
@@ -148,14 +197,14 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
               </div>
 
               {/* Email toggle */}
-              <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${willEmail ? "border-warning/40 bg-warning/10" : "border-border bg-surface hover:border-border-strong"}`}>
-                <input type="checkbox" checked={sendNewsletter} onChange={(e) => setSendNewsletter(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--color-warning)]" />
+              <label className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${!connected ? "cursor-not-allowed border-border bg-surface opacity-50" : willEmail ? "cursor-pointer border-warning/40 bg-warning/10" : "cursor-pointer border-border bg-surface hover:border-border-strong"}`}>
+                <input type="checkbox" checked={sendNewsletter} disabled={!connected} onChange={(e) => setSendNewsletter(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--color-warning)]" />
                 <span className="flex flex-col gap-0.5">
-                  <span className="flex items-center gap-1.5 text-sm font-medium text-foreground"><Mail className="h-4 w-4" /> Enviar por email aos inscritos</span>
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-foreground"><Mail className="h-4 w-4" /> Enviar por email aos inscritos {lang.toUpperCase()}</span>
                   <span className="text-xs text-foreground-muted">
                     {willEmail
-                      ? <><AlertTriangle className="mr-1 inline h-3 w-3 text-warning" />Vai disparar email para {subs.toLocaleString("pt-BR")} inscritos. Não dá pra desfazer.</>
-                      : "Só funciona ao publicar. Deixe desmarcado para não notificar ninguém por email."}
+                      ? <><AlertTriangle className="mr-1 inline h-3 w-3 text-warning" />Vai disparar email para {subs.toLocaleString("pt-BR")} inscritos da publicação {lang.toUpperCase()}. Não dá pra desfazer.</>
+                      : "Só funciona ao publicar. Cada idioma tem lista própria — o email PT não atinge inscritos EN, e vice-versa."}
                   </span>
                 </span>
               </label>
@@ -182,7 +231,7 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
               <button
                 type="button"
                 onClick={() => send(false)}
-                disabled={busy || loading || !!loadError}
+                disabled={!canSend}
                 className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-50"
               >
                 {busy && pending === "draft" ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookUp className="h-4 w-4" />}
@@ -191,7 +240,7 @@ export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }:
               <button
                 type="button"
                 onClick={() => send(true)}
-                disabled={busy || loading || !!loadError}
+                disabled={!canSend}
                 className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 ${willEmail ? "bg-warning text-black" : "bg-accent text-accent-foreground"}`}
               >
                 {busy && pending === "publish" ? <Loader2 className="h-4 w-4 animate-spin" /> : willEmail ? <Mail className="h-4 w-4" /> : <Check className="h-4 w-4" />}

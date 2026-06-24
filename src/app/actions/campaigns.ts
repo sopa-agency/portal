@@ -1238,59 +1238,92 @@ export async function publishHiveMagPost(
 // but the Paragraph route adds an opt-in email newsletter to subscribers.
 // ---------------------------------------------------------------------------
 
-/** Confirmation preview for the Paragraph wall: exact title/cover/body + email reach. */
-export async function getCampaignParagraphPreview(
-  documentId: string,
-): Promise<
-  | { ok: true; title: string; markdown: string; imageUrl?: string; publication: string; publicationSlug: string; subscribers: number }
-  | { ok: false; error: string }
-> {
-  const project = await getActiveProject();
-  const { paragraphApiKey, getPublication, getSubscriberCount } = await import("@/lib/paragraph");
-  const apiKey = paragraphApiKey(project);
-  if (!apiKey) return { ok: false, error: "Paragraph não conectado neste portal (falta API key)." };
+/** First markdown heading of a body → {title, body-without-heading}. */
+function splitLeadingHeading(md: string): { title: string; body: string } {
+  const body = md.trim();
+  const h = body.match(/^\s*#{1,6}\s+(.+?)\s*$/m);
+  if (h) return { title: h[1].trim(), body: body.replace(h[0], "").trim() };
+  return { title: "", body };
+}
 
-  const built = await buildMagPostFields(documentId, project);
-  if (!built.ok) return built;
-
-  const pub = await getPublication(apiKey).catch(() => null);
-  const subscribers = pub ? await getSubscriberCount(pub.id).catch(() => 0) : 0;
-  return {
-    ok: true,
-    title: built.title,
-    markdown: built.body,
-    imageUrl: built.imageUrls[0],
-    publication: pub?.name ?? "Paragraph",
-    publicationSlug: pub?.slug ?? "",
-    subscribers,
-  };
+/** Title/markdown for a mag post in a given language (EN = main body, PT = sibling doc). */
+function magContentForLang(
+  built: { title: string; body: string; ptBody: string },
+  lang: string,
+): { ok: true; title: string; markdown: string } | { ok: false; error: string } {
+  if (lang.toLowerCase() === "pt") {
+    if (!built.ptBody.trim()) {
+      return { ok: false, error: 'Este post não tem versão em português (doc "Hive mag post (PT)").' };
+    }
+    const sep = splitLeadingHeading(built.ptBody);
+    return { ok: true, title: sep.title || built.title, markdown: sep.body };
+  }
+  return { ok: true, title: built.title, markdown: built.body };
 }
 
 /**
- * Publish a mag-post document to Paragraph. `publish: false` → draft (safe);
- * `publish: true` → live post; `sendNewsletter: true` (only with publish) →
- * emails all subscribers. Mirrors the Engagement→Blog flow but sourced from the
- * campaign document, so Weekly Stoken can ship to Paragraph from where it's made.
+ * Confirmation preview for the Paragraph wall, per language: exact title/cover/
+ * body + which publication & how many subscribers get it. `connected: false`
+ * means that language's publication has no API key yet (PT not wired).
  */
-export async function publishCampaignDocToParagraph(
+export async function getCampaignParagraphPreview(
   documentId: string,
-  opts?: { publish?: boolean; sendNewsletter?: boolean },
-): Promise<{ ok: true; url: string; id: string; published: boolean; emailed: boolean } | { ok: false; error: string }> {
+  lang: string = "en",
+): Promise<
+  | { ok: true; title: string; markdown: string; imageUrl?: string; lang: string; connected: boolean; envName: string; publication: string; publicationSlug: string; subscribers: number }
+  | { ok: false; error: string }
+> {
   const project = await getActiveProject();
-  const publish = opts?.publish === true;
-  const sendNewsletter = publish && opts?.sendNewsletter === true;
-
-  const { paragraphApiKey, createPost, getPublication, getPost } = await import("@/lib/paragraph");
-  const apiKey = paragraphApiKey(project);
-  if (!apiKey) return { ok: false, error: "Paragraph não conectado neste portal (falta API key)." };
-
   const built = await buildMagPostFields(documentId, project);
   if (!built.ok) return built;
 
+  const content = magContentForLang(built, lang);
+  if (!content.ok) return content;
+
+  const { paragraphApiKey, paragraphApiKeyEnvName, getPublication, getSubscriberCount } = await import("@/lib/paragraph");
+  const envName = paragraphApiKeyEnvName(project, lang);
+  const apiKey = paragraphApiKey(project, lang);
+
+  const common = { title: content.title, markdown: content.markdown, imageUrl: built.imageUrls[0], lang, envName };
+  if (!apiKey) {
+    return { ok: true, ...common, connected: false, publication: "", publicationSlug: "", subscribers: 0 };
+  }
+  const pub = await getPublication(apiKey).catch(() => null);
+  const subscribers = pub ? await getSubscriberCount(pub.id).catch(() => 0) : 0;
+  return { ok: true, ...common, connected: true, publication: pub?.name ?? "Paragraph", publicationSlug: pub?.slug ?? "", subscribers };
+}
+
+/**
+ * Publish a mag-post document to Paragraph in a given language (EN → default
+ * publication, PT → the PT publication). `publish: false` → draft; `true` →
+ * live; `sendNewsletter: true` (only with publish) → emails that publication's
+ * subscribers. Each language is its own publication/list, so PT email never
+ * touches EN subscribers and vice versa.
+ */
+export async function publishCampaignDocToParagraph(
+  documentId: string,
+  opts?: { publish?: boolean; sendNewsletter?: boolean; lang?: string },
+): Promise<{ ok: true; url: string; id: string; published: boolean; emailed: boolean } | { ok: false; error: string }> {
+  const project = await getActiveProject();
+  const lang = (opts?.lang ?? "en").toLowerCase();
+  const publish = opts?.publish === true;
+  const sendNewsletter = publish && opts?.sendNewsletter === true;
+
+  const built = await buildMagPostFields(documentId, project);
+  if (!built.ok) return built;
+  const content = magContentForLang(built, lang);
+  if (!content.ok) return content;
+
+  const { paragraphApiKey, paragraphApiKeyEnvName, createPost, getPublication, getPost } = await import("@/lib/paragraph");
+  const apiKey = paragraphApiKey(project, lang);
+  if (!apiKey) {
+    return { ok: false, error: `Publicação ${lang.toUpperCase()} não conectada (falta ${paragraphApiKeyEnvName(project, lang)}).` };
+  }
+
   try {
     const created = await createPost(apiKey, {
-      title: built.title.slice(0, 200),
-      markdown: built.body,
+      title: content.title.slice(0, 200),
+      markdown: content.markdown,
       imageUrl: built.imageUrls[0],
       status: publish ? "published" : "draft",
       sendNewsletter,
@@ -1303,7 +1336,7 @@ export async function publishCampaignDocToParagraph(
     if (publish) {
       await prisma.campaignDocument.update({
         where: { id: documentId },
-        data: { postedAt: new Date(), postedTo: sendNewsletter ? "paragraph-email" : "paragraph" },
+        data: { postedAt: new Date(), postedTo: `paragraph-${lang}${sendNewsletter ? "-email" : ""}` },
       });
       revalidatePath(`/campaign-creator/${built.campaignId}`);
     }

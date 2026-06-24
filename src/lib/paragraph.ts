@@ -14,13 +14,31 @@ import type { ProjectConfig } from "@/projects/types";
 
 const BASE = "https://public.api.paragraph.com/api/v1";
 
-export function paragraphApiKey(project: ProjectConfig): string | null {
+/**
+ * API key for a project's Paragraph publication. Each language is a SEPARATE
+ * publication (own subscriber list), so PT/ES/… get their own key:
+ *   default/EN → `${PREFIX}_PARAGRAPH_API_KEY`
+ *   pt         → `${PREFIX}_PARAGRAPH_PT_API_KEY`
+ * Returns null when that language's publication isn't connected yet.
+ */
+export function paragraphApiKey(project: ProjectConfig, lang?: string): string | null {
   const prefix = project.agent.gatewayEnvPrefix;
+  const code = (lang ?? "en").toLowerCase();
+  if (code !== "en") {
+    return (prefix ? process.env[`${prefix}_PARAGRAPH_${code.toUpperCase()}_API_KEY`] : undefined) ?? null;
+  }
   return (
     (prefix ? process.env[`${prefix}_PARAGRAPH_API_KEY`] : undefined) ??
     process.env.PARAGRAPH_API_KEY ??
     null
   );
+}
+
+/** Env var name for a language's Paragraph key — used in "not connected" errors. */
+export function paragraphApiKeyEnvName(project: ProjectConfig, lang?: string): string {
+  const prefix = project.agent.gatewayEnvPrefix;
+  const code = (lang ?? "en").toLowerCase();
+  return code === "en" ? `${prefix}_PARAGRAPH_API_KEY` : `${prefix}_PARAGRAPH_${code.toUpperCase()}_API_KEY`;
 }
 
 async function call<T>(

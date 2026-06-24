@@ -311,7 +311,8 @@ export function CampaignArtifactActions({
         )}
         {isMag && paragraphOpen && (
           <ParagraphPublishDialog
-            loadPreview={() => getCampaignParagraphPreview(documentId)}
+            languages={[{ code: "en", label: "EN" }, { code: "pt", label: "PT" }]}
+            loadPreview={(lang) => getCampaignParagraphPreview(documentId, lang)}
             onSend={(opts) => publishCampaignDocToParagraph(documentId, opts)}
             onClose={() => setParagraphOpen(false)}
             onDone={(r) => setParagraphDone(r)}
