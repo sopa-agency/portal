@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useUrlTab } from "@/lib/use-url-tab";
 import { FarcasterTrailShell } from "@/components/farcaster-trail-shell";
 import { InstagramInbox } from "@/components/instagram-inbox";
 import { SnapsInbox } from "@/components/snaps-inbox";
@@ -22,7 +22,9 @@ const TAB_INFO: Record<Tab, string> = {
 };
 
 export function CuradoriaShell({ trail, trailProject }: { trail: TrailItem[]; trailProject: string }) {
-  const [tab, setTab] = useState<Tab>("trail");
+  // Shareable: the active tab lives in ?tab= so a copied URL opens the same one.
+  const [rawTab, setTab] = useUrlTab("tab", "trail");
+  const tab = (["trail", "snaps", "blog", "instagram"].includes(rawTab) ? rawTab : "trail") as Tab;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1 border-b border-border" role="tablist">

@@ -28,7 +28,7 @@ export function SocialDashboard({
     content: <ChannelStrategy channel={channel} agentName={agentName} />,
   }));
 
-  return <BriefingTabs tabs={tabs} />;
+  return <BriefingTabs tabs={tabs} paramKey="channel" />;
 }
 
 export function ChannelStrategy({

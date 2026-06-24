@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { useUrlTab } from "@/lib/use-url-tab";
 
 export type SettingsTab = { id: string; label: string; content: ReactNode };
 
 // Tabbed shell for the Settings page. Server-renders each section and passes it
-// in; only tabs with content render. Keeps the (now crowded) page scannable.
+// in; only tabs with content render. Active tab lives in ?tab= so it's shareable.
 export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
   const visible = tabs.filter((t) => t.content);
-  const [active, setActive] = useState(visible[0]?.id);
+  const [active, setActive] = useUrlTab("tab", visible[0]?.id ?? "");
 
   if (visible.length === 0) return null;
   const current = visible.find((t) => t.id === active) ?? visible[0];

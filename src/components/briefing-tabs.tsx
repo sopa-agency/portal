@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 export type BriefingTab = {
   slug: string;
@@ -8,9 +9,30 @@ export type BriefingTab = {
   content: ReactNode;
 };
 
-export function BriefingTabs({ tabs, initialSlug }: { tabs: BriefingTab[]; initialSlug?: string }) {
-  const [active, setActive] = useState(initialSlug ?? tabs[0]?.slug ?? "");
+/**
+ * Tab strip. Pass `paramKey` to make the active tab shareable: it syncs to the
+ * `?<paramKey>=<slug>` query param (so a copied URL opens the same tab). Each
+ * BriefingTabs instance on a page needs its OWN paramKey to avoid collisions.
+ * Without paramKey it falls back to local state (non-shareable, as before).
+ */
+export function BriefingTabs({ tabs, initialSlug, paramKey }: { tabs: BriefingTab[]; initialSlug?: string; paramKey?: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [localActive, setLocalActive] = useState(initialSlug ?? tabs[0]?.slug ?? "");
+
+  const urlSlug = paramKey ? searchParams.get(paramKey) : null;
+  const active = paramKey
+    ? (urlSlug && tabs.some((t) => t.slug === urlSlug) ? urlSlug : (initialSlug ?? tabs[0]?.slug ?? ""))
+    : localActive;
   const current = tabs.find((t) => t.slug === active) ?? tabs[0];
+
+  const setActive = (slug: string) => {
+    if (!paramKey) { setLocalActive(slug); return; }
+    const params = new URLSearchParams(searchParams.toString());
+    params.set(paramKey, slug);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
 
   return (
     <div className="space-y-6">

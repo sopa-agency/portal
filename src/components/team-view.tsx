@@ -295,6 +295,9 @@ function deliveryHint(option: TeamMessageOption, username: string): string {
 
 /** Plain-text email body (no AI) listing a member's open Kanban tasks, priority-first. */
 function buildTasksEmailDraft(username: string, tasks: MemberTask[]): string {
+  // Link each task to its shareable Kanban card (opens the card dialog in the
+  // portal via ?open=<item id>); fall back to the GitHub URL if there's no origin.
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
   const open = tasks
     .filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED")
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
@@ -302,9 +305,10 @@ function buildTasksEmailDraft(username: string, tasks: MemberTask[]): string {
   const lines = open.map((t, i) => {
     const tags = [t.board, t.priority].filter(Boolean).join(" · ");
     const head = `${i + 1}. ${tags ? `[${tags}] ` : ""}${t.title} — ${t.status}`;
-    return t.url ? `${head}\n   ${t.url}` : head;
+    const link = origin ? `${origin}/kanban?open=${encodeURIComponent(t.id)}` : t.url;
+    return link ? `${head}\n   ${link}` : head;
   });
-  return `Oi @${username}, aqui estão suas tarefas abertas no Kanban (${open.length}):\n\n${lines.join("\n")}`;
+  return `Oi @${username}, aqui estão suas tarefas no Kanban (${open.length}):\n\n${lines.join("\n")}`;
 }
 
 function MessageComposer({ member, tasks, selectedIds }: { member: TeamMember; tasks: MemberTask[] | null; selectedIds: Set<string> }) {
