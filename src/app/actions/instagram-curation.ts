@@ -22,12 +22,17 @@ async function gate() {
   return { ok: true as const, project };
 }
 
-export async function listInstagramComments(): Promise<
+export async function listInstagramComments(
+  mediaLimit = 8,
+  force = false,
+): Promise<
   { ok: true; threads: IgPostThread[]; project: string; selfUsername: string } | { ok: false; error: string }
 > {
   const g = await gate();
   if (!g.ok) return g;
-  const res = await fetchInstagramCommentThreads(g.project);
+  // Cap the window so a runaway "load more" can't hammer the Graph API.
+  const limit = Math.min(Math.max(1, Math.floor(mediaLimit)), 50);
+  const res = await fetchInstagramCommentThreads(g.project, limit, { force });
   if (!res.ok) return res;
   return { ok: true, threads: res.threads, project: g.project.name, selfUsername: res.selfUsername };
 }

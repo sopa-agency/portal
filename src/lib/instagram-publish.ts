@@ -253,13 +253,16 @@ async function fetchSelfUsername(igid: string, token: string): Promise<string> {
 export async function fetchInstagramCommentThreads(
   project: ProjectConfig,
   mediaLimit = IG_COMMENTS_MEDIA_LIMIT,
+  opts?: { force?: boolean },
 ): Promise<CommentThreadsResult | { ok: false; error: string }> {
   const { token, igid } = resolveIgCredentials(project);
   if (!token || !igid) return { ok: false, error: "Instagram não conectado neste portal (falta token/business id)." };
 
-  const cacheKey = `${project.slug}:${igid}`;
+  // Cache per (project, igid, window size) so "load more posts" fetches a wider
+  // window instead of returning the cached smaller one. force bypasses the TTL.
+  const cacheKey = `${project.slug}:${igid}:${mediaLimit}`;
   const cached = igCommentsCache.get(cacheKey);
-  if (cached && Date.now() < cached.expires) return cached.data;
+  if (!opts?.force && cached && Date.now() < cached.expires) return cached.data;
 
   const mediaRes = await fetchRecentInstagramMedia(project, mediaLimit);
   if (!mediaRes.ok) return mediaRes;
@@ -295,7 +298,12 @@ export async function fetchInstagramCommentThreads(
  * (call after replying/hiding so the inbox reflects the change). */
 export function invalidateInstagramComments(project: ProjectConfig): void {
   const { igid } = resolveIgCredentials(project);
-  if (igid) igCommentsCache.delete(`${project.slug}:${igid}`);
+  if (!igid) return;
+  // Keys are `${slug}:${igid}:${mediaLimit}` — drop every window for this project.
+  const prefix = `${project.slug}:${igid}:`;
+  for (const key of igCommentsCache.keys()) {
+    if (key.startsWith(prefix)) igCommentsCache.delete(key);
+  }
 }
 
 /** Reply to a specific comment (creates a threaded reply under it). */

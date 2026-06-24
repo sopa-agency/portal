@@ -44,10 +44,12 @@ export function InstagramInbox() {
   const [genAllBusy, setGenAllBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloading, startReload] = useTransition();
+  // How many recent posts to scan for comments. "Carregar mais posts" widens it.
+  const [mediaLimit, setMediaLimit] = useState(8);
 
-  function load() {
+  function load(limit = mediaLimit, force = false) {
     startReload(async () => {
-      const res = await listInstagramComments();
+      const res = await listInstagramComments(limit, force);
       if (res.ok) {
         setThreads(res.threads);
         setSelf(res.selfUsername);
@@ -58,7 +60,16 @@ export function InstagramInbox() {
       }
     });
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
+
+  // Widen the post window (more posts → surfaces unanswered comments on older posts).
+  const loadMore = () => {
+    const next = mediaLimit + 8;
+    setMediaLimit(next);
+    load(next);
+  };
+  const refresh = () => load(mediaLimit, true);
 
   const setDraft = (id: string, text: string) => setDrafts((p) => ({ ...p, [id]: text }));
 
@@ -113,7 +124,7 @@ export function InstagramInbox() {
         )}
         <button
           type="button"
-          onClick={load}
+          onClick={refresh}
           disabled={reloading}
           className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong disabled:opacity-50"
         >
@@ -123,20 +134,33 @@ export function InstagramInbox() {
     );
   }
 
+  const moreButton = mediaLimit < 50 && (
+    <button
+      type="button"
+      onClick={loadMore}
+      disabled={reloading}
+      className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+    >
+      {reloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+      Carregar mais posts (escaneando {mediaLimit})
+    </button>
+  );
+
   if (pending.length === 0) {
     return (
       <div className="space-y-3">
-        <Toolbar onReload={load} reloading={reloading} onGenAll={generateAll} genAllBusy={genAllBusy} toGenerate={0} />
+        <Toolbar onReload={refresh} reloading={reloading} onGenAll={generateAll} genAllBusy={genAllBusy} toGenerate={0} />
         <p className="rounded-xl border border-border bg-surface px-4 py-8 text-center text-sm text-foreground-faint">
-          Tudo respondido — nenhum comentário aguardando. 🎉
+          Tudo respondido nos últimos {mediaLimit} posts — nenhum comentário aguardando. 🎉
         </p>
+        {moreButton}
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <Toolbar onReload={load} reloading={reloading} onGenAll={generateAll} genAllBusy={genAllBusy} toGenerate={toGenerate.length} />
+      <Toolbar onReload={refresh} reloading={reloading} onGenAll={generateAll} genAllBusy={genAllBusy} toGenerate={toGenerate.length} />
       {pending.map((t) => (
         <PostThread
           key={t.media.igMediaId}
@@ -147,6 +171,7 @@ export function InstagramInbox() {
           onChange={(c) => replaceComment(t.media.igMediaId, c)}
         />
       ))}
+      {moreButton}
     </div>
   );
 }
