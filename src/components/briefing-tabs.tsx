@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { type ReactNode } from "react";
+import { useUrlTab } from "@/lib/use-url-tab";
 
 export type BriefingTab = {
   slug: string;
@@ -10,29 +10,14 @@ export type BriefingTab = {
 };
 
 /**
- * Tab strip. Pass `paramKey` to make the active tab shareable: it syncs to the
- * `?<paramKey>=<slug>` query param (so a copied URL opens the same tab). Each
- * BriefingTabs instance on a page needs its OWN paramKey to avoid collisions.
- * Without paramKey it falls back to local state (non-shareable, as before).
+ * Tab strip. Pass `paramKey` to make the active tab shareable (syncs to the
+ * `?<paramKey>=<slug>` query param via useUrlTab). Each BriefingTabs instance on
+ * a page needs its OWN paramKey. Without paramKey it's local state (as before).
  */
 export function BriefingTabs({ tabs, initialSlug, paramKey }: { tabs: BriefingTab[]; initialSlug?: string; paramKey?: string }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [localActive, setLocalActive] = useState(initialSlug ?? tabs[0]?.slug ?? "");
-
-  const urlSlug = paramKey ? searchParams.get(paramKey) : null;
-  const active = paramKey
-    ? (urlSlug && tabs.some((t) => t.slug === urlSlug) ? urlSlug : (initialSlug ?? tabs[0]?.slug ?? ""))
-    : localActive;
+  const [rawActive, setActive] = useUrlTab(paramKey, initialSlug ?? tabs[0]?.slug ?? "");
+  const active = tabs.some((t) => t.slug === rawActive) ? rawActive : (initialSlug ?? tabs[0]?.slug ?? "");
   const current = tabs.find((t) => t.slug === active) ?? tabs[0];
-
-  const setActive = (slug: string) => {
-    if (!paramKey) { setLocalActive(slug); return; }
-    const params = new URLSearchParams(searchParams.toString());
-    params.set(paramKey, slug);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  };
 
   return (
     <div className="space-y-6">

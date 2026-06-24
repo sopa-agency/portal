@@ -850,7 +850,12 @@ async function fetchFacebookMetrics(project: ProjectConfig): Promise<ChannelMetr
   try {
     const postsRes = await withTimeout(
       fetch(
-        `https://graph.facebook.com/v21.0/${page.id}/posts?fields=message,permalink_url,created_time,full_picture,shares,reactions.summary(true).limit(0),comments.summary(true).limit(0)&limit=5&access_token=${pageToken}`,
+        // NOTE: reactions.summary / comments.summary need `pages_read_user_content`
+        // (App Review). The token only has pages_read_engagement, so requesting
+        // them makes the WHOLE call fail with (#10) → no posts shown. Drop them;
+        // posts still render (with shares). Per-post reaction/comment counts would
+        // require that extra permission.
+        `https://graph.facebook.com/v21.0/${page.id}/posts?fields=message,permalink_url,created_time,full_picture,shares&limit=5&access_token=${pageToken}`,
         { cache: "no-store" },
       ),
       8000,
