@@ -13,9 +13,9 @@ export function SnapsInbox() {
   const [error, setError] = useState<string | null>(null);
   const [reloading, startReload] = useTransition();
 
-  function load() {
+  function load(force = false) {
     startReload(async () => {
-      const res = await listSnapsForCuration();
+      const res = await listSnapsForCuration(force);
       if (res.ok) { setSnaps(res.snaps); setStatus("ready"); }
       else { setError(res.error); setStatus("error"); }
     });
@@ -37,7 +37,7 @@ export function SnapsInbox() {
       <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-4 text-sm">
         <p className="font-medium text-foreground">Não consegui carregar os snaps.</p>
         <p className="mt-1 text-foreground-muted">{error}</p>
-        <button type="button" onClick={load} disabled={reloading} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong disabled:opacity-50">
+        <button type="button" onClick={() => load(true)} disabled={reloading} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong disabled:opacity-50">
           <RefreshCw className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""}`} /> Tentar de novo
         </button>
       </div>
@@ -50,7 +50,7 @@ export function SnapsInbox() {
         <p className="flex items-center gap-1.5 text-[11px] text-foreground-faint">
           <SocialBrandIcon platform="hive" className="h-3.5 w-3.5" /> snaps recentes da comunidade · responda ou impulsione
         </p>
-        <button type="button" onClick={load} disabled={reloading} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-muted hover:border-border-strong disabled:opacity-50">
+        <button type="button" onClick={() => load(true)} disabled={reloading} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-muted hover:border-border-strong disabled:opacity-50">
           <RefreshCw className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""}`} /> Atualizar
         </button>
       </div>

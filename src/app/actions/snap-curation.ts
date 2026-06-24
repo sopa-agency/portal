@@ -12,7 +12,7 @@ import { listSkatehiveVideos } from "@/app/actions/skatehive-media";
 import { buildPostUrl } from "@/lib/skatehive-content";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import type { ProjectConfig } from "@/projects/types";
-import { BOOST_LEVELS, type BoostLevel, type CurationSnap } from "@/lib/snap-curation-shared";
+import { boostLevelsFor, type BoostLevel, type BoostKind, type CurationSnap } from "@/lib/snap-curation-shared";
 
 async function gate() {
   const project = await getActiveProject();
@@ -25,13 +25,13 @@ async function gate() {
 const castHashOf = (author: string, permlink: string) => `hive:${author}/${permlink}`;
 
 /** Recent SkateHive snaps for the curation inbox, with any boost status. */
-export async function listSnapsForCuration(): Promise<
+export async function listSnapsForCuration(force = false): Promise<
   { ok: true; snaps: CurationSnap[]; project: string } | { ok: false; error: string }
 > {
   const g = await gate();
   if (!g.ok) return g;
 
-  const res = await listSkatehiveVideos();
+  const res = await listSkatehiveVideos(null, { force });
   if (!res.ok) return res;
   // One card per snap post (a post can yield several video entries → dedupe,
   // keeping the first clip as the thumbnail).
@@ -44,6 +44,9 @@ export async function listSnapsForCuration(): Promise<
       seen.add(k);
       return true;
     })
+    // Most-recent first — a curation inbox should surface FRESH snaps, not the
+    // highest-voted (the vote sort buried new 0-vote snaps below the cut).
+    .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
     .slice(0, 40);
 
   const hashes = snaps.map((s) => castHashOf(s.author, s.permlink));
@@ -356,11 +359,13 @@ export async function boostSnap(
   permlink: string,
   level: BoostLevel,
   baselineVotes = 0,
+  kind: BoostKind = "snap",
 ): Promise<{ ok: true; queued: number; budget: number } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
 
-  const lvl = BOOST_LEVELS.find((l) => l.value === level) ?? BOOST_LEVELS[0];
+  const levels = boostLevelsFor(kind);
+  const lvl = levels.find((l) => l.value === level) ?? levels[0];
   const castHash = castHashOf(author, permlink);
 
   const existing = await prisma.trailBoostTarget.findUnique({ where: { castHash } }).catch(() => null);

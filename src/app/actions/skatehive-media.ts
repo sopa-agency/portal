@@ -117,12 +117,17 @@ function toVideos(post: HivePost, source: "snap" | "magazine"): SkatehiveVideo[]
 
 export type SnapCursor = { permlink: string; date: string };
 
-export async function listSkatehiveVideos(cursor?: SnapCursor | null): Promise<
+export async function listSkatehiveVideos(
+  cursor?: SnapCursor | null,
+  opts?: { force?: boolean },
+): Promise<
   | { ok: true; videos: SkatehiveVideo[]; cursor: SnapCursor | null }
   | { ok: false; error: string }
 > {
   const firstPage = !cursor;
-  if (firstPage && cache && Date.now() < cache.expires)
+  // The "Atualizar" button passes force to bypass the 10-min in-memory cache so
+  // a freshly-posted snap shows up immediately (cache is for the initial load).
+  if (firstPage && !opts?.force && cache && Date.now() < cache.expires)
     return { ok: true, videos: cache.videos, cursor: cache.cursor };
   try {
     // --- magazine: trending + fresh community posts (first page only) ------

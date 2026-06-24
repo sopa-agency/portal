@@ -121,7 +121,7 @@ function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canPara
           {post.title} <ExternalLink className="inline h-3 w-3 align-baseline text-foreground-subtle" />
         </a>
         <div className="flex items-center gap-1.5">
-          <HiveBoostButton post={post} onBoosted={(b) => onPatch({ boost: b })} />
+          <HiveBoostButton post={post} onBoosted={(b) => onPatch({ boost: b })} kind="blog" />
           {canParagraph && (
             paraDone ? (
               <a href={paraDone.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-success/40 bg-success/10 px-2.5 py-1.5 text-xs font-medium text-success">

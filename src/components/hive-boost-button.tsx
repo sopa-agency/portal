@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Loader2, Rocket, ChevronDown } from "lucide-react";
 import { boostSnap } from "@/app/actions/snap-curation";
-import { BOOST_LEVELS, type CurationSnap, type BoostLevel } from "@/lib/snap-curation-shared";
+import { boostLevelsFor, type CurationSnap, type BoostLevel, type BoostKind } from "@/lib/snap-curation-shared";
 
 /** Boost split-button (caret → hiveboost levels) for any Hive post — snap or
- * blog. Queues a userbase upvote subset; the Pool B worker paces the release. */
-export function HiveBoostButton({ post, onBoosted }: { post: CurationSnap; onBoosted: (b: CurationSnap["boost"]) => void }) {
+ * blog. Queues a userbase upvote subset; the Pool B worker paces the release.
+ * `kind="blog"` uses the bigger mag-post tiers (strong = up to 200). */
+export function HiveBoostButton({ post, onBoosted, kind = "snap" }: { post: CurationSnap; onBoosted: (b: CurationSnap["boost"]) => void; kind?: BoostKind }) {
+  const levels = boostLevelsFor(kind);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
@@ -25,7 +27,7 @@ export function HiveBoostButton({ post, onBoosted }: { post: CurationSnap; onBoo
     startBusy(async () => {
       setError(null);
       setOpen(false);
-      const res = await boostSnap(post.author, post.permlink, level, post.votes);
+      const res = await boostSnap(post.author, post.permlink, level, post.votes, kind);
       if (res.ok) onBoosted({ budget: res.budget, released: 0, status: "active" });
       else setError(res.error);
     });
@@ -58,7 +60,7 @@ export function HiveBoostButton({ post, onBoosted }: { post: CurationSnap; onBoo
       {open && (
         <div className="absolute right-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-xl">
           <p className="border-b border-border px-3 py-1.5 text-[10px] uppercase tracking-wider text-foreground-subtle">Hiveboost</p>
-          {BOOST_LEVELS.map((l) => (
+          {levels.map((l) => (
             <button
               key={l.value}
               type="button"
