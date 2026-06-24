@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookUp,
   CheckCircle2,
   Circle,
   ClipboardCopy,
@@ -13,7 +14,9 @@ import {
 } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import {
+  getCampaignParagraphPreview,
   getNewsletterBlastInfo,
+  publishCampaignDocToParagraph,
   remixCampaignArtifact,
   sendCampaignArtifact,
   sendCampaignEmail,
@@ -22,6 +25,7 @@ import {
 } from "@/app/actions/campaigns";
 import type { CampaignDocumentKind } from "@/components/campaign-document-preview";
 import { CampaignMagPublishDialog } from "@/components/campaign-mag-publish-dialog";
+import { ParagraphPublishDialog } from "@/components/paragraph-publish-dialog";
 import { DiscordChannelSelect } from "@/components/discord-channel-picker";
 
 type Props = {
@@ -78,6 +82,8 @@ export function CampaignArtifactActions({
   const isEmail = kind === "email";
 
   const [magDialogOpen, setMagDialogOpen] = useState(false);
+  const [paragraphOpen, setParagraphOpen] = useState(false);
+  const [paragraphDone, setParagraphDone] = useState<{ url: string; published: boolean; emailed: boolean } | null>(null);
   const [discordChannel, setDiscordChannel] = useState<string | null>(null); // per-send channel override
 
   // Publish the mag post (invoked from the confirmation dialog).
@@ -276,6 +282,39 @@ export function CampaignArtifactActions({
             result={sendStatus}
             onClose={() => setMagDialogOpen(false)}
             onConfirm={confirmMagPublish}
+          />
+        )}
+
+        {/* hive_mag — also send to the project's Paragraph newsletter (web + opt-in email) */}
+        {isMag && (
+          paragraphDone ? (
+            <a
+              href={paragraphDone.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-success/40 bg-success/10 px-3 py-1.5 text-xs font-medium text-success"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {paragraphDone.published ? (paragraphDone.emailed ? "Paragraph + email" : "Paragraph") : "Paragraph (draft)"}
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setParagraphOpen(true)}
+              aria-label="Send to Paragraph newsletter"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20"
+            >
+              <BookUp className="h-3.5 w-3.5" />
+              Paragraph…
+            </button>
+          )
+        )}
+        {isMag && paragraphOpen && (
+          <ParagraphPublishDialog
+            loadPreview={() => getCampaignParagraphPreview(documentId)}
+            onSend={(opts) => publishCampaignDocToParagraph(documentId, opts)}
+            onClose={() => setParagraphOpen(false)}
+            onDone={(r) => setParagraphDone(r)}
           />
         )}
 

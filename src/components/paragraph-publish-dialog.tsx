@@ -3,19 +3,30 @@
 import { useEffect, useState, useTransition } from "react";
 import { Loader2, X, ExternalLink, ImageOff, BookUp, Globe, Mail, Users, Check, AlertTriangle } from "lucide-react";
 import { MarkdownContent } from "@/components/markdown-content";
-import { previewBlogPostForParagraph, sendBlogPostToParagraph } from "@/app/actions/snap-curation";
 
-type Preview = Extract<Awaited<ReturnType<typeof previewBlogPostForParagraph>>, { ok: true }>;
-type SendResult = { url: string; published: boolean; emailed: boolean };
+export type ParagraphPreview = {
+  title: string;
+  markdown: string;
+  imageUrl?: string;
+  publication: string;
+  publicationSlug: string;
+  subscribers: number;
+};
+export type ParagraphSendResult = { url: string; published: boolean; emailed: boolean };
+
+type Preview = ParagraphPreview;
+type SendResult = ParagraphSendResult;
 
 type Props = {
-  author: string;
-  permlink: string;
+  /** Loads the preview (title/cover/body + subscriber count). Source-agnostic:
+   *  a Hive post (blog tab) or a campaign document (campaign creator). */
+  loadPreview: () => Promise<({ ok: true } & ParagraphPreview) | { ok: false; error: string }>;
+  onSend: (opts: { publish: boolean; sendNewsletter: boolean }) => Promise<({ ok: true } & ParagraphSendResult) | { ok: false; error: string }>;
   onClose: () => void;
   onDone: (r: SendResult) => void;
 };
 
-export function ParagraphPublishDialog({ author, permlink, onClose, onDone }: Props) {
+export function ParagraphPublishDialog({ loadPreview, onSend, onClose, onDone }: Props) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,9 +37,10 @@ export function ParagraphPublishDialog({ author, permlink, onClose, onDone }: Pr
   // Which action is in flight (so we can show the spinner on the right button).
   const [pending, setPending] = useState<"draft" | "publish" | null>(null);
 
+  // Load the preview once when the dialog mounts (it is mounted fresh per open).
   useEffect(() => {
     let cancelled = false;
-    previewBlogPostForParagraph(author, permlink)
+    loadPreview()
       .then((r) => {
         if (cancelled) return;
         if (r.ok) setPreview(r);
@@ -37,13 +49,14 @@ export function ParagraphPublishDialog({ author, permlink, onClose, onDone }: Pr
       .catch((e) => !cancelled && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, [author, permlink]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const send = (publish: boolean) => {
     setPending(publish ? "publish" : "draft");
     startSend(async () => {
       setSendError(null);
-      const res = await sendBlogPostToParagraph(author, permlink, { publish, sendNewsletter });
+      const res = await onSend({ publish, sendNewsletter });
       if (res.ok) { setDone(res); onDone(res); }
       else setSendError(res.error);
       setPending(null);

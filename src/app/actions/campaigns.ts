@@ -1233,6 +1233,87 @@ export async function publishHiveMagPost(
 }
 
 // ---------------------------------------------------------------------------
+// Send a "Hive mag post" document to the project's Paragraph publication. Same
+// content the Hive blog post uses (via buildMagPostFields — title/body/cover),
+// but the Paragraph route adds an opt-in email newsletter to subscribers.
+// ---------------------------------------------------------------------------
+
+/** Confirmation preview for the Paragraph wall: exact title/cover/body + email reach. */
+export async function getCampaignParagraphPreview(
+  documentId: string,
+): Promise<
+  | { ok: true; title: string; markdown: string; imageUrl?: string; publication: string; publicationSlug: string; subscribers: number }
+  | { ok: false; error: string }
+> {
+  const project = await getActiveProject();
+  const { paragraphApiKey, getPublication, getSubscriberCount } = await import("@/lib/paragraph");
+  const apiKey = paragraphApiKey(project);
+  if (!apiKey) return { ok: false, error: "Paragraph não conectado neste portal (falta API key)." };
+
+  const built = await buildMagPostFields(documentId, project);
+  if (!built.ok) return built;
+
+  const pub = await getPublication(apiKey).catch(() => null);
+  const subscribers = pub ? await getSubscriberCount(pub.id).catch(() => 0) : 0;
+  return {
+    ok: true,
+    title: built.title,
+    markdown: built.body,
+    imageUrl: built.imageUrls[0],
+    publication: pub?.name ?? "Paragraph",
+    publicationSlug: pub?.slug ?? "",
+    subscribers,
+  };
+}
+
+/**
+ * Publish a mag-post document to Paragraph. `publish: false` → draft (safe);
+ * `publish: true` → live post; `sendNewsletter: true` (only with publish) →
+ * emails all subscribers. Mirrors the Engagement→Blog flow but sourced from the
+ * campaign document, so Weekly Stoken can ship to Paragraph from where it's made.
+ */
+export async function publishCampaignDocToParagraph(
+  documentId: string,
+  opts?: { publish?: boolean; sendNewsletter?: boolean },
+): Promise<{ ok: true; url: string; id: string; published: boolean; emailed: boolean } | { ok: false; error: string }> {
+  const project = await getActiveProject();
+  const publish = opts?.publish === true;
+  const sendNewsletter = publish && opts?.sendNewsletter === true;
+
+  const { paragraphApiKey, createPost, getPublication, getPost } = await import("@/lib/paragraph");
+  const apiKey = paragraphApiKey(project);
+  if (!apiKey) return { ok: false, error: "Paragraph não conectado neste portal (falta API key)." };
+
+  const built = await buildMagPostFields(documentId, project);
+  if (!built.ok) return built;
+
+  try {
+    const created = await createPost(apiKey, {
+      title: built.title.slice(0, 200),
+      markdown: built.body,
+      imageUrl: built.imageUrls[0],
+      status: publish ? "published" : "draft",
+      sendNewsletter,
+    });
+    const pub = await getPublication(apiKey).catch(() => null);
+    // Published posts get a public slug; drafts don't, so fall back to the id.
+    const slug = publish ? (await getPost(apiKey, created.id).catch(() => null))?.slug : undefined;
+    const url = pub ? `https://paragraph.com/@${pub.slug}/${slug || created.id}` : "https://paragraph.com";
+
+    if (publish) {
+      await prisma.campaignDocument.update({
+        where: { id: documentId },
+        data: { postedAt: new Date(), postedTo: sendNewsletter ? "paragraph-email" : "paragraph" },
+      });
+      revalidatePath(`/campaign-creator/${built.campaignId}`);
+    }
+    return { ok: true, url, id: created.id, published: publish, emailed: sendNewsletter };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : `Falha ao ${publish ? "publicar" : "criar o draft"} no Paragraph.` };
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 async function upsertNamedDocument(campaignId: string, name: string, content: string) {
   if (!content) return;

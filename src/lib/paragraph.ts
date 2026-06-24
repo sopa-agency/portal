@@ -62,6 +62,11 @@ export async function getPublication(apiKey: string): Promise<{ id: string; name
   return call(apiKey, "/me");
 }
 
+/** A single post — used to resolve the public `slug` a post gets once published. */
+export async function getPost(apiKey: string, id: string): Promise<{ id: string; slug?: string; status?: string }> {
+  return call(apiKey, `/posts/${id}`);
+}
+
 export async function getSubscriberCount(publicationId: string): Promise<number> {
   // Public endpoint — no auth needed.
   const res = await fetch(`${BASE}/publications/${publicationId}/subscribers/count`);

@@ -5,7 +5,7 @@ import { Loader2, Send, RefreshCw, Heart, Rocket, Check, ExternalLink, FileText,
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { HiveBoostButton } from "@/components/hive-boost-button";
 import { ParagraphPublishDialog } from "@/components/paragraph-publish-dialog";
-import { listBlogPostsForCuration, replyToSnap, generateHivePostReply } from "@/app/actions/snap-curation";
+import { listBlogPostsForCuration, replyToSnap, generateHivePostReply, previewBlogPostForParagraph, sendBlogPostToParagraph } from "@/app/actions/snap-curation";
 import { type CurationSnap } from "@/lib/snap-curation-shared";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -167,8 +167,8 @@ function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canPara
 
       {paraDialog && (
         <ParagraphPublishDialog
-          author={post.author}
-          permlink={post.permlink}
+          loadPreview={() => previewBlogPostForParagraph(post.author, post.permlink)}
+          onSend={(opts) => sendBlogPostToParagraph(post.author, post.permlink, opts)}
           onClose={() => setParaDialog(false)}
           onDone={(r) => setParaDone(r)}
         />
