@@ -951,11 +951,9 @@ function CardTestSection({
   if (!canTest) {
     if (item.type === "draft") {
       return (
-        <div className="mt-6 border-t border-border pt-4">
-          <p className="flex items-center gap-1.5 text-xs text-foreground-faint">
-            <FlaskConical className="h-3.5 w-3.5" /> Converta em issue para solicitar um teste.
-          </p>
-        </div>
+        <p className="flex items-center gap-1.5 text-xs text-foreground-faint">
+          <FlaskConical className="h-3.5 w-3.5" /> Converta em issue para solicitar um teste.
+        </p>
       );
     }
     return null;
@@ -1045,7 +1043,7 @@ function CardTestSection({
   }
 
   return (
-    <div className="mt-6 border-t border-border pt-4">
+    <div>
       <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
         <FlaskConical className="h-3.5 w-3.5" /> Teste / QA
         {needsTest && <span className="ml-1 rounded-full bg-[#fbca04]/20 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-[#a16207]">aguardando teste</span>}
@@ -1422,7 +1420,7 @@ export function CardDetailDialog({
         role="dialog"
         aria-modal="true"
         aria-label={item.title}
-        className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl outline-none"
+        className="flex max-h-[90vh] w-full max-w-[95vw] flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -1704,17 +1702,6 @@ export function CardDetailDialog({
             </div>
           )}
 
-          {/* Test / QA request loop */}
-          {!editing && (
-            <CardTestSection
-              item={item}
-              repo={repoOf(item.url) ?? issueRepo ?? null}
-              team={team}
-              statusCtx={statusCtx}
-              onPatchItem={onPatchItem}
-            />
-          )}
-
           {/* Bounty + EXEC meeting — feature parity with the SOPA aggregated board.
               Collapsed they sit side by side; an open/expanded bounty panel is
               w-full and wraps to its own row. */}
@@ -1734,74 +1721,88 @@ export function CardDetailDialog({
             </div>
           )}
 
-          {/* Comments thread */}
-          {canComment && !editing && (
-            <div className="mt-6 border-t border-border pt-4">
-              <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
-                <MessageSquare className="h-3.5 w-3.5" />
-                Comentários{comments ? ` (${comments.length})` : ""}
-              </p>
-              {commentsError ? (
-                <p className="text-xs text-danger">{commentsError}</p>
-              ) : !comments ? (
-                <p className="flex items-center gap-2 text-xs text-foreground-muted">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…
-                </p>
-              ) : comments.length === 0 ? (
-                <p className="text-xs italic text-foreground-faint">Nenhum comentário ainda.</p>
-              ) : (
-                <div className="space-y-3">
-                  {comments.map((c) => (
-                    <div key={c.id} className="flex gap-2.5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={c.avatarUrl} alt={c.author} width={24} height={24}
-                        className="mt-0.5 h-6 w-6 shrink-0 rounded-full object-cover" />
-                      <div className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-2">
-                        <p className="mb-1 text-[11px] text-foreground-subtle">
-                          <span className="font-semibold text-foreground-muted">@{c.author}</span>{" "}
-                          · {new Date(c.createdAt).toLocaleString()}
-                        </p>
-                        <div className="text-[13px]">
-                          <MarkdownContent markdown={c.body} githubRepo={repoOf(item.url)} />
-                        </div>
+          {/* Comments + Test/QA side by side (the XXL dialog gives room for two columns) */}
+          {!editing && (
+            <div className="mt-6 grid grid-cols-1 gap-6 border-t border-border pt-4 lg:grid-cols-2">
+              {/* Comments column — GitHub thread on real cards, portal notes on drafts */}
+              <div className="min-w-0">
+                {canComment ? (
+                  <>
+                    <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      Comentários{comments ? ` (${comments.length})` : ""}
+                    </p>
+                    {commentsError ? (
+                      <p className="text-xs text-danger">{commentsError}</p>
+                    ) : !comments ? (
+                      <p className="flex items-center gap-2 text-xs text-foreground-muted">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…
+                      </p>
+                    ) : comments.length === 0 ? (
+                      <p className="text-xs italic text-foreground-faint">Nenhum comentário ainda.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {comments.map((c) => (
+                          <div key={c.id} className="flex gap-2.5">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={c.avatarUrl} alt={c.author} width={24} height={24}
+                              className="mt-0.5 h-6 w-6 shrink-0 rounded-full object-cover" />
+                            <div className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-2">
+                              <p className="mb-1 text-[11px] text-foreground-subtle">
+                                <span className="font-semibold text-foreground-muted">@{c.author}</span>{" "}
+                                · {new Date(c.createdAt).toLocaleString()}
+                              </p>
+                              <div className="text-[13px]">
+                                <MarkdownContent markdown={c.body} githubRepo={repoOf(item.url)} />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
+                    )}
+                    {/* Composer */}
+                    <div className="mt-3 flex items-end gap-2">
+                      <textarea
+                        value={commentDraft}
+                        onChange={(e) => setCommentDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                            e.preventDefault();
+                            void sendComment();
+                          }
+                        }}
+                        rows={2}
+                        placeholder="Escreva um comentário… (⌘+Enter envia)"
+                        className="min-w-0 flex-1 resize-none rounded-xl border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={sendComment}
+                        disabled={commentBusy || !commentDraft.trim()}
+                        aria-label="Send comment"
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground disabled:opacity-50"
+                      >
+                        {commentBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
-              {/* Composer */}
-              <div className="mt-3 flex items-end gap-2">
-                <textarea
-                  value={commentDraft}
-                  onChange={(e) => setCommentDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                      e.preventDefault();
-                      void sendComment();
-                    }
-                  }}
-                  rows={2}
-                  placeholder="Escreva um comentário… (⌘+Enter envia)"
-                  className="min-w-0 flex-1 resize-none rounded-xl border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+                  </>
+                ) : projectSlug ? (
+                  <CardNotes projectSlug={projectSlug} cardKey={item.id} label="Comentários" />
+                ) : null}
+              </div>
+
+              {/* Test / QA column */}
+              <div className="min-w-0">
+                <CardTestSection
+                  item={item}
+                  repo={repoOf(item.url) ?? issueRepo ?? null}
+                  team={team}
+                  statusCtx={statusCtx}
+                  onPatchItem={onPatchItem}
                 />
-                <button
-                  type="button"
-                  onClick={sendComment}
-                  disabled={commentBusy || !commentDraft.trim()}
-                  aria-label="Send comment"
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground disabled:opacity-50"
-                >
-                  {commentBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                </button>
               </div>
             </div>
           )}
-
-          {/* Portal comments — work on any card (incl. drafts). */}
-          {/* Drafts have no GitHub thread → portal-side comments fill the gap.
-              Real issues/PRs already show the GitHub comments above, so we drop
-              the redundant "Notas internas" there. */}
-          {!editing && projectSlug && !canComment && <CardNotes projectSlug={projectSlug} cardKey={item.id} label="Comentários" />}
         </div>
 
         {/* Footer */}
