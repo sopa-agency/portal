@@ -31,9 +31,9 @@ import QRCode from "qrcode";
 import { CARD_W, CARD_H, COLORS, type ElKey } from "@/lib/studio/tokens";
 import { elPos, withLayout, resetLayout } from "@/lib/studio/layout";
 import { type ImgFit, type ImgNat, DEFAULT_FIT, MIN_SCALE, MAX_SCALE, clampFit, zoomAt } from "@/lib/studio/img-fit";
-import { newId, normalizeDoc } from "@/lib/studio/parse-script";
+import { newId, normalizeDoc, migrateSubtitle } from "@/lib/studio/parse-script";
 import { SEED_DOC } from "@/lib/studio/seed";
-import { ZCarousel, type Card, type Carousel } from "@/lib/studio/schema";
+import { ZCarousel, type Card, type Carousel, type BoxColor } from "@/lib/studio/schema";
 import { listSkateSpots, type SkateSpot } from "@/app/actions/skate-spots";
 import { uploadMediaDirectClient } from "@/lib/upload-media-client";
 
@@ -60,14 +60,39 @@ const BRAND_SWATCHES: [string, string][] = [
   ["Branco", "#ffffff"],
 ];
 
+// seletor creme/amarela compartilhado pelos cards de texto (sub-título + caixas).
+function ColorPick({ value, onChange }: { value: BoxColor; onChange: (c: BoxColor) => void }) {
+  const opts: [BoxColor, string, string][] = [
+    ["creme", COLORS.cream, "Creme"],
+    ["amarela", COLORS.yellow, "Amarela"],
+  ];
+  return (
+    <div className="flex items-center gap-1">
+      {opts.map(([key, hex, label]) => (
+        <button
+          key={key}
+          type="button"
+          aria-label={label}
+          aria-pressed={value === key}
+          title={label}
+          onClick={() => onChange(key)}
+          className={`size-4 rounded-full outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-selection ${value === key ? "ring-2 ring-foreground" : "ring-1 ring-border-strong"}`}
+          style={{ backgroundColor: hex }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function newCard(tipo: Card["tipo"]): Card {
   const base = { id: newId(), imgFit: { x: 0, y: 0, scale: 1 }, imgW: null, imgH: null, layout: {} as Record<string, never>, subtitulo: "" };
   if (tipo === "capa") return { tipo: "capa", imagem: null, titulo: "TÍTULO", ...base, subtitulo: "gancho da capa", blocos: [] };
+  // subtitulo vira a 1ª caixa (creme) via migrateSubtitle → card já nasce com Caixa 1 (creme) + Caixa 2 (amarela).
   if (tipo === "fundo")
-    return { tipo: "fundo", bgColor: "#ffffff", ...base, subtitulo: "CONTEXTO…", blocos: [{ id: newId(), texto: "Texto de contexto / explicação.", x: 73, y: 740, w: 934, fontSize: 30 }] };
+    return migrateSubtitle({ tipo: "fundo", bgColor: "#ffffff", ...base, subtitulo: "CONTEXTO…", blocos: [{ id: newId(), texto: "Texto de contexto / explicação.", x: 73, y: 740, w: 934, fontSize: 30 }] });
   if (tipo === "spot")
     return { tipo: "spot", imagem: null, spotName: "", spotLocation: "", spotAuthor: "", spotDescription: "", ...base, blocos: [] };
-  return { tipo: "conteudo", imagem: null, ...base, subtitulo: "NOVA CHAMADA…", blocos: [{ id: newId(), texto: "Texto do card.", x: 90, y: 950, w: 900, fontSize: 30 }] };
+  return migrateSubtitle({ tipo: "conteudo", imagem: null, ...base, subtitulo: "NOVA CHAMADA…", blocos: [{ id: newId(), texto: "Texto do card.", x: 90, y: 950, w: 900, fontSize: 30 }] });
 }
 
 // Seed doc for SkateHive spot mode: one blank "Skate Spot Found!" card.
@@ -236,11 +261,12 @@ export function Editor({
     patchActive((c) => {
       const common = { id: c.id, imgFit: c.imgFit, imgW: c.imgW, imgH: c.imgH, layout: c.layout, subtitulo: c.subtitulo, blocos: c.blocos };
       if (tipo === "capa") return { tipo: "capa", imagem: ("imagem" in c ? c.imagem : null) ?? null, titulo: ("titulo" in c ? c.titulo : "") || "TÍTULO", ...common };
+      // conteudo/fundo: migrateSubtitle converte um gancho herdado da capa na 1ª caixa (creme).
       if (tipo === "fundo") {
         const blocos = c.blocos.length ? c.blocos : [{ id: newId(), texto: "Texto de contexto / explicação.", x: 73, y: 740, w: 934, fontSize: 30 }];
-        return { tipo: "fundo", bgColor: ("bgColor" in c ? c.bgColor : "#ffffff") || "#ffffff", ...common, blocos };
+        return migrateSubtitle({ tipo: "fundo", bgColor: ("bgColor" in c ? c.bgColor : "#ffffff") || "#ffffff", ...common, blocos });
       }
-      return { tipo: "conteudo", imagem: ("imagem" in c ? c.imagem : null) ?? null, ...common };
+      return migrateSubtitle({ tipo: "conteudo", imagem: ("imagem" in c ? c.imagem : null) ?? null, ...common });
     });
 
   // Troca o data-URI de um card pela URL (Pinata) — só se a imagem atual ainda for o
@@ -749,7 +775,7 @@ export function Editor({
                     <span className={`w-fit rounded px-1.5 py-0.5 text-[10px] uppercase ${i === active ? "bg-selection/20 text-foreground" : "bg-muted text-muted-foreground"}`}>
                       {c.tipo === "capa" ? "capa" : c.tipo === "fundo" ? "fundo" : c.tipo === "spot" ? "spot" : i + 1}
                     </span>
-                    <span className="truncate">{(c.subtitulo || (c.tipo === "capa" ? c.titulo : c.tipo === "spot" ? c.spotName : "") || "sem título").slice(0, 22)}</span>
+                    <span className="truncate">{(c.subtitulo || (c.tipo === "capa" ? c.titulo : c.tipo === "spot" ? c.spotName : c.blocos[0]?.texto) || "sem título").slice(0, 22)}</span>
                   </div>
                 </button>
                 {/* ações irmãs (não aninhadas no botão selecionável) */}
@@ -1020,12 +1046,6 @@ export function Editor({
               </>
             )}
 
-            {card.tipo !== "capa" && card.tipo !== "spot" && (
-              <>
-                <Label className="text-muted-foreground">Sub-Título (pill creme)</Label>
-                <Textarea value={card.subtitulo} onChange={(e) => patchActive((c) => ({ ...c, subtitulo: e.target.value }) as Card)} rows={2} />
-              </>
-            )}
             {card.tipo === "capa" && (
               <>
                 <Label className="text-muted-foreground">Subtítulo / gancho</Label>
@@ -1042,15 +1062,14 @@ export function Editor({
                 </div>
                 {card.blocos.map((b, i) => (
                   <div key={b.id} className={`rounded-md border p-2 transition-colors ${selected === "bloco:" + b.id ? "border-selection" : "border-border"}`}>
-                    <div className="mb-1 flex items-center justify-between text-xs">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-xs">
                       <button className="rounded font-medium outline-none focus-visible:ring-2 focus-visible:ring-selection" aria-current={selected === "bloco:" + b.id ? "true" : undefined} onClick={() => setSelected("bloco:" + b.id)}>Caixa {i + 1}</button>
-                      <Button variant="ghost" size="icon-xs" aria-label={`Apagar caixa ${i + 1}`} className="text-muted-foreground" onClick={() => delBloco(b.id)}><Trash2 className="size-3.5" /></Button>
+                      <div className="flex items-center gap-2">
+                        <ColorPick value={b.color ?? "amarela"} onChange={(color) => updateBloco(b.id, { color })} />
+                        <Button variant="ghost" size="icon-xs" aria-label={`Apagar caixa ${i + 1}`} className="text-muted-foreground" onClick={() => delBloco(b.id)}><Trash2 className="size-3.5" /></Button>
+                      </div>
                     </div>
                     <Textarea value={b.texto} onChange={(e) => updateBloco(b.id, { texto: e.target.value })} rows={3} className="text-xs" />
-                    <div className="mt-1 flex gap-2">
-                      <div className="flex-1"><Label className="text-[10px] text-muted-foreground">Fonte</Label><Input type="number" value={b.fontSize} onChange={(e) => updateBloco(b.id, { fontSize: +e.target.value || 30 })} className="h-7" /></div>
-                      <div className="flex-1"><Label className="text-[10px] text-muted-foreground">Largura</Label><Input type="number" value={b.w} onChange={(e) => updateBloco(b.id, { w: +e.target.value || b.w })} className="h-7" /></div>
-                    </div>
                   </div>
                 ))}
               </>
