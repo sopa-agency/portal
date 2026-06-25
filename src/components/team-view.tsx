@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Bot,
   Mail,
@@ -313,6 +313,40 @@ function buildTasksEmailDraft(username: string, tasks: MemberTask[]): string {
   return `Oi @${username}, aqui estão suas tarefas no Kanban (${open.length}):\n\n${lines.join("\n")}`;
 }
 
+// Motivational openers seeded into the tasks-email note — irreverent, skate-ish
+// tone, but always nudging the person to actually go do the cards. A fresh one
+// is picked every time you draft (see pickIntro), so the email never reads canned.
+const DRAFT_INTROS = [
+  "Separei o que importa pra essa semana — bora fazer acontecer! 🚀",
+  "Olha o rolê: essas aqui são as suas. Manda ver antes que o café esfrie. ☕",
+  "Lista feita, desculpa nenhuma aceita. Bora destruir esses cards! 🛹",
+  "Teu futuro eu tô vendo daqui e ele tá maneiro — só falta fechar essas. 😎",
+  "Menos scroll, mais flow. Cola nessas tarefas que o time precisa de ti. 🤙",
+  "Avisa o universo que hoje é dia de fechar card. Partiu! ⚡",
+  "Essas tarefas não vão se fazer sozinhas (já tentei, não rola). 😅",
+  "Se liga: cada card fechado é um trick a mais no teu combo. 🛹",
+  "Faz essas e some pra skatar com a consciência limpa. 🌊",
+  "Pequeno empurrão motivacional: VAI LÁ E ARREBENTA. 🔥",
+  "Confia: depois de fechar essas você vai se sentir um lord. 👑",
+  "Modo produtivo ativado. Essas são as tuas missões do dia. 🎯",
+  "O time tá contando contigo — e eu também, sem pressão (muita pressão). 😬",
+  "Bora transformar esse backlog em 'done' e flexar no próximo stand-up. 💪",
+  "Café na mão, fone no ouvido, e essas tarefas no chão. Partiu! 🎧",
+  "Spoiler: você consegue. Agora prova fechando essas. ✅",
+  "Menos 'amanhã eu faço', mais 'já tá feito'. Cola! 🏁",
+  "Essas são as tuas joias da coroa da semana. Lapida elas. 💎",
+  "Hoje a meta é simples: fazer o difícil parecer fácil. Bora! 🤘",
+  "Tamo junto: eu mando a lista, você manda o show. 🎬",
+  "Sem mimimi — pega essas e mostra quem manda no Kanban. 🧠",
+];
+
+/** Random opener, never repeating the one currently in the box. */
+function pickIntro(exclude: string): string {
+  const pool = DRAFT_INTROS.filter((p) => p !== exclude);
+  const list = pool.length ? pool : DRAFT_INTROS;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 function MessageComposer({ member, tasks, selectedIds, importantId }: { member: TeamMember; tasks: MemberTask[] | null; selectedIds: Set<string>; importantId: string | null }) {
   // Default to a private channel when the member has one.
   const [selected, setSelected] = useState<TeamMessageOption | null>(
@@ -321,6 +355,9 @@ function MessageComposer({ member, tasks, selectedIds, importantId }: { member: 
       null,
   );
   const [message, setMessage] = useState("");
+  // The last auto-seeded opener, so re-drafting can swap it for a fresh one
+  // WITHOUT clobbering a note the user actually typed.
+  const seededRef = useRef("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
 
@@ -344,7 +381,14 @@ function MessageComposer({ member, tasks, selectedIds, importantId }: { member: 
     }
     if (emailOpt) {
       setSelected(emailOpt);
-      setMessage((prev) => (prev.trim() ? prev : "Separei o que importa pra essa semana — bora fazer acontecer! 🚀"));
+      // Swap in a fresh random opener — unless the user typed their own note.
+      setMessage((prev) => {
+        const userEdited = prev.trim() && prev !== seededRef.current;
+        if (userEdited) return prev;
+        const next = pickIntro(seededRef.current);
+        seededRef.current = next;
+        return next;
+      });
     } else {
       setMessage(buildTasksEmailDraft(member.username, chosen));
     }
