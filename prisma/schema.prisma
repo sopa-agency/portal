@@ -491,6 +491,15 @@ model CardPriority {
   updatedAt   DateTime  @updatedAt
 }
 
+// Per-member skill ratings (0–100 per category) for the team radar chart.
+// Keyed by Hive username; skills is a { categoryKey: value } JSON map.
+model MemberSkills {
+  username  String   @id
+  skills    Json     @default("{}")
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
 // Posts the auto-boost-on-vote rule has already handled, so the hourly cron
 // never double-processes one. A sentinel row (castHash = "__init__") marks that
 // the first-run backfill happened — posts seen on that run are recorded as

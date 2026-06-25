@@ -8,6 +8,7 @@ import { authorize, getRoles, ensureSeeded, ROLES, GLOBAL_SLUG, type Role } from
 import type { AggregatedItem } from "@/lib/github-project";
 import { loadCardMeta } from "@/lib/card-meta";
 import { compareByPriority } from "@/lib/kanban-priority";
+import { sanitizeSkills } from "@/lib/skills";
 
 export type ManagedMember = { username: string; role: Role; global: boolean; lastLoginAt: string | null };
 
@@ -296,4 +297,42 @@ export async function setGlobalAdmin(username: string, on: boolean): Promise<{ o
     await prisma.teamMember.deleteMany({ where: { projectSlug: GLOBAL_SLUG, username: u } });
   }
   return { ok: true };
+}
+
+// ── Member skills (radar chart) ──────────────────────────────────────────────
+
+/** Skill ratings (0–100 per category) for a member. Any logged-in member can read. */
+export async function getMemberSkills(
+  username: string,
+): Promise<{ ok: true; skills: Record<string, number>; canEdit: boolean } | { ok: false; error: string }> {
+  const g = await viewerGate();
+  if (!g.ok) return g;
+  const target = username.toLowerCase().trim();
+  const row = await prisma.memberSkills.findUnique({ where: { username: target } }).catch(() => null);
+  const canEdit = g.who.username === target || g.who.role === "admin";
+  return { ok: true, skills: (row?.skills as Record<string, number>) ?? {}, canEdit };
+}
+
+/** Save a member's skills — allowed for the member themselves or an admin. */
+export async function setMemberSkills(
+  username: string,
+  skills: Record<string, number>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await viewerGate();
+  if (!g.ok) return g;
+  const target = username.toLowerCase().trim();
+  if (g.who.username !== target && g.who.role !== "admin") {
+    return { ok: false, error: "Só o próprio membro ou um admin pode editar os skills." };
+  }
+  const clean = sanitizeSkills(skills);
+  try {
+    await prisma.memberSkills.upsert({
+      where: { username: target },
+      create: { username: target, skills: clean, updatedBy: g.who.username },
+      update: { skills: clean, updatedBy: g.who.username },
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Falha ao salvar skills." };
+  }
 }

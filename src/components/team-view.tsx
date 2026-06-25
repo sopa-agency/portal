@@ -32,7 +32,9 @@ import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connection
 import type { TeamMessageOption } from "@/lib/team-messaging";
 import { resolveDiscordUser, sendTeamMessage, sendTeamTasksEmail, updateTeamMemberContact } from "@/app/actions/team";
 import { FirePriority, DeadlineChip } from "@/components/card-indicators";
-import { setMemberRole, removeMember, getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
+import { setMemberRole, removeMember, getMemberTasks, getMemberSkills, setMemberSkills, type MemberTask } from "@/app/actions/team-admin";
+import { SkillRadar } from "@/components/skill-radar";
+import { SKILL_CATEGORIES } from "@/lib/skills";
 import { CardDialogHost } from "@/components/card-dialog-host";
 import type { AggregatedItem } from "@/lib/github-project";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
@@ -783,6 +785,89 @@ function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, important
   );
 }
 
+function MemberSkillsPanel({ username }: { username: string }) {
+  const [values, setValues] = useState<Record<string, number> | null>(null);
+  const [canEdit, setCanEdit] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    getMemberSkills(username).then((r) => {
+      if (!live) return;
+      if (r.ok) { setValues(r.skills); setCanEdit(r.canEdit); }
+      else setValues({});
+    });
+    return () => { live = false; };
+  }, [username]);
+
+  if (values === null) {
+    return <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando skills…</p>;
+  }
+
+  const set = (key: string, v: number) => {
+    setValues((p) => ({ ...(p ?? {}), [key]: v }));
+    setDirty(true);
+    setSaved(false);
+  };
+
+  async function save() {
+    if (!values || saving) return;
+    setSaving(true);
+    const r = await setMemberSkills(username, values);
+    setSaving(false);
+    if (r.ok) { setDirty(false); setSaved(true); }
+  }
+
+  return (
+    <div className="grid items-center gap-6 lg:grid-cols-2">
+      <div className="flex justify-center">
+        <SkillRadar values={values} accent="var(--color-accent)" />
+      </div>
+      <div className="space-y-2.5">
+        {SKILL_CATEGORIES.map((c) => {
+          const v = values![c.key] ?? 0;
+          return (
+            <div key={c.key}>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-foreground-muted">{c.label}</span>
+                <span className="tabular-nums text-foreground-subtle">{v}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={v}
+                disabled={!canEdit}
+                onChange={(e) => set(c.key, Number(e.target.value))}
+                className="w-full accent-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={c.label}
+              />
+            </div>
+          );
+        })}
+        {canEdit ? (
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              type="button"
+              onClick={save}
+              disabled={!dirty || saving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-semibold text-accent-foreground transition-opacity disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Salvar skills
+            </button>
+            {saved && !dirty && <span className="text-xs text-success">salvo ✓</span>}
+          </div>
+        ) : (
+          <p className="pt-1 text-xs text-foreground-faint">Só o próprio membro ou um admin pode editar os skills.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function MemberModal({ member, canManage, onClose }: { member: TeamMember; canManage?: boolean; onClose: () => void }) {
   const titleId = useId();
   const router = useRouter();
@@ -865,11 +950,11 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-border bg-surface-elevated p-5 shadow-2xl"
+        className="mx-auto h-[100dvh] w-full max-w-6xl overflow-y-auto bg-surface-elevated p-5 shadow-2xl sm:p-8"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
@@ -943,6 +1028,12 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
             {mgrErr && <p className="w-full text-[11px] text-danger">{mgrErr}</p>}
           </div>
         )}
+
+        {/* Skills radar — editable by the member themselves or an admin. */}
+        <div className="mt-6 rounded-2xl border border-border bg-surface p-4 sm:p-5">
+          <h4 className="mb-3 text-sm font-semibold text-foreground">Skills</h4>
+          <MemberSkillsPanel username={member.username} />
+        </div>
 
         <div className="mt-5 grid gap-5 md:grid-cols-2">
           <div className="space-y-2">
