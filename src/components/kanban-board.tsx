@@ -41,6 +41,7 @@ import {
   FlaskConical,
   CheckCheck,
   Undo2,
+  Crown,
 } from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
@@ -114,8 +115,15 @@ function CardBody({
   onOpenMember?: (member: TeamMember) => void;
 }) {
   const MAX_AVATARS = 3;
-  const extra = item.assignees.length > MAX_AVATARS ? item.assignees.length - MAX_AVATARS : 0;
-  const visible = item.assignees.slice(0, MAX_AVATARS);
+  const owner = item.owner?.toLowerCase();
+  // Owner first so they're always shown (and bigger/highlighted).
+  const ordered = owner
+    ? [...item.assignees].sort((a, b) =>
+        a.login.toLowerCase() === owner ? -1 : b.login.toLowerCase() === owner ? 1 : 0,
+      )
+    : item.assignees;
+  const visible = ordered.slice(0, MAX_AVATARS);
+  const extra = ordered.length - visible.length;
   return (
     <div className="space-y-2.5">
       <p className="pr-5 text-[13px] font-medium leading-snug text-foreground">{item.title}</p>
@@ -151,16 +159,22 @@ function CardBody({
           <div className="ml-auto flex items-center -space-x-1.5">
             {visible.map((a) => {
               const member = memberForLogin?.(a.login) ?? null;
+              const isOwner = !!owner && a.login.toLowerCase() === owner;
               const avatar = (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={a.avatarUrl}
-                  alt={a.login}
-                  title={member ? `Open @${member.username} contact card` : a.login}
-                  width={22}
-                  height={22}
-                  className="h-[22px] w-[22px] rounded-full object-cover ring-2 ring-surface-elevated"
-                />
+                <span className={`relative inline-block ${isOwner ? "z-10" : ""}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={a.avatarUrl}
+                    alt={a.login}
+                    title={member ? `${isOwner ? "Dono · " : ""}@${member.username}` : `${isOwner ? "Dono · " : ""}${a.login}`}
+                    width={isOwner ? 28 : 22}
+                    height={isOwner ? 28 : 22}
+                    className={`rounded-full object-cover ${isOwner ? "h-7 w-7 ring-2 ring-accent" : "h-[22px] w-[22px] ring-2 ring-surface-elevated"}`}
+                  />
+                  {isOwner && (
+                    <Crown className="absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 fill-accent text-accent drop-shadow" aria-label="Dono" />
+                  )}
+                </span>
               );
               return member && onOpenMember ? (
                 <button
@@ -1111,6 +1125,36 @@ function CardTestSection({
   );
 }
 
+/** Markdown that renders inside a fixed default height; expands on "Ver mais". */
+function CollapsibleMarkdown({ markdown, githubRepo }: { markdown: string; githubRepo?: string | null }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) setOverflows(el.scrollHeight > el.clientHeight + 4);
+  }, [markdown]);
+  return (
+    <div>
+      <div ref={ref} className={`relative overflow-hidden ${expanded ? "max-h-none" : "max-h-32"}`}>
+        <MarkdownContent markdown={markdown} githubRepo={githubRepo ?? undefined} />
+        {!expanded && overflows && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-surface to-transparent" />
+        )}
+      </div>
+      {(overflows || expanded) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-[11px] font-medium text-accent hover:underline"
+        >
+          {expanded ? "Ver menos" : "Ver mais"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function CardDetailDialog({
   item,
   team,
@@ -1266,6 +1310,21 @@ export function CardDetailDialog({
       await onSetAssignees(item, desired);
     } finally {
       setAssignBusy(false);
+    }
+  }
+
+  // The task OWNER (ultimate responsible) — one of the assignees. Toggling the
+  // current owner clears it. Portal-owned, so it works on any card.
+  const [ownerBusy, setOwnerBusy] = useState(false);
+  async function setOwner(login: string) {
+    if (ownerBusy) return;
+    const next = item.owner?.toLowerCase() === login.toLowerCase() ? null : login.toLowerCase();
+    setOwnerBusy(true);
+    try {
+      const r = await onMutate({ action: "setOwner", itemId: item.id, owner: next });
+      if (r.ok) onPatchItem(item.id, { owner: next ?? undefined });
+    } finally {
+      setOwnerBusy(false);
     }
   }
 
@@ -1761,7 +1820,7 @@ export function CardDetailDialog({
                                 · {new Date(c.createdAt).toLocaleString()}
                               </p>
                               <div className="text-[13px]">
-                                <MarkdownContent markdown={c.body} githubRepo={repoOf(item.url)} />
+                                <CollapsibleMarkdown markdown={c.body} githubRepo={repoOf(item.url)} />
                               </div>
                             </div>
                           </div>
@@ -1872,30 +1931,48 @@ export function CardDetailDialog({
                     const checked = item.assignees.some(
                       (a) => a.login.toLowerCase() === m.login.toLowerCase(),
                     );
+                    const isOwner = item.owner?.toLowerCase() === m.login.toLowerCase();
                     return (
-                      <button
+                      <div
                         key={m.login}
-                        type="button"
-                        disabled={assignBusy}
-                        onClick={() => toggleAssignee(m.login)}
-                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground-muted transition-colors hover:bg-surface hover:text-foreground disabled:opacity-50"
+                        className="flex w-full items-center gap-1 px-1.5 text-sm text-foreground-muted"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={m.avatarUrl}
-                          alt={m.login}
-                          width={22}
-                          height={22}
-                          className="h-[22px] w-[22px] rounded-full object-cover"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] text-foreground">@{m.login}</span>
-                          {m.username && (
-                            <span className="block truncate text-[11px] text-foreground-subtle">{m.username}</span>
-                          )}
-                        </span>
-                        {checked && <span className="text-accent">✓</span>}
-                      </button>
+                        <button
+                          type="button"
+                          disabled={assignBusy}
+                          onClick={() => toggleAssignee(m.login)}
+                          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-2 text-left transition-colors hover:bg-surface hover:text-foreground disabled:opacity-50"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={m.avatarUrl}
+                            alt={m.login}
+                            width={22}
+                            height={22}
+                            className="h-[22px] w-[22px] rounded-full object-cover"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px] text-foreground">@{m.login}</span>
+                            {m.username && (
+                              <span className="block truncate text-[11px] text-foreground-subtle">{m.username}</span>
+                            )}
+                          </span>
+                          {checked && <span className="text-accent">✓</span>}
+                        </button>
+                        {/* Crown = owner. Only meaningful once assigned. */}
+                        {checked && (
+                          <button
+                            type="button"
+                            disabled={ownerBusy}
+                            onClick={() => setOwner(m.login)}
+                            title={isOwner ? "Dono — clique pra remover" : "Definir como dono"}
+                            aria-pressed={isOwner}
+                            className={`shrink-0 rounded-md p-1.5 transition-colors disabled:opacity-50 ${isOwner ? "text-accent" : "text-foreground-faint hover:text-foreground"}`}
+                          >
+                            <Crown className={`h-3.5 w-3.5 ${isOwner ? "fill-accent" : ""}`} />
+                          </button>
+                        )}
+                      </div>
                     );
                   })}
                   {team.length === 0 && (

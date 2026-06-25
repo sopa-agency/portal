@@ -88,6 +88,7 @@ export async function GET() {
       if (!m) continue;
       if (m.firePriority) it.firePriority = m.firePriority;
       if (m.deadline) it.deadline = m.deadline;
+      if (m.owner) it.owner = m.owner;
     }
   }
 
@@ -159,7 +160,7 @@ type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "ensureLabels" | "createIssue"
-    | "convertDraft" | "aiBody" | "setPriority" | "setDeadline" | "reopen";
+    | "convertDraft" | "aiBody" | "setPriority" | "setDeadline" | "setOwner" | "reopen";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
   projectId?: string;
@@ -190,6 +191,8 @@ type Body = {
   priority?: number;
   // setDeadline — ISO date "yyyy-mm-dd" (null/empty clears)
   deadline?: string | null;
+  // setOwner — GitHub login of the task owner (null/empty clears)
+  owner?: string | null;
 };
 
 export async function POST(req: Request) {
@@ -276,6 +279,23 @@ export async function POST(req: Request) {
       priority: priority || null,
       deadline: deadline ? deadline.toISOString().slice(0, 10) : null,
     });
+  }
+
+  // Task owner (portal-owned, like priority/deadline) — needs only itemId.
+  if (action === "setOwner") {
+    if (!itemId) return NextResponse.json({ ok: false, error: "itemId required" }, { status: 400 });
+    const owner = (body.owner ?? "").trim().toLowerCase() || null;
+    const existing = await prisma.cardPriority.findUnique({ where: { itemId } }).catch(() => null);
+    if (!owner && existing && !existing.priority && !existing.deadline) {
+      await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
+      return NextResponse.json({ ok: true, owner: null });
+    }
+    await prisma.cardPriority.upsert({
+      where: { itemId },
+      create: { itemId, owner, projectSlug: targetProjectSlug ?? project.slug, updatedBy: session.username },
+      update: { owner, updatedBy: session.username },
+    });
+    return NextResponse.json({ ok: true, owner });
   }
 
   // Reopen a closed issue/PR — needs only the content node id + type.

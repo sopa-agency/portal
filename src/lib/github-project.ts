@@ -25,6 +25,8 @@ export type KanbanItem = {
   firePriority?: number;
   /** Portal-owned due date (ISO yyyy-mm-dd). From CardPriority. */
   deadline?: string;
+  /** GitHub login of the task OWNER (ultimate responsible). From CardPriority. */
+  owner?: string;
 };
 
 export type KanbanColumn = {
@@ -908,6 +910,8 @@ export async function createRepoIssue(args: {
 export type AggregatedItem = KanbanItem & {
   board: string;
   projectSlug: string;
+  /** The owning project's accent color (hex) — for the board badge tint. */
+  accent: string;
   /** The card's own GitHub Project board node id (for cross-project mutations). */
   projectId: string;
   /** Status single-select field id on that board (null if none). */
@@ -941,7 +945,7 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
         colItems.set(col.name, []);
         order.push(col.name);
       }
-      for (const it of col.items) colItems.get(col.name)!.push({ ...it, board, projectSlug: p.slug, projectId: r.projectId, statusFieldId: r.statusFieldId, statusOptions });
+      for (const it of col.items) colItems.get(col.name)!.push({ ...it, board, accent: p.theme.accentDark, projectSlug: p.slug, projectId: r.projectId, statusFieldId: r.statusFieldId, statusOptions });
     }
   }
 
@@ -956,6 +960,7 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
     if (m) {
       it.firePriority = m.firePriority;
       it.deadline = m.deadline;
+      it.owner = m.owner;
     }
   }
   for (const items of colItems.values()) items.sort(compareByPriority);

@@ -16,7 +16,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Archive, Trash2, Plus, X, Loader2 } from "lucide-react";
+import { GripVertical, Archive, Trash2, Plus, X, Loader2, Crown } from "lucide-react";
 import type { AggregatedColumn, AggregatedItem, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
 import { getProjectAssignees, type Assignee } from "@/app/actions/kanban";
@@ -440,10 +440,19 @@ function DroppableColumn({
 }
 
 function CardInner({ item, bounty }: { item: AggregatedItem; bounty?: BountyDTO }) {
+  const owner = item.owner?.toLowerCase();
+  const ordered = owner
+    ? [...item.assignees].sort((a, b) => (a.login.toLowerCase() === owner ? -1 : b.login.toLowerCase() === owner ? 1 : 0))
+    : item.assignees;
   return (
     <>
       <div className="mb-1 flex items-center gap-1.5">
-        <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">{item.board}</span>
+        <span
+          className="rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+          style={{ color: item.accent, borderColor: `${item.accent}66`, backgroundColor: `${item.accent}1f` }}
+        >
+          {item.board}
+        </span>
         {item.number ? <span className="text-[10px] text-foreground-faint">#{item.number}</span> : null}
         {bounty && <BountyBadge bounty={bounty} />}
         <FirePriority value={item.firePriority} />
@@ -460,11 +469,22 @@ function CardInner({ item, bounty }: { item: AggregatedItem; bounty?: BountyDTO 
             {l.name}
           </span>
         ))}
-        <span className="ml-auto flex -space-x-1.5">
-          {item.assignees.slice(0, 4).map((a) => (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img key={a.login} src={a.avatarUrl} alt={a.login} title={a.login} className="h-4 w-4 rounded-full border border-surface object-cover" />
-          ))}
+        <span className="ml-auto flex items-center -space-x-1.5">
+          {ordered.slice(0, 4).map((a) => {
+            const isOwner = !!owner && a.login.toLowerCase() === owner;
+            return (
+              <span key={a.login} className={`relative inline-block ${isOwner ? "z-10" : ""}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={a.avatarUrl}
+                  alt={a.login}
+                  title={isOwner ? `Dono · ${a.login}` : a.login}
+                  className={`rounded-full border border-surface object-cover ${isOwner ? "h-5 w-5 ring-1 ring-accent" : "h-4 w-4"}`}
+                />
+                {isOwner && <Crown className="absolute -top-1 left-1/2 h-2.5 w-2.5 -translate-x-1/2 fill-accent text-accent" />}
+              </span>
+            );
+          })}
         </span>
       </div>
     </>
