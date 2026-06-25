@@ -13,14 +13,27 @@ export function bumpId(id: string) {
   if (m) _uid = Math.max(_uid, Number(m[1]) + 1);
 }
 
-// Normaliza um doc carregado (JSON/import): reserva os ids existentes e preenche os que faltam
-// (cards de JSONs antigos sem id). Idempotente.
+// Migração: o antigo "sub-título" (pill creme) de cards conteudo/fundo virou só mais uma caixa
+// no array `blocos` — com `color: "creme"`. Converte na entrada (load/JSON/conversão de tipo)
+// preservando a posição que a pill tinha (layout.subtitulo). Idempotente: roda de novo com
+// subtitulo já "" → no-op. Capa mantém `subtitulo` (é o gancho, layout próprio).
+export function migrateSubtitle(c: Card): Card {
+  if ((c.tipo === "conteudo" || c.tipo === "fundo") && c.subtitulo.trim()) {
+    const p = (c.layout as Record<string, { x?: number; y?: number; w?: number; fontSize?: number }>)?.subtitulo ?? {};
+    const creme = { id: newId(), texto: c.subtitulo, x: p.x ?? 0, y: p.y ?? 0, w: p.w ?? 560, fontSize: p.fontSize ?? 24, color: "creme" as const };
+    return { ...c, subtitulo: "", blocos: [creme, ...c.blocos] };
+  }
+  return c;
+}
+
+// Normaliza um doc carregado (JSON/import): reserva os ids existentes, preenche os que faltam
+// (cards de JSONs antigos sem id) e migra sub-títulos legados p/ caixas. Idempotente.
 export function normalizeDoc(doc: Carousel): Carousel {
   for (const c of doc.cards) {
     bumpId(c.id);
     for (const b of c.blocos) bumpId(b.id);
   }
-  return { ...doc, cards: doc.cards.map((c) => (c.id ? c : { ...c, id: newId() })) };
+  return { ...doc, cards: doc.cards.map((c) => migrateSubtitle(c.id ? c : { ...c, id: newId() })) };
 }
 
 // Parser do formato de roteiro:

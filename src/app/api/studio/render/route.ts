@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { CardArtwork, spotMapsUrl } from "@/components/studio/card-artwork";
 import QRCode from "qrcode";
 import { ZCard } from "@/lib/studio/schema";
+import { migrateSubtitle } from "@/lib/studio/parse-script";
 import { CARD_W, CARD_H } from "@/lib/studio/tokens";
 import { loadFonts, loadAssets, resolveImg } from "@/lib/studio/render-assets.server";
 import { SESSION_COOKIE } from "@/lib/auth";
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
         headers: { "Content-Type": "application/json" },
       });
     }
-    let card = parsed.data;
+    let card = migrateSubtitle(parsed.data);
     if ("imagem" in card && card.imagem) {
       card = { ...card, imagem: await resolveImg(card.imagem) };
     }

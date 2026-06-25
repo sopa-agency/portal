@@ -2,6 +2,10 @@
 import { z } from "zod";
 
 // ---- contrato (Zod = fonte da verdade) ----
+// cor da caixa (creme/amarela). opcional → undefined = amarela (comportamento legado).
+export const ZBoxColor = z.enum(["creme", "amarela"]);
+export type BoxColor = z.infer<typeof ZBoxColor>;
+
 export const ZBloco = z.object({
   id: z.string(),
   texto: z.string(),
@@ -9,6 +13,7 @@ export const ZBloco = z.object({
   y: z.number(),
   w: z.number(),
   fontSize: z.number().default(30),
+  color: ZBoxColor.optional(),
 });
 export type Bloco = z.infer<typeof ZBloco>;
 
@@ -33,6 +38,8 @@ const base = {
   imgW: z.number().nullable().default(null),
   imgH: z.number().nullable().default(null),
   layout: ZLayout,
+  // legado: sub-título dos cards conteudo/fundo. Hoje migrado p/ uma caixa `creme` em `blocos`
+  // (ver migrateSubtitle). Mantido p/ capa (gancho/hook) e como input transitório de parse-script.
   subtitulo: z.string().default(""),
   blocos: z.array(ZBloco).default([]),
 };

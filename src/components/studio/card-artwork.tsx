@@ -86,19 +86,7 @@ export function CardArtwork({ card, assets }: { card: Card; assets: Assets }) {
         <CapaLayer card={card} assets={assets} />
       ) : card.tipo === "spot" ? (
         <SpotLayer card={card} assets={assets} />
-      ) : (
-        <Pill
-          el="subtitulo"
-          {...pos(card, "subtitulo")}
-          text={card.subtitulo}
-          fontSize={24}
-          bg={COLORS.cream}
-          color={COLORS.ink}
-          border={6}
-          radius={0}
-          padY={12}
-        />
-      )}
+      ) : null}
 
       {/* Free text blocks — addable/movable on EVERY card (incl. spot). */}
       {card.blocos.map((b) => (
@@ -108,17 +96,23 @@ export function CardArtwork({ card, assets }: { card: Card; assets: Assets }) {
   );
 }
 
-/** A free, draggable text block (data-el="bloco:<id>"). */
+/** A free, draggable text block (data-el="bloco:<id>"). A cor escolhe o ESTILO inteiro:
+ *  amarela = caixa de chat (cantos arredondados, borda grossa); creme = pill do sub-título
+ *  (cantos retos, borda fina, texto tinta). */
 function BlocoBox({ b }: { b: Card["blocos"][number] }) {
+  const creme = b.color === "creme";
   return (
     <div
       data-el={`bloco:${b.id}`}
       style={{
         position: "absolute", left: b.x, top: b.y, width: b.w, display: "flex", boxSizing: "border-box",
-        padding: "16px 18px", backgroundColor: COLORS.yellow, border: "8px solid #000", borderRadius: 24,
+        padding: creme ? "12px 18px" : "16px 18px",
+        backgroundColor: creme ? COLORS.cream : COLORS.yellow,
+        border: creme ? "6px solid #000" : "8px solid #000",
+        borderRadius: creme ? 0 : 24,
       }}
     >
-      <div style={{ width: "100%", textAlign: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: b.fontSize, color: "#000", lineHeight: 1.33 }}>
+      <div style={{ width: "100%", textAlign: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: b.fontSize, color: creme ? COLORS.ink : "#000", lineHeight: creme ? 1.2 : 1.33 }}>
         {b.texto || " "}
       </div>
     </div>
