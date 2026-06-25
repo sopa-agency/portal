@@ -2,6 +2,7 @@
 import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import type { Assets } from "@/components/studio/card-artwork";
 
 const root = process.cwd();
@@ -68,31 +69,35 @@ async function fetchOnce(url: string, timeoutMs = 12000): Promise<Buffer | null>
 }
 
 /**
- * Fetch a remote image into a data-URI so Satori never does its own (flaky)
- * network fetch at render time. Tries the normalizing proxy first, then the raw
- * URL, with retries. Always returns a clean JPEG data-URI when any source works.
+ * Fetch a remote image and RE-ENCODE it to JPEG via sharp before embedding.
+ * This is the actual fix: Satori/resvg cannot decode webp/avif (and the Hive
+ * CDN serves webp even when asked to resize), throwing "u is not iterable" and
+ * 400-ing the render. sharp decodes any format (webp/avif/png/jpeg/gif/tiff/
+ * CMYK) and emits a clean baseline JPEG that Satori always handles. Resizes to
+ * ≤1600px so the data-URI stays small and memory stays bounded under concurrency.
  */
 async function fetchImageDataUri(url: string, attempts = 2): Promise<string | null> {
-  // proxy-first (normalized) → raw original (in case the proxy can't reach the host)
+  // proxy-first (smaller download) → raw original (if the proxy can't reach host)
   const sources = url.startsWith("https://images.hive.blog/") && /\/\d+x\d+\//.test(url)
-    ? [url] // already a proxy URL
-    : [hiveProxy(url), url];
+    ? [url]
+    : [hiveProxy(url, 1600), url];
   for (let i = 0; i < attempts; i++) {
     for (const src of sources) {
       const buf = await fetchOnce(src);
-      if (buf) return `data:${sniffMime(buf)};base64,` + buf.toString("base64");
+      if (!buf) continue;
+      try {
+        const jpeg = await sharp(buf, { failOn: "none" })
+          .rotate() // honor EXIF orientation
+          .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 84 })
+          .toBuffer();
+        return "data:image/jpeg;base64," + jpeg.toString("base64");
+      } catch {
+        // sharp couldn't decode this source — try the next one
+      }
     }
   }
   return null;
-}
-
-/** Mime from magic bytes (the proxy returns jpeg; raw fallbacks may be png/etc). */
-function sniffMime(buf: Buffer): string {
-  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
-  if (buf.length > 7 && buf[0] === 0x89 && buf[1] === 0x50) return "image/png";
-  if (buf.length > 11 && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
-  if (buf.length > 5 && buf.toString("ascii", 0, 3) === "GIF") return "image/gif";
-  return "image/jpeg";
 }
 
 // Satori não busca path relativo no server: resolve "/posts/..." (public) -> data-URI.
