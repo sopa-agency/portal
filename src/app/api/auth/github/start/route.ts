@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   const project = await getActiveProject();
   const creds = githubOAuthCreds(project.agent.gatewayEnvPrefix);
   const origin = req.nextUrl.origin;
+  console.log(`[gh-oauth] start project=${project.slug} prefix=${project.agent.gatewayEnvPrefix} origin=${origin} hasCreds=${!!creds}`);
   if (!creds) {
     return NextResponse.redirect(new URL("/login?error=github_unconfigured", origin));
   }

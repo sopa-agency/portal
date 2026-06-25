@@ -10,7 +10,10 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const project = await getActiveProject();
   const origin = req.nextUrl.origin;
-  const fail = (e: string) => NextResponse.redirect(new URL(`/login?error=${e}`, origin));
+  const fail = (e: string) => {
+    console.error(`[gh-oauth] callback FAIL=${e} project=${project.slug} origin=${origin}`);
+    return NextResponse.redirect(new URL(`/login?error=${e}`, origin));
+  };
 
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
@@ -35,10 +38,12 @@ export async function GET(req: NextRequest) {
   // member's Hive username could impersonate them. (Also: many handles differ,
   // e.g. xvlad's GitHub is @sktbrd — the link must live in the profile.)
   const username = await resolveMemberFromGithub(gh.login, gh.emails);
+  console.log(`[gh-oauth] callback gh=${gh.login} → member=${username ?? "(none)"} project=${project.slug}`);
   if (!username) return fail("github_nomember");
 
   const access = await getAccess(username, project);
   if (!access.allowed) return fail("github_noaccess");
+  console.log(`[gh-oauth] login OK ${username} on ${project.slug}`);
 
   // Persist the identity link + login activity (best-effort).
   await linkGithubIdentity(gh.login, username, gh.emails[0] ?? null);
