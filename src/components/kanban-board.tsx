@@ -448,13 +448,23 @@ function ElectricBorderCanvas({ color, speed, chaos, radius, glow = 6 }: { color
   return <canvas ref={ref} className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2" aria-hidden />;
 }
 
-/** Game-FX state for a card: overdue (not closed) → frozen; else 5🔥 → on fire. */
-export function cardFxState(item: { firePriority?: number; deadline?: string; state?: string }): {
-  onFire: boolean;
-  frozen: boolean;
-} {
+/** Matches "done"-like column names (board status), in PT + EN. */
+export function isDoneColumn(name?: string): boolean {
+  return !!name && /done|conclu|complete|finaliz|shipped|closed|arquiv/i.test(name);
+}
+
+/**
+ * Game-FX state for a card: overdue + NOT done → frozen; else 5🔥 → on fire.
+ * "Done" is the card's column/status (a card still in In Review is NOT done) or
+ * a closed issue/PR — not just the GitHub closed state.
+ */
+export function cardFxState(
+  item: { firePriority?: number; deadline?: string; state?: string },
+  done = false,
+): { onFire: boolean; frozen: boolean } {
   const todayYmd = new Date().toISOString().slice(0, 10);
-  const frozen = !!item.deadline && item.deadline < todayYmd && item.state !== "closed";
+  const isDone = done || item.state === "closed";
+  const frozen = !!item.deadline && item.deadline < todayYmd && !isDone;
   const onFire = !frozen && item.firePriority === 5;
   return { onFire, frozen };
 }
@@ -501,6 +511,7 @@ export function CardFx({ onFire, frozen, radius = 12 }: { onFire: boolean; froze
 function SortableCard({
   item,
   bounty,
+  done,
   onArchive,
   onDelete,
   onOpen,
@@ -510,6 +521,7 @@ function SortableCard({
 }: {
   item: KanbanItem;
   bounty?: BountyDTO;
+  done?: boolean;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
   onOpen: (item: KanbanItem) => void;
@@ -520,10 +532,11 @@ function SortableCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
   const style = { transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
 
-  // Game FX: overdue (not closed) → frozen; else top priority (5🔥) → on fire.
+  // Game FX: overdue + not-done → frozen; else top priority (5🔥) → on fire.
+  // "done" = the card's column is a Done-like one (passed in) or it's closed.
   // Effects are an isolated overlay (CardFx), so the card element keeps its
   // original classes — no transition-all vs animation conflict on re-render.
-  const { onFire, frozen } = cardFxState(item);
+  const { onFire, frozen } = cardFxState(item, done);
 
   return (
     <div
@@ -749,6 +762,7 @@ function ColumnView({
                 key={item.id}
                 item={item}
                 bounty={bountyByKey?.get(taskKeyOf(item))}
+                done={isDoneColumn(column.name)}
                 onArchive={onArchive}
                 onDelete={onDelete}
                 onOpen={onOpen}

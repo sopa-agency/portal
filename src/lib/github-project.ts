@@ -796,23 +796,25 @@ export async function setItemLabels(args: {
   addIds: string[];
   removeIds: string[];
 }): Promise<MutationResult> {
+  // Declare ONLY the variables we actually use — GitHub rejects a mutation that
+  // declares an unused variable ("$removeIds is declared ... but not used"),
+  // which broke every add-only / remove-only label toggle.
   const parts: string[] = [];
+  const decls: string[] = ["$contentId: ID!"];
+  const vars: Record<string, unknown> = { contentId: args.contentId };
   if (args.addIds.length > 0) {
     parts.push(`add: addLabelsToLabelable(input: { labelableId: $contentId, labelIds: $addIds }) { clientMutationId }`);
+    decls.push("$addIds: [ID!]!");
+    vars.addIds = args.addIds;
   }
   if (args.removeIds.length > 0) {
     parts.push(`remove: removeLabelsFromLabelable(input: { labelableId: $contentId, labelIds: $removeIds }) { clientMutationId }`);
+    decls.push("$removeIds: [ID!]!");
+    vars.removeIds = args.removeIds;
   }
   if (parts.length === 0) return { ok: true };
-  const query = `
-    mutation($contentId: ID!, $addIds: [ID!]!, $removeIds: [ID!]!) {
-      ${parts.join("\n")}
-    }`;
-  return githubGraphQL(args.token, query, {
-    contentId: args.contentId,
-    addIds: args.addIds,
-    removeIds: args.removeIds,
-  });
+  const query = `mutation(${decls.join(", ")}) {\n${parts.join("\n")}\n}`;
+  return githubGraphQL(args.token, query, vars);
 }
 
 // ---------------------------------------------------------------------------

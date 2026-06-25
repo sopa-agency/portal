@@ -330,6 +330,7 @@ export function AggregatedKanban({
                   item={it}
                   bounty={byKey.get(taskKeyOf(it))}
                   canManage={canManage}
+                  done={isDone(col.name)}
                   onOpen={() => setActive(it)}
                   onArchive={() => removeCard(it, "archive")}
                   onDelete={() => removeCard(it, "delete")}
@@ -470,10 +471,10 @@ function CardInner({ item, bounty }: { item: AggregatedItem; bounty?: BountyDTO 
   );
 }
 
-function DraggableCard({ item, bounty, canManage, onOpen, onArchive, onDelete }: { item: AggregatedItem; bounty?: BountyDTO; canManage: boolean; onOpen: () => void; onArchive: () => void; onDelete: () => void }) {
+function DraggableCard({ item, bounty, canManage, done, onOpen, onArchive, onDelete }: { item: AggregatedItem; bounty?: BountyDTO; canManage: boolean; done?: boolean; onOpen: () => void; onArchive: () => void; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id });
   const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1 };
-  const { onFire, frozen } = cardFxState(item);
+  const { onFire, frozen } = cardFxState(item, done);
   return (
     <div
       ref={setNodeRef}
