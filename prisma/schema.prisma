@@ -827,3 +827,23 @@ model FixedCostActual {
   @@unique([costId, month])
   @@index([costId])
 }
+
+// Accumulated pool of Instagram handles to suggest as post collaborators — an
+// autocomplete source built from the userbase IG identities, people who comment
+// on our posts, and accounts we've actually collaborated with. Re-synced after
+// every publish. (The Graph API can't list followers, so we grow our own list.)
+// Ranked "leading" by collabCount → commentCount → recency.
+model IgCollaborator {
+  id           String   @id @default(cuid())
+  projectSlug  String
+  username     String // IG handle, lowercase, no leading @
+  fromUserbase Boolean  @default(false) // present in the SkateHive userbase
+  commentCount Int      @default(0) // times seen commenting on our posts
+  collabCount  Int      @default(0) // times tagged as a collaborator on a post
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([projectSlug, username])
+  @@index([projectSlug])
+  @@map("ig_collaborator")
+}

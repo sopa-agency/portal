@@ -8,6 +8,7 @@ import { prisma, withDbRetry } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { uploadMediaToPinata, createPinataSignedUploadUrl, normalizeMediaUrl } from "@/lib/social-publish";
 import { publishInstagramPost, fetchRecentInstagramMedia } from "@/lib/instagram-publish";
+import { recordIgCollaborators, syncIgCollaborators } from "@/app/actions/ig-collaborators";
 import { publishFacebookPost, facebookCrosspostEnabled } from "@/lib/facebook-publish";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import {
@@ -552,6 +553,12 @@ export async function publishDraft(
           error: null,
         },
       }));
+      // Grow the collaborator suggestion pool from this post: record who we
+      // tagged, and re-sync userbase + recent commenters. Best-effort — never
+      // let it affect the publish result.
+      await recordIgCollaborators(post.collaborators).catch(() => {});
+      await syncIgCollaborators().catch(() => {});
+
       // Cross-publish to the Facebook Page (best-effort — never undo IG success).
       // IG's native share-to-FB doesn't fire for API posts, so we post directly.
       let facebook: { ok: boolean; error?: string; permalink?: string } | undefined;

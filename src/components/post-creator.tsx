@@ -55,6 +55,7 @@ import {
   type CalendarExtra,
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
+import { listIgCollaborators, type IgCollaboratorSuggestion } from "@/app/actions/ig-collaborators";
 import { CAPTION_MAX, COMMENT_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, stepsInPhase, phaseForStep, PHASES, type ViewTab, type StepId, type PhaseId } from "@/components/post-creator-lib";
 import { IgPreview } from "@/components/post/ig-preview";
 import { IgFeedGrid, type FeedCell } from "@/components/post/ig-feed-grid";
@@ -1731,7 +1732,20 @@ export function PostCreator({
     setPreviewFit((f) => (f === "cover" ? "contain" : "cover"));
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [collabInput, setCollabInput] = useState("");
+  const [collabSuggestions, setCollabSuggestions] = useState<IgCollaboratorSuggestion[]>([]);
   const [firstComment, setFirstComment] = useState("");
+
+  // Autocomplete the collaborator field from the accumulated IG pool (userbase +
+  // commenters + past collaborators). Debounced; re-queries as you type.
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => {
+      void listIgCollaborators(collabInput, 8)
+        .then((s) => { if (live) setCollabSuggestions(s); })
+        .catch(() => { if (live) setCollabSuggestions([]); });
+    }, 180);
+    return () => { live = false; clearTimeout(t); };
+  }, [collabInput]);
 
   // Manual-only notes
   const [musicNote, setMusicNote] = useState("");
@@ -3221,6 +3235,43 @@ export function PostCreator({
               <p className="mt-1.5 text-[11px] text-foreground-faint">
                 Press Enter or comma to add.
               </p>
+
+              {/* Suggestions from the accumulated IG pool (userbase + commenters
+                  + past collaborators), "leading" first. */}
+              {collaborators.length < 3 &&
+                (() => {
+                  const sugg = collabSuggestions.filter((s) => !collaborators.includes(s.username));
+                  if (sugg.length === 0) return null;
+                  return (
+                    <div className="mt-2.5">
+                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-foreground-faint">
+                        {collabInput.trim() ? "Matches" : "Suggested"}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sugg.map((s) => (
+                          <button
+                            key={s.username}
+                            type="button"
+                            onClick={() => {
+                              addCollaborator(s.username);
+                              setCollabInput("");
+                            }}
+                            title={[
+                              s.collabCount > 0 ? `${s.collabCount}× colaborador` : null,
+                              s.commentCount > 0 ? `${s.commentCount}× comentou` : null,
+                              s.fromUserbase ? "no userbase" : null,
+                            ].filter(Boolean).join(" · ") || "sugestão"}
+                            className="flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[12px] text-foreground-muted transition-colors hover:border-accent-border hover:bg-accent-bg hover:text-accent"
+                          >
+                            {s.collabCount > 0 && <span className="text-amber-400">★</span>}
+                            @{s.username}
+                            {s.fromUserbase && <span className="text-[9px] text-foreground-faint">ub</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
             </div>
           </div>
         );

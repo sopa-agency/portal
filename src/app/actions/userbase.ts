@@ -906,3 +906,22 @@ export async function listThirdwebUsers(): Promise<ThirdwebUsersResult> {
     };
   }
 }
+
+/** Every Instagram handle attached to a userbase account (type "instagram"),
+ *  lowercased without a leading @ — the seed pool for collaborator suggestions. */
+export async function listUserbaseInstagramHandles(): Promise<string[]> {
+  const client = getUserbaseClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("userbase_identities")
+    .select("handle")
+    .eq("type", "instagram")
+    .limit(5000);
+  if (error || !data) return [];
+  const out = new Set<string>();
+  for (const r of data) {
+    const h = (r.handle as string | null)?.trim().replace(/^@/, "").toLowerCase();
+    if (h) out.add(h);
+  }
+  return [...out];
+}
