@@ -496,6 +496,7 @@ model CardPriority {
 model MemberSkills {
   username  String   @id
   skills    Json     @default("{}")
+  bio       String?  @db.Text
   updatedBy String?
   updatedAt DateTime @updatedAt
 }

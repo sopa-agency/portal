@@ -788,6 +788,8 @@ function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, important
 function MemberSkillsPanel({ username }: { username: string }) {
   const [values, setValues] = useState<Record<string, number> | null>(null);
   const [saved, setSaved] = useState<Record<string, number>>({}); // last persisted (for cancel)
+  const [bio, setBio] = useState("");
+  const [savedBio, setSavedBio] = useState("");
   const [canEdit, setCanEdit] = useState(false);
   const [editing, setEditing] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -797,14 +799,14 @@ function MemberSkillsPanel({ username }: { username: string }) {
     let live = true;
     getMemberSkills(username).then((r) => {
       if (!live) return;
-      if (r.ok) { setValues(r.skills); setSaved(r.skills); setCanEdit(r.canEdit); }
+      if (r.ok) { setValues(r.skills); setSaved(r.skills); setBio(r.bio); setSavedBio(r.bio); setCanEdit(r.canEdit); }
       else setValues({});
     });
     return () => { live = false; };
   }, [username]);
 
   if (values === null) {
-    return <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando skills…</p>;
+    return <p className="flex items-center gap-1.5 text-xs text-foreground-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…</p>;
   }
 
   const set = (key: string, v: number) => {
@@ -815,35 +817,54 @@ function MemberSkillsPanel({ username }: { username: string }) {
   async function save() {
     if (!values || saving) return;
     setSaving(true);
-    const r = await setMemberSkills(username, values);
+    const r = await setMemberSkills(username, values, bio);
     setSaving(false);
-    if (r.ok) { setSaved(values); setDirty(false); setEditing(false); }
+    if (r.ok) { setSaved(values); setSavedBio(bio); setDirty(false); setEditing(false); }
   }
 
   function cancel() {
     setValues(saved);
+    setBio(savedBio);
     setDirty(false);
     setEditing(false);
   }
 
   return (
-    <div className={editing ? "grid items-start gap-6 lg:grid-cols-2" : "flex flex-col items-center gap-3"}>
+    <div className={editing ? "grid items-start gap-6 lg:grid-cols-2" : "flex flex-col items-center gap-4"}>
       <div className="flex w-full justify-center">
         <SkillRadar values={values} accent="var(--color-accent)" />
       </div>
 
       {!editing ? (
-        canEdit ? (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
-          >
-            <Pencil className="h-3.5 w-3.5" /> Editar atributos
-          </button>
-        ) : null
+        <div className="flex w-full max-w-md flex-col items-center gap-3">
+          {bio.trim() ? (
+            <p className="whitespace-pre-wrap text-center text-sm text-foreground-muted">{bio}</p>
+          ) : canEdit ? (
+            <p className="text-xs italic text-foreground-faint">Sem bio ainda.</p>
+          ) : null}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+            >
+              <Pencil className="h-3.5 w-3.5" /> Editar atributos
+            </button>
+          )}
+        </div>
       ) : (
-        <div className="w-full space-y-2.5">
+        <div className="w-full space-y-3">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-foreground-faint">Bio</label>
+            <textarea
+              value={bio}
+              onChange={(e) => { setBio(e.target.value); setDirty(true); }}
+              rows={3}
+              maxLength={600}
+              placeholder="Uma linha sobre o membro, foco, etc."
+              className="w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+            />
+          </div>
           {SKILL_CATEGORIES.map((c) => {
             const v = values![c.key] ?? 0;
             return (
@@ -957,7 +978,7 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
     ...current.contacts.filter((c) => !known.has(c.label)).map((c) => ({ label: c.label, value: c.value, url: c.url })),
   ];
 
-  const [tab, setTab] = useState<"skills" | "contacts" | "tasks">("skills");
+  const [tab, setTab] = useState<"skills" | "contacts" | "tasks">("tasks");
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1028,7 +1049,7 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
 
         {/* Tabs — keep each section roomy instead of cramming the screen */}
         <div className="flex shrink-0 gap-1 border-b border-border px-5 sm:px-6">
-          {([["skills", "Skills"], ["contacts", "Conexões"], ["tasks", "Tarefas"]] as const).map(([id, label]) => (
+          {([["tasks", "Tarefas"], ["contacts", "Conexões"], ["skills", "Skills"]] as const).map(([id, label]) => (
             <button
               key={id}
               type="button"

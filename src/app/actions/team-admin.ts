@@ -301,22 +301,23 @@ export async function setGlobalAdmin(username: string, on: boolean): Promise<{ o
 
 // ── Member skills (radar chart) ──────────────────────────────────────────────
 
-/** Skill ratings (0–100 per category) for a member. Any logged-in member can read. */
+/** Skills (0–100 per category) + bio for a member. Any logged-in member can read. */
 export async function getMemberSkills(
   username: string,
-): Promise<{ ok: true; skills: Record<string, number>; canEdit: boolean } | { ok: false; error: string }> {
+): Promise<{ ok: true; skills: Record<string, number>; bio: string; canEdit: boolean } | { ok: false; error: string }> {
   const g = await viewerGate();
   if (!g.ok) return g;
   const target = username.toLowerCase().trim();
   const row = await prisma.memberSkills.findUnique({ where: { username: target } }).catch(() => null);
   const canEdit = g.who.username === target || g.who.role === "admin";
-  return { ok: true, skills: (row?.skills as Record<string, number>) ?? {}, canEdit };
+  return { ok: true, skills: (row?.skills as Record<string, number>) ?? {}, bio: row?.bio ?? "", canEdit };
 }
 
-/** Save a member's skills — allowed for the member themselves or an admin. */
+/** Save a member's skills + bio — allowed for the member themselves or an admin. */
 export async function setMemberSkills(
   username: string,
   skills: Record<string, number>,
+  bio?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await viewerGate();
   if (!g.ok) return g;
@@ -325,14 +326,15 @@ export async function setMemberSkills(
     return { ok: false, error: "Só o próprio membro ou um admin pode editar os skills." };
   }
   const clean = sanitizeSkills(skills);
+  const cleanBio = (bio ?? "").trim().slice(0, 600);
   try {
     await prisma.memberSkills.upsert({
       where: { username: target },
-      create: { username: target, skills: clean, updatedBy: g.who.username },
-      update: { skills: clean, updatedBy: g.who.username },
+      create: { username: target, skills: clean, bio: cleanBio, updatedBy: g.who.username },
+      update: { skills: clean, bio: cleanBio, updatedBy: g.who.username },
     });
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Falha ao salvar skills." };
+    return { ok: false, error: err instanceof Error ? err.message : "Falha ao salvar." };
   }
 }
