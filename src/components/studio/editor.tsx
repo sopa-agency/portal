@@ -26,7 +26,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/studio/ui/select";
 
-import { CardArtwork, spotMapsUrl, type Assets } from "@/components/studio/card-artwork";
+import { CardArtwork, spotMapsUrl, spotQrUrl, type Assets } from "@/components/studio/card-artwork";
 import QRCode from "qrcode";
 import { CARD_W, CARD_H, COLORS, type ElKey } from "@/lib/studio/tokens";
 import { elPos, withLayout, resetLayout } from "@/lib/studio/layout";
@@ -91,7 +91,7 @@ function newCard(tipo: Card["tipo"]): Card {
   if (tipo === "fundo")
     return migrateSubtitle({ tipo: "fundo", bgColor: "#ffffff", ...base, subtitulo: "CONTEXTO…", blocos: [{ id: newId(), texto: "Texto de contexto / explicação.", x: 73, y: 740, w: 934, fontSize: 30 }] });
   if (tipo === "spot")
-    return { tipo: "spot", imagem: null, spotName: "", spotLocation: "", spotAuthor: "", spotDescription: "", ...base, blocos: [] };
+    return { tipo: "spot", imagem: null, spotName: "", spotLocation: "", spotAuthor: "", spotPermlink: "", spotDescription: "", ...base, blocos: [] };
   return migrateSubtitle({ tipo: "conteudo", imagem: null, ...base, subtitulo: "NOVA CHAMADA…", blocos: [{ id: newId(), texto: "Texto do card.", x: 90, y: 950, w: 900, fontSize: 30 }] });
 }
 
@@ -184,17 +184,21 @@ export function Editor({
 
   const card = doc.cards[active];
 
-  // Spot card → live QR for the Google-Maps link (the burn recomputes it server-side).
+  // Spot card → live QR for the spot's skatehive.app page (the burn recomputes
+  // it server-side). Falls back to the Maps link for legacy cards w/o a permlink.
   const spotLocation = card?.tipo === "spot" ? card.spotLocation : "";
+  const spotAuthor = card?.tipo === "spot" ? card.spotAuthor : "";
+  const spotPermlink = card?.tipo === "spot" ? card.spotPermlink : "";
   const [spotQr, setSpotQr] = useState("");
   useEffect(() => {
-    if (!spotLocation) { setSpotQr(""); return; }
+    const url = (spotAuthor && spotPermlink) ? spotQrUrl(spotAuthor, spotPermlink, spotLocation) : (spotLocation ? spotMapsUrl(spotLocation) : "");
+    if (!url) { setSpotQr(""); return; }
     let live = true;
-    QRCode.toDataURL(spotMapsUrl(spotLocation), { margin: 1, width: 300 })
+    QRCode.toDataURL(url, { margin: 1, width: 300 })
       .then((d) => { if (live) setSpotQr(d); })
       .catch(() => { if (live) setSpotQr(""); });
     return () => { live = false; };
-  }, [spotLocation]);
+  }, [spotLocation, spotAuthor, spotPermlink]);
 
   // Burn preview: (re)render the active card to a real PNG, debounced, whenever
   // it changes while burn mode is on. The object URL is the exact post output.
@@ -325,7 +329,7 @@ export function Editor({
     const apply = (w: number | null, h: number | null) =>
       patchActive((c) => ({
         ...c, tipo: "spot", imagem: spot.photo, imgW: w, imgH: h, imgFit: DEFAULT_FIT,
-        spotName: spot.name, spotLocation: spot.location, spotAuthor: spot.author, spotDescription: spot.description,
+        spotName: spot.name, spotLocation: spot.location, spotAuthor: spot.author, spotPermlink: spot.permlink, spotDescription: spot.description,
       }) as Card);
     if (spot.photo) {
       const im = new window.Image();

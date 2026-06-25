@@ -71,6 +71,8 @@ export const ZSpot = z.object({
   spotName: z.string().default(""),
   spotLocation: z.string().default(""),
   spotAuthor: z.string().default(""),
+  /** The spot post's Hive permlink → QR deep-links to its skatehive.app page. */
+  spotPermlink: z.string().default(""),
   /** The spot post's description — carried into the post caption on export. */
   spotDescription: z.string().default(""),
   ...base,

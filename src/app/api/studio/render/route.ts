@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 import { cookies } from "next/headers";
-import { CardArtwork, spotMapsUrl } from "@/components/studio/card-artwork";
+import { CardArtwork, spotMapsUrl, spotQrUrl } from "@/components/studio/card-artwork";
 import QRCode from "qrcode";
 import { ZCard } from "@/lib/studio/schema";
 import { migrateSubtitle } from "@/lib/studio/parse-script";
@@ -39,10 +39,15 @@ export async function POST(req: NextRequest) {
     }
     const [fonts, assets] = await Promise.all([loadFonts(), loadAssets()]);
 
-    // Spot cards: QR → Google Maps of the location (replaces the raw code).
+    // Spot cards: QR → the spot's skatehive.app page (falls back to Google Maps
+    // for legacy cards without a permlink). Replaces the raw location code.
     let renderAssets = assets;
-    if (card.tipo === "spot" && card.spotLocation) {
-      const spotQr = await QRCode.toDataURL(spotMapsUrl(card.spotLocation), { margin: 1, width: 300 }).catch(() => "");
+    if (card.tipo === "spot" && (card.spotPermlink || card.spotLocation)) {
+      const url =
+        card.spotAuthor && card.spotPermlink
+          ? spotQrUrl(card.spotAuthor, card.spotPermlink, card.spotLocation)
+          : spotMapsUrl(card.spotLocation);
+      const spotQr = await QRCode.toDataURL(url, { margin: 1, width: 300 }).catch(() => "");
       if (spotQr) renderAssets = { ...assets, spotQr };
     }
 

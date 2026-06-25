@@ -13,6 +13,17 @@ export function spotMapsUrl(location: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.trim())}`;
 }
 
+/**
+ * The spot's page on skatehive.app (the canonical Hive frontend). Spots are
+ * Hive posts, so the page is /post/<author>/<permlink>. Falls back to the
+ * Maps link when we don't have the permlink (legacy cards).
+ */
+export function spotQrUrl(author: string, permlink: string, location: string): string {
+  const a = author.trim().replace(/^@/, "");
+  const p = permlink.trim();
+  return a && p ? `https://skatehive.app/post/${a}/${p}` : spotMapsUrl(location);
+}
+
 // Subtítulo (rich): *palavra* vira amarelo (Figma usa "MEMÓRIA"). Satori não faz texto
 // inline-colorido com quebra de linha; o jeito Satori-safe é 1 item flex por palavra +
 // flexWrap, com as palavras marcadas pintadas de amarelo.
@@ -249,7 +260,7 @@ function SpotLayer({ card, assets }: { card: Extract<Card, { tipo: "spot" }>; as
                 </div>
               ) : null}
               <div style={{ display: "flex", marginTop: 10, fontFamily: "Inter", fontWeight: 400, fontSize: 22, color: SPOT_LIME }}>
-                escaneie pro mapa
+                escaneie · skatehive.app
               </div>
             </div>
           </div>
