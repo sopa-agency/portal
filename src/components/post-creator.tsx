@@ -3221,6 +3221,9 @@ export function PostCreator({
                     value={collabInput}
                     onChange={(e) => setCollabInput(e.target.value)}
                     onKeyDown={handleCollabKeyDown}
+                    onFocus={() => {
+                      void listIgCollaborators(collabInput, 8).then(setCollabSuggestions).catch(() => {});
+                    }}
                     onBlur={() => {
                       if (collabInput.trim()) {
                         addCollaborator(collabInput);
@@ -3272,86 +3275,6 @@ export function PostCreator({
                     </div>
                   );
                 })()}
-            </div>
-          </div>
-        );
-
-      // ── Step 8: More options ──────────────────────────────────────────────
-      case "more":
-        return (
-          <div className="space-y-5">
-            <div>
-              <h2 className="text-2xl font-bold text-foreground">Anything else?</h2>
-              <p className="mt-1.5 text-sm text-foreground-muted">
-                Optional. These are notes for in-app settings that can&apos;t be set via the API.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-border bg-surface p-4 space-y-4">
-              <p className="text-[12px] font-semibold uppercase tracking-wider text-foreground-subtle">
-                In-app only — set in Instagram after posting
-              </p>
-
-              {/* Music — REELS only */}
-              {postType === "REELS" && (
-                <div className="space-y-1">
-                  <label className="flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
-                    <Music className="h-3.5 w-3.5" />
-                    Music / audio
-                    <span className="text-foreground-faint">(added in the Instagram app)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={musicNote}
-                    onChange={(e) => setMusicNote(e.target.value)}
-                    placeholder="e.g. 'Thrasher - Way' — note for yourself"
-                    className="w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
-                  />
-                </div>
-              )}
-
-              {/* Paid partnership — all types */}
-              <div className="space-y-1">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
-                  <Handshake className="h-3.5 w-3.5" />
-                  Paid partnership
-                  <span className="text-foreground-faint">(label set in the Instagram app)</span>
-                </label>
-                <input
-                  type="text"
-                  value={brandedPartner}
-                  onChange={(e) => setBrandedPartner(e.target.value)}
-                  placeholder="@brand — paid partnership label"
-                  className="w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
-                />
-              </div>
-
-              {/* Location — all types */}
-              <div className="space-y-1">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
-                  <MapPin className="h-3.5 w-3.5" />
-                  Location
-                  <span className="text-foreground-faint">(not available via API)</span>
-                </label>
-                <input
-                  type="text"
-                  value={locationNote}
-                  onChange={(e) => setLocationNote(e.target.value)}
-                  placeholder="Location name — add it in the Instagram app"
-                  className="w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
-                />
-              </div>
-
-              {/* Manual-mode banner */}
-              {requiresManual && (
-                <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/8 px-3 py-2.5 text-sm text-warning">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>
-                    This post uses {manualReasons.join(" / ")}, which Instagram only allows in the
-                    app. You can schedule it and we&apos;ll remind you to post it manually.
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         );

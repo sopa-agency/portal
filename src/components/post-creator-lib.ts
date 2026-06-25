@@ -25,7 +25,6 @@ export type StepId =
   | "firstComment"
   | "tags"
   | "collaborators"
-  | "more"
   | "review";
 
 // Phases — the 4 top-level wizard stops. The user thinks: what am I posting
@@ -50,7 +49,6 @@ const STEP_PHASE: Record<StepId, PhaseId> = {
   firstComment: "creative",
   tags: "distribution",
   collaborators: "distribution",
-  more: "distribution",
   review: "review",
 };
 
@@ -89,6 +87,6 @@ export function computeSteps(postType: PostType): StepId[] {
   const steps: StepId[] = ["title", "caption", "type", "media", "format"];
   steps.push("firstComment");
   if (postType === "IMAGE") steps.push("tags");
-  steps.push("collaborators", "more", "review");
+  steps.push("collaborators", "review");
   return steps;
 }
