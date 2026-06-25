@@ -790,7 +790,7 @@ function drawRecapCard(
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
 
 /** Overlay layer track — draw order follows track order (last = topmost). */
-type OverlayTrack = { id: string; label: string };
+type OverlayTrack = { id: string; label: string; kind?: "art" | "text" | "video" };
 const DEFAULT_TRACKS: OverlayTrack[] = [
   { id: "art", label: "Art" },
   { id: "text", label: "Text" },
@@ -1818,31 +1818,46 @@ export function VideoEditor({
     [],
   );
 
+  /** Ensure a dedicated VIDEO track exists; return its id (creating one if not). */
+  const ensureVideoTrack = useCallback(() => {
+    const existing = stateRef.current.overlayTracks.find((t) => t.kind === "video");
+    if (existing) return existing.id;
+    const id = nextId();
+    setOverlayTracks((prev) => [
+      ...prev,
+      { id, label: `Video ${prev.filter((t) => t.kind === "video").length + 2}`, kind: "video" },
+    ]);
+    return id;
+  }, []);
+
   /**
-   * Add a video as a parallel LAYER (overlay kind "video"), muted, full-frame,
-   * default "screen" blend so a black-background FX clip drops its black. It
-   * loops across the whole composition by default — tweak rect/blend after.
+   * Add a video onto a parallel video TRACK (overlay kind "video"), muted, as a
+   * normal full-frame clip (source-over) you can move/scale/trim — Premiere-style
+   * stacked tracks. Set a blend (e.g. "screen") afterwards for black-bg FX.
    */
   const addVideoOverlay = useCallback(
-    (item: BinItem, start = 0) => {
+    (item: BinItem, start = 0, opts?: { trackId?: string; blend?: GlobalCompositeOperation; loop?: boolean }) => {
       ensureAudioCtx();
-      const total = stateRef.current.clips.reduce((s, c) => s + (c.out - c.in), 0);
+      const len = Math.max(item.duration || 4, MIN_CLIP);
       const el = getVideoEl(item);
       el.muted = true;
       const ov: Overlay = {
         id: nextId(),
         kind: "video",
         trackId:
+          opts?.trackId ??
+          stateRef.current.overlayTracks.find((t) => t.kind === "video")?.id ??
           stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ??
           stateRef.current.overlayTracks[0]?.id ??
           "art",
         binId: item.id,
-        blend: "screen",
-        layerLoop: true,
+        blend: opts?.blend ?? "source-over",
+        layerLoop: opts?.loop ?? false,
         color: "#ffffff",
         bg: false,
         start: Math.max(0, start),
-        end: total > start ? total : start + Math.max(item.duration, 4),
+        // a clip is as long as its source by default (not the whole comp)
+        end: Math.max(0, start) + len,
         x: 0.5,
         y: 0.5,
         w: 1,
@@ -2791,9 +2806,10 @@ export function VideoEditor({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        addVideoOverlay(item, clockRef.current.base);
+                        const tid = ensureVideoTrack();
+                        addVideoOverlay(item, clockRef.current.base, { trackId: tid });
                       }}
-                      title="Adicionar como camada de vídeo (blend / FX)"
+                      title="Adicionar numa faixa de vídeo paralela (estilo Premiere)"
                       className="rounded-md border border-border bg-surface p-1 text-foreground-muted hover:border-border-strong hover:text-foreground"
                     >
                       <Layers className="h-3.5 w-3.5" />
@@ -3590,13 +3606,16 @@ export function VideoEditor({
               })}
             </div>
 
-            {/* overlay layer tracks — Art and Text separate; user can add more */}
+            {/* overlay + video layer tracks — Art/Text + Premiere-style video lanes */}
             {overlayTracks.map((track) => {
               const trackOverlays = overlays.filter((o) => o.trackId === track.id);
+              const isVideoTrack = track.kind === "video";
               return (
                 <div
                   key={track.id}
-                  className="relative mb-1.5 h-9 rounded-md bg-surface-elevated/60"
+                  className={`relative mb-1.5 rounded-md ${
+                    isVideoTrack ? "h-14 bg-accent/5 ring-1 ring-accent/20" : "h-9 bg-surface-elevated/60"
+                  }`}
                   onDragOver={(e) => {
                     if (e.dataTransfer.types.includes("application/x-bin-id")) e.preventDefault();
                   }}
@@ -3604,9 +3623,16 @@ export function VideoEditor({
                     e.preventDefault();
                     const binId = e.dataTransfer.getData("application/x-bin-id");
                     const item = stateRef.current.bin.find((b) => b.id === binId);
-                    if (!item || (item.kind !== "image" && item.kind !== "video")) return;
+                    if (!item) return;
                     const at = timelineDropSeconds(e, e.currentTarget);
-                    if (item.kind === "video") addVideoOverlay(item, at);
+                    if (isVideoTrack) {
+                      // a video lane only takes videos — placed as a normal clip
+                      if (item.kind !== "video") return;
+                      addVideoOverlay(item, at, { trackId: track.id });
+                      return;
+                    }
+                    if (item.kind !== "image" && item.kind !== "video") return;
+                    if (item.kind === "video") addVideoOverlay(item, at, { trackId: track.id });
                     else addOverlay(item, at);
                     setOverlays((prev) => {
                       const last = prev[prev.length - 1];
@@ -3614,9 +3640,18 @@ export function VideoEditor({
                     });
                   }}
                 >
-                  <span className="pointer-events-none absolute left-1 top-1 z-10 rounded bg-surface/80 px-1 text-[8px] uppercase tracking-wider text-foreground-faint">
+                  <span
+                    className={`pointer-events-none absolute left-1 top-1 z-10 rounded px-1 text-[8px] uppercase tracking-wider ${
+                      isVideoTrack ? "bg-accent/20 text-accent" : "bg-surface/80 text-foreground-faint"
+                    }`}
+                  >
                     {track.label}
                   </span>
+                  {isVideoTrack && trackOverlays.length === 0 && (
+                    <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] italic text-foreground-faint">
+                      drop video clips here
+                    </p>
+                  )}
                   {trackOverlays.length === 0 && overlayTracks.length > 2 && (
                     <button
                       type="button"
@@ -3630,6 +3665,70 @@ export function VideoEditor({
                   {trackOverlays.map((ov) => {
                     const item = bin.find((b) => b.id === ov.binId);
                     const isSel = selection?.type === "overlay" && selection.id === ov.id;
+                    // Video clips on a video lane: filmstrip block + left/right trim.
+                    if (ov.kind === "video") {
+                      return (
+                        <div
+                          key={ov.id}
+                          onClick={() => setSelection({ type: "overlay", id: ov.id })}
+                          onPointerDown={hDrag((d) =>
+                            setOverlays((prev) =>
+                              prev.map((o) => {
+                                if (o.id !== ov.id) return o;
+                                const len = o.end - o.start;
+                                const start = snap(Math.max(0, o.start + d));
+                                return { ...o, start, end: start + len };
+                              }),
+                            ),
+                          )}
+                          style={{ left: ov.start * pps, width: Math.max((ov.end - ov.start) * pps, 28) }}
+                          className={`group absolute top-1 flex h-12 cursor-grab items-end overflow-hidden rounded border ${
+                            isSel ? "border-accent ring-1 ring-accent" : "border-border hover:border-border-strong"
+                          }`}
+                          title={`${item?.name ?? "vídeo"} · blend ${ov.blend ?? "normal"}`}
+                        >
+                          {item?.thumbs?.length ? (
+                            <div className="absolute inset-0 flex">
+                              {item.thumbs.map((t, ti) => (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img key={ti} src={t} alt="" className="h-full min-w-0 flex-1 object-cover" />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="absolute inset-0 bg-surface" />
+                          )}
+                          <span className="relative z-10 max-w-full truncate bg-black/55 px-1 text-[9px] text-white">
+                            {item?.name ?? "vídeo"}
+                            {ov.blend && ov.blend !== "source-over" ? ` · ${ov.blend}` : ""}
+                          </span>
+                          {/* left trim — moves start + source in-point together */}
+                          <span
+                            onPointerDown={hDrag((d) =>
+                              setOverlays((prev) =>
+                                prev.map((o) => {
+                                  if (o.id !== ov.id) return o;
+                                  const start = snap(Math.max(0, Math.min(o.start + d, o.end - MIN_CLIP)));
+                                  const delta = start - o.start;
+                                  return { ...o, start, layerOffset: Math.max(0, (o.layerOffset ?? 0) + delta) };
+                                }),
+                              ),
+                            )}
+                            className="absolute inset-y-0 left-0 z-20 w-2 cursor-ew-resize rounded-l bg-accent/0 group-hover:bg-accent/70"
+                          />
+                          {/* right trim — out point */}
+                          <span
+                            onPointerDown={hDrag((d) =>
+                              setOverlays((prev) =>
+                                prev.map((o) =>
+                                  o.id === ov.id ? { ...o, end: snap(Math.max(o.start + MIN_CLIP, o.end + d)) } : o,
+                                ),
+                              ),
+                            )}
+                            className="absolute inset-y-0 right-0 z-20 w-2 cursor-ew-resize rounded-r bg-accent/0 group-hover:bg-accent/70"
+                          />
+                        </div>
+                      );
+                    }
                     return (
                       <div
                         key={ov.id}
@@ -3657,8 +3756,6 @@ export function VideoEditor({
                           <Square className="mr-1 h-3 w-3 shrink-0" style={{ color: ov.color }} />
                         ) : ov.kind === "card" ? (
                           <Sparkles className="mr-1 h-3 w-3 shrink-0 text-accent" />
-                        ) : ov.kind === "video" ? (
-                          <Layers className="mr-1 h-3 w-3 shrink-0 text-accent" />
                         ) : (
                           <ImageIcon className="mr-1 h-3 w-3 shrink-0" />
                         )}
@@ -3669,9 +3766,7 @@ export function VideoEditor({
                               ? ov.shape ?? "shape"
                               : ov.kind === "card"
                                 ? `${CARD_STYLE_META[ov.card!.style].name}`
-                                : ov.kind === "video"
-                                  ? `${item?.name ?? "vídeo"} · ${ov.blend ?? "screen"}`
-                                  : item?.name ?? "art"}
+                                : item?.name ?? "art"}
                         </span>
                         <span
                           onPointerDown={hDrag((d) =>
@@ -3689,18 +3784,32 @@ export function VideoEditor({
                 </div>
               );
             })}
-            <button
-              type="button"
-              onClick={() =>
-                setOverlayTracks((prev) => [
-                  ...prev,
-                  { id: nextId(), label: `Layer ${prev.length + 1}` },
-                ])
-              }
-              className="mb-1.5 w-full rounded-md border border-dashed border-border px-2 py-1 text-[10px] text-foreground-faint transition-colors hover:border-border-strong hover:text-foreground"
-            >
-              + add layer track
-            </button>
+            <div className="mb-1.5 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() =>
+                  setOverlayTracks((prev) => [
+                    ...prev,
+                    { id: nextId(), label: `Video ${prev.filter((t) => t.kind === "video").length + 2}`, kind: "video" },
+                  ])
+                }
+                className="flex flex-1 items-center justify-center gap-1 rounded-md border border-dashed border-accent-border px-2 py-1 text-[10px] text-accent transition-colors hover:bg-accent-bg"
+              >
+                <Layers className="h-3 w-3" /> + faixa de vídeo
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setOverlayTracks((prev) => [
+                    ...prev,
+                    { id: nextId(), label: `Layer ${prev.length + 1}`, kind: "art" },
+                  ])
+                }
+                className="flex-1 rounded-md border border-dashed border-border px-2 py-1 text-[10px] text-foreground-faint transition-colors hover:border-border-strong hover:text-foreground"
+              >
+                + faixa de art/texto
+              </button>
+            </div>
 
             {/* audio track */}
             <div
