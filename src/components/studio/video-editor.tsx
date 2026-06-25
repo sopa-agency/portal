@@ -174,6 +174,23 @@ const CARD_STYLE_META: Record<CardStyle, { name: string; note: string; defaultAc
   skatecard: { name: "Skate Trading Card", note: "Baseball-card layout for skate — name plate, framed clip, stat bar (Gnars gold)", defaultAccent: "#fbbf24" },
 };
 
+// Recurring-post title designs — themed overlay treatments (accent bar + title +
+// subtitle) for the formats we post on a cadence. Edit text after adding.
+type RecurringDesignKey = "weekly" | "bestweek" | "bestmonth";
+const RECURRING_DESIGNS: {
+  key: RecurringDesignKey;
+  name: string;
+  note: string;
+  badge: string;
+  accent: string;
+  title: string;
+  subtitle: string;
+}[] = [
+  { key: "weekly", name: "Weekly Recap", note: "Resumo semanal da comunidade", badge: "WK", accent: "#a3e635", title: "WEEKLY RECAP", subtitle: "SkateHive · skatehive.app" },
+  { key: "bestweek", name: "Best of the Week", note: "Destaque do skater na semana", badge: "BOW", accent: "#38bdf8", title: "BEST OF THE WEEK", subtitle: "@skater" },
+  { key: "bestmonth", name: "Best of the Month", note: "Destaque do skater no mês", badge: "BOM", accent: "#fbbf24", title: "BEST OF THE MONTH", subtitle: "@skater" },
+];
+
 // Gnars bounty palette — mirrors gnars-website OG_COLORS (og-utils.ts).
 const GN = {
   bg: "#000000",
@@ -884,7 +901,6 @@ export function VideoEditor({
   const [creatorCursor, setCreatorCursor] = useState<CreatorCursor | null>(null);
   const [creatorMoreBusy, setCreatorMoreBusy] = useState(false);
   const [shSelected, setShSelected] = useState<Set<string>>(new Set());
-  const [composeBusy, setComposeBusy] = useState<string | null>(null);
 
   // Creator filter chips: the leaderboard top-20 when it's available, always
   // augmented with the authors actually present in the loaded feed. The
@@ -1493,51 +1509,26 @@ export function VideoEditor({
   };
 
   /**
-   * One-click starter compositions. Pulls the relevant SkateHive clips (top of
-   * the window by votes), drops them on the timeline 9:16, and adds a branded
-   * intro + outro title card. Weekly Recap = whole community; Best of Week/Month
-   * = the selected creator only.
+   * Recurring-post overlay DESIGNS — a themed title treatment (accent bar +
+   * title + subtitle) dropped on the video, like the card overlays but tuned for
+   * weekly/best-of formats. Composed from the existing text + shape primitives.
    */
-  const applyComposeTemplate = async (kind: "weekly" | "bestWeek" | "bestMonth") => {
-    if (composeBusy) return;
-    if (kind !== "weekly" && !selectedCreator) return; // UI guards this
-    const all = (kind === "weekly" ? shVideos : creatorVideos) ?? [];
-    const days = kind === "bestMonth" ? 30 : 7;
-    const cutoff = Date.now() - days * 86_400_000;
-    const pool = all
-      .filter((v) => !binUrlSet.has(safeUrl(v.url)))
-      .filter((v) => {
-        const t = v.created ? new Date(v.created).getTime() : 0;
-        return !t || t >= cutoff;
-      })
-      .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))
-      .slice(0, 8);
-    if (pool.length === 0) return;
-
-    setComposeBusy(kind);
-    try {
-      setAspect("9:16");
-      let total = 0;
-      for (const v of pool) {
-        const url = safeUrl(v.url);
-        const duration = (await probeDuration(url, "video")) || 10;
-        const item: BinItem = { id: nextId(), kind: "video", name: v.title, url, duration, credit: `@${v.author} · ▲${v.votes}` };
-        setBin((prev) => [...prev, item]);
-        enrichItem(item.id, url, "video", duration);
-        addClip(item);
-        total += duration;
-      }
-      const title = kind === "weekly" ? "WEEKLY RECAP" : kind === "bestWeek" ? "BEST OF THE WEEK" : "BEST OF THE MONTH";
-      const sub = kind === "weekly" ? "SkateHive" : `@${selectedCreator}`;
-      const textTrack = stateRef.current.overlayTracks.find((t) => t.id === "text")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "text";
-      const intro: Overlay = { id: nextId(), kind: "text", trackId: textTrack, text: `${title}\n${sub}`, color: "#ffffff", bg: true, start: 0, end: Math.min(2.8, total || 2.8), x: 0.5, y: 0.5, w: 0.82, opacity: 1, rotation: 0 };
-      const outro: Overlay = { id: nextId(), kind: "text", trackId: textTrack, text: kind === "weekly" ? "skatehive.app" : `Siga @${selectedCreator}`, color: "#ffffff", bg: true, start: Math.max(0, total - 2.8), end: total || 2.8, x: 0.5, y: 0.5, w: 0.82, opacity: 1, rotation: 0 };
-      setOverlays((prev) => [...prev, intro, outro]);
-      setShSelected(new Set());
-      setBinTab("uploads");
-    } finally {
-      setComposeBusy(null);
-    }
+  const addRecurringDesign = (key: RecurringDesignKey) => {
+    const d = RECURRING_DESIGNS.find((x) => x.key === key);
+    if (!d) return;
+    const start = clockRef.current.base;
+    const total = stateRef.current.clips.reduce((s, c) => s + (c.out - c.in), 0);
+    const end = total > start ? total : start + 5;
+    const artTrack = stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "art";
+    const textTrack = stateRef.current.overlayTracks.find((t) => t.id === "text")?.id ?? artTrack;
+    const base = { start: Math.max(0, start), end, opacity: 1, rotation: 0 };
+    // accent bar behind the title (top third)
+    const bar: Overlay = { id: nextId(), kind: "shape", trackId: artTrack, shape: "rect", hRatio: 0.16, color: d.accent, bg: false, x: 0.5, y: 0.16, w: 0.92, ...base };
+    const title: Overlay = { id: nextId(), kind: "text", trackId: textTrack, text: d.title, color: "#0a0a0a", bg: false, x: 0.5, y: 0.13, w: 0.9, ...base };
+    const sub: Overlay = { id: nextId(), kind: "text", trackId: textTrack, text: d.subtitle, color: "#ffffff", bg: true, x: 0.5, y: 0.27, w: 0.7, ...base };
+    setOverlays((prev) => [...prev, bar, title, sub]);
+    setSelection({ type: "overlay", id: title.id });
+    setBinTab("templates");
   };
 
   const syncThumbnails = async () => {
@@ -2839,42 +2830,28 @@ export function VideoEditor({
 
           {binTab === "templates" && (
             <>
-              {/* One-click compositions — build a whole 9:16 edit from SkateHive clips */}
-              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-subtle">Composições</p>
+              {/* Recurring-post overlay designs (title treatments for the video) */}
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-subtle">Posts recorrentes</p>
               <p className="px-1 text-[11px] text-foreground-faint">
-                Monta um edit 9:16 inteiro num clique: puxa os melhores clips da SkateHive, joga na timeline
-                e adiciona intro + outro com a marca.
+                Designs de título prontos pros formatos recorrentes — adiciona uma faixa/título sobre o vídeo. Edite o texto depois.
               </p>
-              <button
-                type="button"
-                disabled={!!composeBusy}
-                onClick={() => void applyComposeTemplate("weekly")}
-                className="flex w-full items-center gap-3 rounded-lg border border-accent-border bg-accent-bg/40 px-3 py-2.5 text-left transition-colors hover:border-accent disabled:opacity-50"
-              >
-                {composeBusy === "weekly" ? <Loader2 className="h-5 w-5 animate-spin text-accent" /> : <Sparkles className="h-5 w-5 text-accent" />}
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-semibold text-foreground">Weekly Recap</span>
-                  <span className="block text-[10px] text-foreground-faint">Top da comunidade · últimos 7 dias</span>
-                </span>
-              </button>
-              {(["bestWeek", "bestMonth"] as const).map((k) => (
+              {RECURRING_DESIGNS.map((d) => (
                 <button
-                  key={k}
+                  key={d.key}
                   type="button"
-                  disabled={!!composeBusy || !selectedCreator}
-                  title={!selectedCreator ? "Escolha um criador na aba SkateHive primeiro" : undefined}
-                  onClick={() => void applyComposeTemplate(k)}
-                  className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2.5 text-left transition-colors hover:border-accent-border disabled:opacity-50"
+                  onClick={() => addRecurringDesign(d.key)}
+                  className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2.5 text-left transition-colors hover:border-accent-border"
                 >
-                  {composeBusy === k ? <Loader2 className="h-5 w-5 animate-spin" /> : <span className="text-base">🏆</span>}
+                  <span
+                    className="flex h-12 w-9 shrink-0 flex-col items-center justify-center gap-1 rounded-md border"
+                    style={{ borderColor: d.accent, background: "linear-gradient(160deg, rgba(20,24,16,.96), rgba(8,10,7,.98))" }}
+                  >
+                    <span className="h-1.5 w-6 rounded-sm" style={{ background: d.accent }} />
+                    <span className="text-[7px] font-bold leading-none text-white">{d.badge}</span>
+                  </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-semibold text-foreground">
-                      {k === "bestWeek" ? "Best of the Week" : "Best of the Month"}
-                      {selectedCreator ? <span className="text-accent"> · @{selectedCreator}</span> : null}
-                    </span>
-                    <span className="block text-[10px] text-foreground-faint">
-                      {selectedCreator ? `Clips de @${selectedCreator} · últimos ${k === "bestWeek" ? "7" : "30"} dias` : "Escolha um criador na aba SkateHive"}
-                    </span>
+                    <span className="block text-xs font-semibold text-foreground">{d.name}</span>
+                    <span className="block text-[10px] text-foreground-faint">{d.note}</span>
                   </span>
                 </button>
               ))}
