@@ -20,6 +20,7 @@ import {
   Download,
   Film,
   Image as ImageIcon,
+  Layers,
   Loader2,
   Music,
   Pause,
@@ -110,12 +111,28 @@ type CardData = {
   avatar?: string;
 };
 
+/** Blend modes offered for video/image layers (subset of canvas composite ops). */
+const BLEND_MODES: { value: GlobalCompositeOperation; label: string; hint: string }[] = [
+  { value: "source-over", label: "Normal", hint: "Opaco, cobre o que está embaixo" },
+  { value: "screen", label: "Screen", hint: "Some o preto — ideal p/ FX com fundo preto" },
+  { value: "lighten", label: "Lighten", hint: "Mantém o pixel mais claro" },
+  { value: "lighter", label: "Add (lighter)", hint: "Soma a luz — brilhos/partículas" },
+  { value: "overlay", label: "Overlay", hint: "Contraste — luz e sombra" },
+  { value: "multiply", label: "Multiply", hint: "Some o branco — escurece" },
+];
+
 type Overlay = {
   id: string;
-  kind: "image" | "text" | "shape" | "card";
+  kind: "image" | "text" | "shape" | "card" | "video";
   /** Which overlay track this layer lives on. */
   trackId: string;
   binId?: string;
+  /** Canvas composite op for video/image layers (default source-over). */
+  blend?: GlobalCompositeOperation;
+  /** Per-layer playback start within the source clip (video layers, seconds). */
+  layerOffset?: number;
+  /** Loop a video layer shorter than its on-screen span. */
+  layerLoop?: boolean;
   /** Shape style (kind shape). */
   shape?: "rect" | "pill";
   /** Shape height as a fraction of its width. */
@@ -1217,6 +1234,13 @@ export function VideoEditor({
         const oh = ow * (ov.hRatio ?? 0.4);
         return { cx: w * ov.x, cy: h * ov.y, ow, oh };
       }
+      if (ov.kind === "video") {
+        const vitem = stateRef.current.bin.find((b) => b.id === ov.binId);
+        const vel = vitem ? videoEls.current.get(vitem.id) : null;
+        const vr = vel && vel.videoWidth ? vel.videoHeight / vel.videoWidth : 16 / 9;
+        const ow = w * ov.w;
+        return { cx: w * ov.x, cy: h * ov.y, ow, oh: ow * vr };
+      }
       const item = stateRef.current.bin.find((b) => b.id === ov.binId);
       const img = item ? imageEls.current.get(item.id) : null;
       const ratio = img && img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1;
@@ -1410,6 +1434,41 @@ export function VideoEditor({
         continue;
       }
 
+      if (ov.kind === "video") {
+        const vitem = stateRef.current.bin.find((b) => b.id === ov.binId);
+        if (!vitem) continue;
+        const vel = getVideoEl(vitem);
+        if (vel.readyState < 2) continue;
+        const { cx, cy, ow, oh } = overlayRect(ov);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(ov.rotation);
+        ctx.globalAlpha = ov.opacity;
+        ctx.globalCompositeOperation = ov.blend ?? "source-over";
+        ctx.drawImage(vel, -ow / 2, -oh / 2, ow, oh);
+        ctx.globalCompositeOperation = "source-over";
+        ctx.globalAlpha = 1;
+        if (sel?.type === "overlay" && sel.id === ov.id) {
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = Math.max(2, w / 360);
+          ctx.setLineDash([10, 6]);
+          ctx.strokeRect(-ow / 2, -oh / 2, ow, oh);
+          ctx.setLineDash([]);
+          const r = Math.max(10, w / 72);
+          ctx.fillStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(ow / 2, oh / 2, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#000";
+          ctx.font = `${r * 1.2}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("↘", ow / 2, oh / 2 + 1);
+        }
+        ctx.restore();
+        continue;
+      }
+
       const item = stateRef.current.bin.find((b) => b.id === ov.binId);
       if (!item) continue;
       const img = getImageEl(item);
@@ -1455,6 +1514,24 @@ export function VideoEditor({
         if (gain) gain.gain.value = clip.volume;
         if (active && clip.id === active.clip.id) {
           if (Math.abs(el.currentTime - active.local) > 0.25) el.currentTime = active.local;
+          if (isPlaying && el.paused) void el.play().catch(() => {});
+          if (!isPlaying && !el.paused) el.pause();
+        } else if (!el.paused) el.pause();
+      }
+      // Video layers (overlay kind "video") play in parallel, always MUTED.
+      // Driven the same way during export — they're plain <video> els playing on
+      // the muted path, the drift guard re-syncs them to the master clock t.
+      for (const ov of stateRef.current.overlays) {
+        if (ov.kind !== "video") continue;
+        const item = bs.find((b) => b.id === ov.binId);
+        if (!item) continue;
+        const el = getVideoEl(item);
+        el.muted = true;
+        const onScreen = t >= ov.start && t <= ov.end;
+        if (onScreen) {
+          const span = t - ov.start + (ov.layerOffset ?? 0);
+          const local = item.duration > 0 && ov.layerLoop ? span % item.duration : span;
+          if (Math.abs(el.currentTime - local) > 0.25) el.currentTime = Math.max(0, local);
           if (isPlaying && el.paused) void el.play().catch(() => {});
           if (!isPlaying && !el.paused) el.pause();
         } else if (!el.paused) el.pause();
@@ -1739,6 +1816,43 @@ export function VideoEditor({
       setSelection({ type: "overlay", id: ov.id });
     },
     [],
+  );
+
+  /**
+   * Add a video as a parallel LAYER (overlay kind "video"), muted, full-frame,
+   * default "screen" blend so a black-background FX clip drops its black. It
+   * loops across the whole composition by default — tweak rect/blend after.
+   */
+  const addVideoOverlay = useCallback(
+    (item: BinItem, start = 0) => {
+      ensureAudioCtx();
+      const total = stateRef.current.clips.reduce((s, c) => s + (c.out - c.in), 0);
+      const el = getVideoEl(item);
+      el.muted = true;
+      const ov: Overlay = {
+        id: nextId(),
+        kind: "video",
+        trackId:
+          stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ??
+          stateRef.current.overlayTracks[0]?.id ??
+          "art",
+        binId: item.id,
+        blend: "screen",
+        layerLoop: true,
+        color: "#ffffff",
+        bg: false,
+        start: Math.max(0, start),
+        end: total > start ? total : start + Math.max(item.duration, 4),
+        x: 0.5,
+        y: 0.5,
+        w: 1,
+        opacity: 1,
+        rotation: 0,
+      };
+      setOverlays((prev) => [...prev, ov]);
+      setSelection({ type: "overlay", id: ov.id });
+    },
+    [ensureAudioCtx, getVideoEl],
   );
 
   /** Studio-style shape layer (box / pill) at the playhead. */
@@ -2070,6 +2184,8 @@ export function VideoEditor({
       addAudio(item, at);
     } else if (track === "art" && item.kind === "image") {
       addOverlay(item, at);
+    } else if (track === "art" && item.kind === "video") {
+      addVideoOverlay(item, at);
     }
   };
 
@@ -2381,6 +2497,15 @@ export function VideoEditor({
       const el = getVideoEl(item);
       if (el.readyState < 2) await waitEvent(el, "loadeddata", 8000);
     }
+    // Preload parallel video LAYERS too (muted) so they aren't frozen on frame 0.
+    for (const ov of stateRef.current.overlays) {
+      if (ov.kind !== "video" || !ov.binId) continue;
+      const item = stateRef.current.bin.find((b) => b.id === ov.binId);
+      if (!item) continue;
+      const el = getVideoEl(item);
+      el.muted = true;
+      if (el.readyState < 2) await waitEvent(el, "loadeddata", 8000);
+    }
     const firstItem = stateRef.current.bin.find((b) => b.id === cs[0]?.binId);
     if (firstItem) {
       const el = getVideoEl(firstItem);
@@ -2661,6 +2786,19 @@ export function VideoEditor({
                       {item.credit ? ` · ${item.credit}` : ""}
                     </p>
                   </div>
+                  {item.kind === "video" && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addVideoOverlay(item, clockRef.current.base);
+                      }}
+                      title="Adicionar como camada de vídeo (blend / FX)"
+                      className="rounded-md border border-border bg-surface p-1 text-foreground-muted hover:border-border-strong hover:text-foreground"
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -3466,9 +3604,10 @@ export function VideoEditor({
                     e.preventDefault();
                     const binId = e.dataTransfer.getData("application/x-bin-id");
                     const item = stateRef.current.bin.find((b) => b.id === binId);
-                    if (!item || item.kind !== "image") return;
+                    if (!item || (item.kind !== "image" && item.kind !== "video")) return;
                     const at = timelineDropSeconds(e, e.currentTarget);
-                    addOverlay(item, at);
+                    if (item.kind === "video") addVideoOverlay(item, at);
+                    else addOverlay(item, at);
                     setOverlays((prev) => {
                       const last = prev[prev.length - 1];
                       return last ? [...prev.slice(0, -1), { ...last, trackId: track.id }] : prev;
@@ -3518,6 +3657,8 @@ export function VideoEditor({
                           <Square className="mr-1 h-3 w-3 shrink-0" style={{ color: ov.color }} />
                         ) : ov.kind === "card" ? (
                           <Sparkles className="mr-1 h-3 w-3 shrink-0 text-accent" />
+                        ) : ov.kind === "video" ? (
+                          <Layers className="mr-1 h-3 w-3 shrink-0 text-accent" />
                         ) : (
                           <ImageIcon className="mr-1 h-3 w-3 shrink-0" />
                         )}
@@ -3528,7 +3669,9 @@ export function VideoEditor({
                               ? ov.shape ?? "shape"
                               : ov.kind === "card"
                                 ? `${CARD_STYLE_META[ov.card!.style].name}`
-                                : item?.name ?? "art"}
+                                : ov.kind === "video"
+                                  ? `${item?.name ?? "vídeo"} · ${ov.blend ?? "screen"}`
+                                  : item?.name ?? "art"}
                         </span>
                         <span
                           onPointerDown={hDrag((d) =>
@@ -3704,8 +3847,55 @@ export function VideoEditor({
             {selOverlay && selOverlay.kind !== "card" && (
               <>
                 <span className="font-medium text-foreground">
-                  {selOverlay.kind === "text" ? "Text" : selOverlay.kind === "shape" ? "Shape" : "Sticker"}
+                  {selOverlay.kind === "text"
+                    ? "Text"
+                    : selOverlay.kind === "shape"
+                      ? "Shape"
+                      : selOverlay.kind === "video"
+                        ? "Camada de vídeo"
+                        : "Sticker"}
                 </span>
+                {selOverlay.kind === "video" && (
+                  <>
+                    <label className="flex items-center gap-2 text-foreground-muted">
+                      blend
+                      <select
+                        value={selOverlay.blend ?? "source-over"}
+                        onChange={(e) =>
+                          setOverlays((prev) =>
+                            prev.map((o) =>
+                              o.id === selOverlay.id
+                                ? { ...o, blend: e.target.value as GlobalCompositeOperation }
+                                : o,
+                            ),
+                          )
+                        }
+                        title={BLEND_MODES.find((b) => b.value === (selOverlay.blend ?? "source-over"))?.hint}
+                        className="rounded-md border border-border bg-surface-elevated px-1.5 py-0.5 text-foreground"
+                      >
+                        {BLEND_MODES.map((b) => (
+                          <option key={b.value} value={b.value}>
+                            {b.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center gap-1.5 text-foreground-muted">
+                      <input
+                        type="checkbox"
+                        checked={selOverlay.layerLoop ?? false}
+                        onChange={(e) =>
+                          setOverlays((prev) =>
+                            prev.map((o) =>
+                              o.id === selOverlay.id ? { ...o, layerLoop: e.target.checked } : o,
+                            ),
+                          )
+                        }
+                      />
+                      loop
+                    </label>
+                  </>
+                )}
                 {selOverlay.kind === "shape" && (
                   <>
                     <span className="flex items-center gap-1">
