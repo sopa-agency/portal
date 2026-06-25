@@ -34,8 +34,16 @@ export async function POST(req: NextRequest) {
       });
     }
     let card = migrateSubtitle(parsed.data);
+    const origImg = "imagem" in card ? card.imagem : null;
     if ("imagem" in card && card.imagem) {
-      card = { ...card, imagem: await resolveImg(card.imagem) };
+      const resolved = await resolveImg(card.imagem);
+      // DIAGNOSTIC: if resolved still === the raw http URL, the server couldn't
+      // fetch/normalize the image → Satori will render it blank or fail.
+      const embedded = !!resolved && resolved.startsWith("data:");
+      console.log(
+        `[studio/render] tipo=${card.tipo} img=${origImg?.slice(0, 90)} embedded=${embedded}${embedded ? ` bytes≈${Math.round((resolved!.length * 0.75) / 1024)}KB` : " (FELL BACK TO RAW URL)"}`,
+      );
+      card = { ...card, imagem: resolved };
     }
     const [fonts, assets] = await Promise.all([loadFonts(), loadAssets()]);
 
@@ -58,6 +66,7 @@ export async function POST(req: NextRequest) {
     });
 
     const png = new Resvg(svg, { fitTo: { mode: "width", value: CARD_W } }).render().asPng();
+    console.log(`[studio/render] OK tipo=${card.tipo} png=${Math.round(png.length / 1024)}KB`);
     return new Response(new Uint8Array(png), {
       headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
     });
