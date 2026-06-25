@@ -23,7 +23,10 @@ export type SkateSpot = {
   /** Human/coords location string (coords by default; user can override). */
   location: string;
   coords: string | null;
+  /** First photo (cover) — kept for back-compat with single-photo callers. */
   photo: string | null;
+  /** Every photo in the spot post, de-duped, in body order. */
+  photos: string[];
   /** The spot post's prose description (body minus name/coords/images). */
   description: string;
   author: string;
@@ -52,11 +55,17 @@ function parseSpot(post: RawSpot): SkateSpot | null {
     /🌐\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*)/.exec(body)?.[1]?.replace(/\s+/g, " ").trim() ||
     /^\s*(-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+)\s*$/m.exec(body)?.[1]?.trim() ||
     null;
-  // first markdown / html image in the body
-  const photo =
-    /!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/.exec(body)?.[1] ||
-    /<img[^>]+src=["'](https?:\/\/[^"']+)["']/i.exec(body)?.[1] ||
-    null;
+  // every markdown / html image in the body (de-duped, in order) — a spot can
+  // have multiple photos, which become a carousel in the studio.
+  const photos: string[] = [];
+  const seen = new Set<string>();
+  for (const m of body.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)) {
+    if (m[1] && !seen.has(m[1])) { seen.add(m[1]); photos.push(m[1]); }
+  }
+  for (const m of body.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/gi)) {
+    if (m[1] && !seen.has(m[1])) { seen.add(m[1]); photos.push(m[1]); }
+  }
+  const photo = photos[0] ?? null;
   // Description = the prose: body minus the "Spot Name:" line, the coords line,
   // and any images/embeds. What's left is the human caption for the spot.
   const description = body
@@ -76,6 +85,7 @@ function parseSpot(post: RawSpot): SkateSpot | null {
     location: coords ?? "",
     coords,
     photo,
+    photos,
     description,
     author: post.author,
     permlink: post.permlink,

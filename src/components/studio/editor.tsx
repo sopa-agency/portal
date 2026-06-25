@@ -323,21 +323,42 @@ export function Editor({
     setSpotsOpen(true);
     if (!spots) void loadSpots(1);
   };
-  // Fill the active card from a picked spot (measure natural dims so the
-  // framing/zoom works just like an uploaded photo).
-  const pickSpot = (spot: SkateSpot) => {
-    const apply = (w: number | null, h: number | null) =>
-      patchActive((c) => ({
-        ...c, tipo: "spot", imagem: spot.photo, imgW: w, imgH: h, imgFit: DEFAULT_FIT,
-        spotName: spot.name, spotLocation: spot.location, spotAuthor: spot.author, spotPermlink: spot.permlink, spotDescription: spot.description,
-      }) as Card);
-    if (spot.photo) {
+  // Fill the active card from a picked spot. A spot with multiple photos becomes
+  // a CAROUSEL: one "Skate Spot Found!" card per photo (same name/location/author/
+  // permlink), the first replacing the active card and the rest inserted after it.
+  // Natural dims are measured per photo so framing/zoom works like an upload.
+  const measureImg = (src: string) =>
+    new Promise<{ w: number | null; h: number | null }>((res) => {
       const im = new window.Image();
-      im.onload = () => apply(im.naturalWidth, im.naturalHeight);
-      im.onerror = () => apply(null, null);
-      im.src = spot.photo;
-    } else apply(null, null);
+      im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
+      im.onerror = () => res({ w: null, h: null });
+      im.src = src;
+    });
+  const pickSpot = async (spot: SkateSpot) => {
     setSpotsOpen(false);
+    const photos = spot.photos.length ? spot.photos : spot.photo ? [spot.photo] : [];
+    const fields = {
+      tipo: "spot" as const,
+      spotName: spot.name, spotLocation: spot.location, spotAuthor: spot.author,
+      spotPermlink: spot.permlink, spotDescription: spot.description,
+    };
+    if (photos.length === 0) {
+      patchActive((c) => ({ ...c, ...fields, imagem: null, imgW: null, imgH: null, imgFit: DEFAULT_FIT }) as Card);
+      return;
+    }
+    const dims = await Promise.all(photos.map(measureImg));
+    setDoc((d) => {
+      const cards = [...d.cards];
+      const baseCard = cards[active];
+      const deck = photos.map((photo, i) => {
+        // First card keeps the active card's identity/layout; extras are fresh.
+        const seed = i === 0 ? baseCard : newCard("spot");
+        return { ...seed, ...fields, imagem: photo, imgW: dims[i].w, imgH: dims[i].h, imgFit: DEFAULT_FIT } as Card;
+      });
+      cards.splice(active, 1, ...deck);
+      return { ...d, cards };
+    });
+    if (photos.length > 1) toast.success(`Carrossel criado · ${photos.length} fotos do spot`);
   };
 
   const addBloco = () =>
