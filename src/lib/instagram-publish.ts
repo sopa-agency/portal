@@ -65,6 +65,8 @@ async function graphPost(
   const data = (await res.json()) as { id?: string; error?: { message?: string } };
   if (!res.ok || data.error) {
     const msg = data.error?.message ?? `HTTP ${res.status}`;
+    const hint = params.image_url || params.video_url || params.creation_id || params.children || "";
+    console.error(`[ig-graph] POST ${path} {${Object.keys(params).join(",")}} ${String(hint).slice(0, 110)} → ${msg}`);
     throw new Error(friendlyIgError(msg));
   }
   return data;
@@ -81,6 +83,7 @@ async function graphGet<T = Record<string, unknown>>(
   if (!res.ok || (data as { error?: { message?: string } }).error) {
     const msg =
       (data as { error?: { message?: string } }).error?.message ?? `HTTP ${res.status}`;
+    console.error(`[ig-graph] GET ${path} {${Object.keys(params).join(",")}} → ${msg}`);
     throw new Error(friendlyIgError(msg));
   }
   return data;
