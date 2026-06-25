@@ -234,6 +234,29 @@ export function Editor({
   }, []);
   const patchActive = useCallback((fn: (c: Card) => Card) => updateCard(active, fn), [active, updateCard]);
 
+  // Spot-level fields (name/location/author/description) belong to the SPOT, not
+  // the card — editing them updates every card of the same spot (a multi-photo
+  // carousel shares one spotPermlink). Falls back to the active card when there's
+  // no permlink to group by (a manually-built spot card).
+  const patchSpotGroup = useCallback(
+    (patch: Partial<Extract<Card, { tipo: "spot" }>>) => {
+      setDoc((d) => {
+        const cur = d.cards[active];
+        if (!cur || cur.tipo !== "spot") return d;
+        const key = cur.spotPermlink?.trim();
+        return {
+          ...d,
+          cards: d.cards.map((c) => {
+            if (c.tipo !== "spot") return c;
+            const sameSpot = key ? c.spotPermlink?.trim() === key : c === cur;
+            return sameSpot ? ({ ...c, ...patch } as Card) : c;
+          }),
+        };
+      });
+    },
+    [active],
+  );
+
   const addCard = (tipo: Card["tipo"]) => {
     setDoc((d) => {
       const cards = [...d.cards];
@@ -1056,15 +1079,15 @@ export function Editor({
             {card.tipo === "spot" && (
               <>
                 <Label className="text-muted-foreground">Nome do spot</Label>
-                <Input value={card.spotName} onChange={(e) => patchActive((c) => ({ ...c, spotName: e.target.value }) as Card)} placeholder="Waxed Three Stair" />
+                <Input value={card.spotName} onChange={(e) => patchSpotGroup({ spotName: e.target.value })} placeholder="Waxed Three Stair" />
                 <Label className="text-muted-foreground">Localização</Label>
-                <Input value={card.spotLocation} onChange={(e) => patchActive((c) => ({ ...c, spotLocation: e.target.value }) as Card)} placeholder="Minneapolis, MN" />
+                <Input value={card.spotLocation} onChange={(e) => patchSpotGroup({ spotLocation: e.target.value })} placeholder="Minneapolis, MN" />
                 <Label className="text-muted-foreground">Crédito (autor)</Label>
-                <Input value={card.spotAuthor} onChange={(e) => patchActive((c) => ({ ...c, spotAuthor: e.target.value }) as Card)} placeholder="web-gnar" />
+                <Input value={card.spotAuthor} onChange={(e) => patchSpotGroup({ spotAuthor: e.target.value })} placeholder="web-gnar" />
                 <Label className="text-muted-foreground">Descrição (vai pra legenda do post)</Label>
                 <Textarea
                   value={card.spotDescription}
-                  onChange={(e) => patchActive((c) => ({ ...c, spotDescription: e.target.value }) as Card)}
+                  onChange={(e) => patchSpotGroup({ spotDescription: e.target.value })}
                   rows={4}
                   placeholder="Descrição do spot — vira a legenda quando você usa no post."
                 />
