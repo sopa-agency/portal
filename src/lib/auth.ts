@@ -26,7 +26,7 @@ export type AllowedUser = (typeof ALLOWED_USERS)[number];
 // Global allowlist — users allowed into EVERY portal regardless of a project's
 // own allowlist (cross-portal admins / operators).
 // ---------------------------------------------------------------------------
-export const GLOBAL_ALLOWLIST: readonly string[] = ["xvlad", "beaglexv"];
+export const GLOBAL_ALLOWLIST: readonly string[] = ["xvlad"];
 
 // ---------------------------------------------------------------------------
 // Cookie names — unified across all tenants now that it's one app.
