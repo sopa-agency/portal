@@ -474,14 +474,13 @@ function DraggableCard({ item, bounty, canManage, onOpen, onArchive, onDelete }:
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id });
   const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1 };
   const { onFire, frozen } = cardFxState(item);
-  const fxClass = onFire ? "kb-on-fire border-orange-500/70" : frozen ? "border-cyan-300/70" : "border-border hover:border-border-strong";
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative overflow-hidden rounded-lg border bg-surface-elevated p-2.5 transition-colors ${fxClass}`}
+      className="group relative rounded-lg border border-border bg-surface-elevated p-2.5 transition-colors hover:border-border-strong"
     >
-      <CardFx onFire={onFire} frozen={frozen} />
+      <CardFx onFire={onFire} frozen={frozen} radius={8} />
       {/* Hover actions: drag · archive · delete */}
       <div className="absolute right-1 top-1 z-30 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-100 shadow-sm backdrop-blur transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
         {canManage && (

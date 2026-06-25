@@ -227,8 +227,257 @@ function CardBody({
 // Sortable card
 // ---------------------------------------------------------------------------
 
-// Fixed icicle heights (deterministic — no hydration mismatch) for frozen cards.
-const ICICLE_HEIGHTS = [11, 19, 8, 15, 23, 10, 17, 7, 21, 13, 18, 9, 14, 22, 12, 16, 9, 20];
+// Deterministic icicle pattern (no hydration mismatch) for frozen cards.
+// Fewer + irregular heights (a couple of long ones) reads more like real ice.
+const ICICLES = [9, 24, 6, 16, 8, 28, 11, 19, 7, 13];
+
+// Pre-rendered ember sprite (one offscreen canvas, reused for every particle —
+// far cheaper than building a radial gradient per particle per frame).
+let emberSprite: HTMLCanvasElement | null = null;
+function getEmberSprite(): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  if (emberSprite) return emberSprite;
+  const c = document.createElement("canvas");
+  c.width = c.height = 16;
+  const x = c.getContext("2d");
+  if (!x) return null;
+  const g = x.createRadialGradient(8, 8, 0, 8, 8, 8);
+  g.addColorStop(0, "rgba(255,244,190,1)");
+  g.addColorStop(0.35, "rgba(255,160,50,0.95)");
+  g.addColorStop(1, "rgba(255,80,20,0)");
+  x.fillStyle = g;
+  x.fillRect(0, 0, 16, 16);
+  emberSprite = c;
+  return c;
+}
+
+/** Canvas 2D fire — inspired by the WebGL "sparks-drifting" / fire shaders but
+ *  light enough to run per-card (no WebGL context limits). A dense, short-lived
+ *  flame base (whose overlapping additive glow brightens to a hot core) plus
+ *  sparser drifting sparks rising higher with a gentle sway. */
+function FireCanvas() {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const ctx = canvas.getContext("2d");
+    const sprite = getEmberSprite();
+    if (!ctx || !sprite) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let w = 0;
+    let h = 0;
+    const ro = new ResizeObserver(() => {
+      const r = canvas.getBoundingClientRect();
+      w = r.width;
+      h = r.height;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    });
+    ro.observe(canvas);
+
+    type P = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number };
+    const flames: P[] = [];
+    const sparks: P[] = [];
+    const seedFlame = () => {
+      if (!w || !h) return;
+      flames.push({
+        x: Math.random() * w,
+        y: h + 2,
+        vx: (Math.random() - 0.5) * 0.12,
+        vy: -(0.14 + Math.random() * 0.4),
+        life: 0,
+        max: 30 + Math.random() * 40,
+        size: 2.0 + Math.random() * 2.6,
+      });
+    };
+    const seedSpark = () => {
+      if (!w || !h) return;
+      sparks.push({
+        x: Math.random() * w,
+        y: h - 1,
+        vx: (Math.random() - 0.5) * 0.25,
+        vy: -(0.4 + Math.random() * 0.85),
+        life: 0,
+        max: 70 + Math.random() * 70,
+        size: 0.6 + Math.random() * 1.3,
+      });
+    };
+
+    let raf = 0;
+    let frame = 0;
+    let running = true;
+    const loop = () => {
+      if (!running) return;
+      frame++;
+      ctx.clearRect(0, 0, w, h);
+      ctx.globalCompositeOperation = "lighter";
+
+      // Flame base — dense, soft, overlapping → bright hot core. Drawn taller
+      // than wide + gently swaying so the base reads as flame tongues, not blobs.
+      if (frame % 2 === 0 && flames.length < 52) seedFlame();
+      for (let i = flames.length - 1; i >= 0; i--) {
+        const p = flames[i];
+        p.life++;
+        p.vx += Math.sin((p.life + p.x) * 0.045) * 0.006; // organic sway
+        p.x += p.vx;
+        p.y += p.vy;
+        const t = p.life / p.max;
+        if (t >= 1) { flames.splice(i, 1); continue; }
+        const b = p.size * (1 - t * 0.3);
+        const rx = b * 3.0;
+        const ry = b * 6.2; // vertical stretch → flame shape
+        ctx.globalAlpha = (1 - t) * 0.42;
+        ctx.drawImage(sprite, p.x - rx, p.y - ry, rx * 2, ry * 2);
+      }
+
+      // Drifting sparks — fewer, smaller, rise higher with a slow sway.
+      if (frame % 6 === 0 && sparks.length < 13) seedSpark();
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const p = sparks[i];
+        p.life++;
+        p.vx += Math.sin((p.life + p.x) * 0.045) * 0.008;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy *= 0.996;
+        const t = p.life / p.max;
+        if (t >= 1 || p.y < -6) { sparks.splice(i, 1); continue; }
+        const r = p.size * (1 - t * 0.4) * 3.6;
+        ctx.globalAlpha = (1 - t) * 0.85;
+        ctx.drawImage(sprite, p.x - r, p.y - r, r * 2, r * 2);
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+      raf = requestAnimationFrame(loop);
+    };
+    const onVis = () => {
+      running = !document.hidden;
+      if (running) loop();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    loop();
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+  return <canvas ref={ref} className="pointer-events-none absolute inset-0 z-0 h-full w-full" aria-hidden />;
+}
+
+// ── Electric border (ported from reactbits.dev/animations/electric-border) ──
+// Canvas-drawn rounded-rect stroke displaced by octaved value-noise — a jittery
+// "electric" outline. Used for frozen cards (icy color). Pure helpers + an
+// overlay component (not a wrapper) so it drops onto the existing card.
+const EB_OFFSET = 36; // px the canvas extends beyond the card (room for displacement)
+function ebRandom(x: number) { return (Math.sin(x * 12.9898) * 43758.5453) % 1; }
+function ebNoise2D(x: number, y: number) {
+  const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+  const a = ebRandom(i + j * 57), b = ebRandom(i + 1 + j * 57), c = ebRandom(i + (j + 1) * 57), d = ebRandom(i + 1 + (j + 1) * 57);
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  return a * (1 - ux) * (1 - uy) + b * ux * (1 - uy) + c * (1 - ux) * uy + d * ux * uy;
+}
+function ebOctaved(x: number, amp: number, freq: number, time: number, seed: number) {
+  let y = 0, amplitude = amp, frequency = freq;
+  for (let i = 0; i < 10; i++) {
+    y += amplitude * ebNoise2D(frequency * x + seed * 100, time * frequency * 0.3);
+    frequency *= 1.6;
+    amplitude *= 0.7;
+  }
+  return y;
+}
+function ebCorner(cx: number, cy: number, r: number, start: number, arc: number, p: number) {
+  const a = start + p * arc;
+  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+}
+function ebRoundedRectPoint(t: number, left: number, top: number, width: number, height: number, radius: number) {
+  const sw = width - 2 * radius, sh = height - 2 * radius, arc = (Math.PI * radius) / 2;
+  const total = 2 * sw + 2 * sh + 4 * arc, dist = t * total;
+  let acc = 0;
+  if (dist <= acc + sw) return { x: left + radius + (dist - acc), y: top };
+  acc += sw;
+  if (dist <= acc + arc) return ebCorner(left + width - radius, top + radius, radius, -Math.PI / 2, Math.PI / 2, (dist - acc) / arc);
+  acc += arc;
+  if (dist <= acc + sh) return { x: left + width, y: top + radius + (dist - acc) };
+  acc += sh;
+  if (dist <= acc + arc) return ebCorner(left + width - radius, top + height - radius, radius, 0, Math.PI / 2, (dist - acc) / arc);
+  acc += arc;
+  if (dist <= acc + sw) return { x: left + width - radius - (dist - acc), y: top + height };
+  acc += sw;
+  if (dist <= acc + arc) return ebCorner(left + radius, top + height - radius, radius, Math.PI / 2, Math.PI / 2, (dist - acc) / arc);
+  acc += arc;
+  if (dist <= acc + sh) return { x: left, y: top + height - radius - (dist - acc) };
+  acc += sh;
+  return ebCorner(left + radius, top + radius, radius, Math.PI, Math.PI / 2, (dist - acc) / arc);
+}
+
+function ElectricBorderCanvas({ color, speed, chaos, radius, glow = 6 }: { color: string; speed: number; chaos: number; radius: number; glow?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const parent = canvas?.parentElement;
+    if (!canvas || !parent) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let cw = 0, ch = 0;
+    const resize = () => {
+      const r = parent.getBoundingClientRect();
+      cw = r.width + EB_OFFSET * 2;
+      ch = r.height + EB_OFFSET * 2;
+      canvas.width = Math.round(cw * dpr);
+      canvas.height = Math.round(ch * dpr);
+      canvas.style.width = `${cw}px`;
+      canvas.style.height = `${ch}px`;
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(parent);
+
+    let raf = 0, running = true, last = 0, time = 0;
+    const draw = (now: number) => {
+      if (!running) return;
+      time += ((now - last) / 1000) * speed;
+      last = now;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.shadowColor = color;
+      ctx.shadowBlur = glow;
+      const left = EB_OFFSET, top = EB_OFFSET, bw = cw - 2 * EB_OFFSET, bh = ch - 2 * EB_OFFSET;
+      const rad = Math.min(radius, Math.min(bw, bh) / 2);
+      const perim = 2 * (bw + bh) + 2 * Math.PI * rad;
+      const samples = Math.max(40, Math.floor(perim / 2));
+      const scale = 26;
+      ctx.beginPath();
+      for (let i = 0; i <= samples; i++) {
+        const p = i / samples;
+        const pt = ebRoundedRectPoint(p, left, top, bw, bh, rad);
+        const dx = ebOctaved(p * 8, chaos, 10, time, 0) * scale;
+        const dy = ebOctaved(p * 8, chaos, 10, time, 1) * scale;
+        if (i === 0) ctx.moveTo(pt.x + dx, pt.y + dy);
+        else ctx.lineTo(pt.x + dx, pt.y + dy);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      if (!reduce) raf = requestAnimationFrame(draw);
+    };
+    const onVis = () => { running = !document.hidden; if (running && !reduce) { last = performance.now(); raf = requestAnimationFrame(draw); } };
+    document.addEventListener("visibilitychange", onVis);
+    last = performance.now();
+    raf = requestAnimationFrame(draw);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener("visibilitychange", onVis); };
+  }, [color, speed, chaos, radius, glow]);
+  // Canvas centered over the card, extending EB_OFFSET beyond each edge.
+  return <canvas ref={ref} className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2" aria-hidden />;
+}
 
 /** Game-FX state for a card: overdue (not closed) → frozen; else 5🔥 → on fire. */
 export function cardFxState(item: { firePriority?: number; deadline?: string; state?: string }): {
@@ -241,32 +490,40 @@ export function cardFxState(item: { firePriority?: number; deadline?: string; st
   return { onFire, frozen };
 }
 
-/** Game-style overlays: rising flames for a 5🔥 card, hanging icicles + frost
- *  for an overdue card. Purely decorative (pointer-events-none). */
-export function CardFx({ onFire, frozen }: { onFire: boolean; frozen: boolean }) {
+/** Decorative game overlay (pointer-events-none). Lives as a sibling of the card
+ *  content — NOT on the card element — so the card's transition-all never fights
+ *  the animation (which otherwise glitched on re-render after opening a card). */
+export function CardFx({ onFire, frozen, radius = 12 }: { onFire: boolean; frozen: boolean; radius?: number }) {
+  if (!onFire && !frozen) return null;
   return (
     <>
-      {onFire && (
-        <div className="kb-flames pointer-events-none absolute inset-x-0 bottom-0 z-0 h-12" aria-hidden />
-      )}
+      {/* Animated electric outline — charred ember edge for fire, icy for frost. */}
+      {onFire && <ElectricBorderCanvas color="#ff6a1a" speed={0.55} chaos={0.1} radius={radius} glow={11} />}
+      {frozen && <ElectricBorderCanvas color="#7dd3fc" speed={0.1} chaos={0.06} radius={radius} />}
+
+      {/* Fills, clipped to the card's rounded corners. */}
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]" aria-hidden>
+        {onFire ? (
+          <>
+            <div className="absolute inset-x-0 bottom-0 h-3/4" style={{ background: "linear-gradient(to top, rgba(249,115,22,0.26), rgba(239,68,68,0.10) 45%, transparent)" }} />
+            <FireCanvas />
+          </>
+        ) : (
+          <>
+            {/* full-card icy wash + a brighter frost at the top */}
+            <div className="absolute inset-0" style={{ background: "rgba(125,211,252,0.14)" }} />
+            <div className="absolute inset-0" style={{ background: "radial-gradient(120% 55% at 50% 0%, rgba(186,230,253,0.32), transparent 62%)" }} />
+          </>
+        )}
+      </div>
+
+      {/* Icicles hang in FRONT, from the top edge. */}
       {frozen && (
-        <>
-          <div className="kb-frost pointer-events-none absolute inset-0 z-0 bg-cyan-300/15" aria-hidden />
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-between px-1" aria-hidden>
-            {ICICLE_HEIGHTS.map((h, i) => (
-              <span
-                key={i}
-                style={{
-                  height: h,
-                  width: 6,
-                  clipPath: "polygon(0 0, 100% 0, 50% 100%)",
-                  background: "linear-gradient(to bottom, #eff6ff, #bfdbfe 55%, #7dd3fc)",
-                }}
-                className="block opacity-90 drop-shadow-[0_1px_1px_rgba(125,211,252,0.7)]"
-              />
-            ))}
-          </div>
-        </>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-between overflow-hidden rounded-t-[inherit] px-1.5" aria-hidden>
+          {ICICLES.map((h, i) => (
+            <span key={i} className="kb-icicle block drop-shadow-[0_1px_1px_rgba(56,189,248,0.55)]" style={{ width: Math.max(5, Math.round(h * 0.42)), height: h }} />
+          ))}
+        </div>
       )}
     </>
   );
@@ -295,18 +552,15 @@ function SortableCard({
   const style = { transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
 
   // Game FX: overdue (not closed) → frozen; else top priority (5🔥) → on fire.
+  // Effects are an isolated overlay (CardFx), so the card element keeps its
+  // original classes — no transition-all vs animation conflict on re-render.
   const { onFire, frozen } = cardFxState(item);
-  const fxClass = onFire
-    ? "kb-on-fire border-orange-500/70"
-    : frozen
-      ? "border-cyan-300/70"
-      : "border-border hover:border-border-strong";
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative overflow-hidden rounded-xl border bg-surface-elevated p-3 shadow-sm transition-all hover:shadow-md ${fxClass}`}
+      className="group relative rounded-xl border border-border bg-surface-elevated p-3 shadow-sm transition-all hover:border-border-strong hover:shadow-md"
     >
       <CardFx onFire={onFire} frozen={frozen} />
       {/* Drag handle + body */}
