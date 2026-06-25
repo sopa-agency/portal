@@ -63,6 +63,13 @@ export type ProjectConfig = {
    * work). The switcher uses this as the host label. Defaults to `slug`.
    */
   subdomain?: string;
+  /**
+   * Parent company / "umbrella" this brand sits under, e.g. all current portals
+   * are under "reelflip" (a future set under "blockwire"). Brands in the same
+   * umbrella SHARE one Instagram-leads pool (each lead records which brands it
+   * came from). Defaults to "reelflip" via {@link projectUmbrella}.
+   */
+  umbrella?: string;
   /** Display name, e.g. "SkateHive" */
   name: string;
   /** Used for <meta description> */

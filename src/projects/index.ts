@@ -116,6 +116,12 @@ export async function getActiveProject(): Promise<ProjectConfig> {
   return getProject(slug);
 }
 
+/** Parent company a brand sits under — brands in the same umbrella share an IG
+ *  leads pool. Defaults to "reelflip" (every current portal). */
+export function projectUmbrella(project: ProjectConfig): string {
+  return (project.umbrella ?? "reelflip").toLowerCase();
+}
+
 // Re-export types and individual project configs for convenience.
 export type { ProjectConfig } from "./types";
 export { skatehive, gnars, reelflip, sopa, keepkey };
