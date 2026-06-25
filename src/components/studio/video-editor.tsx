@@ -2576,40 +2576,6 @@ export function VideoEditor({
                 </div>
               )}
 
-              {/* One-click starter compositions */}
-              <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-surface-elevated/60 p-1.5">
-                <span className="px-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">Template</span>
-                <button
-                  type="button"
-                  disabled={!!composeBusy}
-                  onClick={() => void applyComposeTemplate("weekly")}
-                  className="inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] font-medium text-accent transition hover:opacity-90 disabled:opacity-50"
-                >
-                  {composeBusy === "weekly" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Weekly Recap
-                </button>
-                <button
-                  type="button"
-                  disabled={!!composeBusy || !selectedCreator}
-                  title={!selectedCreator ? "Selecione um criador acima" : undefined}
-                  onClick={() => void applyComposeTemplate("bestWeek")}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
-                >
-                  {composeBusy === "bestWeek" ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Best of Week
-                </button>
-                <button
-                  type="button"
-                  disabled={!!composeBusy || !selectedCreator}
-                  title={!selectedCreator ? "Selecione um criador acima" : undefined}
-                  onClick={() => void applyComposeTemplate("bestMonth")}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
-                >
-                  {composeBusy === "bestMonth" ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Best of Month
-                </button>
-              </div>
-              {!selectedCreator && (
-                <p className="px-1 text-[10px] text-foreground-faint">Best of Week/Month: escolha um criador acima primeiro.</p>
-              )}
-
               {/* Sync (preload thumbnails) + multiselect batch add */}
               {(selectedCreator ? creatorVideos : shVideos)?.length ? (
                 <div className="flex items-center gap-2">
@@ -2873,6 +2839,48 @@ export function VideoEditor({
 
           {binTab === "templates" && (
             <>
+              {/* One-click compositions — build a whole 9:16 edit from SkateHive clips */}
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-subtle">Composições</p>
+              <p className="px-1 text-[11px] text-foreground-faint">
+                Monta um edit 9:16 inteiro num clique: puxa os melhores clips da SkateHive, joga na timeline
+                e adiciona intro + outro com a marca.
+              </p>
+              <button
+                type="button"
+                disabled={!!composeBusy}
+                onClick={() => void applyComposeTemplate("weekly")}
+                className="flex w-full items-center gap-3 rounded-lg border border-accent-border bg-accent-bg/40 px-3 py-2.5 text-left transition-colors hover:border-accent disabled:opacity-50"
+              >
+                {composeBusy === "weekly" ? <Loader2 className="h-5 w-5 animate-spin text-accent" /> : <Sparkles className="h-5 w-5 text-accent" />}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold text-foreground">Weekly Recap</span>
+                  <span className="block text-[10px] text-foreground-faint">Top da comunidade · últimos 7 dias</span>
+                </span>
+              </button>
+              {(["bestWeek", "bestMonth"] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  disabled={!!composeBusy || !selectedCreator}
+                  title={!selectedCreator ? "Escolha um criador na aba SkateHive primeiro" : undefined}
+                  onClick={() => void applyComposeTemplate(k)}
+                  className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2.5 text-left transition-colors hover:border-accent-border disabled:opacity-50"
+                >
+                  {composeBusy === k ? <Loader2 className="h-5 w-5 animate-spin" /> : <span className="text-base">🏆</span>}
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-foreground">
+                      {k === "bestWeek" ? "Best of the Week" : "Best of the Month"}
+                      {selectedCreator ? <span className="text-accent"> · @{selectedCreator}</span> : null}
+                    </span>
+                    <span className="block text-[10px] text-foreground-faint">
+                      {selectedCreator ? `Clips de @${selectedCreator} · últimos ${k === "bestWeek" ? "7" : "30"} dias` : "Escolha um criador na aba SkateHive"}
+                    </span>
+                  </span>
+                </button>
+              ))}
+
+              <div className="my-1 border-t border-border" />
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-subtle">Card overlays</p>
               <p className="px-1 text-[11px] text-foreground-subtle">
                 Trading-card overlays that frame the clip — the video plays inside the card&apos;s art
                 window, chrome + your text compose around it. Add one, then edit its fields below.
