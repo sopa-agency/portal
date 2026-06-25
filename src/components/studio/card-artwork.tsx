@@ -219,50 +219,59 @@ function SpotLayer({ card, assets }: { card: Extract<Card, { tipo: "spot" }>; as
         </div>
       </div>
 
-      {/* spot name + location + author — draggable/resizable group. */}
+      {/* spot name + qr + author — draggable/resizable group. */}
       <div data-el="spotInfo" style={{ position: "absolute", left: info.x, top: info.y, width: infoW, display: "flex", flexDirection: "column" }}>
-        <div
-          style={{
-            display: "flex", whiteSpace: "nowrap", fontFamily: SPOT_DISPLAY_FONT,
-            fontSize: fitSpotNameSize((card.spotName || "Spot sem nome").toUpperCase(), 78, 34, infoW),
-            lineHeight: 1.1, color: "#ffffff", textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
-          }}
-        >
-          {(card.spotName || "Spot sem nome").toUpperCase()}
-        </div>
-        {card.spotLocation && assets.spotQr ? (
-          // QR → Google Maps of the spot (replaces the raw location code).
-          <div style={{ display: "flex", alignItems: "center", marginTop: 26 }}>
+        {assets.spotQr ? (
+          // QR → Google Maps. Title (smaller) + credit sit to the RIGHT of the
+          // code; the raw location number is gone (it lives inside the QR now).
+          <div style={{ display: "flex", alignItems: "center" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={assets.spotQr}
               alt=""
-              width={150}
-              height={150}
-              style={{ width: 150, height: 150, borderRadius: 12, border: `6px solid ${SPOT_LIME}`, background: "#fff" }}
+              width={168}
+              height={168}
+              style={{ width: 168, height: 168, borderRadius: 12, border: `6px solid ${SPOT_LIME}`, background: "#fff" }}
             />
-            <div style={{ display: "flex", flexDirection: "column", marginLeft: 18 }}>
-              <div style={{ display: "flex", fontFamily: "Inter", fontWeight: 700, fontSize: 36, color: SPOT_LIME }}>
-                {card.spotLocation}
+            <div style={{ display: "flex", flexDirection: "column", marginLeft: 24, width: infoW - 168 - 24 }}>
+              <div
+                style={{
+                  display: "flex", whiteSpace: "nowrap", fontFamily: SPOT_DISPLAY_FONT,
+                  fontSize: fitSpotNameSize((card.spotName || "Spot sem nome").toUpperCase(), 50, 22, infoW - 168 - 24),
+                  lineHeight: 1.1, color: "#ffffff", textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
+                }}
+              >
+                {(card.spotName || "Spot sem nome").toUpperCase()}
               </div>
-              <div style={{ display: "flex", fontFamily: "Inter", fontWeight: 400, fontSize: 26, color: "rgba(255,255,255,0.7)" }}>
+              {card.spotAuthor ? (
+                <div style={{ display: "flex", marginTop: 14, fontFamily: "Inter", fontWeight: 400, fontSize: 30, color: "rgba(255,255,255,0.82)" }}>
+                  found by @{card.spotAuthor}
+                </div>
+              ) : null}
+              <div style={{ display: "flex", marginTop: 10, fontFamily: "Inter", fontWeight: 400, fontSize: 22, color: SPOT_LIME }}>
                 escaneie pro mapa
               </div>
             </div>
           </div>
-        ) : card.spotLocation ? (
-          <div style={{ display: "flex", alignItems: "center", marginTop: 26 }}>
-            <div style={{ display: "flex", width: 26, height: 26, marginRight: 14, borderRadius: 999, border: `6px solid ${SPOT_LIME}` }} />
-            <div style={{ display: "flex", fontFamily: "Inter", fontWeight: 700, fontSize: 44, color: SPOT_LIME }}>
-              {card.spotLocation}
+        ) : (
+          // No location → no QR: big title + credit below it.
+          <>
+            <div
+              style={{
+                display: "flex", whiteSpace: "nowrap", fontFamily: SPOT_DISPLAY_FONT,
+                fontSize: fitSpotNameSize((card.spotName || "Spot sem nome").toUpperCase(), 78, 34, infoW),
+                lineHeight: 1.1, color: "#ffffff", textShadow: "0px 4px 14px rgba(0,0,0,0.6)",
+              }}
+            >
+              {(card.spotName || "Spot sem nome").toUpperCase()}
             </div>
-          </div>
-        ) : null}
-        {card.spotAuthor ? (
-          <div style={{ display: "flex", marginTop: 16, fontFamily: "Inter", fontWeight: 400, fontSize: 34, color: "rgba(255,255,255,0.82)" }}>
-            found by @{card.spotAuthor}
-          </div>
-        ) : null}
+            {card.spotAuthor ? (
+              <div style={{ display: "flex", marginTop: 16, fontFamily: "Inter", fontWeight: 400, fontSize: 34, color: "rgba(255,255,255,0.82)" }}>
+                found by @{card.spotAuthor}
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
     </>
   );
