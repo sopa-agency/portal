@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2, CalendarClock } from "lucide-react";
 import { createMeeting, updateMeeting, deleteMeeting, improveMeeting, type MeetingDTO } from "@/app/actions/meetings";
+import { type TaskDeadline } from "@/app/actions/kanban";
 import { MEETING_AI_INSTRUCTION } from "@/lib/ai-prompts";
 import { ImproveAiButton } from "@/components/improve-ai-button";
 import { CopyButton } from "@/components/copy-button";
@@ -141,7 +142,7 @@ type Editor = {
   googleEventUrl?: string | null;
 };
 
-export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, defaultProject, accent, scopeToProject = false }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; projects: ProjectOption[]; defaultProject: string; accent: string; scopeToProject?: boolean }) {
+export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines = [], projects, defaultProject, accent, scopeToProject = false }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; deadlines?: TaskDeadline[]; projects: ProjectOption[]; defaultProject: string; accent: string; scopeToProject?: boolean }) {
   const membersWithEmail = (slug: string) =>
     (projects.find((p) => p.slug === slug)?.members ?? []).filter((m): m is RosterMember & { email: string } => !!m.email);
   // Active portal's members → availability panel list.
@@ -650,6 +651,9 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
                   .map((m) => { const o = occurrenceOnDay(m, day); return o ? { m, start: o.start } : null; })
                   .filter((x): x is { m: MeetingDTO; start: Date } => x !== null)
                   .sort((a, b) => a.start.getTime() - b.start.getTime());
+                const pad = (n: number) => String(n).padStart(2, "0");
+                const ymd = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+                const dayDeadlines = deadlines.filter((d) => d.deadline === ymd);
                 return (
                   <div
                     key={i}
@@ -681,6 +685,26 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, projects, 
                       })}
                       {dayMeetings.length > 3 && (
                         <div className="px-1 text-[10px] text-foreground-faint">+{dayMeetings.length - 3} mais</div>
+                      )}
+                      {/* Task deadlines due this day */}
+                      {dayDeadlines.slice(0, 3).map((d) => {
+                        const overdue = ymd < `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+                        return (
+                          <a
+                            key={d.itemId}
+                            href={`/kanban?open=${encodeURIComponent(d.itemId)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            title={`Deadline${d.firePriority ? ` · 🔥${d.firePriority}` : ""}: ${d.title}${d.board ? ` (${d.board})` : ""}`}
+                            className={`flex w-full items-center gap-1 overflow-hidden rounded border-l-2 px-1 py-0.5 text-left text-[10px] leading-tight hover:brightness-110 ${overdue ? "border-danger bg-danger/10 text-danger" : "border-warning bg-warning/10 text-warning"}`}
+                          >
+                            <CalendarClock className="h-2.5 w-2.5 shrink-0" />
+                            {d.firePriority ? <span className="shrink-0">{"🔥".repeat(d.firePriority)}</span> : null}
+                            <span className="min-w-0 flex-1 truncate">{d.title}</span>
+                          </a>
+                        );
+                      })}
+                      {dayDeadlines.length > 3 && (
+                        <div className="px-1 text-[10px] text-foreground-faint">+{dayDeadlines.length - 3} deadlines</div>
                       )}
                     </div>
                   </div>

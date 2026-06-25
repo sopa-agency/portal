@@ -156,3 +156,52 @@ export async function getProjectAssignees(projectSlug: string): Promise<
   });
   return { ok: true, assignees };
 }
+
+export type TaskDeadline = {
+  itemId: string;
+  title: string;
+  deadline: string; // yyyy-mm-dd
+  firePriority?: number;
+  board?: string;
+  projectSlug?: string;
+};
+
+/** Open cards that have a deadline — for the agenda/calendar. Aggregates across
+ *  portals on the SOPA hub; otherwise just the active project's board. */
+export async function listTaskDeadlines(): Promise<
+  { ok: true; deadlines: TaskDeadline[] } | { ok: false; error: string }
+> {
+  try {
+    const project = await getActiveProject();
+    const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
+    if (!session) return { ok: false, error: "Unauthorized." };
+    const done = (col: string, state?: string) => /done|closed|conclu|complete|finaliz/i.test(col) || state === "closed";
+    const out: TaskDeadline[] = [];
+
+    if (!project.githubProject && project.kanbanAggregate) {
+      const { fetchAggregatedBoards } = await import("@/lib/github-project");
+      const { columns } = await fetchAggregatedBoards();
+      for (const col of columns)
+        for (const it of col.items)
+          if (it.deadline && !done(col.name, it.state))
+            out.push({ itemId: it.id, title: it.title, deadline: it.deadline, firePriority: it.firePriority, board: it.board, projectSlug: it.projectSlug });
+    } else if (project.githubProject) {
+      const board = await fetchGitHubProject(project);
+      if (board.ok) {
+        const { loadCardMeta } = await import("@/lib/card-meta");
+        const meta = await loadCardMeta(board.columns.flatMap((c) => c.items).map((i) => i.id));
+        for (const col of board.columns)
+          for (const it of col.items) {
+            const m = meta.get(it.id);
+            if (m?.deadline && !done(col.name, it.state))
+              out.push({ itemId: it.id, title: it.title, deadline: m.deadline, firePriority: m.firePriority, board: board.title || project.name, projectSlug: project.slug });
+          }
+      }
+    }
+
+    out.sort((a, b) => a.deadline.localeCompare(b.deadline) || (b.firePriority ?? 0) - (a.firePriority ?? 0));
+    return { ok: true, deadlines: out };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao carregar deadlines." };
+  }
+}

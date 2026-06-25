@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getActiveProject, getAllProjects } from "@/projects";
 import { listMeetings } from "@/app/actions/meetings";
+import { listTaskDeadlines } from "@/app/actions/kanban";
 import { listSharedCalendars } from "@/app/actions/shared-calendars";
 import { getTeamRoster } from "@/lib/team-roster";
 import { MeetingsCalendar } from "@/components/meetings-calendar";
@@ -27,14 +28,16 @@ export default async function ReunioesPage() {
     })),
   }));
 
-  const [mRes, cRes] = await Promise.all([
+  const [mRes, cRes, dRes] = await Promise.all([
     listMeetings().catch(() => null),
     listSharedCalendars().catch(() => null),
+    listTaskDeadlines().catch(() => null),
   ]);
   return (
     <MeetingsCalendar
       initialMeetings={mRes?.ok ? mRes.meetings : []}
       initialCalendars={cRes?.ok ? cRes.calendars : []}
+      deadlines={dRes?.ok ? dRes.deadlines : []}
       projects={projects}
       defaultProject={project.slug}
       accent={project.theme.accentDark}
