@@ -1522,11 +1522,12 @@ export function VideoEditor({
     const artTrack = stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "art";
     const textTrack = stateRef.current.overlayTracks.find((t) => t.id === "text")?.id ?? artTrack;
     const base = { start: Math.max(0, start), end, opacity: 1, rotation: 0 };
-    // accent bar behind the title (top third)
-    const bar: Overlay = { id: nextId(), kind: "shape", trackId: artTrack, shape: "rect", hRatio: 0.16, color: d.accent, bg: false, x: 0.5, y: 0.16, w: 0.92, ...base };
-    const title: Overlay = { id: nextId(), kind: "text", trackId: textTrack, text: d.title, color: "#0a0a0a", bg: false, x: 0.5, y: 0.13, w: 0.9, ...base };
-    const sub: Overlay = { id: nextId(), kind: "text", trackId: textTrack, text: d.subtitle, color: "#ffffff", bg: true, x: 0.5, y: 0.27, w: 0.7, ...base };
-    setOverlays((prev) => [...prev, bar, title, sub]);
+    // "rd:" prefix tags these as a recurring-post design so re-applying REPLACES
+    // the previous design's layers instead of stacking another set on top.
+    const bar: Overlay = { id: `rd:${nextId()}`, kind: "shape", trackId: artTrack, shape: "rect", hRatio: 0.16, color: d.accent, bg: false, x: 0.5, y: 0.16, w: 0.92, ...base };
+    const title: Overlay = { id: `rd:${nextId()}`, kind: "text", trackId: textTrack, text: d.title, color: "#0a0a0a", bg: false, x: 0.5, y: 0.13, w: 0.9, ...base };
+    const sub: Overlay = { id: `rd:${nextId()}`, kind: "text", trackId: textTrack, text: d.subtitle, color: "#ffffff", bg: true, x: 0.5, y: 0.27, w: 0.7, ...base };
+    setOverlays((prev) => [...prev.filter((o) => !o.id.startsWith("rd:")), bar, title, sub]);
     setSelection({ type: "overlay", id: title.id });
     setBinTab("templates");
   };
