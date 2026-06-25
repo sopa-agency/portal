@@ -83,11 +83,13 @@ export async function GET() {
   const priorityRows = itemIds.length
     ? await prisma.cardPriority.findMany({ where: { itemId: { in: itemIds } } }).catch(() => [])
     : [];
-  const priorityByItem = new Map(priorityRows.map((p) => [p.itemId, p.priority]));
+  const metaByItem = new Map(priorityRows.map((p) => [p.itemId, p]));
   for (const col of result.columns) {
     for (const it of col.items) {
-      const fp = priorityByItem.get(it.id);
-      if (fp) it.firePriority = fp;
+      const m = metaByItem.get(it.id);
+      if (!m) continue;
+      if (m.priority) it.firePriority = m.priority;
+      if (m.deadline) it.deadline = m.deadline.toISOString().slice(0, 10);
     }
   }
 
@@ -159,7 +161,7 @@ type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "ensureLabels" | "createIssue"
-    | "convertDraft" | "aiBody" | "setPriority";
+    | "convertDraft" | "aiBody" | "setPriority" | "setDeadline";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
   projectId?: string;
@@ -188,6 +190,8 @@ type Body = {
   wanted?: { name: string; color: string; description?: string }[];
   // setPriority — fire points 1..5 (0/absent clears)
   priority?: number;
+  // setDeadline — ISO date "yyyy-mm-dd" (null/empty clears)
+  deadline?: string | null;
 };
 
 export async function POST(req: Request) {
@@ -244,21 +248,36 @@ export async function POST(req: Request) {
     return NextResponse.json(result, { status: result.ok ? 200 : 500 });
   }
 
-  // Fire priority (1🔥..5🔥) is portal-owned (DB), so it needs no GitHub token,
-  // projectId, or even a real card — works on drafts too.
-  if (action === "setPriority") {
+  // Fire priority (1🔥..5🔥) + deadline are portal-owned (DB), so they need no
+  // GitHub token, projectId, or even a real card — they work on drafts too. Both
+  // live in one CardPriority row; clearing one keeps the other, and the row is
+  // removed only when both are empty.
+  if (action === "setPriority" || action === "setDeadline") {
     if (!itemId) return NextResponse.json({ ok: false, error: "itemId required" }, { status: 400 });
-    const p = Math.round(Number(body.priority));
-    if (!p || p < 1 || p > 5) {
+    const existing = await prisma.cardPriority.findUnique({ where: { itemId } }).catch(() => null);
+    let priority = existing?.priority ?? 0;
+    let deadline: Date | null = existing?.deadline ?? null;
+    if (action === "setPriority") {
+      const p = Math.round(Number(body.priority));
+      priority = !p || p < 1 || p > 5 ? 0 : p;
+    } else {
+      const d = body.deadline ? new Date(body.deadline) : null;
+      deadline = d && !isNaN(d.getTime()) ? d : null;
+    }
+    if (!priority && !deadline) {
       await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
-      return NextResponse.json({ ok: true, priority: null });
+      return NextResponse.json({ ok: true, priority: null, deadline: null });
     }
     await prisma.cardPriority.upsert({
       where: { itemId },
-      create: { itemId, priority: p, projectSlug: targetProjectSlug ?? project.slug, updatedBy: session.username },
-      update: { priority: p, updatedBy: session.username },
+      create: { itemId, priority, deadline, projectSlug: targetProjectSlug ?? project.slug, updatedBy: session.username },
+      update: { priority, deadline, updatedBy: session.username },
     });
-    return NextResponse.json({ ok: true, priority: p });
+    return NextResponse.json({
+      ok: true,
+      priority: priority || null,
+      deadline: deadline ? deadline.toISOString().slice(0, 10) : null,
+    });
   }
 
   if (!projectId) {

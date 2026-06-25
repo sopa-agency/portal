@@ -41,6 +41,7 @@ import {
   FlaskConical,
   CheckCheck,
   Undo2,
+  CalendarClock,
 } from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
@@ -110,6 +111,24 @@ export function FirePriority({ value, className = "" }: { value?: number; classN
   );
 }
 
+/** Deadline pill (yyyy-mm-dd) with overdue (red) / soon ≤2d (amber) / future tones. */
+export function DeadlineChip({ value, className = "" }: { value?: string; className?: string }) {
+  if (!value) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const d = new Date(`${value}T00:00:00`);
+  if (isNaN(d.getTime())) return null;
+  const diff = Math.round((d.getTime() - today.getTime()) / 86_400_000);
+  const tone = diff < 0 ? "text-danger" : diff <= 2 ? "text-warning" : "text-foreground-subtle";
+  const rel = diff < 0 ? `${-diff}d atrás` : diff === 0 ? "hoje" : diff === 1 ? "amanhã" : `em ${diff}d`;
+  const label = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${tone} ${className}`} title={`Deadline ${value} · ${rel}`}>
+      <CalendarClock className="h-3 w-3" /> {label}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Card body (shared by sortable card + drag overlay)
 // ---------------------------------------------------------------------------
@@ -158,6 +177,7 @@ function CardBody({
         <StateBadge item={item} />
         {bounty && <BountyBadge bounty={bounty} />}
         <FirePriority value={item.firePriority} />
+        <DeadlineChip value={item.deadline} />
         {item.assignees.length > 0 && (
           <div className="ml-auto flex items-center -space-x-1.5">
             {visible.map((a) => {
@@ -1072,6 +1092,17 @@ export function CardDetailDialog({
     }
   }
 
+  async function setDeadline(value: string | null) {
+    if (prioBusy) return;
+    setPrioBusy(true);
+    try {
+      const r = await onMutate({ action: "setDeadline", itemId: item.id, deadline: value || null });
+      if (r.ok) onPatchItem(item.id, { deadline: value || undefined });
+    } finally {
+      setPrioBusy(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
@@ -1213,6 +1244,26 @@ export function CardDetailDialog({
               })}
               {item.firePriority ? (
                 <span className="ml-0.5 text-[10px] tabular-nums text-foreground-subtle">{item.firePriority}/5</span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-foreground-faint">Deadline</span>
+              <input
+                type="date"
+                value={item.deadline ?? ""}
+                disabled={prioBusy}
+                onChange={(e) => setDeadline(e.target.value || null)}
+                className="rounded-lg border border-border bg-surface px-2 py-0.5 text-xs text-foreground outline-none focus:border-border-strong disabled:opacity-50 [color-scheme:light] dark:[color-scheme:dark]"
+              />
+              {item.deadline ? (
+                <button
+                  type="button"
+                  onClick={() => setDeadline(null)}
+                  disabled={prioBusy}
+                  className="text-[10px] text-foreground-subtle underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+                >
+                  limpar
+                </button>
               ) : null}
             </div>
           </div>
@@ -1439,7 +1490,10 @@ export function CardDetailDialog({
           )}
 
           {/* Portal comments — work on any card (incl. drafts). */}
-          {!editing && projectSlug && <CardNotes projectSlug={projectSlug} cardKey={item.id} label={canComment ? "Notas internas (portal)" : "Comentários"} />}
+          {/* Drafts have no GitHub thread → portal-side comments fill the gap.
+              Real issues/PRs already show the GitHub comments above, so we drop
+              the redundant "Notas internas" there. */}
+          {!editing && projectSlug && !canComment && <CardNotes projectSlug={projectSlug} cardKey={item.id} label="Comentários" />}
         </div>
 
         {/* Footer */}

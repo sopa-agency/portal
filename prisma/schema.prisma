@@ -483,11 +483,12 @@ model TrailBoostTarget {
 // consistent scale. Higher = more important. Keyed by the GitHub Project item id
 // so it works on any card, including drafts (which can't carry GitHub fields).
 model CardPriority {
-  itemId      String   @id
-  priority    Int // 1 (lowest) .. 5 (highest)
+  itemId      String    @id
+  priority    Int       @default(0) // 1 (lowest) .. 5 (highest); 0 = unset
+  deadline    DateTime? // optional due date for the card
   projectSlug String?
   updatedBy   String?
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime  @updatedAt
 }
 
 // Posts the auto-boost-on-vote rule has already handled, so the hourly cron

@@ -23,6 +23,8 @@ export type KanbanItem = {
   priority?: string;
   /** Portal-owned priority points: 1🔥 (lowest) .. 5🔥 (highest). From CardPriority. */
   firePriority?: number;
+  /** Portal-owned due date (ISO yyyy-mm-dd). From CardPriority. */
+  deadline?: string;
 };
 
 export type KanbanColumn = {
