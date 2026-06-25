@@ -34,7 +34,7 @@ import { resolveDiscordUser, sendTeamMessage, sendTeamTasksEmail, updateTeamMemb
 import { FirePriority, DeadlineChip } from "@/components/card-indicators";
 import { setMemberRole, removeMember, getMemberTasks, getMemberSkills, setMemberSkills, type MemberTask } from "@/app/actions/team-admin";
 import { SkillRadar } from "@/components/skill-radar";
-import { SKILL_CATEGORIES } from "@/lib/skills";
+import { SKILL_CATEGORIES, describeContribution } from "@/lib/skills";
 import { CardDialogHost } from "@/components/card-dialog-host";
 import type { AggregatedItem } from "@/lib/github-project";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
@@ -829,10 +829,22 @@ function MemberSkillsPanel({ username }: { username: string }) {
     setEditing(false);
   }
 
+  // Deterministic (no AI) read of what this member can contribute, from the
+  // current trait setup — updates live as the sliders move while editing.
+  const profile = describeContribution(values);
+
   return (
     <div className={editing ? "grid items-start gap-6 lg:grid-cols-2" : "flex flex-col items-center gap-4"}>
-      <div className="flex w-full justify-center">
+      <div className="flex w-full flex-col items-center gap-3">
         <SkillRadar values={values} accent="var(--color-accent)" />
+        <div className="w-full max-w-md rounded-xl border border-border bg-surface px-4 py-3 text-center">
+          {profile.archetype && (
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-accent">
+              Perfil {profile.archetype}
+            </p>
+          )}
+          <p className="text-sm text-foreground-muted">{profile.summary}</p>
+        </div>
       </div>
 
       {!editing ? (
