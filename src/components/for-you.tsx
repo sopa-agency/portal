@@ -6,7 +6,8 @@ import { Sparkles, AtSign } from "lucide-react";
 import type { MemberTask } from "@/app/actions/team-admin";
 import type { AggregatedItem } from "@/lib/github-project";
 import { CardDialogHost } from "@/components/card-dialog-host";
-import { priorityRank } from "@/lib/kanban-priority";
+import { FirePriority, DeadlineChip } from "@/components/kanban-board";
+import { priorityRank, compareByPriority } from "@/lib/kanban-priority";
 
 // Personalized "For You" band on the SOPA home: the logged-in member's own
 // tasks across every portal + any briefing next-actions that name them.
@@ -39,10 +40,10 @@ export function ForYou({
   tasks: MemberTask[];
   mentions: ForYouMention[];
 }) {
-  // Open tasks, highest priority first (stable: equal priority keeps board order).
+  // Open tasks, fire priority first → soonest deadline → GitHub priority.
   const open = tasks
     .filter((t) => !/done|closed/i.test(t.status) && t.state !== "CLOSED")
-    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+    .sort(compareByPriority);
   const shown = open.slice(0, 8);
   const [card, setCard] = useState<AggregatedItem | null>(null);
 
@@ -85,6 +86,8 @@ export function ForYou({
                   <span className="shrink-0 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">{t.board}</span>
                 )}
                 <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
+                <FirePriority value={t.firePriority} className="shrink-0" />
+                <DeadlineChip value={t.deadline} className="shrink-0" />
                 {t.priority && (
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${priorityTone(t.priority)}`}>
                     {t.priority}
@@ -104,6 +107,8 @@ export function ForYou({
                   <span className="shrink-0 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">{t.board}</span>
                 )}
                 <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
+                <FirePriority value={t.firePriority} className="shrink-0" />
+                <DeadlineChip value={t.deadline} className="shrink-0" />
                 {t.priority && (
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${priorityTone(t.priority)}`}>
                     {t.priority}

@@ -13,3 +13,20 @@ export function priorityRank(p?: string): number {
   if (/low|baixa/.test(s)) return 3;
   return 90; // known-but-unrecognized value, still before "no priority"
 }
+
+/**
+ * Sort comparator for cards across every surface (For You, SOPA board, agenda).
+ * Order: fire priority points DESC (5🔥 first) → soonest deadline first (none
+ * last) → GitHub priority rank. Use with Array.sort.
+ */
+export function compareByPriority(
+  a: { firePriority?: number; deadline?: string; priority?: string },
+  b: { firePriority?: number; deadline?: string; priority?: string },
+): number {
+  const fp = (b.firePriority ?? 0) - (a.firePriority ?? 0);
+  if (fp) return fp;
+  const ad = a.deadline ? Date.parse(a.deadline) : Infinity;
+  const bd = b.deadline ? Date.parse(b.deadline) : Infinity;
+  if (ad !== bd) return ad - bd;
+  return priorityRank(a.priority) - priorityRank(b.priority);
+}

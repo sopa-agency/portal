@@ -27,6 +27,7 @@ import {
 } from "@/lib/github-project";
 import { getTeamRoster } from "@/lib/team-roster";
 import { getTeamMessageOptions } from "@/lib/team-messaging";
+import { loadCardMeta } from "@/lib/card-meta";
 import { prisma } from "@/lib/prisma";
 
 /** Strip "@", full profile URLs, and whitespace from a stored GitHub contact value. */
@@ -78,18 +79,14 @@ export async function GET() {
   if (!result.ok) return NextResponse.json(result);
   const bounties = bountyRows.map((b) => ({ id: b.id, projectSlug: b.projectSlug, taskKey: b.taskKey, title: b.title, amount: b.amount, tokenSymbol: b.tokenSymbol, status: b.status, payeeAddress: b.payeeAddress, safeTxHash: b.safeTxHash }));
 
-  // Merge portal-owned fire priority (1🔥..5🔥) onto each card.
-  const itemIds = result.columns.flatMap((c) => c.items).map((i) => i.id);
-  const priorityRows = itemIds.length
-    ? await prisma.cardPriority.findMany({ where: { itemId: { in: itemIds } } }).catch(() => [])
-    : [];
-  const metaByItem = new Map(priorityRows.map((p) => [p.itemId, p]));
+  // Merge portal-owned fire priority (1🔥..5🔥) + deadline onto each card.
+  const meta = await loadCardMeta(result.columns.flatMap((c) => c.items).map((i) => i.id));
   for (const col of result.columns) {
     for (const it of col.items) {
-      const m = metaByItem.get(it.id);
+      const m = meta.get(it.id);
       if (!m) continue;
-      if (m.priority) it.firePriority = m.priority;
-      if (m.deadline) it.deadline = m.deadline.toISOString().slice(0, 10);
+      if (m.firePriority) it.firePriority = m.firePriority;
+      if (m.deadline) it.deadline = m.deadline;
     }
   }
 

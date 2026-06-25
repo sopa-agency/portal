@@ -6,6 +6,8 @@ import { SESSION_COOKIE, GLOBAL_ALLOWLIST } from "@/lib/auth";
 import { getActiveProject, getAllProjects, getProject } from "@/projects/index";
 import { authorize, getRoles, ensureSeeded, ROLES, GLOBAL_SLUG, type Role } from "@/lib/team-access";
 import type { AggregatedItem } from "@/lib/github-project";
+import { loadCardMeta } from "@/lib/card-meta";
+import { compareByPriority } from "@/lib/kanban-priority";
 
 export type ManagedMember = { username: string; role: Role; global: boolean; lastLoginAt: string | null };
 
@@ -91,6 +93,10 @@ export type MemberTask = {
   body?: string;
   /** Board "Priority" single-select value (e.g. "P0", "High"), if set. */
   priority?: string;
+  /** Portal-owned priority points 1🔥..5🔥. */
+  firePriority?: number;
+  /** Portal-owned due date (yyyy-mm-dd). */
+  deadline?: string;
   assignees?: { login: string; avatarUrl: string }[];
   labels?: { name: string; color: string }[];
   /** Project/board name — set on the SOPA aggregated view (tasks across portals). */
@@ -110,6 +116,27 @@ export async function getMemberTasks(
   const login = githubLogin.trim().toLowerCase().replace(/^@/, "").replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/\/.*$/, "");
   if (!login) return { ok: true, tasks: [] };
   const { fetchGitHubProject } = await import("@/lib/github-project");
+
+  // Merge portal-owned fire priority + deadline onto each task (and its card
+  // payload), then sort priority-first so For You leads with what matters.
+  const finalize = async (
+    tasks: MemberTask[],
+    projectUrl?: string,
+  ): Promise<{ ok: true; tasks: MemberTask[]; projectUrl?: string }> => {
+    const meta = await loadCardMeta(tasks.map((t) => t.id));
+    for (const t of tasks) {
+      const m = meta.get(t.id);
+      if (!m) continue;
+      t.firePriority = m.firePriority;
+      t.deadline = m.deadline;
+      if (t.card) {
+        t.card.firePriority = m.firePriority;
+        t.card.deadline = m.deadline;
+      }
+    }
+    tasks.sort(compareByPriority);
+    return { ok: true, tasks, projectUrl };
+  };
 
   // SOPA hub (no own board, aggregates): collect the person's tasks across EVERY
   // portal's board, tagged with the project name.
@@ -149,7 +176,7 @@ export async function getMemberTasks(
         }
       }
     }
-    return { ok: true, tasks };
+    return finalize(tasks);
   }
 
   const board = await fetchGitHubProject(g.project);
@@ -176,7 +203,7 @@ export async function getMemberTasks(
       }
     }
   }
-  return { ok: true, tasks, projectUrl: board.url };
+  return finalize(tasks, board.url);
 }
 
 // ── Cross-portal access management (global admins — e.g. from the SOPA panel) ──
