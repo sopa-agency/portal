@@ -38,6 +38,9 @@ import {
   Trash2,
   X,
   GripVertical,
+  FlaskConical,
+  CheckCheck,
+  Undo2,
 } from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
@@ -45,7 +48,8 @@ import { MarkdownContent } from "@/components/markdown-content";
 import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
 import { MemberModal, type TeamMember } from "@/components/team-view";
 import { solveIssueWithAgent, listCardNotes, addCardNote, deleteCardNote, type CardNote } from "@/app/actions/kanban";
-import { CATEGORY_LABELS, type LabelSpec } from "@/lib/kanban-labels";
+import { CATEGORY_LABELS, TEST_NEEDS, TEST_PASSED, type LabelSpec } from "@/lib/kanban-labels";
+import { requestCardTest, resolveCardTest } from "@/app/actions/card-test";
 import { useDialogA11y } from "@/hooks/use-dialog-a11y";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -559,6 +563,227 @@ function repoOf(url?: string): string | undefined {
   return m?.[1];
 }
 
+// ---------------------------------------------------------------------------
+// Test/QA request loop — request testing of an in-review card, then approve
+// (→ Done) or reject (→ In Progress). Real issues/PRs only (labels + comments).
+// ---------------------------------------------------------------------------
+
+function CardTestSection({
+  item,
+  repo,
+  team,
+  statusCtx,
+  onPatchItem,
+}: {
+  item: KanbanItem;
+  repo: string | null;
+  team: { login: string; avatarUrl: string; username: string | null }[];
+  statusCtx?: { projectId: string; fieldId: string | null; columns: { name: string; optionId?: string }[] };
+  onPatchItem: (itemId: string, patch: Partial<KanbanItem>) => void;
+}) {
+  const testers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { username: string; login: string; avatarUrl: string }[] = [];
+    for (const t of team) {
+      const u = t.username?.toLowerCase().trim();
+      if (!u || seen.has(u)) continue;
+      seen.add(u);
+      out.push({ username: u, login: t.login, avatarUrl: t.avatarUrl });
+    }
+    return out;
+  }, [team]);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const canTest = item.type !== "draft" && !!item.contentId && !!repo;
+  const needsTest = item.labels.some((l) => l.name.toLowerCase() === TEST_NEEDS);
+  const tested = item.labels.some((l) => l.name.toLowerCase() === TEST_PASSED);
+
+  if (!canTest) {
+    if (item.type === "draft") {
+      return (
+        <div className="mt-6 border-t border-border pt-4">
+          <p className="flex items-center gap-1.5 text-xs text-foreground-faint">
+            <FlaskConical className="h-3.5 w-3.5" /> Converta em issue para solicitar um teste.
+          </p>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  const toggle = (u: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(u)) next.delete(u); else next.add(u);
+      return next;
+    });
+
+  const cardUrl = typeof window !== "undefined" ? `${window.location.origin}/kanban?open=${encodeURIComponent(item.id)}` : "";
+  const prUrl = item.type === "pr" ? item.url : null;
+
+  async function request() {
+    if (busy || selected.size === 0) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await requestCardTest({
+        contentId: item.contentId,
+        type: item.type,
+        repo,
+        title: item.title,
+        cardUrl,
+        prUrl,
+        whatToTest: note.trim(),
+        testers: [...selected],
+      });
+      if (r.ok) {
+        onPatchItem(item.id, {
+          labels: [
+            ...item.labels.filter((l) => l.name.toLowerCase() !== TEST_PASSED),
+            { name: TEST_NEEDS, color: "fbca04" },
+          ],
+        });
+        setNote("");
+        const extra = r.failed.length ? ` (falhou: ${r.failed.map((f) => `@${f}`).join(", ")})` : "";
+        setResult({ ok: true, text: `Teste solicitado a ${r.delivered.map((d) => `@${d}`).join(", ") || "ninguém"}.${extra}` });
+      } else {
+        setResult({ ok: false, text: r.error });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resolve(verdict: "pass" | "fail") {
+    if (busy) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const rx = verdict === "pass" ? /done|conclu|complete|finaliz|shipped|closed/i : /progress|doing|andamento|wip|fazendo/i;
+      const targetOptionId = statusCtx?.columns.find((c) => rx.test(c.name))?.optionId ?? null;
+      const r = await resolveCardTest({
+        itemId: item.id,
+        contentId: item.contentId,
+        type: item.type,
+        repo,
+        projectId: statusCtx?.projectId,
+        statusFieldId: statusCtx?.fieldId,
+        targetOptionId,
+        verdict,
+        note: note.trim(),
+        title: item.title,
+      });
+      if (r.ok) {
+        onPatchItem(item.id, {
+          labels: [
+            ...item.labels.filter((l) => {
+              const n = l.name.toLowerCase();
+              return n !== TEST_NEEDS && n !== TEST_PASSED;
+            }),
+            ...(verdict === "pass" ? [{ name: TEST_PASSED, color: "0e8a16" }] : []),
+          ],
+        });
+        setNote("");
+        const moved = r.moved ? (verdict === "pass" ? " → movido para Done" : " → movido para In Progress") : " (mova a coluna manualmente)";
+        setResult({ ok: true, text: `${verdict === "pass" ? "Aprovado ✅" : "Reprovado ↩️"}${moved}. Atualize para ver na coluna.` });
+      } else {
+        setResult({ ok: false, text: r.error });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 border-t border-border pt-4">
+      <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
+        <FlaskConical className="h-3.5 w-3.5" /> Teste / QA
+        {needsTest && <span className="ml-1 rounded-full bg-[#fbca04]/20 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-[#a16207]">aguardando teste</span>}
+        {tested && !needsTest && <span className="ml-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-success">testado</span>}
+      </p>
+
+      {needsTest ? (
+        <div className="space-y-2.5">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder="Observações do teste (opcional)…"
+            className="w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => resolve("pass")}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />} Aprovar
+            </button>
+            <button
+              type="button"
+              onClick={() => resolve("fail")}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/20 disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />} Reprovar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {testers.length === 0 ? (
+            <p className="text-xs text-foreground-faint">Nenhum membro do time com canal de mensagem pra escolher como testador.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {testers.map((t) => {
+                const on = selected.has(t.username);
+                return (
+                  <button
+                    key={t.username}
+                    type="button"
+                    onClick={() => toggle(t.username)}
+                    aria-pressed={on}
+                    className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2.5 text-xs font-medium transition-colors ${
+                      on ? "border-accent-border bg-accent-bg text-accent" : "border-border bg-surface text-foreground-muted hover:border-border-strong hover:text-foreground"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={t.avatarUrl} alt="" className="h-5 w-5 rounded-full" />
+                    @{t.username}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder="O que testar / checklist (opcional)…"
+            className="w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={request}
+            disabled={busy || selected.size === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
+            {selected.size > 0 ? `Solicitar teste (${selected.size})` : "Solicitar teste"}
+          </button>
+        </div>
+      )}
+
+      {result && <p className={`mt-2 text-xs ${result.ok ? "text-success" : "text-danger"}`}>{result.text}</p>}
+    </div>
+  );
+}
+
 export function CardDetailDialog({
   item,
   team,
@@ -568,6 +793,7 @@ export function CardDetailDialog({
   bounty,
   onBountyChanged,
   issueRepo,
+  statusCtx,
   onSetAssignees,
   onMutate,
   onPatchItem,
@@ -583,6 +809,8 @@ export function CardDetailDialog({
   onBountyChanged: () => void | Promise<void>;
   /** Board's primary repo (owner/name) — enables draft→issue + solve-with-agent. */
   issueRepo?: string | null;
+  /** Board status field + columns — lets the test loop move the card on approve/reject. */
+  statusCtx?: { projectId: string; fieldId: string | null; columns: { name: string; optionId?: string }[] };
   onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
   onMutate: MutateFn;
   onPatchItem: (itemId: string, patch: Partial<KanbanItem>) => void;
@@ -1060,6 +1288,17 @@ export function CardDetailDialog({
                 </div>
               )}
             </div>
+          )}
+
+          {/* Test / QA request loop */}
+          {!editing && (
+            <CardTestSection
+              item={item}
+              repo={repoOf(item.url) ?? issueRepo ?? null}
+              team={team}
+              statusCtx={statusCtx}
+              onPatchItem={onPatchItem}
+            />
           )}
 
           {/* Bounty + EXEC meeting — feature parity with the SOPA aggregated board.
@@ -1873,6 +2112,11 @@ export function KanbanBoard() {
           bounty={bountyByKey.get(taskKeyOf(detailItem))}
           onBountyChanged={load}
           issueRepo={primaryRepo}
+          statusCtx={{
+            projectId: board.projectId,
+            fieldId: board.statusFieldId,
+            columns: board.columns.map((c) => ({ name: c.name, optionId: c.optionId })),
+          }}
           onSetAssignees={onSetAssignees}
           onMutate={(payload) => mutate({ ...payload, projectId: board.projectId })}
           onPatchItem={patchItem}

@@ -184,9 +184,13 @@ export type SendTeamMessageResult =
  * actually deliver on. Targets are resolved server-side from the project's
  * teamContacts + coworker-edited contacts — the client only picks a channel.
  */
+/** Channel preference when none is specified — private pings first. */
+const CHANNEL_PRIORITY: TeamMessageChannel[] = ["discord", "email", "farcaster", "hive"];
+
 export async function sendTeamMessage(input: {
   username: string;
-  channel: TeamMessageChannel;
+  /** Omit to auto-pick the member's best available channel (private first). */
+  channel?: TeamMessageChannel;
   message: string;
 }): Promise<SendTeamMessageResult> {
   try {
@@ -208,11 +212,19 @@ export async function sendTeamMessage(input: {
     }
 
     const contacts = await loadMemberContacts(project, username);
-    const option = getTeamMessageOptions(project, username, { contacts }).find(
-      (o) => o.channel === input.channel,
-    );
+    const options = getTeamMessageOptions(project, username, { contacts });
+    const option = input.channel
+      ? options.find((o) => o.channel === input.channel)
+      : [...options].sort(
+          (a, b) => CHANNEL_PRIORITY.indexOf(a.channel) - CHANNEL_PRIORITY.indexOf(b.channel),
+        )[0];
     if (!option) {
-      return { ok: false, error: "That channel isn't available for this member." };
+      return {
+        ok: false,
+        error: input.channel
+          ? "That channel isn't available for this member."
+          : "No channel can deliver to this member.",
+      };
     }
 
     const signature = `— @${session.username} via the ${project.name} portal`;
