@@ -174,8 +174,9 @@ const CARD_STYLE_META: Record<CardStyle, { name: string; note: string; defaultAc
   skatecard: { name: "Skate Trading Card", note: "Baseball-card layout for skate — name plate, framed clip, stat bar (Gnars gold)", defaultAccent: "#fbbf24" },
 };
 
-// Recurring-post title designs — themed overlay treatments (accent bar + title +
-// subtitle) for the formats we post on a cadence. Edit text after adding.
+// Recurring-post designs rendered as RARE baseball cards (the skatecard layout)
+// themed per cadence — the format goes in the card's type tag, with a high
+// rarity + themed accent. Prefilled from the clip, fully editable after.
 type RecurringDesignKey = "weekly" | "bestweek" | "bestmonth";
 const RECURRING_DESIGNS: {
   key: RecurringDesignKey;
@@ -183,12 +184,12 @@ const RECURRING_DESIGNS: {
   note: string;
   badge: string;
   accent: string;
-  title: string;
-  subtitle: string;
+  typeTag: string;
+  rarity: Rarity;
 }[] = [
-  { key: "weekly", name: "Weekly Recap", note: "Resumo semanal da comunidade", badge: "WK", accent: "#a3e635", title: "WEEKLY RECAP", subtitle: "SkateHive · skatehive.app" },
-  { key: "bestweek", name: "Best of the Week", note: "Destaque do skater na semana", badge: "BOW", accent: "#38bdf8", title: "BEST OF THE WEEK", subtitle: "@skater" },
-  { key: "bestmonth", name: "Best of the Month", note: "Destaque do skater no mês", badge: "BOM", accent: "#fbbf24", title: "BEST OF THE MONTH", subtitle: "@skater" },
+  { key: "weekly", name: "Weekly Recap", note: "Card raro · resumo da semana", badge: "WK", accent: "#a3e635", typeTag: "WEEKLY RECAP", rarity: "Legendary" },
+  { key: "bestweek", name: "Best of the Week", note: "Card raro · destaque do skater", badge: "BOW", accent: "#38bdf8", typeTag: "BEST OF WEEK", rarity: "Epic" },
+  { key: "bestmonth", name: "Best of the Month", note: "Card lendário · destaque do mês", badge: "BOM", accent: "#fbbf24", typeTag: "BEST OF MONTH", rarity: "Legendary" },
 ];
 
 // Gnars bounty palette — mirrors gnars-website OG_COLORS (og-utils.ts).
@@ -1509,26 +1510,52 @@ export function VideoEditor({
   };
 
   /**
-   * Recurring-post overlay DESIGNS — a themed title treatment (accent bar +
-   * title + subtitle) dropped on the video, like the card overlays but tuned for
-   * weekly/best-of formats. Composed from the existing text + shape primitives.
+   * Recurring-post designs as RARE baseball cards — the skatecard layout themed
+   * per cadence (format in the type tag, high rarity, themed accent), prefilled
+   * from the clip. Tagged "rd:" so re-applying REPLACES the previous one.
    */
   const addRecurringDesign = (key: RecurringDesignKey) => {
     const d = RECURRING_DESIGNS.find((x) => x.key === key);
     if (!d) return;
-    const start = clockRef.current.base;
     const total = stateRef.current.clips.reduce((s, c) => s + (c.out - c.in), 0);
-    const end = total > start ? total : start + 5;
-    const artTrack = stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "art";
-    const textTrack = stateRef.current.overlayTracks.find((t) => t.id === "text")?.id ?? artTrack;
-    const base = { start: Math.max(0, start), end, opacity: 1, rotation: 0 };
-    // "rd:" prefix tags these as a recurring-post design so re-applying REPLACES
-    // the previous design's layers instead of stacking another set on top.
-    const bar: Overlay = { id: `rd:${nextId()}`, kind: "shape", trackId: artTrack, shape: "rect", hRatio: 0.16, color: d.accent, bg: false, x: 0.5, y: 0.16, w: 0.92, ...base };
-    const title: Overlay = { id: `rd:${nextId()}`, kind: "text", trackId: textTrack, text: d.title, color: "#0a0a0a", bg: false, x: 0.5, y: 0.13, w: 0.9, ...base };
-    const sub: Overlay = { id: `rd:${nextId()}`, kind: "text", trackId: textTrack, text: d.subtitle, color: "#ffffff", bg: true, x: 0.5, y: 0.27, w: 0.7, ...base };
-    setOverlays((prev) => [...prev.filter((o) => !o.id.startsWith("rd:")), bar, title, sub]);
-    setSelection({ type: "overlay", id: title.id });
+    const firstClip = stateRef.current.clips[0];
+    const item = firstClip ? stateRef.current.bin.find((b) => b.id === firstClip.binId) : null;
+    const author = item?.credit?.match(/@([\w.-]+)/)?.[1];
+    const votes = item?.credit?.match(/▲\s*(\d+)/)?.[1];
+    const dur = firstClip ? firstClip.out - firstClip.in : item?.duration ?? 0;
+    const runtime = `${Math.floor(dur / 60)}:${String(Math.round(dur % 60)).padStart(2, "0")}`;
+    const card: CardData = {
+      style: "skatecard",
+      skater: author ? `@${author}` : "@skater",
+      title: item?.name ?? d.name.toUpperCase(),
+      description: "",
+      type: d.typeTag,
+      upvotes: votes ?? "0",
+      runtime,
+      serial: (votes ?? "0001").padStart(4, "0").slice(0, 4),
+      rarity: d.rarity,
+      motion: false,
+      accent: d.accent,
+      fontScale: 1,
+      hidden: [],
+    };
+    const ov: Overlay = {
+      id: `rd:${nextId()}`,
+      kind: "card",
+      trackId: stateRef.current.overlayTracks.find((t) => t.id === "art")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "art",
+      card,
+      color: "#ffffff",
+      bg: false,
+      start: 0,
+      end: total > 0 ? total : 8,
+      x: 0.5,
+      y: 0.5,
+      w: 1,
+      opacity: 1,
+      rotation: 0,
+    };
+    setOverlays((prev) => [...prev.filter((o) => !o.id.startsWith("rd:")), ov]);
+    setSelection({ type: "overlay", id: ov.id });
     setBinTab("templates");
   };
 
