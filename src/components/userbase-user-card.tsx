@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, ExternalLink, Loader2, Trash2, X } from "lucide-react";
+import { AlertCircle, Check, ExternalLink, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   deleteUserbaseUser,
   getFarcasterInfo,
   getHiveInfo,
   getUserbaseUserDetail,
+  setUserbaseEmail,
   type FarcasterInfo,
   type HiveInfo,
   type UserbaseRow,
@@ -222,18 +223,13 @@ export function UserbaseUserCard({
                   <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-muted">{detail.data.bio}</p>
                 </div>
               )}
-              <div>
-                <p className="mb-2 text-[10px] uppercase tracking-wider text-foreground-faint">
-                  Emails ({detail.data.emails.length})
-                </p>
-                <div className="space-y-1">
-                  {detail.data.emails.map((e) => (
-                    <p key={e.email} className="text-sm text-foreground">
-                      {e.email} <span className="text-xs text-foreground-faint">linked {formatDate(e.linkedAt)}</span>
-                    </p>
-                  ))}
-                </div>
-              </div>
+              <EmailsEditor
+                userId={detail.data.id}
+                emails={detail.data.emails}
+                onChange={(emails) =>
+                  setDetail((d) => (d.state === "ready" ? { state: "ready", data: { ...d.data, emails } } : d))
+                }
+              />
               <div>
                 <p className="mb-2 text-[10px] uppercase tracking-wider text-foreground-faint">
                   Identities ({detail.data.identities.length})
@@ -353,6 +349,135 @@ export function UserbaseUserCard({
     </div>
     {confirmUI}
     </>
+  );
+}
+
+type EmailRow = { id: string; email: string; linkedAt: string };
+
+function EmailsEditor({
+  userId,
+  emails,
+  onChange,
+}: {
+  userId: string;
+  emails: EmailRow[];
+  onChange: (emails: EmailRow[]) => void;
+}) {
+  const [editId, setEditId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const { confirm, confirmUI } = useConfirm();
+
+  async function save(rowId: string | null) {
+    const email = draft.trim();
+    if (!email) return;
+    setBusy(true);
+    setErr(null);
+    const r = await setUserbaseEmail({ userId, rowId, email });
+    setBusy(false);
+    if (!r.ok) {
+      setErr(r.error);
+      return;
+    }
+    if (rowId) onChange(emails.map((e) => (e.id === rowId ? { ...e, email: r.email! } : e)));
+    else if (r.id) onChange([{ id: r.id, email: r.email!, linkedAt: new Date().toISOString() }, ...emails]);
+    setEditId(null);
+    setAdding(false);
+    setDraft("");
+  }
+
+  async function remove(row: EmailRow) {
+    const ok = await confirm({
+      title: "Remover email?",
+      message: `Remove "${row.email}" do login deste usuário.`,
+      confirmLabel: "Remover",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    setErr(null);
+    const r = await setUserbaseEmail({ userId, rowId: row.id, email: "" });
+    setBusy(false);
+    if (!r.ok) {
+      setErr(r.error);
+      return;
+    }
+    onChange(emails.filter((e) => e.id !== row.id));
+  }
+
+  const inputCls =
+    "min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-sm text-foreground outline-none focus:border-border-strong";
+  const iconBtn = "rounded-md p-1.5 text-foreground-muted transition-colors hover:text-foreground disabled:opacity-50";
+
+  return (
+    <div>
+      <p className="mb-2 text-[10px] uppercase tracking-wider text-foreground-faint">Emails ({emails.length})</p>
+      <div className="space-y-1.5">
+        {emails.map((e) =>
+          editId === e.id ? (
+            <div key={e.id} className="flex items-center gap-1.5">
+              <input
+                autoFocus
+                type="email"
+                value={draft}
+                onChange={(ev) => setDraft(ev.target.value)}
+                onKeyDown={(ev) => ev.key === "Enter" && save(e.id)}
+                className={inputCls}
+              />
+              <button type="button" onClick={() => save(e.id)} disabled={busy} aria-label="Salvar" className={iconBtn}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 text-success" />}
+              </button>
+              <button type="button" onClick={() => { setEditId(null); setDraft(""); }} aria-label="Cancelar" className={iconBtn}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div key={e.id} className="group flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground">{e.email}</span>
+              <span className="shrink-0 text-xs text-foreground-faint">linked {formatDate(e.linkedAt)}</span>
+              <button type="button" onClick={() => { setEditId(e.id); setDraft(e.email); setAdding(false); }} aria-label="Editar email" className={iconBtn}>
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button type="button" onClick={() => remove(e)} disabled={busy} aria-label="Remover email" className={`${iconBtn} hover:text-danger`}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ),
+        )}
+
+        {adding ? (
+          <div className="flex items-center gap-1.5">
+            <input
+              autoFocus
+              type="email"
+              placeholder="email@exemplo.com"
+              value={draft}
+              onChange={(ev) => setDraft(ev.target.value)}
+              onKeyDown={(ev) => ev.key === "Enter" && save(null)}
+              className={inputCls}
+            />
+            <button type="button" onClick={() => save(null)} disabled={busy} aria-label="Adicionar" className={iconBtn}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 text-success" />}
+            </button>
+            <button type="button" onClick={() => { setAdding(false); setDraft(""); }} aria-label="Cancelar" className={iconBtn}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => { setAdding(true); setDraft(""); setEditId(null); }}
+            className="inline-flex items-center gap-1 text-xs font-medium text-foreground-muted transition-colors hover:text-accent"
+          >
+            <Plus className="h-3.5 w-3.5" /> Adicionar email
+          </button>
+        )}
+        {err && <p className="text-xs text-danger">{err}</p>}
+      </div>
+      {confirmUI}
+    </div>
   );
 }
 

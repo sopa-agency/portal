@@ -443,6 +443,48 @@ export async function setUserbaseInstagram(
   }
 }
 
+/**
+ * Edit / add / remove a user's login email (userbase_auth_methods, type
+ * "email_magic"). rowId present → edit (or remove when email is empty); rowId
+ * absent → add a new email for userId.
+ */
+export async function setUserbaseEmail(input: {
+  userId: string;
+  rowId?: string | null;
+  email: string;
+}): Promise<{ ok: true; id: string | null; email: string | null } | { ok: false; error: string }> {
+  try {
+    await editGate();
+    const client = getUserbaseClient();
+    if (!client) return { ok: false, error: "Supabase userbase not configured." };
+    const email = input.email.trim().toLowerCase();
+
+    if (input.rowId && !email) {
+      const { error } = await client.from("userbase_auth_methods").delete().eq("id", input.rowId);
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, id: null, email: null };
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Email inválido." };
+
+    if (input.rowId) {
+      const { error } = await client.from("userbase_auth_methods").update({ identifier: email }).eq("id", input.rowId);
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, id: input.rowId, email };
+    }
+
+    if (!input.userId) return { ok: false, error: "userId obrigatório." };
+    const { data, error } = await client
+      .from("userbase_auth_methods")
+      .insert({ user_id: input.userId, type: "email_magic", identifier: email })
+      .select("id")
+      .single();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, id: (data?.id as string) ?? null, email };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** True when the current viewer is a SOPA global admin (gates destructive ops). */
 export async function isGlobalAdmin(): Promise<boolean> {
   try {
@@ -513,7 +555,7 @@ export type UserbaseUserDetail = {
   onboardingStep: number | null;
   createdAt: string | null;
   updatedAt: string | null;
-  emails: { email: string; linkedAt: string }[];
+  emails: { id: string; email: string; linkedAt: string }[];
   identities: UserbaseIdentity[];
 };
 
@@ -534,7 +576,7 @@ export async function getUserbaseUserDetail(
         .order("type"),
       client
         .from("userbase_auth_methods")
-        .select("identifier, created_at")
+        .select("id, identifier, created_at")
         .eq("user_id", userId)
         .eq("type", "email_magic")
         .order("created_at", { ascending: false }),
@@ -557,7 +599,7 @@ export async function getUserbaseUserDetail(
         onboardingStep: u.onboarding_step ?? null,
         createdAt: u.created_at ?? null,
         updatedAt: u.updated_at ?? null,
-        emails: (emailRes.data ?? []).map((r) => ({ email: r.identifier as string, linkedAt: r.created_at as string })),
+        emails: (emailRes.data ?? []).map((r) => ({ id: r.id as string, email: r.identifier as string, linkedAt: r.created_at as string })),
         identities: (identRes.data ?? []).map((r) => ({
           type: r.type as string,
           handle: (r.handle as string | null) ?? null,
