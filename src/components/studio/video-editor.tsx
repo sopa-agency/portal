@@ -81,7 +81,7 @@ type Clip = {
   offsetY?: number;
   scale?: number;
 };
-type CardStyle = "holo" | "pixel" | "gold" | "bounty" | "skatecard";
+type CardStyle = "holo" | "pixel" | "gold" | "bounty" | "skatecard" | "recap";
 type Rarity = "Rare" | "Epic" | "Legendary";
 
 /** Trading-card overlay that frames the clip as a rare TCG card. */
@@ -172,12 +172,13 @@ const CARD_STYLE_META: Record<CardStyle, { name: string; note: string; defaultAc
   gold: { name: "Gold Legendary Foil", note: "Gilded frame + medallion seal", defaultAccent: "#ffd86b" },
   bounty: { name: "Gnars Bounty", note: "POIDH challenge — Ken Pixel on black, onchain reward in gold", defaultAccent: "#fbbf24" },
   skatecard: { name: "Skate Trading Card", note: "Baseball-card layout for skate — name plate, framed clip, stat bar (Gnars gold)", defaultAccent: "#fbbf24" },
+  recap: { name: "Recap Card", note: "Template name on top, big vertical clip, @user at the bottom", defaultAccent: "#a3e635" },
 };
 
 // Recurring-post designs rendered as RARE baseball cards (the skatecard layout)
 // themed per cadence — the format goes in the card's type tag, with a high
 // rarity + themed accent. Prefilled from the clip, fully editable after.
-type RecurringDesignKey = "weekly" | "bestweek" | "bestmonth";
+type RecurringDesignKey = "weekly" | "bestweek" | "bestmonth" | "community";
 const RECURRING_DESIGNS: {
   key: RecurringDesignKey;
   name: string;
@@ -190,6 +191,7 @@ const RECURRING_DESIGNS: {
   { key: "weekly", name: "Weekly Recap", note: "Card raro · resumo da semana", badge: "WK", accent: "#a3e635", typeTag: "WEEKLY RECAP", rarity: "Legendary" },
   { key: "bestweek", name: "Best of the Week", note: "Card raro · destaque do skater", badge: "BOW", accent: "#38bdf8", typeTag: "BEST OF WEEK", rarity: "Epic" },
   { key: "bestmonth", name: "Best of the Month", note: "Card lendário · destaque do mês", badge: "BOM", accent: "#fbbf24", typeTag: "BEST OF MONTH", rarity: "Legendary" },
+  { key: "community", name: "Community Edit", note: "Card raro · edit da comunidade", badge: "CE", accent: "#c084fc", typeTag: "COMMUNITY EDIT", rarity: "Epic" },
 ];
 
 // Gnars bounty palette — mirrors gnars-website OG_COLORS (og-utils.ts).
@@ -297,6 +299,10 @@ function drawCard(
   }
   if (card.style === "skatecard") {
     drawSkateCard(ctx, W, H, card, clipEl, framing);
+    return;
+  }
+  if (card.style === "recap") {
+    drawRecapCard(ctx, W, H, card, clipEl, framing);
     return;
   }
 
@@ -651,6 +657,69 @@ function drawSkateCard(
   // 7) league footer wordmark
   pix(16);
   center((card.footerUrl || "GNARS · SKATE SERIES").toUpperCase(), H - Mi - f(8), GN.muted, f(4));
+}
+
+/** Recurring-post "recap" card: TEMPLATE NAME on top, a big vertical clip
+ *  window in the middle, and the @user at the bottom — themed by accent. */
+function drawRecapCard(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  card: CardData,
+  clipEl: HTMLVideoElement | null,
+  framing: { offsetX: number; offsetY: number; scale: number },
+) {
+  ensureGnarsBountyAssets();
+  const accent = card.accent || GN.gold;
+  const fs = card.fontScale || 1;
+  const S = Math.min(W, H) / 1080;
+  const f = (n: number) => n * S * fs;
+  const pix = (px: number) => { ctx.font = `400 ${f(px)}px 'Ken Pixel', 'JetBrains Mono', ui-monospace, monospace`; };
+  const wide = (text: string, sp: number) => { let t = 0; for (const ch of text) t += ctx.measureText(ch).width + sp; return t - sp; };
+  const at = (text: string, x: number, y: number, color: string, sp: number) => {
+    ctx.textAlign = "left"; ctx.fillStyle = color; let cx = x;
+    for (const ch of text) { ctx.fillText(ch, cx, y); cx += ctx.measureText(ch).width + sp; }
+  };
+  const center = (text: string, cy: number, color: string, sp: number) => at(text, W / 2 - wide(text, sp) / 2, cy, color, sp);
+  ctx.textBaseline = "alphabetic";
+
+  // frame
+  ctx.fillStyle = GN.bg; ctx.fillRect(0, 0, W, H);
+  const M = Math.min(W, H) * 0.04;
+  ctx.lineWidth = Math.max(3, f(9)); ctx.strokeStyle = accent;
+  roundRectPath(ctx, M, M, W - 2 * M, H - 2 * M, f(22)); ctx.stroke();
+  const Mi = M + f(10);
+  ctx.lineWidth = Math.max(1, f(2)); ctx.strokeStyle = "rgba(255,255,255,0.16)";
+  roundRectPath(ctx, Mi, Mi, W - 2 * Mi, H - 2 * Mi, f(14)); ctx.stroke();
+
+  const padX = Mi + f(20);
+  const innerW = W - 2 * padX;
+  let y = Mi + f(18);
+
+  // TOP — template name (the recurring format), auto-shrink to one line
+  const name = (card.type || "RECAP").toUpperCase();
+  let ns = 56; for (; ns > 22; ns -= 3) { pix(ns); if (wide(name, f(3)) <= innerW) break; }
+  center(name, y + f(ns), accent, f(3));
+  y += f(ns) + f(12);
+  ctx.fillStyle = accent; ctx.fillRect(padX, y, innerW, Math.max(2, f(3)));
+  y += f(20);
+
+  // MIDDLE — big vertical clip window (fills down to the bottom name area)
+  const bottomReserve = f(74);
+  const winY = y;
+  const winH = Math.max(f(120), H - Mi - bottomReserve - winY);
+  ctx.save();
+  roundRectPath(ctx, padX, winY, innerW, winH, f(12)); ctx.clip();
+  if (clipEl && clipEl.readyState >= 2) drawCoverInRect(ctx, clipEl, padX, winY, innerW, winH, framing);
+  else { ctx.fillStyle = "#0a0a0a"; ctx.fillRect(padX, winY, innerW, winH); }
+  ctx.restore();
+  ctx.strokeStyle = accent; ctx.lineWidth = Math.max(2, f(3));
+  roundRectPath(ctx, padX, winY, innerW, winH, f(12)); ctx.stroke();
+
+  // BOTTOM — @user
+  const handle = card.skater || "@skater";
+  let hs = 38; for (; hs > 20; hs -= 2) { pix(hs); if (wide(handle, f(2)) <= innerW) break; }
+  center(handle, H - Mi - f(22), GN.fg, f(2));
 }
 
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
@@ -1525,7 +1594,7 @@ export function VideoEditor({
     const dur = firstClip ? firstClip.out - firstClip.in : item?.duration ?? 0;
     const runtime = `${Math.floor(dur / 60)}:${String(Math.round(dur % 60)).padStart(2, "0")}`;
     const card: CardData = {
-      style: "skatecard",
+      style: "recap",
       skater: author ? `@${author}` : "@skater",
       title: item?.name ?? d.name.toUpperCase(),
       description: "",
