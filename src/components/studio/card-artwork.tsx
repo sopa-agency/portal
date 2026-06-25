@@ -259,9 +259,6 @@ function SpotLayer({ card, assets }: { card: Extract<Card, { tipo: "spot" }>; as
                   found by @{card.spotAuthor}
                 </div>
               ) : null}
-              <div style={{ display: "flex", marginTop: 10, fontFamily: "Inter", fontWeight: 400, fontSize: 22, color: SPOT_LIME }}>
-                escaneie · skatehive.app
-              </div>
             </div>
           </div>
         ) : (
