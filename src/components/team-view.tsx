@@ -31,6 +31,7 @@ import type { TeamContact } from "@/projects/types";
 import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connections";
 import type { TeamMessageOption } from "@/lib/team-messaging";
 import { resolveDiscordUser, sendTeamMessage, sendTeamTasksEmail, updateTeamMemberContact } from "@/app/actions/team";
+import { FirePriority, DeadlineChip } from "@/components/card-indicators";
 import { setMemberRole, removeMember, getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
 import { CardDialogHost } from "@/components/card-dialog-host";
 import type { AggregatedItem } from "@/lib/github-project";
@@ -765,6 +766,8 @@ function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, important
                   <div className="flex flex-wrap items-center gap-2">
                     {t.board && <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">{t.board}</span>}
                     <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-foreground-muted">{t.status}</span>
+                    <FirePriority value={t.firePriority} />
+                    <DeadlineChip value={t.deadline} />
                     {t.priority && <span className="rounded-full bg-foreground/10 px-1.5 py-0.5 text-[9px] text-foreground-subtle">{t.priority}</span>}
                     {t.number ? <span className="text-[10px] text-foreground-faint">#{t.number}</span> : null}
                   </div>
