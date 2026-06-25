@@ -40,46 +40,80 @@ export async function loadFonts(): Promise<FontSpec[]> {
 }
 
 /**
- * Fetch a remote image into a data-URI so Satori never has to do its own
- * network fetch at render time. Satori is given explicit width/height, so when
- * its internal fetch is slow/fails it silently renders the card WITHOUT the
- * photo (blank where the image should be) — which is exactly the "first cards
- * have no image" failure on big Hive originals under concurrent renders.
- * Retries + a generous timeout make every card embed its pixels deterministically.
+ * Hive's image CDN: resize + RE-ENCODE any source URL to a clean baseline image.
+ * This is the key reliability fix — a card photo that's a progressive/CMYK JPEG,
+ * an odd webp, or a multi-MB original makes Satori/resvg render the card blank
+ * (or OOM under concurrency on Vercel). Routing through the proxy normalizes the
+ * format and bounds the size to ~1280px, so every photo decodes the same way.
  */
-async function fetchImageDataUri(url: string, attempts = 3): Promise<string | null> {
+function hiveProxy(url: string, width = 1280): string {
+  return `https://images.hive.blog/${width}x0/${url}`;
+}
+
+async function fetchOnce(url: string, timeoutMs = 12000): Promise<Buffer | null> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { "User-Agent": "portal-skatehive", Accept: "image/*" },
+      redirect: "follow",
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length ? buf : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a remote image into a data-URI so Satori never does its own (flaky)
+ * network fetch at render time. Tries the normalizing proxy first, then the raw
+ * URL, with retries. Always returns a clean JPEG data-URI when any source works.
+ */
+async function fetchImageDataUri(url: string, attempts = 2): Promise<string | null> {
+  // proxy-first (normalized) → raw original (in case the proxy can't reach the host)
+  const sources = url.startsWith("https://images.hive.blog/") && /\/\d+x\d+\//.test(url)
+    ? [url] // already a proxy URL
+    : [hiveProxy(url), url];
   for (let i = 0; i < attempts; i++) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 15000);
-      const res = await fetch(url, {
-        signal: ctrl.signal,
-        headers: { "User-Agent": "portal-skatehive", Accept: "image/*" },
-        redirect: "follow",
-      }).finally(() => clearTimeout(timer));
-      if (!res.ok) continue;
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (!buf.length) continue;
-      let ct = (res.headers.get("content-type") || "").split(";")[0].trim();
-      if (!ct.startsWith("image/")) ct = "image/jpeg"; // some gateways mislabel
-      return `data:${ct};base64,` + buf.toString("base64");
-    } catch {
-      // transient (abort/network) — fall through to the next attempt
+    for (const src of sources) {
+      const buf = await fetchOnce(src);
+      if (buf) return `data:${sniffMime(buf)};base64,` + buf.toString("base64");
     }
   }
   return null;
 }
 
+/** Mime from magic bytes (the proxy returns jpeg; raw fallbacks may be png/etc). */
+function sniffMime(buf: Buffer): string {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
+  if (buf.length > 7 && buf[0] === 0x89 && buf[1] === 0x50) return "image/png";
+  if (buf.length > 11 && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  if (buf.length > 5 && buf.toString("ascii", 0, 3) === "GIF") return "image/gif";
+  return "image/jpeg";
+}
+
 // Satori não busca path relativo no server: resolve "/posts/..." (public) -> data-URI.
 // http(s) → baixado p/ data-URI (confiável). data: passa direto. Cacheado por src.
+// Remote data-URIs are big, so the cache is bounded (FIFO) to avoid growth.
 const _imgCache = new Map<string, string>();
+const _IMG_CACHE_MAX = 48;
+function cacheImg(key: string, val: string) {
+  if (_imgCache.size >= _IMG_CACHE_MAX) {
+    const oldest = _imgCache.keys().next().value;
+    if (oldest !== undefined) _imgCache.delete(oldest);
+  }
+  _imgCache.set(key, val);
+}
 export async function resolveImg(src: string | null | undefined): Promise<string | null> {
   if (!src) return null;
   if (src.startsWith("data:")) return src;
   if (src.startsWith("http")) {
     if (_imgCache.has(src)) return _imgCache.get(src)!;
     const uri = await fetchImageDataUri(src);
-    if (uri) _imgCache.set(src, uri);
+    if (uri) cacheImg(src, uri);
     return uri ?? src; // fall back to the raw URL so Satori can still try
   }
   if (!src.startsWith("/")) return src;
@@ -98,7 +132,7 @@ export async function resolveImg(src: string | null | undefined): Promise<string
   }
   const ext = src.toLowerCase().endsWith(".png") ? "png" : "jpeg";
   const uri = `data:image/${ext};base64,` + buf.toString("base64");
-  _imgCache.set(src, uri);
+  cacheImg(src, uri);
   return uri;
 }
 

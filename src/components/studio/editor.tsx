@@ -38,7 +38,7 @@ import { listSkateSpots, getSkateSpot, type SkateSpot } from "@/app/actions/skat
 import { uploadMediaDirectClient } from "@/lib/upload-media-client";
 
 const STORAGE_KEY = "reelflip-studio:doc:v2";
-const RENDER_CONCURRENCY = 3; // renders Satori em paralelo no export .zip
+const RENDER_CONCURRENCY = 2; // Satori+resvg are memory-heavy; 2 bounds peak RAM on Vercel (was 3 → OOM/500 on the first concurrent batch with big photos)
 const THUMB_W = 36; // largura do thumbnail na lista de cards (px)
 
 const CLIENT_ASSETS: Assets = {
