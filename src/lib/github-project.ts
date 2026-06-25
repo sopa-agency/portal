@@ -928,6 +928,22 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
       for (const it of col.items) colItems.get(col.name)!.push({ ...it, board, projectSlug: p.slug, projectId: r.projectId, statusFieldId: r.statusFieldId, statusOptions });
     }
   }
+
+  // Merge portal-owned fire priority + deadline, then sort each column
+  // priority-first (the aggregated board has no within-column manual order).
+  const { loadCardMeta } = await import("@/lib/card-meta");
+  const { compareByPriority } = await import("@/lib/kanban-priority");
+  const allItems = [...colItems.values()].flat();
+  const meta = await loadCardMeta(allItems.map((i) => i.id));
+  for (const it of allItems) {
+    const m = meta.get(it.id);
+    if (m) {
+      it.firePriority = m.firePriority;
+      it.deadline = m.deadline;
+    }
+  }
+  for (const items of colItems.values()) items.sort(compareByPriority);
+
   return { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };
 }
 

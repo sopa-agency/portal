@@ -21,7 +21,7 @@ import type { AggregatedColumn, AggregatedItem, KanbanItem } from "@/lib/github-
 import type { BountyDTO } from "@/app/actions/bounty";
 import { getProjectAssignees, type Assignee } from "@/app/actions/kanban";
 import { BountyBadge, taskKeyOf } from "@/components/bounty-panel";
-import { CardDetailDialog } from "@/components/kanban-board";
+import { CardDetailDialog, FirePriority, DeadlineChip } from "@/components/kanban-board";
 import { useConfirm } from "@/components/confirm-dialog";
 
 const COL_PREFIX = "aggcol:";
@@ -445,6 +445,8 @@ function CardInner({ item, bounty }: { item: AggregatedItem; bounty?: BountyDTO 
         <span className="rounded-full border border-accent-border bg-accent-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">{item.board}</span>
         {item.number ? <span className="text-[10px] text-foreground-faint">#{item.number}</span> : null}
         {bounty && <BountyBadge bounty={bounty} />}
+        <FirePriority value={item.firePriority} />
+        <DeadlineChip value={item.deadline} className="ml-auto" />
       </div>
       <p className="line-clamp-3 text-sm text-foreground">{item.title}</p>
       <div className="mt-1.5 flex items-center gap-2">
