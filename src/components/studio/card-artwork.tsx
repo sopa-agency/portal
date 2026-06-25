@@ -6,7 +6,12 @@ import type { Card } from "@/lib/studio/schema";
 
 // Capa: todo o chrome fixo do topo (barra azul + REELFLIP + kicker + quadrinho + selo) é um único
 // PNG transparente (capaHeader) — texto Chalets vem renderizado do Figma, então não precisa da fonte.
-export type Assets = { capaHeader: string; barcode: string };
+export type Assets = { capaHeader: string; barcode: string; spotQr?: string };
+
+/** Google Maps deep-link for a spot location (name or "lat,lng"). */
+export function spotMapsUrl(location: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.trim())}`;
+}
 
 // Subtítulo (rich): *palavra* vira amarelo (Figma usa "MEMÓRIA"). Satori não faz texto
 // inline-colorido com quebra de linha; o jeito Satori-safe é 1 item flex por palavra +
@@ -80,7 +85,7 @@ export function CardArtwork({ card, assets }: { card: Card; assets: Assets }) {
       {card.tipo === "capa" ? (
         <CapaLayer card={card} assets={assets} />
       ) : card.tipo === "spot" ? (
-        <SpotLayer card={card} />
+        <SpotLayer card={card} assets={assets} />
       ) : (
         <Pill
           el="subtitulo"
@@ -191,7 +196,7 @@ function fitSpotNameSize(text: string, base = 78, min = 34, boxW = 960): number 
   const chars = Math.max(1, text.length);
   return Math.max(min, Math.min(base, Math.floor(boxW / (chars * JOYSTIX_ADVANCE))));
 }
-function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
+function SpotLayer({ card, assets }: { card: Extract<Card, { tipo: "spot" }>; assets: Assets }) {
   // Banner + info block are draggable template elements (data-el + layout override).
   const banner = pos(card, "spotBanner");
   const info = pos(card, "spotInfo");
@@ -231,7 +236,27 @@ function SpotLayer({ card }: { card: Extract<Card, { tipo: "spot" }> }) {
         >
           {(card.spotName || "Spot sem nome").toUpperCase()}
         </div>
-        {card.spotLocation ? (
+        {card.spotLocation && assets.spotQr ? (
+          // QR → Google Maps of the spot (replaces the raw location code).
+          <div style={{ display: "flex", alignItems: "center", marginTop: 26 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={assets.spotQr}
+              alt=""
+              width={150}
+              height={150}
+              style={{ width: 150, height: 150, borderRadius: 12, border: `6px solid ${SPOT_LIME}`, background: "#fff" }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", marginLeft: 18 }}>
+              <div style={{ display: "flex", fontFamily: "Inter", fontWeight: 700, fontSize: 36, color: SPOT_LIME }}>
+                {card.spotLocation}
+              </div>
+              <div style={{ display: "flex", fontFamily: "Inter", fontWeight: 400, fontSize: 26, color: "rgba(255,255,255,0.7)" }}>
+                escaneie pro mapa
+              </div>
+            </div>
+          </div>
+        ) : card.spotLocation ? (
           <div style={{ display: "flex", alignItems: "center", marginTop: 26 }}>
             <div style={{ display: "flex", width: 26, height: 26, marginRight: 14, borderRadius: 999, border: `6px solid ${SPOT_LIME}` }} />
             <div style={{ display: "flex", fontFamily: "Inter", fontWeight: 700, fontSize: 44, color: SPOT_LIME }}>

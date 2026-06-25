@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 import { cookies } from "next/headers";
-import { CardArtwork } from "@/components/studio/card-artwork";
+import { CardArtwork, spotMapsUrl } from "@/components/studio/card-artwork";
+import QRCode from "qrcode";
 import { ZCard } from "@/lib/studio/schema";
 import { CARD_W, CARD_H } from "@/lib/studio/tokens";
 import { loadFonts, loadAssets, resolveImg } from "@/lib/studio/render-assets.server";
@@ -37,7 +38,14 @@ export async function POST(req: NextRequest) {
     }
     const [fonts, assets] = await Promise.all([loadFonts(), loadAssets()]);
 
-    const svg = await satori(CardArtwork({ card, assets }) as React.ReactElement, {
+    // Spot cards: QR → Google Maps of the location (replaces the raw code).
+    let renderAssets = assets;
+    if (card.tipo === "spot" && card.spotLocation) {
+      const spotQr = await QRCode.toDataURL(spotMapsUrl(card.spotLocation), { margin: 1, width: 300 }).catch(() => "");
+      if (spotQr) renderAssets = { ...assets, spotQr };
+    }
+
+    const svg = await satori(CardArtwork({ card, assets: renderAssets }) as React.ReactElement, {
       width: CARD_W,
       height: CARD_H,
       fonts: fonts.map((f) => ({ name: f.name, data: f.data, weight: f.weight, style: f.style })),

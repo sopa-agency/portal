@@ -696,6 +696,17 @@ function drawRecapCard(
   const innerW = W - 2 * padX;
   let y = Mi + f(18);
 
+  // current portal's logo, top-right (only when provided — never the Gnars default)
+  if (card.logo) {
+    ensureLogo(card.logo);
+    const lg = getLogo(card.logo);
+    if (lg) {
+      const lw = f(40);
+      const lh = lw * (lg.height / lg.width || 1);
+      ctx.drawImage(lg, W - padX - lw, y, lw, lh);
+    }
+  }
+
   // TOP — template name (the recurring format), auto-shrink to one line
   const name = (card.type || "RECAP").toUpperCase();
   let ns = 56; for (; ns > 22; ns -= 3) { pix(ns); if (wide(name, f(3)) <= innerW) break; }
@@ -924,6 +935,7 @@ export function VideoEditor({
   cardStyles = [],
   brandName = "SkateHive",
   brandAccent = "#a3e635",
+  brandLogo = "",
   aspect: aspectProp,
   onAspectChange,
 }: {
@@ -931,6 +943,8 @@ export function VideoEditor({
   cardStyles?: CardStyle[];
   brandName?: string;
   brandAccent?: string;
+  /** Current portal's logo path (/public) — branded on the recap cards. */
+  brandLogo?: string;
   /** Controlled format (from the Post Creator's "format-first" picker). */
   aspect?: AspectKey;
   onAspectChange?: (a: AspectKey) => void;
@@ -1607,6 +1621,7 @@ export function VideoEditor({
       accent: d.accent,
       fontScale: 1,
       hidden: [],
+      logo: brandLogo || "", // current portal's logo (never the Gnars default)
     };
     const ov: Overlay = {
       id: `rd:${nextId()}`,

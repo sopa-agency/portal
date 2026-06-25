@@ -1660,6 +1660,7 @@ export function PostCreator({
   cardStyles = [],
   brandName = "",
   brandAccent = "#a3e635",
+  brandLogo = "",
   spotStudio = false,
 }: {
   agentName: string;
@@ -1667,6 +1668,7 @@ export function PostCreator({
   cardStyles?: ("holo" | "pixel" | "gold" | "bounty" | "skatecard")[];
   brandName?: string;
   brandAccent?: string;
+  brandLogo?: string;
   /** SkateHive: the design Studio defaults to the "Skate Spot Found!" template. */
   spotStudio?: boolean;
 }) {
@@ -3710,6 +3712,7 @@ export function PostCreator({
                 cardStyles={cardStyles}
                 brandName={brandName}
                 brandAccent={brandAccent}
+                brandLogo={brandLogo}
                 aspect={ratioToAspectKey(aspectRatio)}
                 onAspectChange={(a) => { setAspectRatio(aspectKeyToRatio(a)); setAspectTouched(true); }}
               />

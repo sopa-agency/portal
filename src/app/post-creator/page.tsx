@@ -39,6 +39,7 @@ export default async function PostCreatorPage() {
         cardStyles={[...cardStyles]}
         brandName={project.name}
         brandAccent={project.theme.accentDark}
+        brandLogo={project.theme.logo}
         spotStudio={project.slug === "skatehive"}
       />
     </div>

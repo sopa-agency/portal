@@ -839,6 +839,7 @@ export function PostLab({
                 cardStyles={cardStyles}
                 brandName={brand.projectName}
                 brandAccent={brand.accent}
+                brandLogo={brand.logo}
               />
             )}
           </div>

@@ -26,7 +26,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/studio/ui/select";
 
-import { CardArtwork, type Assets } from "@/components/studio/card-artwork";
+import { CardArtwork, spotMapsUrl, type Assets } from "@/components/studio/card-artwork";
+import QRCode from "qrcode";
 import { CARD_W, CARD_H, COLORS, type ElKey } from "@/lib/studio/tokens";
 import { elPos, withLayout, resetLayout } from "@/lib/studio/layout";
 import { type ImgFit, type ImgNat, DEFAULT_FIT, MIN_SCALE, MAX_SCALE, clampFit, zoomAt } from "@/lib/studio/img-fit";
@@ -157,6 +158,18 @@ export function Editor({
   const framingSnap = useRef<ImgFit | null>(null); // imgFit ao entrar no enquadramento → Esc reverte
 
   const card = doc.cards[active];
+
+  // Spot card → live QR for the Google-Maps link (the burn recomputes it server-side).
+  const spotLocation = card?.tipo === "spot" ? card.spotLocation : "";
+  const [spotQr, setSpotQr] = useState("");
+  useEffect(() => {
+    if (!spotLocation) { setSpotQr(""); return; }
+    let live = true;
+    QRCode.toDataURL(spotMapsUrl(spotLocation), { margin: 1, width: 300 })
+      .then((d) => { if (live) setSpotQr(d); })
+      .catch(() => { if (live) setSpotQr(""); });
+    return () => { live = false; };
+  }, [spotLocation]);
 
   // Burn preview: (re)render the active card to a real PNG, debounced, whenever
   // it changes while burn mode is on. The object URL is the exact post output.
@@ -833,7 +846,7 @@ export function Editor({
                 style={{ position: "absolute", inset: 0 }}
                 onDoubleClick={() => cardImg && enterFraming()}
               >
-                <CardArtwork card={card} assets={CLIENT_ASSETS} />
+                <CardArtwork card={card} assets={{ ...CLIENT_ASSETS, spotQr }} />
               </div>
 
               {/* Burn preview — the real rendered PNG laid over the DOM preview,
