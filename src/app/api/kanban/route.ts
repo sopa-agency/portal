@@ -11,6 +11,7 @@ import {
   createRepoIssue,
   convertDraftToIssue,
   deleteItem,
+  ensureRepoLabels,
   fetchAssignableUsers,
   fetchGitHubProject,
   fetchItemComments,
@@ -144,7 +145,7 @@ export async function GET() {
 type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
-    | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "createIssue"
+    | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "ensureLabels" | "createIssue"
     | "convertDraft" | "aiBody";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
@@ -170,6 +171,8 @@ type Body = {
   // setLabels
   addLabelIds?: string[];
   removeLabelIds?: string[];
+  // ensureLabels — create-if-missing, returns full repo label list
+  wanted?: { name: string; color: string; description?: string }[];
 };
 
 export async function POST(req: Request) {
@@ -332,6 +335,13 @@ export async function POST(req: Request) {
         addIds: body.addLabelIds ?? [],
         removeIds: body.removeLabelIds ?? [],
       });
+      break;
+    }
+    case "ensureLabels": {
+      const [owner, name] = (body.repo ?? "").split("/");
+      if (!owner || !name || !Array.isArray(body.wanted) || body.wanted.length === 0)
+        return NextResponse.json({ ok: false, error: "repo + wanted[] required" }, { status: 400 });
+      result = await ensureRepoLabels({ token, owner, name, wanted: body.wanted });
       break;
     }
     case "createIssue": {

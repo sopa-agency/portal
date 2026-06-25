@@ -738,6 +738,54 @@ export async function fetchRepoMeta(
   } as MutationResult<{ repoId: string; labels: RepoLabel[] }> & { repoId: string; labels: RepoLabel[] };
 }
 
+/**
+ * Make sure a set of labels exists on a repo, creating any that are missing
+ * (via the REST labels API — its `node_id` is the GraphQL global id we need for
+ * setItemLabels). Returns the repo id + the FULL current label list so callers
+ * can resolve names → ids. Idempotent: a 422 (already exists) is treated as OK.
+ */
+export async function ensureRepoLabels(args: {
+  token: string;
+  owner: string;
+  name: string;
+  wanted: { name: string; color: string; description?: string }[];
+}): Promise<MutationResult<{ repoId: string; labels: RepoLabel[] }>> {
+  const meta = await fetchRepoMeta(args.token, args.owner, args.name);
+  if (!meta.ok) return meta;
+  const have = new Set(meta.labels.map((l) => l.name.toLowerCase()));
+  const missing = args.wanted.filter((w) => !have.has(w.name.toLowerCase()));
+  const created: RepoLabel[] = [];
+  for (const w of missing) {
+    const res = await fetch(`https://api.github.com/repos/${args.owner}/${args.name}/labels`, {
+      method: "POST",
+      headers: {
+        Authorization: `bearer ${args.token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: w.name, color: w.color, description: w.description ?? "" }),
+    });
+    if (res.ok) {
+      const j = (await res.json()) as { node_id: string; name: string; color: string };
+      created.push({ id: j.node_id, name: j.name, color: j.color });
+    } else if (res.status === 422) {
+      // Raced / already exists — re-read below to pick up its id.
+    } else {
+      return { ok: false, error: `Failed to create label "${w.name}" (${res.status})` };
+    }
+  }
+  // If anything 422'd, re-fetch so we return its real id; otherwise merge.
+  let labels = [...meta.labels, ...created];
+  if (missing.length > created.length) {
+    const fresh = await fetchRepoMeta(args.token, args.owner, args.name);
+    if (fresh.ok) labels = fresh.labels;
+  }
+  return { ok: true, repoId: meta.repoId, labels } as MutationResult<{
+    repoId: string;
+    labels: RepoLabel[];
+  }> & { repoId: string; labels: RepoLabel[] };
+}
+
 export async function setItemLabels(args: {
   token: string;
   contentId: string;

@@ -45,6 +45,7 @@ import { MarkdownContent } from "@/components/markdown-content";
 import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
 import { MemberModal, type TeamMember } from "@/components/team-view";
 import { solveIssueWithAgent, listCardNotes, addCardNote, deleteCardNote, type CardNote } from "@/app/actions/kanban";
+import { CATEGORY_LABELS, type LabelSpec } from "@/lib/kanban-labels";
 import { useDialogA11y } from "@/hooks/use-dialog-a11y";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -665,6 +666,9 @@ export function CardDetailDialog({
   const [labelsOpen, setLabelsOpen] = useState(false);
   const [repoLabels, setRepoLabels] = useState<RepoLabel[] | null>(null);
   const [labelBusy, setLabelBusy] = useState<string | null>(null);
+  // mkt/dev/op quick tags — resolved (create-if-missing) repo label ids, cached.
+  const [catIds, setCatIds] = useState<Record<string, string>>({});
+  const [catBusy, setCatBusy] = useState<string | null>(null);
 
   const dialogPanelRef = useRef<HTMLDivElement>(null);
   useDialogA11y(dialogPanelRef, onClose);
@@ -774,6 +778,39 @@ export function CardDetailDialog({
     setLabelBusy(null);
   }
 
+  // Toggle a category tag (mkt/dev/op). Active state derives from the card's
+  // labels by name; adding needs the repo label id, which we resolve once via
+  // ensureLabels (creating the label in the repo if it doesn't exist yet).
+  async function toggleCategory(spec: LabelSpec) {
+    if (!item.contentId || !repo || catBusy) return;
+    const existing = item.labels.find((l) => l.name.toLowerCase() === spec.name.toLowerCase());
+    setCatBusy(spec.name);
+    try {
+      if (existing?.id) {
+        const r = await onMutate({ action: "setLabels", contentId: item.contentId, removeLabelIds: [existing.id], addLabelIds: [] });
+        if (r.ok) onPatchItem(item.id, { labels: item.labels.filter((l) => l.id !== existing.id) });
+        return;
+      }
+      let id: string | undefined = catIds[spec.name.toLowerCase()];
+      let color = spec.color;
+      if (!id) {
+        const meta = await onMutate({ action: "ensureLabels", repo, wanted: CATEGORY_LABELS });
+        if (!meta.ok || !meta.labels) return;
+        const map: Record<string, string> = {};
+        for (const l of meta.labels) map[l.name.toLowerCase()] = l.id;
+        setCatIds(map);
+        const found = meta.labels.find((l) => l.name.toLowerCase() === spec.name.toLowerCase());
+        id = found?.id;
+        color = found?.color ?? color;
+      }
+      if (!id) return;
+      const r = await onMutate({ action: "setLabels", contentId: item.contentId, addLabelIds: [id], removeLabelIds: [] });
+      if (r.ok) onPatchItem(item.id, { labels: [...item.labels, { id, name: spec.name, color }] });
+    } finally {
+      setCatBusy(null);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
@@ -866,6 +903,35 @@ export function CardDetailDialog({
                 </>
               )}
             </div>
+            {canLabel && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-foreground-faint">Categoria</span>
+                {CATEGORY_LABELS.map((spec) => {
+                  const on = item.labels.some((l) => l.name.toLowerCase() === spec.name.toLowerCase());
+                  return (
+                    <button
+                      key={spec.name}
+                      type="button"
+                      onClick={() => toggleCategory(spec)}
+                      disabled={catBusy === spec.name}
+                      aria-pressed={on}
+                      title={spec.description}
+                      style={on ? { backgroundColor: `#${spec.color}`, borderColor: `#${spec.color}` } : undefined}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase transition-colors disabled:opacity-50 ${
+                        on ? "border-transparent text-white" : "border-border text-foreground-subtle hover:border-border-strong hover:text-foreground"
+                      }`}
+                    >
+                      {catBusy === spec.name ? (
+                        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                      ) : !on ? (
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: `#${spec.color}` }} aria-hidden />
+                      ) : null}
+                      {spec.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {item.contentId && !editing && (
