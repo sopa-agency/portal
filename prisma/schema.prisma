@@ -478,6 +478,18 @@ model TrailBoostTarget {
   @@index([status])
 }
 
+// Posts the auto-boost-on-vote rule has already handled, so the hourly cron
+// never double-processes one. A sentinel row (castHash = "__init__") marks that
+// the first-run backfill happened — posts seen on that run are recorded as
+// boosted=false (skipped) so only NEW likes get boosted going forward.
+model AutoBoostSeen {
+  castHash  String   @id // "hive:author/permlink" (or "__init__")
+  kind      String // snap | blog | init
+  boosted   Boolean  @default(false)
+  voter     String   @default("") // trigger account whose like fired it
+  createdAt DateTime @default(now())
+}
+
 // Pool B: community-key boost upvotes. When a COMPANY posts on Hive, a random
 // rotating subset of the SkateHive userbase posting keys (userbase_hive_keys,
 // decrypted with USERBASE_KEY_ENCRYPTION_SECRET) upvotes it at a low weight,

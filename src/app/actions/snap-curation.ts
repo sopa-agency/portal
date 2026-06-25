@@ -7,12 +7,12 @@ import { authorize } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { brandEnv } from "@/lib/brand-env";
 import { HIVE_NODES } from "@/lib/social-publish";
-import { getUserbaseClient } from "@/lib/supabase-userbase";
 import { listSkatehiveVideos } from "@/app/actions/skatehive-media";
 import { buildPostUrl } from "@/lib/skatehive-content";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
+import { queueBoost } from "@/lib/boost-core";
 import type { ProjectConfig } from "@/projects/types";
-import { boostLevelsFor, type BoostLevel, type BoostKind, type CurationSnap } from "@/lib/snap-curation-shared";
+import { type BoostLevel, type BoostKind, type CurationSnap } from "@/lib/snap-curation-shared";
 
 async function gate() {
   const project = await getActiveProject();
@@ -343,17 +343,6 @@ export async function generateHivePostReply(input: {
 // to real upvote growth, spaced with random pauses (organic pacing).
 // ---------------------------------------------------------------------------
 
-const DEFAULT_WEIGHT = Math.max(1, Math.min(10000, Number(process.env.TRAIL_BOOST_WEIGHT ?? 1000)));
-
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 export async function boostSnap(
   author: string,
   permlink: string,
@@ -363,51 +352,5 @@ export async function boostSnap(
 ): Promise<{ ok: true; queued: number; budget: number } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
-
-  const levels = boostLevelsFor(kind);
-  const lvl = levels.find((l) => l.value === level) ?? levels[0];
-  const castHash = castHashOf(author, permlink);
-
-  const existing = await prisma.trailBoostTarget.findUnique({ where: { castHash } }).catch(() => null);
-  if (existing && existing.status === "active") {
-    return { ok: false, error: "Esse snap já está sendo impulsionado." };
-  }
-
-  const ub = getUserbaseClient();
-  if (!ub) return { ok: false, error: "Userbase não configurada (SUPABASE_USERBASE_URL)." };
-
-  // Consent-aware voter pool (opted-in only), with each voter's own weight.
-  let rows: { hive_username: string; trail_vote_weight?: number | null }[] = [];
-  const filtered = await ub
-    .from("userbase_hive_keys")
-    .select("hive_username, trail_vote_weight")
-    .or("trail_opt_out.is.null,trail_opt_out.eq.false")
-    .limit(2000);
-  if (filtered.error) {
-    const all = await ub.from("userbase_hive_keys").select("hive_username").limit(2000);
-    rows = (all.data ?? []) as typeof rows;
-  } else {
-    rows = (filtered.data ?? []) as typeof rows;
-  }
-
-  const pick = shuffle(rows.filter((r) => r.hive_username)).slice(0, lvl.voters);
-  if (!pick.length) return { ok: false, error: "Nenhuma conta da userbase disponível para boost." };
-
-  await prisma.trailUserbaseBoost.createMany({
-    data: pick.map((r) => ({
-      castHash,
-      hiveUsername: r.hive_username,
-      weight: typeof r.trail_vote_weight === "number" ? r.trail_vote_weight : DEFAULT_WEIGHT,
-      status: "pending",
-    })),
-    skipDuplicates: true,
-  });
-
-  await prisma.trailBoostTarget.upsert({
-    where: { castHash },
-    create: { castHash, baselineVotes: Math.max(0, baselineVotes), budget: pick.length, released: 0, status: "active" },
-    update: { budget: pick.length, baselineVotes: Math.max(0, baselineVotes), status: "active" },
-  });
-
-  return { ok: true, queued: pick.length, budget: pick.length };
+  return queueBoost({ author, permlink, level, baselineVotes, kind });
 }

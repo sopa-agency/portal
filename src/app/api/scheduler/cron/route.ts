@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { runScheduledPublish, macLeaseIsStale, MAC_LEASE_GRACE_MS } from "@/lib/scheduler-core";
+import { autoBoostFromVotes } from "@/lib/auto-boost";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,16 +26,21 @@ export async function GET(req: Request) {
 
   const now = Date.now();
 
+  // Auto-boost on operator likes — runs every cron tick regardless of the mac
+  // lease (it only reads Hive + queues DB rows; not residential-IP-sensitive).
+  const autoBoost = await autoBoostFromVotes().catch((e) => ({ ok: false, error: String(e) }));
+
   if (!(await macLeaseIsStale(now))) {
     return NextResponse.json({
       checkedAt: new Date(now).toISOString(),
       fallback: true,
       skipped: true,
       reason: `mac-alive (within ${Math.round(MAC_LEASE_GRACE_MS / 60000)}m grace)`,
+      autoBoost,
     });
   }
 
   // Mac is down → take over.
   const result = await runScheduledPublish(now);
-  return NextResponse.json({ ...result, fallback: true, skipped: false });
+  return NextResponse.json({ ...result, fallback: true, skipped: false, autoBoost });
 }

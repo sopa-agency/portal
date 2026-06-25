@@ -23,6 +23,8 @@ export type SkatehiveVideo = {
   source: "snap" | "magazine";
   created: string;
   permlink: string;
+  /** Hive accounts that upvoted this post — used by the auto-boost-on-vote rule. */
+  voters: string[];
 };
 
 type CacheEntry = { videos: SkatehiveVideo[]; cursor: SnapCursor | null; expires: number };
@@ -88,6 +90,11 @@ function toVideos(post: HivePost, source: "snap" | "magazine"): SkatehiveVideo[]
   const urls = extractIpfsVideoUrls(post.body ?? "");
   if (urls.length === 0) return [];
   const votes = post.net_votes || post.active_votes?.length || 0;
+  const voters = Array.isArray(post.active_votes)
+    ? (post.active_votes
+        .map((v) => (v && typeof v === "object" ? (v as { voter?: string }).voter : undefined))
+        .filter((v): v is string => !!v))
+    : [];
   const payout =
     (post.payout ?? 0) > 0
       ? post.payout!
@@ -112,6 +119,7 @@ function toVideos(post: HivePost, source: "snap" | "magazine"): SkatehiveVideo[]
     source,
     created: post.created ?? "",
     permlink: post.permlink,
+    voters,
   }));
 }
 
