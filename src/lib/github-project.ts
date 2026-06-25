@@ -484,6 +484,20 @@ export async function addDraftIssue(args: {
   return { ok: true, itemId: pi.id, contentId: pi.content?.id ?? null };
 }
 
+/** Reopen a closed issue or PR (drafts have no open/closed state). */
+export async function reopenItem(args: {
+  token: string;
+  contentId: string;
+  itemType: "issue" | "pr" | "draft";
+}): Promise<MutationResult> {
+  if (args.itemType === "draft") return { ok: false, error: "Drafts não têm estado aberto/fechado." };
+  const query =
+    args.itemType === "pr"
+      ? `mutation($id: ID!) { reopenPullRequest(input: { pullRequestId: $id }) { pullRequest { id } } }`
+      : `mutation($id: ID!) { reopenIssue(input: { issueId: $id }) { issue { id } } }`;
+  return githubGraphQL(args.token, query, { id: args.contentId });
+}
+
 /** Archive a card (removes it from the active board, recoverable in GitHub). */
 export async function archiveItem(args: {
   token: string;

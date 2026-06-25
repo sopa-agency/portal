@@ -1161,9 +1161,20 @@ export function CardDetailDialog({
 
   // --- draft→issue convert + solve-with-agent (issues) ---
   const [converting, setConverting] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const [solveBusy, setSolveBusy] = useState(false);
   const [solveRes, setSolveRes] = useState<{ prUrl: string | null; result: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  async function reopenCard() {
+    if (!item.contentId || reopening) return;
+    setReopening(true);
+    setActionError(null);
+    const r = await onMutate({ action: "reopen", contentId: item.contentId, itemType: item.type });
+    setReopening(false);
+    if (r.ok) onPatchItem(item.id, { state: "open" });
+    else setActionError(r.error ?? "Falha ao reabrir.");
+  }
 
   async function convertToIssue() {
     if (!issueRepo || converting) return;
@@ -1403,7 +1414,7 @@ export function CardDetailDialog({
         role="dialog"
         aria-modal="true"
         aria-label={item.title}
-        className="flex max-h-[90vh] w-full max-w-[95vw] flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl outline-none"
+        className="flex h-[90vh] w-full max-w-[95vw] flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -1597,13 +1608,12 @@ export function CardDetailDialog({
         {/* Body */}
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {editing ? (
-            <div className="space-y-3">
+            <div className="flex h-full flex-col gap-3">
               <textarea
                 value={draftBody}
                 onChange={(e) => setDraftBody(e.target.value)}
-                rows={12}
                 placeholder="Descrição (markdown do GitHub)…"
-                className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+                className="min-h-0 w-full flex-1 resize-none rounded-xl border border-border bg-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
               />
               {editError && <p className="text-xs text-danger">{editError}</p>}
               <div className="flex items-center justify-between gap-2">
@@ -1641,6 +1651,21 @@ export function CardDetailDialog({
             <MarkdownContent markdown={item.body} githubRepo={repoOf(item.url)} />
           ) : (
             <p className="text-sm italic text-foreground-faint">Sem descrição.</p>
+          )}
+
+          {/* Reopen a closed issue/PR */}
+          {!editing && item.type !== "draft" && item.state === "closed" && item.contentId && (
+            <div className="mt-6 border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={reopenCard}
+                disabled={reopening}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-sm font-semibold text-success transition hover:bg-success/20 disabled:opacity-50"
+              >
+                {reopening ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDot className="h-4 w-4" />}
+                Reabrir {item.type === "pr" ? "PR" : "issue"}
+              </button>
+            </div>
           )}
 
           {/* Draft → issue, and solve-with-agent (issues) → PR for review. */}

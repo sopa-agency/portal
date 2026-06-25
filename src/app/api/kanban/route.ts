@@ -11,6 +11,7 @@ import {
   createRepoIssue,
   convertDraftToIssue,
   deleteItem,
+  reopenItem,
   ensureRepoLabels,
   fetchAssignableUsers,
   fetchGitHubProject,
@@ -158,7 +159,7 @@ type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "ensureLabels" | "createIssue"
-    | "convertDraft" | "aiBody" | "setPriority" | "setDeadline";
+    | "convertDraft" | "aiBody" | "setPriority" | "setDeadline" | "reopen";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
   projectId?: string;
@@ -275,6 +276,14 @@ export async function POST(req: Request) {
       priority: priority || null,
       deadline: deadline ? deadline.toISOString().slice(0, 10) : null,
     });
+  }
+
+  // Reopen a closed issue/PR — needs only the content node id + type.
+  if (action === "reopen") {
+    if (!body.contentId || !body.itemType)
+      return NextResponse.json({ ok: false, error: "contentId + itemType required" }, { status: 400 });
+    const r = await reopenItem({ token, contentId: body.contentId, itemType: body.itemType });
+    return NextResponse.json(r, { status: r.ok ? 200 : 500 });
   }
 
   if (!projectId) {
