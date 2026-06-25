@@ -884,6 +884,7 @@ export function VideoEditor({
   const [creatorCursor, setCreatorCursor] = useState<CreatorCursor | null>(null);
   const [creatorMoreBusy, setCreatorMoreBusy] = useState(false);
   const [shSelected, setShSelected] = useState<Set<string>>(new Set());
+  const [composeBusy, setComposeBusy] = useState<string | null>(null);
 
   // Creator filter chips: the leaderboard top-20 when it's available, always
   // augmented with the authors actually present in the loaded feed. The
@@ -1489,6 +1490,54 @@ export function VideoEditor({
     setShBusy(null);
     setShSelected(new Set());
     setBinTab("uploads");
+  };
+
+  /**
+   * One-click starter compositions. Pulls the relevant SkateHive clips (top of
+   * the window by votes), drops them on the timeline 9:16, and adds a branded
+   * intro + outro title card. Weekly Recap = whole community; Best of Week/Month
+   * = the selected creator only.
+   */
+  const applyComposeTemplate = async (kind: "weekly" | "bestWeek" | "bestMonth") => {
+    if (composeBusy) return;
+    if (kind !== "weekly" && !selectedCreator) return; // UI guards this
+    const all = (kind === "weekly" ? shVideos : creatorVideos) ?? [];
+    const days = kind === "bestMonth" ? 30 : 7;
+    const cutoff = Date.now() - days * 86_400_000;
+    const pool = all
+      .filter((v) => !binUrlSet.has(safeUrl(v.url)))
+      .filter((v) => {
+        const t = v.created ? new Date(v.created).getTime() : 0;
+        return !t || t >= cutoff;
+      })
+      .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))
+      .slice(0, 8);
+    if (pool.length === 0) return;
+
+    setComposeBusy(kind);
+    try {
+      setAspect("9:16");
+      let total = 0;
+      for (const v of pool) {
+        const url = safeUrl(v.url);
+        const duration = (await probeDuration(url, "video")) || 10;
+        const item: BinItem = { id: nextId(), kind: "video", name: v.title, url, duration, credit: `@${v.author} · ▲${v.votes}` };
+        setBin((prev) => [...prev, item]);
+        enrichItem(item.id, url, "video", duration);
+        addClip(item);
+        total += duration;
+      }
+      const title = kind === "weekly" ? "WEEKLY RECAP" : kind === "bestWeek" ? "BEST OF THE WEEK" : "BEST OF THE MONTH";
+      const sub = kind === "weekly" ? "SkateHive" : `@${selectedCreator}`;
+      const textTrack = stateRef.current.overlayTracks.find((t) => t.id === "text")?.id ?? stateRef.current.overlayTracks[0]?.id ?? "text";
+      const intro: Overlay = { id: nextId(), kind: "text", trackId: textTrack, text: `${title}\n${sub}`, color: "#ffffff", bg: true, start: 0, end: Math.min(2.8, total || 2.8), x: 0.5, y: 0.5, w: 0.82, opacity: 1, rotation: 0 };
+      const outro: Overlay = { id: nextId(), kind: "text", trackId: textTrack, text: kind === "weekly" ? "skatehive.app" : `Siga @${selectedCreator}`, color: "#ffffff", bg: true, start: Math.max(0, total - 2.8), end: total || 2.8, x: 0.5, y: 0.5, w: 0.82, opacity: 1, rotation: 0 };
+      setOverlays((prev) => [...prev, intro, outro]);
+      setShSelected(new Set());
+      setBinTab("uploads");
+    } finally {
+      setComposeBusy(null);
+    }
   };
 
   const syncThumbnails = async () => {
@@ -2525,6 +2574,40 @@ export function VideoEditor({
                     </button>
                   ))}
                 </div>
+              )}
+
+              {/* One-click starter compositions */}
+              <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-surface-elevated/60 p-1.5">
+                <span className="px-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">Template</span>
+                <button
+                  type="button"
+                  disabled={!!composeBusy}
+                  onClick={() => void applyComposeTemplate("weekly")}
+                  className="inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] font-medium text-accent transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {composeBusy === "weekly" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Weekly Recap
+                </button>
+                <button
+                  type="button"
+                  disabled={!!composeBusy || !selectedCreator}
+                  title={!selectedCreator ? "Selecione um criador acima" : undefined}
+                  onClick={() => void applyComposeTemplate("bestWeek")}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                >
+                  {composeBusy === "bestWeek" ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Best of Week
+                </button>
+                <button
+                  type="button"
+                  disabled={!!composeBusy || !selectedCreator}
+                  title={!selectedCreator ? "Selecione um criador acima" : undefined}
+                  onClick={() => void applyComposeTemplate("bestMonth")}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                >
+                  {composeBusy === "bestMonth" ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Best of Month
+                </button>
+              </div>
+              {!selectedCreator && (
+                <p className="px-1 text-[10px] text-foreground-faint">Best of Week/Month: escolha um criador acima primeiro.</p>
               )}
 
               {/* Sync (preload thumbnails) + multiselect batch add */}
