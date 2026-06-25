@@ -71,6 +71,7 @@ import {
 } from "@/lib/post-creator-prompts";
 import dynamic from "next/dynamic";
 import { Toaster as StudioToaster } from "@/components/studio/ui/sonner";
+import { toast } from "sonner";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
 import { EmojiPicker } from "@/components/emoji-picker";
@@ -2160,14 +2161,18 @@ export function PostCreator({
           i.src = url;
         }
       });
-    for (const file of capped) {
+    const failed: number[] = [];
+    for (let idx = 0; idx < capped.length; idx++) {
+      const file = capped[idx];
+      // direct → server fallback → one more direct retry (Pinata can flake on a burst)
       let result = await uploadMediaDirect(file);
       if (!result.ok) {
         const fd = new FormData();
         fd.set("file", file);
         result = await uploadPostMedia(fd);
       }
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok) result = await uploadMediaDirect(file);
+      if (!result.ok) { failed.push(idx + 1); continue; } // skip — don't abort the whole carousel
       const isVideo = file.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(file.name);
       const previewUrl = URL.createObjectURL(file);
       // Prefer the caller's known export aspect — probing video metadata can
@@ -2175,6 +2180,8 @@ export function PostCreator({
       const aspect = aspectHint ?? (await probeAspect(previewUrl, isVideo));
       seeded.push({ url: result.url, previewUrl, isVideo, aspect });
     }
+    if (seeded.length === 0) throw new Error("Falha ao enviar as imagens do Studio.");
+    if (failed.length) toast.warning(`${failed.length} imagem(ns) falharam no upload (card ${failed.join(", ")}).`);
 
     const hasVideo = seeded.some((u) => u.isVideo);
     const nextType: PostType =

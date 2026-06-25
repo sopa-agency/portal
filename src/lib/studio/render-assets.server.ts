@@ -39,12 +39,49 @@ export async function loadFonts(): Promise<FontSpec[]> {
   return _fonts;
 }
 
+/**
+ * Fetch a remote image into a data-URI so Satori never has to do its own
+ * network fetch at render time. Satori is given explicit width/height, so when
+ * its internal fetch is slow/fails it silently renders the card WITHOUT the
+ * photo (blank where the image should be) — which is exactly the "first cards
+ * have no image" failure on big Hive originals under concurrent renders.
+ * Retries + a generous timeout make every card embed its pixels deterministically.
+ */
+async function fetchImageDataUri(url: string, attempts = 3): Promise<string | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { "User-Agent": "portal-skatehive", Accept: "image/*" },
+        redirect: "follow",
+      }).finally(() => clearTimeout(timer));
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (!buf.length) continue;
+      let ct = (res.headers.get("content-type") || "").split(";")[0].trim();
+      if (!ct.startsWith("image/")) ct = "image/jpeg"; // some gateways mislabel
+      return `data:${ct};base64,` + buf.toString("base64");
+    } catch {
+      // transient (abort/network) — fall through to the next attempt
+    }
+  }
+  return null;
+}
+
 // Satori não busca path relativo no server: resolve "/posts/..." (public) -> data-URI.
-// data: e http(s) passam direto. Cacheado por path.
+// http(s) → baixado p/ data-URI (confiável). data: passa direto. Cacheado por src.
 const _imgCache = new Map<string, string>();
 export async function resolveImg(src: string | null | undefined): Promise<string | null> {
   if (!src) return null;
-  if (src.startsWith("data:") || src.startsWith("http")) return src;
+  if (src.startsWith("data:")) return src;
+  if (src.startsWith("http")) {
+    if (_imgCache.has(src)) return _imgCache.get(src)!;
+    const uri = await fetchImageDataUri(src);
+    if (uri) _imgCache.set(src, uri);
+    return uri ?? src; // fall back to the raw URL so Satori can still try
+  }
   if (!src.startsWith("/")) return src;
   if (_imgCache.has(src)) return _imgCache.get(src)!;
   // path-traversal guard: "/../.env" sairia de public/. Resolve e exige que fique dentro de public/.

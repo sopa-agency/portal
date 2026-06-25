@@ -705,10 +705,16 @@ export function Editor({
   }, [doc.cards.length, active, undo, redo, nudgeSelected, cancelFraming, commitFraming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- export (server Satori) ----
-  const renderPng = async (c: Card): Promise<Blob> => {
-    const res = await fetch("/api/studio/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: c }) });
-    if (!res.ok) throw new Error("render falhou: " + (await res.text()));
-    return res.blob();
+  const renderPng = async (c: Card, attempts = 3): Promise<Blob> => {
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const res = await fetch("/api/studio/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: c }) });
+        if (!res.ok) { lastErr = new Error("render falhou: " + (await res.text())); continue; }
+        return await res.blob();
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr ?? new Error("render falhou");
   };
   const exportOne = async () => {
     setBusy("one");
@@ -725,18 +731,27 @@ export function Editor({
     const tid = toast.loading(`Renderizando 0/${doc.cards.length}…`);
     try {
       const cards = [...doc.cards];
-      const files: File[] = new Array(cards.length);
+      const slots: (File | null)[] = new Array(cards.length).fill(null);
       let next = 0, done = 0;
       const worker = async () => {
         while (next < cards.length) {
           const i = next++;
-          const blob = await renderPng(cards[i]);
-          files[i] = new File([blob], `${filePrefix}_${String(i + 1).padStart(2, "0")}.png`, { type: "image/png" });
+          try {
+            const blob = await renderPng(cards[i]);
+            slots[i] = new File([blob], `${filePrefix}_${String(i + 1).padStart(2, "0")}.png`, { type: "image/png" });
+          } catch (e) {
+            console.error(`render card ${i + 1} falhou`, e); // slot stays null → reported below
+          }
           done++;
           toast.loading(`Renderizando ${done}/${cards.length}…`, { id: tid });
         }
       };
       await Promise.all(Array.from({ length: Math.min(RENDER_CONCURRENCY, cards.length) }, worker));
+      // Keep order, drop the cards that failed all retries rather than aborting
+      // the whole batch (a 4-card carousel still ships the 3 that rendered).
+      const files = slots.filter((f): f is File => f != null);
+      const failed = slots.length - files.length;
+      if (files.length === 0) throw new Error("Nenhum card renderizou.");
       toast.loading("Enviando para o post…", { id: tid });
       // Reelflip cards render at a fixed 1080×1350 (4:5) — pass that so the post
       // creator locks the preview crop instead of re-probing each PNG.
@@ -744,7 +759,8 @@ export function Editor({
       // the post carries it alongside the design (other templates pass "").
       // passa o doc editável junto → o Post Creator salva no draft (studio ↔ post).
       await onUseInPost(files, spotCaption(doc), 1080 / 1350, doc);
-      toast.success("Cards no post!", { id: tid });
+      if (failed > 0) toast.warning(`${failed} card(s) falharam no render e ficaram de fora.`, { id: tid });
+      else toast.success("Cards no post!", { id: tid });
     } catch (e) { toast.error("Falha ao usar no post.", { id: tid, description: "Tente novamente." }); console.error(e); }
     finally { setBusy(null); }
   };

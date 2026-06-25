@@ -234,11 +234,15 @@ export function PostLab({
     setAiErr(null);
     setUploading(true);
     try {
-      for (const f of files) {
-        const r = await uploadLabMedia(f);
+      const failures: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        // one transient retry — Pinata signing/upload can flake under a burst
+        let r = await uploadLabMedia(files[i]);
+        if (!r.ok) r = await uploadLabMedia(files[i]);
         if (r.ok) setMedia((prev) => [...prev, r.media]);
-        else setAiErr(`Falha ao enviar a mídia do Studio: ${r.error}`);
+        else failures.push(`#${i + 1}: ${r.error}`);
       }
+      if (failures.length) setAiErr(`Falha ao enviar ${failures.length} imagem(ns) do Studio — ${failures.join(" · ")}`);
       if (caption.trim() && !baseText.trim()) setBaseText(caption.trim());
     } finally {
       setUploading(false);
