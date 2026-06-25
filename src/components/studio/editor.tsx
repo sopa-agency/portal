@@ -34,7 +34,7 @@ import { type ImgFit, type ImgNat, DEFAULT_FIT, MIN_SCALE, MAX_SCALE, clampFit, 
 import { newId, normalizeDoc, migrateSubtitle } from "@/lib/studio/parse-script";
 import { SEED_DOC } from "@/lib/studio/seed";
 import { ZCarousel, type Card, type Carousel, type BoxColor } from "@/lib/studio/schema";
-import { listSkateSpots, type SkateSpot } from "@/app/actions/skate-spots";
+import { listSkateSpots, getSkateSpot, type SkateSpot } from "@/app/actions/skate-spots";
 import { uploadMediaDirectClient } from "@/lib/upload-media-client";
 
 const STORAGE_KEY = "reelflip-studio:doc:v2";
@@ -359,11 +359,18 @@ export function Editor({
     });
   const pickSpot = async (spot: SkateSpot) => {
     setSpotsOpen(false);
-    const photos = spot.photos.length ? spot.photos : spot.photo ? [spot.photo] : [];
+    const tid = toast.loading("Carregando spot…");
+    // The list is light (cover only) — pull this permlink's full post now so a
+    // multi-photo spot becomes the full carousel. Fall back to the lite data.
+    let full = spot;
+    const r = await getSkateSpot(spot.author, spot.permlink);
+    if (r.ok) full = r.spot;
+    toast.dismiss(tid);
+    const photos = full.photos.length ? full.photos : full.photo ? [full.photo] : [];
     const fields = {
       tipo: "spot" as const,
-      spotName: spot.name, spotLocation: spot.location, spotAuthor: spot.author,
-      spotPermlink: spot.permlink, spotDescription: spot.description,
+      spotName: full.name, spotLocation: full.location, spotAuthor: full.author,
+      spotPermlink: full.permlink, spotDescription: full.description,
     };
     if (photos.length === 0) {
       patchActive((c) => ({ ...c, ...fields, imagem: null, imgW: null, imgH: null, imgFit: DEFAULT_FIT }) as Card);
