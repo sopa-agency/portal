@@ -106,6 +106,8 @@ type CardData = {
   logo?: string;
   /** Bounty style only — footer URL highlighted near the bottom. */
   footerUrl?: string;
+  /** Recap "best of" — avatar URL for the broadcast lower-third (avatar + name). */
+  avatar?: string;
 };
 
 type Overlay = {
@@ -155,6 +157,8 @@ const logoCache = new Map<string, { img: HTMLImageElement; ready: boolean }>();
 function ensureLogo(src: string) {
   if (!src || typeof Image === "undefined" || logoCache.has(src)) return;
   const entry = { img: new Image(), ready: false };
+  // Remote images (e.g. Hive avatars) need CORS or they taint the export canvas.
+  if (/^https?:\/\//i.test(src)) entry.img.crossOrigin = "anonymous";
   entry.img.onload = () => {
     entry.ready = true;
   };
@@ -187,10 +191,12 @@ const RECURRING_DESIGNS: {
   accent: string;
   typeTag: string;
   rarity: Rarity;
+  /** "best of" formats get a TV-style lower-third with the skater's avatar + name. */
+  broadcast?: boolean;
 }[] = [
   { key: "weekly", name: "Weekly Recap", note: "Card raro · resumo da semana", badge: "WK", accent: "#a3e635", typeTag: "WEEKLY RECAP", rarity: "Legendary" },
-  { key: "bestweek", name: "Best of the Week", note: "Card raro · destaque do skater", badge: "BOW", accent: "#38bdf8", typeTag: "BEST OF WEEK", rarity: "Epic" },
-  { key: "bestmonth", name: "Best of the Month", note: "Card lendário · destaque do mês", badge: "BOM", accent: "#fbbf24", typeTag: "BEST OF MONTH", rarity: "Legendary" },
+  { key: "bestweek", name: "Best of the Week", note: "Lower-third TV · destaque do skater", badge: "BOW", accent: "#38bdf8", typeTag: "BEST OF WEEK", rarity: "Epic", broadcast: true },
+  { key: "bestmonth", name: "Best of the Month", note: "Lower-third TV · destaque do mês", badge: "BOM", accent: "#fbbf24", typeTag: "BEST OF MONTH", rarity: "Legendary", broadcast: true },
   { key: "community", name: "Community Edit", note: "Card raro · edit da comunidade", badge: "CE", accent: "#c084fc", typeTag: "COMMUNITY EDIT", rarity: "Epic" },
 ];
 
@@ -716,7 +722,8 @@ function drawRecapCard(
   y += f(20);
 
   // MIDDLE — big vertical clip window (fills down to the bottom name area)
-  const bottomReserve = f(74);
+  const hasBar = !!card.avatar;
+  const bottomReserve = hasBar ? f(150) : f(74);
   const winY = y;
   const winH = Math.max(f(120), H - Mi - bottomReserve - winY);
   ctx.save();
@@ -727,10 +734,40 @@ function drawRecapCard(
   ctx.strokeStyle = accent; ctx.lineWidth = Math.max(2, f(3));
   roundRectPath(ctx, padX, winY, innerW, winH, f(12)); ctx.stroke();
 
-  // BOTTOM — @user
-  const handle = card.skater || "@skater";
-  let hs = 38; for (; hs > 20; hs -= 2) { pix(hs); if (wide(handle, f(2)) <= innerW) break; }
-  center(handle, H - Mi - f(22), GN.fg, f(2));
+  // BOTTOM — broadcast lower-third (avatar + name) for "best of", else @user
+  if (hasBar) {
+    ensureLogo(card.avatar!);
+    const av = getLogo(card.avatar!);
+    const barH = f(108);
+    const barY = H - Mi - f(20) - barH;
+    ctx.fillStyle = "rgba(8,10,7,0.92)";
+    roundRectPath(ctx, padX, barY, innerW, barH, f(14)); ctx.fill();
+    ctx.strokeStyle = accent; ctx.lineWidth = Math.max(2, f(2));
+    roundRectPath(ctx, padX, barY, innerW, barH, f(14)); ctx.stroke();
+    // accent stripe (left edge of the bar)
+    ctx.fillStyle = accent; roundRectPath(ctx, padX, barY, f(12), barH, f(6)); ctx.fill();
+    // avatar — circular, accent ring
+    const avD = barH - f(24);
+    const avCx = padX + f(30) + avD / 2;
+    const avCy = barY + barH / 2;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(avCx, avCy, avD / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+    if (av) ctx.drawImage(av, avCx - avD / 2, avCy - avD / 2, avD, avD);
+    else { ctx.fillStyle = "#1a1a1a"; ctx.fillRect(avCx - avD / 2, avCy - avD / 2, avD, avD); }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(avCx, avCy, avD / 2, 0, Math.PI * 2); ctx.strokeStyle = accent; ctx.lineWidth = Math.max(2, f(4)); ctx.stroke();
+    // kicker (format) + name, right of the avatar
+    const tx = avCx + avD / 2 + f(22);
+    const maxTextW = innerW - (tx - padX) - f(20);
+    pix(18); at((card.type || "").toUpperCase(), tx, barY + f(38), accent, f(2));
+    const nm = card.skater || "@skater";
+    let nsz = 40; for (; nsz > 22; nsz -= 2) { pix(nsz); if (wide(nm, f(1)) <= maxTextW) break; }
+    at(nm, tx, barY + barH - f(26), GN.fg, f(1));
+  } else {
+    const handle = card.skater || "@skater";
+    let hs = 38; for (; hs > 20; hs -= 2) { pix(hs); if (wide(handle, f(2)) <= innerW) break; }
+    center(handle, H - Mi - f(22), GN.fg, f(2));
+  }
 }
 
 const TEXT_COLORS = ["#ffffff", "#0a0a0a", "#a3e635", "#facc15", "#22d3ee", "#ef4444"];
@@ -1622,6 +1659,7 @@ export function VideoEditor({
       fontScale: 1,
       hidden: [],
       logo: brandLogo || "", // current portal's logo (never the Gnars default)
+      avatar: d.broadcast && author ? `https://images.hive.blog/u/${author}/avatar` : undefined,
     };
     const ov: Overlay = {
       id: `rd:${nextId()}`,
