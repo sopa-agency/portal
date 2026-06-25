@@ -43,7 +43,15 @@ export function IgFeedGrid({
         >
           {c.thumb ? (
             c.isVideo ? (
-              <video src={c.thumb} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+              // #t=0.1 makes the browser seek + paint the first frame as a poster
+              // (remote/IPFS videos otherwise render blank with just preload=metadata).
+              <video
+                src={c.thumb.includes("#t=") ? c.thumb : `${c.thumb}#t=0.1`}
+                className="h-full w-full object-cover"
+                muted
+                playsInline
+                preload="metadata"
+              />
             ) : (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img src={c.thumb} alt="" className="h-full w-full object-cover" loading="lazy" />
@@ -55,9 +63,9 @@ export function IgFeedGrid({
           )}
 
           {/* type indicator (top-right) */}
-          {(c.isCarousel || c.isReel) && (
+          {(c.isCarousel || c.isReel || c.isVideo) && (
             <span className="absolute right-1 top-1 text-white drop-shadow">
-              {c.isReel ? <Film className="h-3.5 w-3.5" /> : <Images className="h-3.5 w-3.5" />}
+              {c.isReel || c.isVideo ? <Film className="h-3.5 w-3.5" /> : <Images className="h-3.5 w-3.5" />}
             </span>
           )}
           {/* scheduled badge (bottom-left) */}
