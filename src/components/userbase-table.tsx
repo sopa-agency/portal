@@ -207,6 +207,7 @@ export function UserbaseTable({
   initialTotal,
   subscribedEmails,
   subscriptionPartial,
+  canDelete = false,
 }: {
   initialUsers: UserbaseRow[];
   initialCursor: string | null;
@@ -215,6 +216,8 @@ export function UserbaseTable({
   subscribedEmails?: string[];
   /** Paragraph's list API couldn't enumerate everyone — misses show "unknown", not "not subscribed". */
   subscriptionPartial?: boolean;
+  /** Global admins can hard-delete users (e.g. test accounts). */
+  canDelete?: boolean;
 }) {
   const [users, setUsers] = useState<UserbaseRow[]>(initialUsers);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
@@ -442,7 +445,18 @@ export function UserbaseTable({
         </p>
       )}
 
-      {cardUser && <UserbaseUserCard user={cardUser} onClose={() => setCardUser(null)} />}
+      {cardUser && (
+        <UserbaseUserCard
+          user={cardUser}
+          canDelete={canDelete}
+          onDeleted={(id) => {
+            setUsers((prev) => prev.filter((u) => u.id !== id));
+            setTotal((t) => Math.max(0, t - 1));
+            setCardUser(null);
+          }}
+          onClose={() => setCardUser(null)}
+        />
+      )}
     </div>
   );
 }

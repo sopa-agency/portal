@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, ExternalLink, Loader2, X } from "lucide-react";
+import { AlertCircle, ExternalLink, Loader2, Trash2, X } from "lucide-react";
 import {
+  deleteUserbaseUser,
   getFarcasterInfo,
   getHiveInfo,
   getUserbaseUserDetail,
@@ -11,6 +12,7 @@ import {
   type UserbaseRow,
   type UserbaseUserDetail,
 } from "@/app/actions/userbase";
+import { useConfirm } from "@/components/confirm-dialog";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -42,11 +44,41 @@ const IDENTITY_LINK: Record<string, (i: { handle: string | null; address: string
   evm: (i) => (i.address ? `https://etherscan.io/address/${i.address}` : null),
 };
 
-export function UserbaseUserCard({ user, onClose }: { user: UserbaseRow; onClose: () => void }) {
+export function UserbaseUserCard({
+  user,
+  canDelete = false,
+  onDeleted,
+  onClose,
+}: {
+  user: UserbaseRow;
+  canDelete?: boolean;
+  onDeleted?: (id: string) => void;
+  onClose: () => void;
+}) {
   const [tab, setTab] = useState<TabId>("account");
   const [detail, setDetail] = useState<Loadable<UserbaseUserDetail>>({ state: "loading" });
   const [hive, setHive] = useState<Loadable<HiveInfo>>({ state: "idle" });
   const [farcaster, setFarcaster] = useState<Loadable<FarcasterInfo>>({ state: "idle" });
+  const { confirm, confirmUI } = useConfirm();
+  const [deleting, setDeleting] = useState(false);
+  const [delErr, setDelErr] = useState<string | null>(null);
+
+  async function handleDelete() {
+    const label = user.handle || user.displayName || user.email || user.id;
+    const ok = await confirm({
+      title: "Deletar usuário?",
+      message: `Remove permanentemente "${label}" da userbase (DB do app) — identidades, métodos de auth e o registro. Não dá pra desfazer. Use só pra contas de teste.`,
+      confirmLabel: "Deletar permanentemente",
+      danger: true,
+    });
+    if (!ok) return;
+    setDeleting(true);
+    setDelErr(null);
+    const r = await deleteUserbaseUser(user.id);
+    setDeleting(false);
+    if (r.ok) onDeleted?.(user.id);
+    else setDelErr(r.error);
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -99,6 +131,7 @@ export function UserbaseUserCard({ user, onClose }: { user: UserbaseRow; onClose
   ];
 
   return (
+    <>
     <div
       role="dialog"
       aria-modal="true"
@@ -296,8 +329,30 @@ export function UserbaseUserCard({ user, onClose }: { user: UserbaseRow; onClose
             />
           )}
         </div>
+
+        {/* Danger zone — global admins only (e.g. removing test accounts) */}
+        {canDelete && (
+          <div className="flex items-center justify-between gap-3 border-t border-border p-4">
+            {delErr ? (
+              <p className="min-w-0 flex-1 truncate text-xs text-danger">{delErr}</p>
+            ) : (
+              <span className="text-[11px] text-foreground-faint">Admin: remover conta de teste</span>
+            )}
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/20 disabled:opacity-50"
+            >
+              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Deletar usuário
+            </button>
+          </div>
+        )}
       </div>
     </div>
+    {confirmUI}
+    </>
   );
 }
 

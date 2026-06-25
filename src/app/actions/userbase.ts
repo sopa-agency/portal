@@ -443,6 +443,50 @@ export async function setUserbaseInstagram(
   }
 }
 
+/** True when the current viewer is a SOPA global admin (gates destructive ops). */
+export async function isGlobalAdmin(): Promise<boolean> {
+  try {
+    const { cookies } = await import("next/headers");
+    const { SESSION_COOKIE } = await import("@/lib/auth");
+    const { verifySession, getAccess } = await import("@/lib/team-access");
+    const { getActiveProject } = await import("@/projects/index");
+    const project = await getActiveProject();
+    const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
+    if (!session) return false;
+    return (await getAccess(session.username, project)).global;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Hard-delete a userbase account (for clearing out TEST users). DESTRUCTIVE +
+ * hits the shared app DB, so it's gated to global admins. Removes the user's
+ * identities + auth methods first, then the user row.
+ */
+export async function deleteUserbaseUser(
+  userId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    if (!(await isGlobalAdmin())) return { ok: false, error: "Apenas admins globais podem deletar usuários." };
+    if (!userId) return { ok: false, error: "userId obrigatório." };
+    const client = getUserbaseClient();
+    if (!client) return { ok: false, error: "Supabase userbase not configured." };
+
+    // Children first (in case FKs aren't ON DELETE CASCADE). Best-effort on the
+    // optional tables; the user row delete is the one that must succeed.
+    await client.from("userbase_identities").delete().eq("user_id", userId);
+    await client.from("userbase_auth_methods").delete().eq("user_id", userId);
+    await client.from("userbase_hive_keys").delete().eq("user_id", userId).then(() => {}, () => {});
+
+    const { error } = await client.from("userbase_users").delete().eq("id", userId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // User detail card — full database row + identities, and on-demand Hive /
 // Farcaster profile lookups for the card's tabs.
