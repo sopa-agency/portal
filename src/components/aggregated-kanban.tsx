@@ -21,7 +21,7 @@ import type { AggregatedColumn, AggregatedItem, KanbanItem } from "@/lib/github-
 import type { BountyDTO } from "@/app/actions/bounty";
 import { getProjectAssignees, type Assignee } from "@/app/actions/kanban";
 import { BountyBadge, taskKeyOf } from "@/components/bounty-panel";
-import { CardDetailDialog, FirePriority, DeadlineChip } from "@/components/kanban-board";
+import { CardDetailDialog, FirePriority, DeadlineChip, CardFx, cardFxState } from "@/components/kanban-board";
 import { useConfirm } from "@/components/confirm-dialog";
 
 const COL_PREFIX = "aggcol:";
@@ -473,14 +473,17 @@ function CardInner({ item, bounty }: { item: AggregatedItem; bounty?: BountyDTO 
 function DraggableCard({ item, bounty, canManage, onOpen, onArchive, onDelete }: { item: AggregatedItem; bounty?: BountyDTO; canManage: boolean; onOpen: () => void; onArchive: () => void; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id });
   const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1 };
+  const { onFire, frozen } = cardFxState(item);
+  const fxClass = onFire ? "kb-on-fire border-orange-500/70" : frozen ? "border-cyan-300/70" : "border-border hover:border-border-strong";
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative rounded-lg border border-border bg-surface-elevated p-2.5 transition-colors hover:border-border-strong"
+      className={`group relative overflow-hidden rounded-lg border bg-surface-elevated p-2.5 transition-colors ${fxClass}`}
     >
+      <CardFx onFire={onFire} frozen={frozen} />
       {/* Hover actions: drag · archive · delete */}
-      <div className="absolute right-1 top-1 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-100 shadow-sm backdrop-blur transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="absolute right-1 top-1 z-30 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-100 shadow-sm backdrop-blur transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
         {canManage && (
           <>
             <button type="button" aria-label="Arquivar" onPointerDown={(e) => e.stopPropagation()} onClick={onArchive} className="rounded p-0.5 text-foreground-faint hover:text-foreground"><Archive className="h-3.5 w-3.5" /></button>
@@ -497,7 +500,7 @@ function DraggableCard({ item, bounty, canManage, onOpen, onArchive, onDelete }:
           <GripVertical className="h-4 w-4" />
         </button>
       </div>
-      <button type="button" onClick={onOpen} className="block w-full text-left">
+      <button type="button" onClick={onOpen} className="relative z-10 block w-full text-left">
         <CardInner item={item} bounty={bounty} />
       </button>
     </div>

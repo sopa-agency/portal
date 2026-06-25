@@ -227,6 +227,51 @@ function CardBody({
 // Sortable card
 // ---------------------------------------------------------------------------
 
+// Fixed icicle heights (deterministic — no hydration mismatch) for frozen cards.
+const ICICLE_HEIGHTS = [11, 19, 8, 15, 23, 10, 17, 7, 21, 13, 18, 9, 14, 22, 12, 16, 9, 20];
+
+/** Game-FX state for a card: overdue (not closed) → frozen; else 5🔥 → on fire. */
+export function cardFxState(item: { firePriority?: number; deadline?: string; state?: string }): {
+  onFire: boolean;
+  frozen: boolean;
+} {
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  const frozen = !!item.deadline && item.deadline < todayYmd && item.state !== "closed";
+  const onFire = !frozen && item.firePriority === 5;
+  return { onFire, frozen };
+}
+
+/** Game-style overlays: rising flames for a 5🔥 card, hanging icicles + frost
+ *  for an overdue card. Purely decorative (pointer-events-none). */
+export function CardFx({ onFire, frozen }: { onFire: boolean; frozen: boolean }) {
+  return (
+    <>
+      {onFire && (
+        <div className="kb-flames pointer-events-none absolute inset-x-0 bottom-0 z-0 h-12" aria-hidden />
+      )}
+      {frozen && (
+        <>
+          <div className="kb-frost pointer-events-none absolute inset-0 z-0 bg-cyan-300/15" aria-hidden />
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-between px-1" aria-hidden>
+            {ICICLE_HEIGHTS.map((h, i) => (
+              <span
+                key={i}
+                style={{
+                  height: h,
+                  width: 6,
+                  clipPath: "polygon(0 0, 100% 0, 50% 100%)",
+                  background: "linear-gradient(to bottom, #eff6ff, #bfdbfe 55%, #7dd3fc)",
+                }}
+                className="block opacity-90 drop-shadow-[0_1px_1px_rgba(125,211,252,0.7)]"
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 function SortableCard({
   item,
   bounty,
@@ -249,14 +294,23 @@ function SortableCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
   const style = { transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
 
+  // Game FX: overdue (not closed) → frozen; else top priority (5🔥) → on fire.
+  const { onFire, frozen } = cardFxState(item);
+  const fxClass = onFire
+    ? "kb-on-fire border-orange-500/70"
+    : frozen
+      ? "border-cyan-300/70"
+      : "border-border hover:border-border-strong";
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative rounded-xl border border-border bg-surface-elevated p-3 shadow-sm transition-all hover:border-border-strong hover:shadow-md"
+      className={`group relative overflow-hidden rounded-xl border bg-surface-elevated p-3 shadow-sm transition-all hover:shadow-md ${fxClass}`}
     >
+      <CardFx onFire={onFire} frozen={frozen} />
       {/* Drag handle + body */}
-      <div className="flex items-start gap-1.5">
+      <div className="relative z-10 flex items-start gap-1.5">
         <button
           type="button"
           aria-label="Mover card"
@@ -284,7 +338,7 @@ function SortableCard({
       </div>
 
       {/* Action buttons — appear on hover */}
-      <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-100 shadow-sm backdrop-blur transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="absolute right-1.5 top-1.5 z-30 flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/95 p-0.5 opacity-100 shadow-sm backdrop-blur transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
         {item.url && (
           <a
             href={item.url}
