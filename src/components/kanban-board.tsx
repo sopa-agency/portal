@@ -1217,7 +1217,10 @@ export type MutateFn = (payload: Record<string, unknown>) => Promise<{
   ok: boolean;
   error?: string;
   itemId?: string;
+  /** Content node id of a freshly created card (draft/issue) — enables editing it immediately. */
+  contentId?: string | null;
   url?: string;
+  number?: number;
   comments?: ItemComment[];
   repoId?: string;
   labels?: RepoLabel[];
@@ -1328,7 +1331,14 @@ export function KanbanBoard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as { ok: boolean; error?: string; itemId?: string };
+      const data = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        itemId?: string;
+        contentId?: string | null;
+        url?: string;
+        number?: number;
+      };
       return data;
     },
     [],
@@ -1472,7 +1482,35 @@ export function KanbanBoard() {
           optionId: col.optionId,
         });
       }
-      await load();
+      // Optimistically drop the new card at the TOP of its column and open it so
+      // the user can add a description right away. We deliberately DON'T refetch
+      // here: GitHub's Projects API is eventually consistent, so an instant
+      // reload often comes back WITHOUT the new card (it'd vanish) and otherwise
+      // buries it at the bottom. The new card carries its contentId, so editing
+      // works immediately; the next refresh reconciles ordering.
+      const newItem: KanbanItem = {
+        id: r.itemId,
+        type: kind === "issue" ? "issue" : "draft",
+        title,
+        number: r.number,
+        url: r.url,
+        state: kind === "issue" ? "open" : undefined,
+        contentId: r.contentId ?? null,
+        assignees: [],
+        labels: [],
+      };
+      setBoard((prev) =>
+        prev
+          ? {
+              ...prev,
+              columns: prev.columns.map((c) =>
+                c.name === columnName ? { ...c, items: [newItem, ...c.items] } : c,
+              ),
+            }
+          : prev,
+      );
+      setDetailItem(newItem);
+      flash("Card criado — adicione uma descrição.", "success");
     } catch (err) {
       flash(err instanceof Error ? err.message : "Falha ao adicionar card");
     } finally {

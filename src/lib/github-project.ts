@@ -463,20 +463,21 @@ export async function addDraftIssue(args: {
   projectId: string;
   title: string;
   body?: string;
-}): Promise<MutationResult<{ itemId: string }>> {
+}): Promise<MutationResult<{ itemId: string; contentId: string | null }>> {
+  // Return the DraftIssue content id too, so the caller can render an
+  // immediately-editable optimistic card (description edits need contentId).
   const query = `
     mutation($projectId: ID!, $title: String!, $body: String) {
       addProjectV2DraftIssue(input: { projectId: $projectId, title: $title, body: $body }) {
-        projectItem { id }
+        projectItem { id content { ... on DraftIssue { id } } }
       }
     }`;
-  const r = await githubGraphQL<{ addProjectV2DraftIssue: { projectItem: { id: string } } }>(
-    args.token,
-    query,
-    args,
-  );
+  const r = await githubGraphQL<{
+    addProjectV2DraftIssue: { projectItem: { id: string; content?: { id?: string } } };
+  }>(args.token, query, args);
   if (!r.ok) return r;
-  return { ok: true, itemId: r.data.addProjectV2DraftIssue.projectItem.id };
+  const pi = r.data.addProjectV2DraftIssue.projectItem;
+  return { ok: true, itemId: pi.id, contentId: pi.content?.id ?? null };
 }
 
 /** Archive a card (removes it from the active board, recoverable in GitHub). */
@@ -796,12 +797,12 @@ export async function createRepoIssue(args: {
   repoId: string;
   title: string;
   body?: string;
-}): Promise<MutationResult<{ itemId: string; url: string }>> {
-  const create = await githubGraphQL<{ createIssue: { issue: { id: string; url: string } } }>(
+}): Promise<MutationResult<{ itemId: string; url: string; contentId: string; number?: number }>> {
+  const create = await githubGraphQL<{ createIssue: { issue: { id: string; url: string; number: number } } }>(
     args.token,
     `mutation($repoId: ID!, $title: String!, $body: String) {
       createIssue(input: { repositoryId: $repoId, title: $title, body: $body }) {
-        issue { id url }
+        issue { id url number }
       }
     }`,
     { repoId: args.repoId, title: args.title, body: args.body ?? "" },
@@ -822,7 +823,14 @@ export async function createRepoIssue(args: {
     ok: true,
     itemId: add.data.addProjectV2ItemById.item.id,
     url: issue.url,
-  } as MutationResult<{ itemId: string; url: string }> & { itemId: string; url: string };
+    contentId: issue.id,
+    number: issue.number,
+  } as MutationResult<{ itemId: string; url: string; contentId: string; number?: number }> & {
+    itemId: string;
+    url: string;
+    contentId: string;
+    number?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
