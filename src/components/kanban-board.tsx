@@ -93,6 +93,23 @@ function TypeIcon({ type }: { type: KanbanItem["type"] }) {
   return <SquareDashed className="h-3.5 w-3.5 shrink-0 text-foreground-faint" aria-label="Draft issue" />;
 }
 
+/** Priority points as 🔥 (1..5). Compact display — shows N flames, nothing if 0. */
+export function FirePriority({ value, className = "" }: { value?: number; className?: string }) {
+  const n = Math.max(0, Math.min(5, Math.round(value ?? 0)));
+  if (!n) return null;
+  return (
+    <span
+      className={`inline-flex items-center gap-px leading-none ${className}`}
+      title={`Prioridade ${n}/5`}
+      aria-label={`Prioridade ${n} de 5`}
+    >
+      {Array.from({ length: n }).map((_, i) => (
+        <span key={i} className="text-[10px]">🔥</span>
+      ))}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Card body (shared by sortable card + drag overlay)
 // ---------------------------------------------------------------------------
@@ -140,6 +157,7 @@ function CardBody({
         )}
         <StateBadge item={item} />
         {bounty && <BountyBadge bounty={bounty} />}
+        <FirePriority value={item.firePriority} />
         {item.assignees.length > 0 && (
           <div className="ml-auto flex items-center -space-x-1.5">
             {visible.map((a) => {
@@ -897,6 +915,8 @@ export function CardDetailDialog({
   // mkt/dev/op quick tags — resolved (create-if-missing) repo label ids, cached.
   const [catIds, setCatIds] = useState<Record<string, string>>({});
   const [catBusy, setCatBusy] = useState<string | null>(null);
+  // Fire priority (1🔥..5🔥) — portal-owned points.
+  const [prioBusy, setPrioBusy] = useState(false);
 
   const dialogPanelRef = useRef<HTMLDivElement>(null);
   useDialogA11y(dialogPanelRef, onClose);
@@ -1039,6 +1059,19 @@ export function CardDetailDialog({
     }
   }
 
+  // Set fire priority (1..5). Clicking the current level clears it.
+  async function setFirePriority(p: number) {
+    if (prioBusy) return;
+    const next = item.firePriority === p ? 0 : p;
+    setPrioBusy(true);
+    try {
+      const r = await onMutate({ action: "setPriority", itemId: item.id, priority: next });
+      if (r.ok) onPatchItem(item.id, { firePriority: next || undefined });
+    } finally {
+      setPrioBusy(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
@@ -1160,6 +1193,28 @@ export function CardDetailDialog({
                 })}
               </div>
             )}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-foreground-faint">Prioridade</span>
+              {[1, 2, 3, 4, 5].map((p) => {
+                const on = (item.firePriority ?? 0) >= p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setFirePriority(p)}
+                    disabled={prioBusy}
+                    aria-label={`Definir prioridade ${p} de 5`}
+                    title={item.firePriority === p ? `Prioridade ${p}/5 (clique pra limpar)` : `Prioridade ${p}/5`}
+                    className={`text-sm leading-none transition-all disabled:opacity-50 ${on ? "grayscale-0" : "opacity-30 grayscale hover:opacity-60"}`}
+                  >
+                    🔥
+                  </button>
+                );
+              })}
+              {item.firePriority ? (
+                <span className="ml-0.5 text-[10px] tabular-nums text-foreground-subtle">{item.firePriority}/5</span>
+              ) : null}
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {item.contentId && !editing && (

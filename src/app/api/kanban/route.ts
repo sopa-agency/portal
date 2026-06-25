@@ -78,6 +78,19 @@ export async function GET() {
   if (!result.ok) return NextResponse.json(result);
   const bounties = bountyRows.map((b) => ({ id: b.id, projectSlug: b.projectSlug, taskKey: b.taskKey, title: b.title, amount: b.amount, tokenSymbol: b.tokenSymbol, status: b.status, payeeAddress: b.payeeAddress, safeTxHash: b.safeTxHash }));
 
+  // Merge portal-owned fire priority (1🔥..5🔥) onto each card.
+  const itemIds = result.columns.flatMap((c) => c.items).map((i) => i.id);
+  const priorityRows = itemIds.length
+    ? await prisma.cardPriority.findMany({ where: { itemId: { in: itemIds } } }).catch(() => [])
+    : [];
+  const priorityByItem = new Map(priorityRows.map((p) => [p.itemId, p.priority]));
+  for (const col of result.columns) {
+    for (const it of col.items) {
+      const fp = priorityByItem.get(it.id);
+      if (fp) it.firePriority = fp;
+    }
+  }
+
   // Assignable users = everyone with access to the repos on the board (same
   // list GitHub's own picker offers), enriched with the portal username when
   // a team card maps the login. Team-card-only logins stay as a fallback so
@@ -146,7 +159,7 @@ type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "ensureLabels" | "createIssue"
-    | "convertDraft" | "aiBody";
+    | "convertDraft" | "aiBody" | "setPriority";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
   projectId?: string;
@@ -173,6 +186,8 @@ type Body = {
   removeLabelIds?: string[];
   // ensureLabels — create-if-missing, returns full repo label list
   wanted?: { name: string; color: string; description?: string }[];
+  // setPriority — fire points 1..5 (0/absent clears)
+  priority?: number;
 };
 
 export async function POST(req: Request) {
@@ -227,6 +242,23 @@ export async function POST(req: Request) {
       body: body.body,
     });
     return NextResponse.json(result, { status: result.ok ? 200 : 500 });
+  }
+
+  // Fire priority (1🔥..5🔥) is portal-owned (DB), so it needs no GitHub token,
+  // projectId, or even a real card — works on drafts too.
+  if (action === "setPriority") {
+    if (!itemId) return NextResponse.json({ ok: false, error: "itemId required" }, { status: 400 });
+    const p = Math.round(Number(body.priority));
+    if (!p || p < 1 || p > 5) {
+      await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
+      return NextResponse.json({ ok: true, priority: null });
+    }
+    await prisma.cardPriority.upsert({
+      where: { itemId },
+      create: { itemId, priority: p, projectSlug: targetProjectSlug ?? project.slug, updatedBy: session.username },
+      update: { priority: p, updatedBy: session.username },
+    });
+    return NextResponse.json({ ok: true, priority: p });
   }
 
   if (!projectId) {

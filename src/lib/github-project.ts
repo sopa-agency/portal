@@ -21,6 +21,8 @@ export type KanbanItem = {
   labels: { id?: string; name: string; color: string }[];
   /** Value of the board's "Priority" single-select field (e.g. "P0", "High"), if any. */
   priority?: string;
+  /** Portal-owned priority points: 1🔥 (lowest) .. 5🔥 (highest). From CardPriority. */
+  firePriority?: number;
 };
 
 export type KanbanColumn = {
