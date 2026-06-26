@@ -266,6 +266,7 @@ model InstagramPost {
   caption         String    @default("") @db.Text
   mediaUrls       Json? // ordered array of public media URLs
   status          String    @default("draft") // draft | scheduled | publishing | published | failed
+  attempts        Int       @default(0) // publish attempts so far — scheduler retries transient failures up to a cap
   igMediaId       String? // published IG media id
   permalink       String? // published post permalink
   error           String?

@@ -26,6 +26,29 @@ import { getProject } from "@/projects/index";
 
 const MAX_PER_TICK = 5;
 
+// A scheduled post must SUCCEED if the portal let it be scheduled. So on a
+// failure we don't give up — unless the error is clearly permanent (the post
+// itself is wrong), we reschedule with backoff and try again, up to a cap.
+const MAX_IG_ATTEMPTS = 6;
+function isPermanentIgError(msg: string): boolean {
+  return /requires |no (image|video) url|unsupported|invalid|aspect ratio|too (long|large)|exceeds|must be|not a valid|unauthorized|não conectado|token/i.test(
+    msg,
+  );
+}
+/** DB update after a failed IG publish: retry (reschedule + backoff) or fail. */
+function igFailureUpdate(
+  attempts: number,
+  error: string,
+  now: number,
+): { status: string; error: string; attempts: number; scheduledFor?: Date } {
+  const next = attempts + 1;
+  if (next >= MAX_IG_ATTEMPTS || isPermanentIgError(error)) {
+    return { status: "failed", error, attempts: next };
+  }
+  const delayMin = Math.min(5 * 2 ** attempts, 60); // 5,10,20,40,60,60…
+  return { status: "scheduled", error, attempts: next, scheduledFor: new Date(now + delayMin * 60_000) };
+}
+
 type RunSource = "repo-to-social" | "marketing-suggestions";
 
 type DueItem = {
@@ -165,6 +188,8 @@ type IgResult = {
   ok: boolean;
   igMediaId?: string;
   error?: string;
+  /** true when the failure was transient and the post was rescheduled to retry. */
+  retrying?: boolean;
 };
 
 async function publishDueIgPosts(now: number): Promise<IgResult[]> {
@@ -236,6 +261,7 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
             publishedAt: new Date(now),
             scheduledFor: null,
             error: null,
+            attempts: 0,
           },
         });
         // Cross-publish to the Facebook Page (best-effort, opt-in per project).
@@ -248,19 +274,15 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
         }
         results.push({ id: post.id, projectSlug: post.projectSlug, ok: true, igMediaId: result.igMediaId });
       } else {
-        await prisma.instagramPost.update({
-          where: { id: post.id },
-          data: { status: "failed", error: result.error },
-        });
-        results.push({ id: post.id, projectSlug: post.projectSlug, ok: false, error: result.error });
+        const upd = igFailureUpdate(post.attempts ?? 0, result.error, now);
+        await prisma.instagramPost.update({ where: { id: post.id }, data: upd });
+        results.push({ id: post.id, projectSlug: post.projectSlug, ok: false, error: result.error, retrying: upd.status === "scheduled" });
       }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      await prisma.instagramPost.update({
-        where: { id: post.id },
-        data: { status: "failed", error },
-      });
-      results.push({ id: post.id, projectSlug: post.projectSlug, ok: false, error });
+      const upd = igFailureUpdate(post.attempts ?? 0, error, now);
+      await prisma.instagramPost.update({ where: { id: post.id }, data: upd });
+      results.push({ id: post.id, projectSlug: post.projectSlug, ok: false, error, retrying: upd.status === "scheduled" });
     }
   }
 
