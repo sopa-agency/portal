@@ -10,13 +10,9 @@ const skatehive: ProjectConfig = {
   allowlist: [
     "bielcx",
     "xvlad",
-    "howdarylrolls",
     "skatehive",
-    "skatedev",
-    "skatehacker",
     "mengao",
     "louzoshi",
-    "knowhow92",
     "web-gnar",
     "vaipraonde",
     "nogenta",
@@ -39,9 +35,6 @@ const skatehive: ProjectConfig = {
       { label: "X", value: "@Skate_Hive", url: "https://x.com/Skate_Hive" },
       { label: "Farcaster", value: "@skatehive", url: "https://warpcast.com/skatehive" },
       { label: "Discord", value: "SkateHive", url: "https://chat.skatehive.app" },
-    ],
-    skatedev: [
-      { label: "GitHub", value: "SkateHive", url: "https://github.com/SkateHive" },
     ],
     mengao: [
       { label: "Farcaster", value: "@mengao", url: "https://warpcast.com/mengao" },
