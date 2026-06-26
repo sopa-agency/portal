@@ -831,7 +831,7 @@ function MemberSkillsPanel({ username }: { username: string }) {
 
   // Deterministic (no AI) read of what this member can contribute, from the
   // current trait setup — updates live as the sliders move while editing.
-  const profile = describeContribution(values);
+  const profile = describeContribution(values, username);
 
   return (
     <div className={editing ? "grid items-start gap-6 lg:grid-cols-2" : "flex flex-col items-center gap-4"}>
