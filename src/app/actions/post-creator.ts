@@ -528,10 +528,14 @@ export async function publishDraft(
     const validationError = validateForPublish(post);
     if (validationError) return { ok: false, error: validationError };
 
+    // Transcode any videos to IG-safe MP4 (ffmpeg, where available) before publishing.
+    const { ensureInstagramMedia } = await import("@/lib/transcode-ig");
+    const publishMediaUrls = await ensureInstagramMedia(post.mediaUrls);
+
     const result = await publishInstagramPost(project, {
       type: post.type,
       caption: post.caption,
-      mediaUrls: post.mediaUrls,
+      mediaUrls: publishMediaUrls,
       collaborators: post.collaborators.length > 0 ? post.collaborators : undefined,
       firstComment: post.firstComment || undefined,
       userTags: post.userTags.length > 0 ? post.userTags : undefined,
@@ -566,7 +570,7 @@ export async function publishDraft(
         const fb = await publishFacebookPost(project, {
           type: post.type,
           caption: post.caption,
-          mediaUrls: post.mediaUrls,
+          mediaUrls: publishMediaUrls,
         }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
         facebook = fb.ok ? { ok: true, permalink: fb.permalink } : { ok: false, error: fb.error };
       }

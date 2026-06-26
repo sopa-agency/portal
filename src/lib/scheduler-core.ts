@@ -22,6 +22,7 @@ import {
 import { publishInstagramPost, type IgUserTag } from "@/lib/instagram-publish";
 import { publishFacebookPost, facebookCrosspostEnabled } from "@/lib/facebook-publish";
 import { publishLabChannel } from "@/lib/lab-publish";
+import { ensureInstagramMedia } from "@/lib/transcode-ig";
 import { getProject } from "@/projects/index";
 
 const MAX_PER_TICK = 5;
@@ -231,7 +232,10 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
     // Load project config (static — no DB round-trip)
     const project = getProject(post.projectSlug);
 
-    const mediaUrls = Array.isArray(post.mediaUrls) ? (post.mediaUrls as string[]).map(normalizeMediaUrl) : [];
+    const rawMediaUrls = Array.isArray(post.mediaUrls) ? (post.mediaUrls as string[]).map(normalizeMediaUrl) : [];
+    // Transcode any videos to IG-safe MP4 first (ffmpeg, on the Mac worker) so a
+    // webm/odd-codec export never fails the publish. No-ops where ffmpeg is absent.
+    const mediaUrls = await ensureInstagramMedia(rawMediaUrls);
     const collaborators = Array.isArray(post.collaborators)
       ? (post.collaborators as string[])
       : [];
