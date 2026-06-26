@@ -35,25 +35,28 @@ const WORK: Partial<Record<SkillKey, WorkMeta>> = {
   music: { role: "Áudio", phrase: "trilha, áudio e som dos edits", weight: 0.7 },
 };
 
-// Deterministic sentence variety (no AI, no RNG) — pick a template by a stable
-// hash so different members read differently but the same stats always render
-// the same text.
-const LEAD_TEMPLATES = [
-  (h: string, c: string) => `Forte em ${h}: ${c}.`,
-  (h: string, c: string) => `Mão na massa em ${h} — ${c}.`,
-  (h: string, c: string) => `Entrega melhor em ${h}: ${c}.`,
-  (h: string, c: string) => `Carrega o lado de ${h} — ${c}.`,
+// The work part is a serious, professional read. The ONLY break in tone is the
+// closing skate verdict — always last, varying by skate level. (Most of the team
+// skates, so it lands; the radar keeps the skill, the feature just doesn't take
+// it seriously.) A stable hash picks a variant so members don't all read the same.
+const SKATE_HIGH = [
+  "anda muito de skate 🛹",
+  "vive em cima do skate 🛹",
+  "manda DEMAIS de skate 🛹",
 ];
-const SUPPORT_TEMPLATES = [
-  (c: string) => `Também soma em ${c}.`,
-  (c: string) => `Dá conta também de ${c}.`,
-  (c: string) => `Ajuda ainda com ${c}.`,
+const SKATE_MID = [
+  "tá aprendendo a andar de skate (ou já tá ficando velho) 🛹",
+  "ainda tá pegando o jeito do skate (ou tá velho) 🛹",
 ];
-const SKATE_FLAVOR = [
-  "E de quebra manda no skate. 🛹",
-  "Bônus: skatista de verdade. 🛹",
-  "(ainda por cima, anda de skate 🛹)",
+const SKATE_LOW = [
+  "não anda de skate",
+  "não chega perto de um skate",
 ];
+function skateVerdict(skate: number, h: number): string {
+  if (skate >= 70) return SKATE_HIGH[h % SKATE_HIGH.length];
+  if (skate >= 35) return SKATE_MID[h % SKATE_MID.length];
+  return SKATE_LOW[h % SKATE_LOW.length];
+}
 function hashSeed(seed: string): number {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
@@ -93,10 +96,10 @@ export function describeContribution(
     return { archetype: null, lead: [], support: [], summary: "Defina os atributos para ver o que esse membro pode contribuir." };
   }
 
-  const leadSkills = work.filter((s) => s.v >= 65).slice(0, 2);
+  const leadSkills = work.filter((s) => s.v >= 65).slice(0, 3);
   if (leadSkills.length === 0 && work[0]?.v >= 25) leadSkills.push(work[0]); // top work skill anchors it
   const leadKeys = new Set(leadSkills.map((s) => s.key));
-  const supportSkills = work.filter((s) => s.v >= 40 && !leadKeys.has(s.key)).slice(0, 2);
+  const supportSkills = work.filter((s) => s.v >= 40 && !leadKeys.has(s.key)).slice(0, 3);
 
   const lead = leadSkills.map((s) => s.meta.phrase);
   const support = supportSkills.map((s) => s.meta.phrase);
@@ -106,20 +109,18 @@ export function describeContribution(
     arr.length <= 1 ? arr[0] ?? "" : `${arr.slice(0, -1).join(", ")} e ${arr[arr.length - 1]}`;
   const h = hashSeed(seed || work.map((s) => s.v).join(""));
 
+  // Serious work sentence(s) first…
   const parts: string[] = [];
-  if (lead.length && headline) {
-    parts.push(LEAD_TEMPLATES[h % LEAD_TEMPLATES.length](headline, join(lead)));
-  }
-  if (support.length) {
-    parts.push(SUPPORT_TEMPLATES[h % SUPPORT_TEMPLATES.length](join(support)));
-  }
-  const hasWork = parts.length > 0;
-  if (hasWork && skate >= 55) {
-    // Skate is only a light bonus on top of real work contribution.
-    parts.push(SKATE_FLAVOR[h % SKATE_FLAVOR.length]);
-  } else if (!hasWork) {
-    // No work signal yet — keep it human (skate is why they're around).
-    parts.push("Skatista do time — atributos de trabalho ainda a definir. 🛹");
+  if (lead.length) parts.push(`Pode puxar ${join(lead)}.`);
+  if (support.length) parts.push(`Também contribui com ${join(support)}.`);
+
+  // …then ALWAYS close by breaking the seriousness with the skate verdict.
+  const verdict = skateVerdict(skate, h);
+  if (parts.length > 0) {
+    parts.push(`E… ${verdict}.`);
+  } else {
+    // No work signal yet — skate stands on its own (capitalized).
+    parts.push(`${verdict.charAt(0).toUpperCase()}${verdict.slice(1)}.`);
   }
 
   return { archetype: headline, lead, support, summary: parts.join(" ") };
