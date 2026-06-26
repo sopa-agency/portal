@@ -3,7 +3,7 @@ import { Client, PublicKey, Signature, cryptoUtils } from "@hiveio/dhive";
 import {
   CHALLENGE_COOKIE,
   SESSION_COOKIE,
-  SESSION_COOKIE_DOMAIN,
+  cookieDomainFor,
   SESSION_MAX_AGE,
   signSession,
   verifyChallenge,
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_MAX_AGE,
-    ...(SESSION_COOKIE_DOMAIN ? { domain: SESSION_COOKIE_DOMAIN } : {}),
+    ...((d) => (d ? { domain: d } : {}))(cookieDomainFor(req.headers.get("host"))),
   });
   // Clear the one-time challenge cookie
   res.cookies.set(CHALLENGE_COOKIE, "", { path: "/", maxAge: 0 });

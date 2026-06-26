@@ -41,6 +41,21 @@ export const CHALLENGE_COOKIE = "portal_challenge";
 // domain wouldn't match the host and the cookie would be rejected.
 export const SESSION_COOKIE_DOMAIN = process.env.SESSION_COOKIE_DOMAIN?.trim() || undefined;
 
+/**
+ * Cookie domain to use for a given request host. Returns a shared parent domain
+ * for brands under one umbrella so the session is valid across their subdomains
+ * (needed for GitHub OAuth, which runs the handshake on one canonical host then
+ * returns you to your brand). Host-only (undefined) for anything else — local,
+ * preview, and off-pattern hosts like marketing.skatehive.app — so their cookie
+ * isn't rejected. An explicit SESSION_COOKIE_DOMAIN env always wins.
+ */
+export function cookieDomainFor(host: string | null | undefined): string | undefined {
+  if (SESSION_COOKIE_DOMAIN) return SESSION_COOKIE_DOMAIN;
+  const h = (host ?? "").split(":")[0].toLowerCase();
+  if (h === "reelflip.com" || h.endsWith(".reelflip.com")) return ".reelflip.com";
+  return undefined;
+}
+
 // Legacy aliases kept so any stale imports still compile.
 /** @deprecated Use SESSION_COOKIE */
 export const SKATEHIVE_SESSION_COOKIE = "portal_session";
