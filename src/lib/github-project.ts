@@ -13,6 +13,8 @@ export type KanbanItem = {
   url?: string;
   state?: string;
   merged?: boolean;
+  /** ISO timestamp the issue/PR was closed (completed). Absent for drafts/open. */
+  closedAt?: string;
   /** Issue/PR/draft body, GitHub-flavored markdown. */
   body?: string;
   /** Content node id (Issue/PullRequest/DraftIssue) — needed to mutate assignees. */
@@ -78,6 +80,7 @@ const PROJECT_FRAGMENT = `
           number
           url
           state
+          closedAt
           body
           assignees(first: 5) {
             nodes {
@@ -99,6 +102,7 @@ const PROJECT_FRAGMENT = `
           number
           url
           state
+          closedAt
           body
           merged
           assignees(first: 5) {
@@ -226,6 +230,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   number?: number;
                   url?: string;
                   state?: string;
+                  closedAt?: string;
                   body?: string;
                   merged?: boolean;
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
@@ -260,6 +265,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   number?: number;
                   url?: string;
                   state?: string;
+                  closedAt?: string;
                   body?: string;
                   merged?: boolean;
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
@@ -319,6 +325,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       const url = content?.url;
       const state = content?.state?.toLowerCase();
       const merged = content?.merged;
+      const closedAt = content?.closedAt;
       const body = content?.body;
       const assignees = (content?.assignees?.nodes ?? []).map((a) => ({
         login: a.login,
@@ -335,7 +342,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       const priority = node.fieldValues.nodes.find(
         (fv) => fv.field?.name === "Priority" && fv.name != null,
       )?.name ?? undefined;
-      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, body, contentId, assignees, labels, priority };
+      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, closedAt, body, contentId, assignees, labels, priority };
 
       // Find the Status field value for this item
       const statusValue = node.fieldValues.nodes.find(

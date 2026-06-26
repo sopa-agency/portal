@@ -338,3 +338,108 @@ export async function setMemberSkills(
     return { ok: false, error: err instanceof Error ? err.message : "Falha ao salvar." };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Funcionário da Semana — weekly MVP, derived live from GitHub (NO per-action
+// logging, no DB writes). Counts issues/PRs CLOSED in the last 7 days, credited
+// to their assignees, weighted by the card's fire priority. Cached in memory.
+// ---------------------------------------------------------------------------
+
+export type WeeklyMvp = {
+  /** Portal username if the GitHub login maps to a member, else null. */
+  username: string | null;
+  login: string;
+  avatarUrl: string;
+  /** Tasks completed (closed) in the window. */
+  done: number;
+  /** Score: each task = 1 + its fire priority (0–5), so hard tasks weigh more. */
+  points: number;
+  /** A few completed task titles, for the poster. */
+  titles: string[];
+};
+
+type WeeklyMvpResult =
+  | { ok: true; winner: WeeklyMvp | null; ranking: WeeklyMvp[]; since: string }
+  | { ok: false; error: string };
+
+const _mvpCache = new Map<string, { data: WeeklyMvpResult; expires: number }>();
+const MVP_TTL_MS = 30 * 60 * 1000;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const ghNorm = (s: string) =>
+  s.trim().toLowerCase().replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/^@/, "").replace(/\/.*$/, "");
+
+export async function getWeeklyMvp(): Promise<WeeklyMvpResult> {
+  const g = await viewerGate();
+  if (!g.ok) return g;
+
+  const cacheKey = g.project.slug;
+  const cached = _mvpCache.get(cacheKey);
+  if (cached && Date.now() < cached.expires) return cached.data;
+
+  try {
+    const { fetchGitHubProject } = await import("@/lib/github-project");
+    const cutoff = Date.now() - WEEK_MS;
+    const since = new Date(cutoff).toISOString();
+
+    // GitHub login → portal username (from the team's GitHub contacts).
+    const contacts = await prisma.teamMemberContact
+      .findMany({ where: { label: "GitHub" }, select: { username: true, value: true } })
+      .catch(() => [] as { username: string; value: string }[]);
+    const loginToUser = new Map<string, string>();
+    for (const c of contacts) {
+      const l = ghNorm(c.value);
+      if (l) loginToUser.set(l, c.username.toLowerCase());
+    }
+
+    // Which boards to scan: this project's own, or every portal's on the SOPA hub.
+    const boards = g.project.githubProject
+      ? [g.project]
+      : g.project.kanbanAggregate
+        ? getAllProjects().filter((p) => p.githubProject)
+        : [];
+
+    const seen = new Set<string>();
+    type Done = { id: string; assignees: { login: string; avatarUrl: string }[]; title: string };
+    const completed: Done[] = [];
+    for (const p of boards) {
+      const key = `${p.githubProject!.org}#${p.githubProject!.number}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const board = await fetchGitHubProject(p).catch(() => null);
+      if (!board || !board.ok) continue;
+      for (const col of board.columns) {
+        for (const it of col.items) {
+          if (it.state === "closed" && it.closedAt && new Date(it.closedAt).getTime() >= cutoff && it.assignees.length) {
+            completed.push({ id: it.id, assignees: it.assignees, title: it.title });
+          }
+        }
+      }
+    }
+
+    // Fire-priority weights for the completed cards.
+    const meta = await loadCardMeta(completed.map((c) => c.id));
+
+    const byLogin = new Map<string, WeeklyMvp>();
+    for (const c of completed) {
+      const weight = 1 + (meta.get(c.id)?.firePriority ?? 0);
+      for (const a of c.assignees) {
+        const login = a.login.toLowerCase();
+        let row = byLogin.get(login);
+        if (!row) {
+          row = { username: loginToUser.get(login) ?? null, login, avatarUrl: a.avatarUrl, done: 0, points: 0, titles: [] };
+          byLogin.set(login, row);
+        }
+        row.done += 1;
+        row.points += weight;
+        if (row.titles.length < 4) row.titles.push(c.title);
+      }
+    }
+
+    const ranking = [...byLogin.values()].sort((a, b) => b.points - a.points || b.done - a.done);
+    const result: WeeklyMvpResult = { ok: true, winner: ranking[0] ?? null, ranking, since };
+    _mvpCache.set(cacheKey, { data: result, expires: Date.now() + MVP_TTL_MS });
+    return result;
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

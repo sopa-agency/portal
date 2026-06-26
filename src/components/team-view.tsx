@@ -32,7 +32,7 @@ import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connection
 import type { TeamMessageOption } from "@/lib/team-messaging";
 import { resolveDiscordUser, sendTeamMessage, sendTeamTasksEmail, updateTeamMemberContact } from "@/app/actions/team";
 import { FirePriority, DeadlineChip } from "@/components/card-indicators";
-import { setMemberRole, removeMember, getMemberTasks, getMemberSkills, setMemberSkills, type MemberTask } from "@/app/actions/team-admin";
+import { setMemberRole, removeMember, getMemberTasks, getMemberSkills, setMemberSkills, getWeeklyMvp, type MemberTask, type WeeklyMvp } from "@/app/actions/team-admin";
 import { SkillRadar } from "@/components/skill-radar";
 import { SKILL_CATEGORIES, describeContribution } from "@/lib/skills";
 import { CardDialogHost } from "@/components/card-dialog-host";
@@ -1338,6 +1338,55 @@ function ConnectionCard({
 
 // ── Main export ────────────────────────────────────────────────────────────
 
+/** "Funcionário da Semana" poster — derived live from GitHub (tasks closed in
+ *  the last 7 days, weighted by fire priority). Hidden when nobody qualifies. */
+function WeeklyMvpPoster() {
+  const [winner, setWinner] = useState<WeeklyMvp | null>(null);
+  useEffect(() => {
+    let live = true;
+    getWeeklyMvp()
+      .then((r) => { if (live && r.ok) setWinner(r.winner); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+  if (!winner) return null;
+  const name = winner.username ?? winner.login;
+  const avatar = winner.username
+    ? `https://images.hive.blog/u/${winner.username}/avatar`
+    : winner.avatarUrl;
+  return (
+    <section
+      aria-label="Funcionário da semana"
+      className="overflow-hidden rounded-2xl border border-accent-border bg-gradient-to-br from-accent-bg to-surface p-5"
+    >
+      <div className="flex items-center gap-4">
+        <span className="text-3xl leading-none">🏆</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={avatar}
+          alt={name}
+          className="h-16 w-16 shrink-0 rounded-full border-2 border-accent object-cover"
+        />
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-accent">
+            Funcionário da Semana
+          </p>
+          <p className="truncate text-xl font-bold text-foreground">@{name}</p>
+          <p className="text-xs text-foreground-muted">
+            {winner.done} tarefa{winner.done !== 1 ? "s" : ""} concluída{winner.done !== 1 ? "s" : ""}
+            {winner.points !== winner.done ? ` · ${winner.points} pts 🔥` : ""}
+          </p>
+        </div>
+      </div>
+      {winner.titles.length > 0 && (
+        <p className="mt-3 truncate text-[11px] text-foreground-faint" title={winner.titles.join(" · ")}>
+          {winner.titles.join("  ·  ")}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function TeamView({ projectName, members, canManage }: TeamViewProps) {
   // Shareable: the open member lives in ?member=<username> so a copied link
   // opens that member's dialog directly.
@@ -1346,6 +1395,7 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
 
   return (
     <div className="space-y-8">
+      <WeeklyMvpPoster />
       <section aria-labelledby="team-heading">
         <div className="mb-4 flex items-baseline gap-3">
           <h2 id="team-heading" className="text-lg font-semibold tracking-tight text-foreground">
