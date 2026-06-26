@@ -727,7 +727,7 @@ export function Editor({
     setBusy("one");
     try {
       const blob = await renderPng(card);
-      downloadBlob(blob, `${filePrefix}_${String(active + 1).padStart(2, "0")}.png`);
+      downloadBlob(blob, `${filePrefix}_${String(active + 1).padStart(2, "0")}.jpg`);
       toast.success("Card exportado");
     } catch (e) { toast.error("Falha ao exportar o card.", { description: "Tente novamente." }); console.error(e); }
     finally { setBusy(null); }
@@ -745,7 +745,7 @@ export function Editor({
           const i = next++;
           try {
             const blob = await renderPng(cards[i]);
-            slots[i] = new File([blob], `${filePrefix}_${String(i + 1).padStart(2, "0")}.png`, { type: "image/png" });
+            slots[i] = new File([blob], `${filePrefix}_${String(i + 1).padStart(2, "0")}.jpg`, { type: "image/jpeg" });
           } catch (e) {
             console.error(`render card ${i + 1} falhou`, e); // slot stays null → reported below
           }
@@ -784,7 +784,7 @@ export function Editor({
         while (next < cards.length) {
           const i = next++;
           const blob = await renderPng(cards[i]);
-          zip.file(`${filePrefix}_${String(i + 1).padStart(2, "0")}.png`, blob);
+          zip.file(`${filePrefix}_${String(i + 1).padStart(2, "0")}.jpg`, blob);
           done++;
           toast.loading(`Renderizando ${done}/${cards.length}…`, { id: tid }); // 1 toast atualizado, sem spam
         }

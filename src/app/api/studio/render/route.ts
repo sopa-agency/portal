@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
+import sharp from "sharp";
 import { cookies } from "next/headers";
 import { CardArtwork, spotMapsUrl, spotQrUrl } from "@/components/studio/card-artwork";
 import QRCode from "qrcode";
@@ -66,9 +67,13 @@ export async function POST(req: NextRequest) {
     });
 
     const png = new Resvg(svg, { fitTo: { mode: "width", value: CARD_W } }).render().asPng();
-    console.log(`[studio/render] OK tipo=${card.tipo} png=${Math.round(png.length / 1024)}KB`);
-    return new Response(new Uint8Array(png), {
-      headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
+    // Output JPEG: Instagram's content-publishing API is happiest with JPEG, and
+    // it's much smaller than PNG → Meta ingests the container faster (fewer
+    // "Media ID is not available" timeouts).
+    const jpeg = await sharp(png).jpeg({ quality: 90, mozjpeg: true }).toBuffer();
+    console.log(`[studio/render] OK tipo=${card.tipo} jpeg=${Math.round(jpeg.length / 1024)}KB`);
+    return new Response(new Uint8Array(jpeg), {
+      headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-store" },
     });
   } catch (err) {
     // Surfaces the real failure in Vercel runtime logs (the 400 body only
