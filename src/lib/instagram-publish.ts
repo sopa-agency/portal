@@ -344,16 +344,17 @@ export async function setInstagramCommentHidden(
 }
 
 // ---------------------------------------------------------------------------
-// Reel container polling — poll until FINISHED or ERROR, ~3s cadence, 90s max
+// Container polling — wait until Meta finishes ingesting the media (image OR
+// video) before publishing, otherwise media_publish 400s with "Media ID is not
+// available". Checks immediately first (images are usually instant), then polls.
 // ---------------------------------------------------------------------------
 
 async function pollUntilFinished(
   containerId: string,
   token: string,
 ): Promise<void> {
-  const MAX_POLLS = 48; // 48 × 5s = 4min — Meta needs minutes to ingest big reels
+  const MAX_POLLS = 80; // checks first, then 80 × 3s ≈ 4min for big reels
   for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise((r) => setTimeout(r, 5000));
     const data = await graphGet<{ status_code?: string; id: string }>(
       `/${containerId}`,
       { fields: "status_code" },
@@ -361,11 +362,12 @@ async function pollUntilFinished(
     );
     if (data.status_code === "FINISHED") return;
     if (data.status_code === "ERROR") {
-      throw new Error("Instagram video container processing failed — check video format and codec (H.264, AAC audio, MP4).");
+      throw new Error("Instagram media container processing failed — check the file (images: JPEG/PNG; video: H.264 + AAC, MP4).");
     }
+    await new Promise((r) => setTimeout(r, 3000));
     // IN_PROGRESS / PUBLISHED / EXPIRED — keep polling for FINISHED
   }
-  throw new Error("Instagram video container timed out after 4 minutes — the video may be too large or in an unsupported format.");
+  throw new Error("Instagram media container timed out after ~4 minutes — the file may be too large or in an unsupported format.");
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +393,7 @@ async function isVideoUrl(url: string): Promise<boolean> {
 // Meta sometimes answers media_publish with a transient error (code 2,
 // "An unexpected error has occurred. Please retry your request later.") even
 // though the publish actually went through — especially for Reels.
-const TRANSIENT_IG_ERROR = /unexpected error|retry your request|temporarily unavailable|try again later/i;
+const TRANSIENT_IG_ERROR = /unexpected error|retry your request|temporarily unavailable|try again later|media id is not available|not available|still being processed|not ready/i;
 
 /**
  * Run media_publish, recovering from Meta's transient errors: on failure,
@@ -590,6 +592,9 @@ export async function publishInstagramPost(
       }, token);
       if (!container.id) throw new Error("No container id returned for IMAGE.");
 
+      // Wait until Meta finished ingesting the image, else publish 400s with
+      // "Media ID is not available". (Usually returns on the first check.)
+      await pollUntilFinished(container.id, token);
       const igMediaId = await publishContainer(igid, container.id, token);
 
       const permalink = await fetchPermalink(igMediaId, token);
@@ -612,7 +617,6 @@ export async function publishInstagramPost(
       // Mixed media: video children use media_type VIDEO and need server-side
       // processing before the parent container will accept them.
       const childIds: string[] = [];
-      const videoChildIds: string[] = [];
       for (const url of mediaUrls) {
         const video = await isVideoUrl(url);
         const child = await graphPost(`/${igid}/media`, video
@@ -620,11 +624,11 @@ export async function publishInstagramPost(
           : { image_url: url, is_carousel_item: true }, token);
         if (!child.id) throw new Error("No child container id returned.");
         childIds.push(child.id);
-        if (video) videoChildIds.push(child.id);
       }
-      for (const childId of videoChildIds) {
-        await pollUntilFinished(childId, token);
-      }
+      // Wait until EVERY child finished ingesting (images too, not just videos) —
+      // creating/publishing the parent before they're ready 400s with
+      // "Media ID is not available". Images return on the first check.
+      await Promise.all(childIds.map((id) => pollUntilFinished(id, token)));
 
       // collaborators go on the PARENT container, not the children
       const parent = await graphPost(`/${igid}/media`, {
