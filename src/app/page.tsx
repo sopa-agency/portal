@@ -17,6 +17,8 @@ import { fetchChannelMetrics } from "@/lib/social-metrics";
 import { getActiveProject, getAllProjects } from "@/projects";
 import { SopaBriefing, type SopaActionGroup } from "@/components/sopa-briefing";
 import { ForYou, type ForYouMention } from "@/components/for-you";
+import { KanbanActivity } from "@/components/kanban-activity";
+import { fetchKanbanActivity } from "@/lib/github-project";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
@@ -143,11 +145,15 @@ export default async function Home() {
       forYou = { username: session.username, tasks, mentions };
     }
 
+    // GitHub kanban activity across every portal's board (straight from GitHub).
+    const activity = await fetchKanbanActivity(30).catch(() => []);
+
     return (
       <div className="space-y-7">
         <PageHeader eyebrow={`Daily · ${today}`} title="SOPA" description="Resumo de next actions de todos os portais." />
         {forYou ? <ForYou username={forYou.username} tasks={forYou.tasks} mentions={forYou.mentions} /> : null}
         <SopaBriefing groups={groups} today={today} />
+        <KanbanActivity events={activity} />
       </div>
     );
   }

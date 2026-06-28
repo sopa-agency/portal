@@ -15,6 +15,9 @@ export type KanbanItem = {
   merged?: boolean;
   /** ISO timestamp the issue/PR was closed (completed). Absent for drafts/open. */
   closedAt?: string;
+  /** ISO timestamps from GitHub (issues/PRs). */
+  createdAt?: string;
+  updatedAt?: string;
   /** Issue/PR/draft body, GitHub-flavored markdown. */
   body?: string;
   /** Content node id (Issue/PullRequest/DraftIssue) — needed to mutate assignees. */
@@ -81,6 +84,8 @@ const PROJECT_FRAGMENT = `
           url
           state
           closedAt
+          createdAt
+          updatedAt
           body
           assignees(first: 5) {
             nodes {
@@ -103,6 +108,8 @@ const PROJECT_FRAGMENT = `
           url
           state
           closedAt
+          createdAt
+          updatedAt
           body
           merged
           assignees(first: 5) {
@@ -231,6 +238,8 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   url?: string;
                   state?: string;
                   closedAt?: string;
+                  createdAt?: string;
+                  updatedAt?: string;
                   body?: string;
                   merged?: boolean;
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
@@ -266,6 +275,8 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   url?: string;
                   state?: string;
                   closedAt?: string;
+                  createdAt?: string;
+                  updatedAt?: string;
                   body?: string;
                   merged?: boolean;
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
@@ -326,6 +337,8 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       const state = content?.state?.toLowerCase();
       const merged = content?.merged;
       const closedAt = content?.closedAt;
+      const createdAt = content?.createdAt;
+      const updatedAt = content?.updatedAt;
       const body = content?.body;
       const assignees = (content?.assignees?.nodes ?? []).map((a) => ({
         login: a.login,
@@ -342,7 +355,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       const priority = node.fieldValues.nodes.find(
         (fv) => fv.field?.name === "Priority" && fv.name != null,
       )?.name ?? undefined;
-      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, closedAt, body, contentId, assignees, labels, priority };
+      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, closedAt, createdAt, updatedAt, body, contentId, assignees, labels, priority };
 
       // Find the Status field value for this item
       const statusValue = node.fieldValues.nodes.find(
@@ -973,6 +986,60 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
   for (const items of colItems.values()) items.sort(compareByPriority);
 
   return { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };
+}
+
+// ---------------------------------------------------------------------------
+// Kanban activity feed — recent opens / closes / merges across EVERY portal's
+// GitHub Project board (straight from GitHub, no AI). Cached briefly.
+// ---------------------------------------------------------------------------
+
+export type KanbanActivityEvent = {
+  kind: "opened" | "closed" | "merged";
+  ts: string; // ISO timestamp
+  title: string;
+  url?: string;
+  number?: number;
+  type: "issue" | "pr" | "draft";
+  project: string; // board / portal name
+  accent: string; // project accent color for the badge
+  assignees: { login: string; avatarUrl: string }[];
+};
+
+let _activityCache: { data: KanbanActivityEvent[]; expires: number } | null = null;
+const ACTIVITY_TTL_MS = 5 * 60 * 1000;
+
+export async function fetchKanbanActivity(limit = 30): Promise<KanbanActivityEvent[]> {
+  if (_activityCache && Date.now() < _activityCache.expires) return _activityCache.data.slice(0, limit);
+  const { getAllProjects } = await import("@/projects/index");
+  const seen = new Set<string>();
+  const events: KanbanActivityEvent[] = [];
+  for (const p of getAllProjects()) {
+    if (!p.githubProject) continue;
+    const key = `${p.githubProject.org}#${p.githubProject.number}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const r = await fetchGitHubProject(p).catch(() => null);
+    if (!r || !r.ok) continue;
+    const board = r.title || p.name;
+    for (const col of r.columns) {
+      for (const it of col.items) {
+        const base = {
+          title: it.title,
+          url: it.url,
+          number: it.number,
+          type: it.type,
+          project: board,
+          accent: p.theme.accentDark,
+          assignees: it.assignees,
+        };
+        if (it.createdAt) events.push({ ...base, kind: "opened", ts: it.createdAt });
+        if (it.closedAt) events.push({ ...base, kind: it.merged ? "merged" : "closed", ts: it.closedAt });
+      }
+    }
+  }
+  events.sort((a, b) => (a.ts < b.ts ? 1 : -1)); // newest first
+  _activityCache = { data: events, expires: Date.now() + ACTIVITY_TTL_MS };
+  return events.slice(0, limit);
 }
 
 // ---------------------------------------------------------------------------
