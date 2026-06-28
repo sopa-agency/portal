@@ -225,8 +225,9 @@ function Overview({ groups, title }: { groups: TreasuryGroup[]; title: string })
 // ---------------------------------------------------------------------------
 
 function EvmCard({ w }: { w: EvmWalletReport }) {
+  const segs = w.totalUsd > 0 ? toSegments(w.tokens.map((t) => ({ label: `${t.symbol}·${t.chain}`, valueUsd: t.valueUsd }))) : [];
   return (
-    <div className="rounded-2xl border border-border bg-surface p-5">
+    <div className="group rounded-2xl border border-border bg-surface p-5 transition-colors hover:border-border-strong">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">{w.label}</p>
@@ -238,26 +239,39 @@ function EvmCard({ w }: { w: EvmWalletReport }) {
             title={w.address}
           >
             {shortAddr(w.address)}
-            <ExternalLink className="h-3 w-3" aria-hidden />
+            <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
           </a>
         </div>
-        <p className="shrink-0 text-lg font-bold tabular-nums text-foreground">{usd(w.totalUsd)}</p>
+        <div className="shrink-0 text-right">
+          <p className="text-lg font-bold tabular-nums text-foreground">{usd(w.totalUsd)}</p>
+          {w.tokens.length > 0 && (
+            <p className="text-[10px] tabular-nums text-foreground-faint">{w.tokens.length} ativo{w.tokens.length !== 1 ? "s" : ""}</p>
+          )}
+        </div>
       </div>
+      {segs.length > 0 && (
+        <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-border">
+          {segs.map((s) => (
+            <div key={s.label} className="h-full" style={{ width: `${Math.max((s.valueUsd / w.totalUsd) * 100, 0.6)}%`, backgroundColor: s.color }} />
+          ))}
+        </div>
+      )}
       {w.error ? (
         <p className="mt-3 text-xs text-danger">Couldn&apos;t load balances: {w.error}</p>
       ) : w.tokens.length > 0 ? (
-        <div className="mt-4 space-y-1.5">
+        <div className="mt-4 space-y-2">
           {w.tokens.map((t, i) => (
             <div key={`${t.symbol}-${t.chain}-${i}`} className="flex items-center justify-between gap-3 text-sm">
               <span className="flex min-w-0 items-center gap-2">
+                <TokenLogo symbol={t.symbol} color={colorAt(i)} size={20} />
                 <span className="font-medium text-foreground">{t.symbol}</span>
                 <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-foreground-faint">
                   {t.chain}
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-3 tabular-nums">
-                <span className="text-foreground-subtle">{num(t.balance, 4)}</span>
-                <span className="w-20 text-right text-foreground-muted">{usd(t.valueUsd)}</span>
+                <span className="text-foreground-faint">{num(t.balance, 4)}</span>
+                <span className="w-20 text-right font-medium text-foreground">{usd(t.valueUsd)}</span>
               </span>
             </div>
           ))}
@@ -271,26 +285,34 @@ function EvmCard({ w }: { w: EvmWalletReport }) {
 
 function HiveCard({ a }: { a: HiveAccountReport }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface p-5">
+    <div className="group rounded-2xl border border-border bg-surface p-5 transition-colors hover:border-border-strong">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">{a.label}</p>
-          <a
-            href={`https://skatehive.app/@${a.account}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-foreground-subtle transition-colors hover:text-accent"
-          >
-            @{a.account}
-            <ExternalLink className="h-3 w-3" aria-hidden />
-          </a>
+        <div className="flex min-w-0 items-center gap-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`https://images.hive.blog/u/${a.account}/avatar`}
+            alt={a.account}
+            className="h-9 w-9 shrink-0 rounded-full border border-border object-cover"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">{a.label}</p>
+            <a
+              href={`https://skatehive.app/@${a.account}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-foreground-subtle transition-colors hover:text-accent"
+            >
+              @{a.account}
+              <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
+            </a>
+          </div>
         </div>
         <p className="shrink-0 text-lg font-bold tabular-nums text-foreground">{usd(a.usd)}</p>
       </div>
       {a.error ? (
         <p className="mt-3 text-xs text-danger">Couldn&apos;t load balances: {a.error}</p>
       ) : (
-        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(
             [
               ["HIVE", a.hive],
@@ -299,9 +321,9 @@ function HiveCard({ a }: { a: HiveAccountReport }) {
               ["HBD Savings", a.hbdSavings],
             ] as const
           ).map(([label, value]) => (
-            <div key={label}>
+            <div key={label} className="rounded-lg bg-surface-elevated px-2.5 py-1.5">
               <p className="text-[10px] uppercase tracking-wider text-foreground-faint">{label}</p>
-              <p className="tabular-nums text-foreground-muted">{num(value)}</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{num(value)}</p>
             </div>
           ))}
         </div>

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { PageHeader } from "@/components/page-header";
 import { SetupGuide, CodeBlock } from "@/components/setup-guide";
 import { TreasuryViews } from "@/components/treasury-views";
+import { TreasuryRefresh } from "@/components/treasury-refresh";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
@@ -141,6 +142,7 @@ treasury: {
             : "The same wallets and data sources the native app shows — live balances across chains."
         }
         status={usd(combined)}
+        actions={<TreasuryRefresh />}
       />
       <TreasuryViews groups={groups} />
       <MultisigBudgets budgets={budgets} />

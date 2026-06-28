@@ -59,7 +59,7 @@ async function getPrices(): Promise<{ hive: number; hbd: number; eth: number }> 
   try {
     const res = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=hive,hive_dollar,ethereum&vs_currencies=usd",
-      { next: { revalidate: 3600 } },
+      { next: { revalidate: 300, tags: ["treasury"] } },
     );
     const data = (await res.json()) as Record<string, { usd?: number }>;
     return {
@@ -89,7 +89,7 @@ async function baseRpc<T>(method: string, params: unknown[]): Promise<T> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
-    next: { revalidate: 3600 },
+    next: { revalidate: 300, tags: ["treasury"] },
   });
   const json = (await res.json()) as { result?: T; error?: { message?: string } };
   if (json.result === undefined) throw new Error(json.error?.message ?? `${method} failed`);
@@ -122,7 +122,7 @@ async function fetchEvmWallet(label: string, address: string, ethPrice: number):
   try {
     const res = await fetch(`https://api.keepkey.info/api/v1/zapper/portfolio/${address}`, {
       headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; MarketingPortal/1.0)" },
-      next: { revalidate: 3600 },
+      next: { revalidate: 300, tags: ["treasury"] },
     });
     if (!res.ok) throw new Error(`portfolio API HTTP ${res.status}`);
     const data = (await res.json()) as {
@@ -167,7 +167,7 @@ async function hiveRpc<T>(method: string, params: unknown): Promise<T> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
-    next: { revalidate: 3600 },
+    next: { revalidate: 300, tags: ["treasury"] },
   });
   const json = (await res.json()) as { result?: T; error?: { message?: string } };
   if (json.result === undefined) throw new Error(json.error?.message ?? `${method} failed`);
