@@ -146,7 +146,7 @@ export default async function Home() {
     }
 
     // GitHub kanban activity across every portal's board (straight from GitHub).
-    const activity = await fetchKanbanActivity(30).catch(() => []);
+    const activity = await fetchKanbanActivity(80).catch(() => []);
 
     return (
       <div className="space-y-7">

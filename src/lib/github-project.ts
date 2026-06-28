@@ -18,6 +18,11 @@ export type KanbanItem = {
   /** ISO timestamps from GitHub (issues/PRs). */
   createdAt?: string;
   updatedAt?: string;
+  /** Who opened it / merged it (issues/PRs). */
+  author?: { login: string; avatarUrl: string };
+  mergedBy?: { login: string; avatarUrl: string };
+  /** Most recent comment, if any (for the activity feed). */
+  lastComment?: { author?: { login: string; avatarUrl: string }; createdAt: string };
   /** Issue/PR/draft body, GitHub-flavored markdown. */
   body?: string;
   /** Content node id (Issue/PullRequest/DraftIssue) — needed to mutate assignees. */
@@ -87,6 +92,8 @@ const PROJECT_FRAGMENT = `
           createdAt
           updatedAt
           body
+          author { login avatarUrl }
+          comments(last: 1) { nodes { author { login avatarUrl } createdAt } }
           assignees(first: 5) {
             nodes {
               login
@@ -112,6 +119,9 @@ const PROJECT_FRAGMENT = `
           updatedAt
           body
           merged
+          author { login avatarUrl }
+          mergedBy { login avatarUrl }
+          comments(last: 1) { nodes { author { login avatarUrl } createdAt } }
           assignees(first: 5) {
             nodes {
               login
@@ -242,6 +252,9 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   updatedAt?: string;
                   body?: string;
                   merged?: boolean;
+                  author?: { login: string; avatarUrl: string };
+                  mergedBy?: { login: string; avatarUrl: string };
+                  comments?: { nodes: { author?: { login: string; avatarUrl: string }; createdAt: string }[] };
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
                   labels?: { nodes: { id?: string; name: string; color: string }[] };
                 };
@@ -279,6 +292,9 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
                   updatedAt?: string;
                   body?: string;
                   merged?: boolean;
+                  author?: { login: string; avatarUrl: string };
+                  mergedBy?: { login: string; avatarUrl: string };
+                  comments?: { nodes: { author?: { login: string; avatarUrl: string }; createdAt: string }[] };
                   assignees?: { nodes: { login: string; avatarUrl: string }[] };
                   labels?: { nodes: { id?: string; name: string; color: string }[] };
                 };
@@ -339,6 +355,10 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       const closedAt = content?.closedAt;
       const createdAt = content?.createdAt;
       const updatedAt = content?.updatedAt;
+      const author = content?.author ? { login: content.author.login, avatarUrl: content.author.avatarUrl } : undefined;
+      const mergedBy = content?.mergedBy ? { login: content.mergedBy.login, avatarUrl: content.mergedBy.avatarUrl } : undefined;
+      const lastCommentNode = content?.comments?.nodes?.[0];
+      const lastComment = lastCommentNode ? { author: lastCommentNode.author, createdAt: lastCommentNode.createdAt } : undefined;
       const body = content?.body;
       const assignees = (content?.assignees?.nodes ?? []).map((a) => ({
         login: a.login,
@@ -355,7 +375,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       const priority = node.fieldValues.nodes.find(
         (fv) => fv.field?.name === "Priority" && fv.name != null,
       )?.name ?? undefined;
-      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, closedAt, createdAt, updatedAt, body, contentId, assignees, labels, priority };
+      const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, closedAt, createdAt, updatedAt, author, mergedBy, lastComment, body, contentId, assignees, labels, priority };
 
       // Find the Status field value for this item
       const statusValue = node.fieldValues.nodes.find(
@@ -994,14 +1014,17 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
 // ---------------------------------------------------------------------------
 
 export type KanbanActivityEvent = {
-  kind: "opened" | "closed" | "merged";
+  kind: "opened" | "closed" | "merged" | "commented";
   ts: string; // ISO timestamp
   title: string;
   url?: string;
   number?: number;
   type: "issue" | "pr" | "draft";
   project: string; // board / portal name
+  projectSlug: string; // for filtering
   accent: string; // project accent color for the badge
+  /** Who did it (author / merger / commenter), when known. */
+  actor?: { login: string; avatarUrl: string };
   assignees: { login: string; avatarUrl: string }[];
 };
 
@@ -1029,11 +1052,13 @@ export async function fetchKanbanActivity(limit = 30): Promise<KanbanActivityEve
           number: it.number,
           type: it.type,
           project: board,
+          projectSlug: p.slug,
           accent: p.theme.accentDark,
           assignees: it.assignees,
         };
-        if (it.createdAt) events.push({ ...base, kind: "opened", ts: it.createdAt });
-        if (it.closedAt) events.push({ ...base, kind: it.merged ? "merged" : "closed", ts: it.closedAt });
+        if (it.createdAt) events.push({ ...base, kind: "opened", ts: it.createdAt, actor: it.author });
+        if (it.closedAt) events.push({ ...base, kind: it.merged ? "merged" : "closed", ts: it.closedAt, actor: it.merged ? (it.mergedBy ?? it.author) : it.author });
+        if (it.lastComment) events.push({ ...base, kind: "commented", ts: it.lastComment.createdAt, actor: it.lastComment.author });
       }
     }
   }
