@@ -6,9 +6,9 @@ import { MessageSquare, Loader2, X, CheckCircle2 } from "lucide-react";
 import { sendBriefingToDiscord, type DiscordServerKey } from "@/app/actions/briefing-discord";
 
 const SERVERS: { key: DiscordServerKey; label: string; hint: string }[] = [
-  { key: "skatehive", label: "SkateHive", hint: "EN no #important · PT no #chat" },
-  { key: "gnars", label: "Gnars", hint: "uma sala, em português" },
-  { key: "reelflip", label: "Reelflip", hint: "uma sala, em português" },
+  { key: "skatehive", label: "SkateHive", hint: "briefing no #important e #chat" },
+  { key: "gnars", label: "Gnars", hint: "briefing na sala configurada" },
+  { key: "reelflip", label: "Reelflip", hint: "briefing na sala configurada" },
 ];
 
 export function SendToDiscordButton({ agentSlug, agentLabel }: { agentSlug: string; agentLabel: string }) {

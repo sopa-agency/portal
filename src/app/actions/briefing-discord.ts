@@ -7,7 +7,6 @@ import { getActiveProject, getProject } from "@/projects/index";
 import type { ProjectConfig } from "@/projects/types";
 import { loadLatestBriefing } from "@/lib/morning-briefing";
 import { publishToDiscord } from "@/lib/social-publish";
-import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { brandEnv } from "@/lib/brand-env";
 
 export type DiscordServerKey = "skatehive" | "gnars" | "reelflip";
@@ -40,23 +39,11 @@ const findChannel = (ids: Record<string, string>, ...names: string[]) => {
   return null;
 };
 
-/** Produce a Discord-friendly EN + PT version of the briefing (no AI → raw body). */
-async function bilingual(project: ProjectConfig, agentSlug: string, body: string): Promise<{ en: string; pt: string }> {
-  const prompt =
-    `Resuma este morning briefing de skate num post curto e direto pro Discord, em DOIS idiomas. ` +
-    `Responda EXATAMENTE neste formato, sem mais nada:\n===EN===\n<inglês>\n===PT===\n<português>\n\n` +
-    `Mantenha bullets, sem preâmbulo, no máximo ~1400 caracteres por idioma.\n\nBRIEFING:\n${body.slice(0, 6000)}`;
-  const out = await callOpenClaw(prompt, agentSlug, { project, timeoutMs: 90_000 }).catch(() => "");
-  const [enRaw, ptRaw] = out.split(/===\s*PT\s*===/i);
-  const en = (enRaw || "").replace(/===\s*EN\s*===/i, "").trim();
-  const pt = (ptRaw || "").trim();
-  return { en: en || body, pt: pt || en || body };
-}
-
 /**
- * Post a morning briefing to a Discord server. SkateHive splits it bilingually
- * (English → #important, Portuguese → #chat); the other brand servers post one
- * Portuguese message to their configured channel.
+ * Post a morning briefing to a Discord server — the RAW briefing markdown, as
+ * is, no AI/summarization. SkateHive posts it to #important and #chat; the other
+ * brand servers post to their configured channel. publishToDiscord chunks it to
+ * Discord's 2000-char limit.
  */
 export async function sendBriefingToDiscord(
   agentSlug: string,
@@ -77,21 +64,21 @@ export async function sendBriefingToDiscord(
     return { ok: false, error: `Discord do ${target.name} não configurado (falta ${target.agent.gatewayEnvPrefix}_DISCORD_BOT_TOKEN).` };
   }
 
-  const header = `🛹 **${agent.label}** · ${r.briefing.date}`;
-  const { en, pt } = await bilingual(project, agent.slug, r.briefing.rawBody);
+  // The exact morning-briefing markdown — posted verbatim, no processing.
+  const message = `🛹 **${agent.label}** · ${r.briefing.date}\n\n${r.briefing.rawBody}`;
   const posted: string[] = [];
 
   if (server === "skatehive") {
     const ch = await resolveChannels(target);
     const important = findChannel(ch, "important", "importante");
     const chat = findChannel(ch, "chat", "general", "geral");
-    if (important) { if ((await publishToDiscord(`${header} 🇬🇧\n\n${en}`, target, important)).ok) posted.push("#important (EN)"); }
-    if (chat) { if ((await publishToDiscord(`${header} 🇧🇷\n\n${pt}`, target, chat)).ok) posted.push("#chat (PT)"); }
-    if (!important && !chat) { if ((await publishToDiscord(`${header}\n\n${pt}`, target)).ok) posted.push("canal padrão (PT)"); }
+    if (important && (await publishToDiscord(message, target, important)).ok) posted.push("#important");
+    if (chat && (await publishToDiscord(message, target, chat)).ok) posted.push("#chat");
+    if (!important && !chat && (await publishToDiscord(message, target)).ok) posted.push("canal padrão");
   } else {
-    // gnars / reelflip — one room, Portuguese, the project's configured channel.
-    const res = await publishToDiscord(`${header}\n\n${pt}`, target);
-    if (res.ok) posted.push(`${target.name} (PT)`);
+    // gnars / reelflip — one room, the project's configured channel.
+    const res = await publishToDiscord(message, target);
+    if (res.ok) posted.push(target.name);
     else return { ok: false, error: res.error || "Falha ao postar no Discord." };
   }
 
