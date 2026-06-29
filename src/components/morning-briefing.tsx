@@ -7,10 +7,7 @@ import type {
 import { freshnessLabel } from "@/lib/morning-briefing";
 import { BriefingSection, BriefingSources } from "@/components/briefing-section";
 import { MarkdownContent } from "@/components/markdown-content";
-import { ImprovePromptButton } from "@/components/improve-prompt-dialog";
-import { FeedbackButton } from "@/components/insight-feedback";
-import { TakeActionButton } from "@/components/take-action-dialog";
-import { EmailBriefingButton } from "@/components/email-briefing-dialog";
+import { BriefingOptions } from "@/components/briefing-options";
 
 const FRESHNESS_BADGE: Record<
   ReturnType<typeof freshnessLabel>["tone"],
@@ -73,18 +70,16 @@ export function MorningBriefing({
           >
             {freshness.label}
           </span>
-          <ImprovePromptButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} />
-          <FeedbackButton kind="briefing" channelKey={briefing.agent.slug} label={`${briefing.agent.label} briefing`} />
-          <TakeActionButton agentSlug={briefing.agent.slug} agentLabel={briefing.agent.label} githubRepo={githubRepo} postCreatorEnabled={postCreatorEnabled} />
-          {teamEmails.length > 0 && (
-            <EmailBriefingButton
-              agentSlug={briefing.agent.slug}
-              agentLabel={briefing.agent.label}
-              briefingDate={briefing.date}
-              markdownBody={briefing.rawBody}
-              projectName={projectName}
-            />
-          )}
+          <BriefingOptions
+            agentSlug={briefing.agent.slug}
+            agentLabel={briefing.agent.label}
+            briefingDate={briefing.date}
+            markdownBody={briefing.rawBody}
+            projectName={projectName}
+            githubRepo={githubRepo}
+            postCreatorEnabled={postCreatorEnabled}
+            teamEmails={teamEmails}
+          />
         </div>
       </header>
 

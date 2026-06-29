@@ -29,6 +29,7 @@ import {
   CalendarCheck,
   FileEdit,
   CheckSquare,
+  Square,
   LayoutList,
   CalendarDays,
   ExternalLink,
@@ -190,16 +191,6 @@ function PostDialog({
   );
   const [saving, setSaving] = useState(false);
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
-  const [reviewed, setReviewed] = useState(post.reviewed);
-  const [reviewing, setReviewing] = useState(false);
-  const toggleReviewed = async () => {
-    const next = !reviewed;
-    setReviewed(next); // optimistic
-    setReviewing(true);
-    const r = await setDraftReviewed(post.id, next).catch(() => ({ ok: false as const }));
-    if (!r.ok) setReviewed(!next); // revert on failure
-    setReviewing(false);
-  };
   const [dialogFit, setDialogFit] = useState<"cover" | "contain">("cover");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmPublishDialog, setConfirmPublishDialog] = useState(false);
@@ -701,23 +692,6 @@ function PostDialog({
                   >
                     <FileEdit className="h-3.5 w-3.5" />
                     Open in editor
-                  </button>
-
-                  {/* Reviewed — a teammate signs off on the draft */}
-                  <button
-                    type="button"
-                    onClick={toggleReviewed}
-                    disabled={reviewing}
-                    aria-pressed={reviewed}
-                    title={reviewed ? "Revisado — clique para desmarcar" : "Marcar como revisado"}
-                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-60 ${
-                      reviewed
-                        ? "border-success/40 bg-success/10 text-success"
-                        : "border-border text-foreground-muted hover:border-border-strong hover:text-foreground"
-                    }`}
-                  >
-                    <CheckSquare className="h-3.5 w-3.5" />
-                    {reviewed ? "Reviewed" : "Reviewed?"}
                   </button>
 
                   {/* Copy caption */}
@@ -1582,6 +1556,7 @@ function DraftStrip({
 
             {/* Actions */}
             <div className="flex shrink-0 items-center gap-1">
+              <ReviewedToggle id={d.id} initial={d.reviewed} />
               <button
                 type="button"
                 onClick={() => onLoad(d)}
@@ -1602,6 +1577,36 @@ function DraftStrip({
         );
       })}
     </div>
+  );
+}
+
+/** Reviewed toggle for a draft row — a teammate ticks it as reviewed, beside Load. */
+function ReviewedToggle({ id, initial }: { id: string; initial: boolean }) {
+  const [reviewed, setReviewed] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const toggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !reviewed;
+    setReviewed(next); // optimistic
+    setBusy(true);
+    const r = await setDraftReviewed(id, next).catch(() => ({ ok: false as const }));
+    if (!r.ok) setReviewed(!next); // revert on failure
+    setBusy(false);
+  };
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={busy}
+      aria-pressed={reviewed}
+      title={reviewed ? "Revisado — clique para desmarcar" : "Marcar como revisado"}
+      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${
+        reviewed ? "text-success" : "text-foreground-faint hover:text-foreground"
+      }`}
+    >
+      {reviewed ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+      <span className="hidden sm:inline">{reviewed ? "Reviewed" : "Review"}</span>
+    </button>
   );
 }
 
