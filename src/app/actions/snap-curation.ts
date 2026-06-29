@@ -349,8 +349,9 @@ export async function boostSnap(
   level: BoostLevel,
   baselineVotes = 0,
   kind: BoostKind = "snap",
+  mode: "organic" | "direct" = "organic",
 ): Promise<{ ok: true; queued: number; budget: number } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
-  return queueBoost({ author, permlink, level, baselineVotes, kind });
+  return queueBoost({ author, permlink, level, baselineVotes, kind, mode });
 }

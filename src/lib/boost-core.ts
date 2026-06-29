@@ -30,8 +30,11 @@ export async function queueBoost(args: {
   level: BoostLevel;
   baselineVotes?: number;
   kind?: BoostKind;
+  /** "organic" paces the release to real upvote growth; "direct" releases over
+   *  random intervals regardless of likes. */
+  mode?: "organic" | "direct";
 }): Promise<{ ok: true; queued: number; budget: number } | { ok: false; error: string }> {
-  const { author, permlink, level, baselineVotes = 0, kind = "snap" } = args;
+  const { author, permlink, level, baselineVotes = 0, kind = "snap", mode = "organic" } = args;
   const levels = boostLevelsFor(kind);
   const lvl = levels.find((l) => l.value === level) ?? levels[0];
   const castHash = castHashOf(author, permlink);
@@ -72,8 +75,8 @@ export async function queueBoost(args: {
 
   await prisma.trailBoostTarget.upsert({
     where: { castHash },
-    create: { castHash, baselineVotes: Math.max(0, baselineVotes), budget: pick.length, released: 0, status: "active" },
-    update: { budget: pick.length, baselineVotes: Math.max(0, baselineVotes), status: "active" },
+    create: { castHash, baselineVotes: Math.max(0, baselineVotes), budget: pick.length, released: 0, status: "active", mode },
+    update: { budget: pick.length, baselineVotes: Math.max(0, baselineVotes), status: "active", mode },
   });
 
   return { ok: true, queued: pick.length, budget: pick.length };

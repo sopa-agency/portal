@@ -166,10 +166,13 @@ async function drainBoosts(prisma, log) {
       continue;
     }
     const [author, permlink] = t.castHash.replace(/^hive:/, "").split("/");
+    const direct = t.mode === "direct";
     const total = await countVotes(author, permlink);
-    if (total == null) continue;
-    const realGrowth = Math.max(0, total - t.released - t.baselineVotes); // exclude our own boosts
-    const allowed = Math.min(t.budget, SEED + Math.floor(realGrowth * RATIO));
+    if (total == null && !direct) continue; // organic needs the live count; direct doesn't
+    const realGrowth = total == null ? 0 : Math.max(0, total - t.released - t.baselineVotes); // exclude our own boosts
+    // direct: release the whole budget over random intervals, independent of likes.
+    // organic: pace the release to real upvote growth (SEED kickstart + RATIO/vote).
+    const allowed = direct ? t.budget : Math.min(t.budget, SEED + Math.floor(realGrowth * RATIO));
     const toRelease = Math.min(Math.max(0, allowed - t.released), PER_TICK);
     if (toRelease <= 0) {
       if (t.released >= t.budget) {
@@ -190,7 +193,7 @@ async function drainBoosts(prisma, log) {
       await prisma.trailBoostTarget
         .update({ where: { castHash: t.castHash }, data: { released, status: released >= t.budget ? "done" : "active" } })
         .catch(() => {});
-      if (log) log(`[boost] ${t.castHash.slice(0, 18)} released ${releasedNow} (total ${released}/${t.budget}, real≈${total - released})`);
+      if (log) log(`[boost] ${t.castHash.slice(0, 18)} ${direct ? "direct" : "organic"} released ${releasedNow} (total ${released}/${t.budget}${total == null ? "" : `, real≈${total - released}`})`);
     }
   }
 }

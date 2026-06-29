@@ -474,6 +474,7 @@ model TrailBoostTarget {
   budget        Int      @default(40) // max boost upvotes to release
   released      Int      @default(0) // boost upvotes cast so far
   status        String   @default("active") // active | done
+  mode          String   @default("organic") // organic = paced to real likes · direct = random intervals, like-independent
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
