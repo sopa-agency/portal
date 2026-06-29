@@ -36,6 +36,7 @@ export type DraftRow = {
   permalink: string | null;
   error: string | null;
   createdBy: string | null;
+  reviewed: boolean;
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -97,6 +98,7 @@ function rowToPlain(row: {
   permalink: string | null;
   error: string | null;
   createdBy: string | null;
+  reviewed?: boolean;
   publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -124,6 +126,7 @@ function rowToPlain(row: {
     permalink: row.permalink,
     error: row.error,
     createdBy: row.createdBy,
+    reviewed: row.reviewed ?? false,
     publishedAt: row.publishedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -367,6 +370,25 @@ export async function deleteDraft(
     if (!existing) return { ok: false, error: "Draft not found." };
     if (existing.projectSlug !== project.slug) return { ok: false, error: "Not found." };
     await prisma.instagramPost.delete({ where: { id } });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// setDraftReviewed — a teammate ticks a draft as reviewed (or unticks)
+// ---------------------------------------------------------------------------
+
+export async function setDraftReviewed(
+  id: string,
+  reviewed: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { project } = await authGate();
+    const existing = await prisma.instagramPost.findUnique({ where: { id } });
+    if (!existing || existing.projectSlug !== project.slug) return { ok: false, error: "Not found." };
+    await prisma.instagramPost.update({ where: { id }, data: { reviewed } });
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

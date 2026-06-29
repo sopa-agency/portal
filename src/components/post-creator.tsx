@@ -28,6 +28,7 @@ import {
   Handshake,
   CalendarCheck,
   FileEdit,
+  CheckSquare,
   LayoutList,
   CalendarDays,
   ExternalLink,
@@ -39,6 +40,7 @@ import {
   createDraft,
   updateDraft,
   deleteDraft,
+  setDraftReviewed,
   uploadPostMedia,
   signPostMediaUpload,
   generateCaption,
@@ -188,6 +190,16 @@ function PostDialog({
   );
   const [saving, setSaving] = useState(false);
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
+  const [reviewed, setReviewed] = useState(post.reviewed);
+  const [reviewing, setReviewing] = useState(false);
+  const toggleReviewed = async () => {
+    const next = !reviewed;
+    setReviewed(next); // optimistic
+    setReviewing(true);
+    const r = await setDraftReviewed(post.id, next).catch(() => ({ ok: false as const }));
+    if (!r.ok) setReviewed(!next); // revert on failure
+    setReviewing(false);
+  };
   const [dialogFit, setDialogFit] = useState<"cover" | "contain">("cover");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmPublishDialog, setConfirmPublishDialog] = useState(false);
@@ -689,6 +701,23 @@ function PostDialog({
                   >
                     <FileEdit className="h-3.5 w-3.5" />
                     Open in editor
+                  </button>
+
+                  {/* Reviewed — a teammate signs off on the draft */}
+                  <button
+                    type="button"
+                    onClick={toggleReviewed}
+                    disabled={reviewing}
+                    aria-pressed={reviewed}
+                    title={reviewed ? "Revisado — clique para desmarcar" : "Marcar como revisado"}
+                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-60 ${
+                      reviewed
+                        ? "border-success/40 bg-success/10 text-success"
+                        : "border-border text-foreground-muted hover:border-border-strong hover:text-foreground"
+                    }`}
+                  >
+                    <CheckSquare className="h-3.5 w-3.5" />
+                    {reviewed ? "Reviewed" : "Reviewed?"}
                   </button>
 
                   {/* Copy caption */}
