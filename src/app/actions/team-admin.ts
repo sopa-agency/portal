@@ -171,7 +171,7 @@ export async function getMemberTasks(
               labels: it.labels.map((l) => ({ name: l.name, color: l.color })),
               board: boardName,
               projectSlug: p.slug,
-              card: { ...it, board: boardName, accent: p.theme.accentDark, projectSlug: p.slug, projectId: board.projectId, statusFieldId: board.statusFieldId, statusOptions },
+              card: { ...it, board: boardName, accent: p.theme.accentDark, logo: p.theme.logo, projectSlug: p.slug, projectId: board.projectId, statusFieldId: board.statusFieldId, statusOptions },
             });
           }
         }
@@ -199,7 +199,7 @@ export async function getMemberTasks(
           assignees: it.assignees,
           labels: it.labels.map((l) => ({ name: l.name, color: l.color })),
           projectSlug: g.project.slug,
-          card: { ...it, board: boardName, accent: g.project.theme.accentDark, projectSlug: g.project.slug, projectId: board.projectId, statusFieldId: board.statusFieldId, statusOptions },
+          card: { ...it, board: boardName, accent: g.project.theme.accentDark, logo: g.project.theme.logo, projectSlug: g.project.slug, projectId: board.projectId, statusFieldId: board.statusFieldId, statusOptions },
         });
       }
     }

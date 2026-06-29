@@ -448,9 +448,11 @@ function CardInner({ item, bounty }: { item: AggregatedItem; bounty?: BountyDTO 
     <>
       <div className="mb-1 flex items-center gap-1.5">
         <span
-          className="rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+          className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
           style={{ color: item.accent, borderColor: `${item.accent}66`, backgroundColor: `${item.accent}1f` }}
         >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={item.logo} alt="" aria-hidden="true" className="h-3 w-3 shrink-0 rounded-[3px] object-contain" />
           {item.board}
         </span>
         {item.number ? <span className="text-[10px] text-foreground-faint">#{item.number}</span> : null}
