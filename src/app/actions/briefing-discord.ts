@@ -34,10 +34,23 @@ async function resolveChannels(project: ProjectConfig): Promise<Record<string, s
     return {};
   }
 }
+// Channel names carry emoji/prefixes (e.g. "🚨丨important", "🛹丨chat"), so match
+// by substring, preferring an exact name when present.
 const findChannel = (ids: Record<string, string>, ...names: string[]) => {
-  for (const n of names) { const id = ids[n.toLowerCase().replace(/^#/, "")]; if (id) return id; }
+  const entries = Object.entries(ids);
+  for (const n of names) {
+    const needle = n.toLowerCase().replace(/^#/, "");
+    const hit = entries.find(([name]) => name === needle) ?? entries.find(([name]) => name.includes(needle));
+    if (hit) return hit[1];
+  }
   return null;
 };
+
+/** Drop the "## Fontes consultadas" / "## Sources" tail — not for the announcement. */
+export function stripSources(md: string): string {
+  const m = md.match(/^#{1,4}\s+.*(fontes?\s+consultad|fontes?\b|sources?\b).*$/im);
+  return m && m.index != null ? md.slice(0, m.index).trimEnd() : md;
+}
 
 /**
  * Post a morning briefing to a Discord server — the RAW briefing markdown, as
@@ -64,8 +77,9 @@ export async function sendBriefingToDiscord(
     return { ok: false, error: `Discord do ${target.name} não configurado (falta ${target.agent.gatewayEnvPrefix}_DISCORD_BOT_TOKEN).` };
   }
 
-  // The exact morning-briefing markdown — posted verbatim, no processing.
-  const message = `🛹 **${agent.label}** · ${r.briefing.date}\n\n${r.briefing.rawBody}`;
+  // The morning-briefing markdown, verbatim except the "Fontes consultadas" tail
+  // (internal source list — not for the announcement).
+  const message = `🛹 **${agent.label}** · ${r.briefing.date}\n\n${stripSources(r.briefing.rawBody)}`;
   const posted: string[] = [];
 
   if (server === "skatehive") {
