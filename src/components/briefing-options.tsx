@@ -6,6 +6,7 @@ import { ImprovePromptButton } from "@/components/improve-prompt-dialog";
 import { FeedbackButton } from "@/components/insight-feedback";
 import { TakeActionButton } from "@/components/take-action-dialog";
 import { EmailBriefingButton } from "@/components/email-briefing-dialog";
+import { SendToDiscordButton } from "@/components/send-to-discord-dialog";
 
 export type BriefingOptionsProps = {
   agentSlug: string;
@@ -50,6 +51,7 @@ export function BriefingOptions(props: BriefingOptionsProps) {
               githubRepo={props.githubRepo}
               postCreatorEnabled={props.postCreatorEnabled}
             />
+            <SendToDiscordButton agentSlug={props.agentSlug} agentLabel={props.agentLabel} />
             {props.teamEmails.length > 0 && (
               <EmailBriefingButton
                 agentSlug={props.agentSlug}
