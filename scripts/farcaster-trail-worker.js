@@ -269,11 +269,17 @@ async function main() {
   const hv = participants.filter((p) => p.hive && p.hive.key).map((p) => p.slug);
   console.log(`[trail] enabled=${ENABLED} | poll=${POLL_INTERVAL_MS}ms | fresh=${FRESH_HOURS}h | FC actors: ${fc.join(",")} | Hive actors: ${hv.join(",")}`);
   console.log(`[trail] Pool B (community boost): ${boost.enabled() ? `ON — subset=${boost.SUBSET} weight=${(boost.WEIGHT / 100).toFixed(0)}%` : "off (set USERBASE_KEY_ENCRYPTION_SECRET + TRAIL_BOOST_ENABLED)"}`);
-  if (participants.length < 2) { console.error("[trail] need >=2 participants. Exiting."); process.exit(1); }
+  // The Farcaster/Hive reply-trail needs ≥2 participants, but the community
+  // boost (Pool B) does NOT — it must keep running regardless. So don't exit
+  // when the trail is idle; just skip the trail work and still drain boosts.
+  const trailActive = participants.length >= 2;
+  if (!trailActive) console.warn("[trail] <2 participants — reply-trail idle; running community boost (Pool B) only.");
   const once = process.argv.includes("--once");
   for (;;) {
-    try { await tick(participants); } catch (e) { console.error("[trail] tick error:", e.message); }
-    try { await processPendingLikes(participants); } catch (e) { console.error("[trail] drain error:", e.message); }
+    if (trailActive) {
+      try { await tick(participants); } catch (e) { console.error("[trail] tick error:", e.message); }
+      try { await processPendingLikes(participants); } catch (e) { console.error("[trail] drain error:", e.message); }
+    }
     try { await boost.drainBoosts(prisma, (m) => console.log(m)); } catch (e) { console.error("[trail] boost error:", e.message); }
     if (once) { await prisma.$disconnect(); return; }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
