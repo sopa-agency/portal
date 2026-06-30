@@ -47,7 +47,7 @@ const findChannel = (ids: Record<string, string>, ...names: string[]) => {
 };
 
 /** Drop the "## Fontes consultadas" / "## Sources" tail — not for the announcement. */
-export function stripSources(md: string): string {
+function stripSources(md: string): string {
   const m = md.match(/^#{1,4}\s+.*(fontes?\s+consultad|fontes?\b|sources?\b).*$/im);
   return m && m.index != null ? md.slice(0, m.index).trimEnd() : md;
 }
