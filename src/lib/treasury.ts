@@ -73,22 +73,28 @@ export async function getPrices(): Promise<{ hive: number; hbd: number; eth: num
   }
 }
 
-// --- Base RPC fallback ----------------------------------------------------------
-// The Zapper proxy doesn't index every address (it returned _degraded for the
-// Gnars DAO treasury). gnars.com's actual source is Base RPC — same here:
-// native ETH + the major stable/wrapped tokens via balanceOf.
+// --- EVM (live multichain RPC) ------------------------------------------------
+// We query the chains directly instead of the Zapper proxy (api.keepkey.info):
+// that proxy hard-caches and was serving ~days-stale balances AND a stale ETH
+// price (verified by cross-checking 3 independent RPCs + on-chain tx history).
+// Native ETH + native USDC across the chains SkateHive actually holds value on
+// covers ~all of it; the leftover memecoin dust is negligible. Prices come from
+// live CoinGecko (ETH) and $1 for USDC — always current, verifiable on-chain.
 
-const BASE_RPC = "https://mainnet.base.org";
-const BASE_TOKENS = [
-  { symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, stable: true },
-  { symbol: "WETH", address: "0x4200000000000000000000000000000000000006", decimals: 18, stable: false },
+type EvmChain = { key: string; rpc: string; usdc: string };
+const EVM_CHAINS: EvmChain[] = [
+  { key: "ethereum", rpc: "https://ethereum-rpc.publicnode.com", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
+  { key: "base", rpc: "https://mainnet.base.org", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+  { key: "optimism", rpc: "https://mainnet.optimism.io", usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" },
+  { key: "arbitrum", rpc: "https://arb1.arbitrum.io/rpc", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
 ];
 
-async function baseRpc<T>(method: string, params: unknown[]): Promise<T> {
-  const res = await fetch(BASE_RPC, {
+async function rpcCall<T>(rpc: string, method: string, params: unknown[]): Promise<T> {
+  const res = await fetch(rpc, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
+    signal: AbortSignal.timeout(9000),
     next: { revalidate: 300, tags: ["treasury"] },
   });
   const json = (await res.json()) as { result?: T; error?: { message?: string } };
@@ -96,69 +102,39 @@ async function baseRpc<T>(method: string, params: unknown[]): Promise<T> {
   return json.result;
 }
 
-async function fetchBaseRpcWallet(address: string, ethPrice: number): Promise<EvmToken[]> {
-  const addrPadded = address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
-  const [ethHex, ...tokenHexes] = await Promise.all([
-    baseRpc<string>("eth_getBalance", [address, "latest"]),
-    ...BASE_TOKENS.map((t) =>
-      baseRpc<string>("eth_call", [{ to: t.address, data: `0x70a08231${addrPadded}` }, "latest"]),
-    ),
+/** Native ETH + native USDC held by `address` on one chain, USD-valued live. */
+async function fetchChainBalances(address: string, chain: EvmChain, ethPrice: number): Promise<EvmToken[]> {
+  const padded = address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
+  const [ethHex, usdcHex] = await Promise.all([
+    rpcCall<string>(chain.rpc, "eth_getBalance", [address, "latest"]),
+    rpcCall<string>(chain.rpc, "eth_call", [{ to: chain.usdc, data: `0x70a08231${padded}` }, "latest"]),
   ]);
   const tokens: EvmToken[] = [];
   const eth = parseInt(ethHex, 16) / 1e18;
-  if (eth > 0) tokens.push({ symbol: "ETH", chain: "base", balance: eth, valueUsd: eth * ethPrice });
-  BASE_TOKENS.forEach((t, i) => {
-    const bal = parseInt(tokenHexes[i] || "0x0", 16) / 10 ** t.decimals;
-    if (bal <= 0) return;
-    const valueUsd = t.stable ? bal : bal * ethPrice;
-    tokens.push({ symbol: t.symbol, chain: "base", balance: bal, valueUsd });
-  });
-  return tokens.filter((t) => t.valueUsd >= 0.5).sort((a, b) => b.valueUsd - a.valueUsd);
+  if (eth > 0) tokens.push({ symbol: "ETH", chain: chain.key, balance: eth, valueUsd: eth * ethPrice });
+  const usdc = parseInt(usdcHex || "0x0", 16) / 1e6;
+  if (usdc > 0) tokens.push({ symbol: "USDC", chain: chain.key, balance: usdc, valueUsd: usdc });
+  return tokens;
 }
 
-// --- EVM (Zapper proxy) -------------------------------------------------------
-
 async function fetchEvmWallet(label: string, address: string, ethPrice: number): Promise<EvmWalletReport> {
-  let tokens: EvmToken[] = [];
-  let zapErr: string | null = null;
-
-  // 1) Zapper proxy — the full multi-chain portfolio (when reachable).
-  try {
-    const res = await fetch(`https://api.keepkey.info/api/v1/zapper/portfolio/${address}`, {
-      headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; MarketingPortal/1.0)" },
-      next: { revalidate: 300, tags: ["treasury"] },
-    });
-    if (!res.ok) throw new Error(`portfolio API HTTP ${res.status}`);
-    const data = (await res.json()) as {
-      _degraded?: boolean;
-      balances?: Array<{ symbol?: string; ticker?: string; chain?: string; balance?: string | number; valueUsd?: string | number }>;
-      tokens?: Array<{ symbol?: string; ticker?: string; chain?: string; balance?: string | number; valueUsd?: string | number }>;
-    };
-    if (data._degraded) throw new Error("degraded");
-    tokens = [...(data.balances ?? []), ...(data.tokens ?? [])]
-      .map((t) => ({
-        symbol: t.symbol || t.ticker || "?",
-        chain: t.chain || "ethereum",
-        balance: Number(t.balance ?? 0),
-        valueUsd: Number(t.valueUsd ?? 0),
-      }))
-      .filter((t) => t.valueUsd >= 0.5) // dust
-      .sort((a, b) => b.valueUsd - a.valueUsd);
-  } catch (err) {
-    zapErr = err instanceof Error ? err.message : String(err);
-  }
-
-  // 2) Fallback to direct Base RPC whenever the proxy gave nothing — including
-  // when it FAILED (blocked datacenter IP / degraded), not only on empty success.
-  if (tokens.length === 0) {
-    try { tokens = await fetchBaseRpcWallet(address, ethPrice); } catch (err) {
-      zapErr = zapErr ?? (err instanceof Error ? err.message : String(err));
-    }
-  }
-  if (tokens.length === 0) console.error(`[treasury] ${label} (${address.slice(0, 8)}) empty — zapper: ${zapErr ?? "ok-but-empty"}`);
+  // Query every chain in parallel; a chain whose RPC errors is skipped (its
+  // balances simply don't contribute) rather than failing the whole wallet.
+  const perChain = await Promise.all(
+    EVM_CHAINS.map((c) =>
+      fetchChainBalances(address, c, ethPrice).catch((err) => {
+        console.error(`[treasury] ${label} (${address.slice(0, 8)}) ${c.key} RPC failed: ${err instanceof Error ? err.message : String(err)}`);
+        return [] as EvmToken[];
+      }),
+    ),
+  );
+  const tokens = perChain
+    .flat()
+    .filter((t) => t.valueUsd >= 0.5) // dust
+    .sort((a, b) => b.valueUsd - a.valueUsd);
 
   const totalUsd = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
-  return { label, address, totalUsd, tokens: tokens.slice(0, 8), error: tokens.length === 0 ? (zapErr ?? "sem saldos") : undefined };
+  return { label, address, totalUsd, tokens, error: tokens.length === 0 ? "sem saldos" : undefined };
 }
 
 // --- Hive ---------------------------------------------------------------------
