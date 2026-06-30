@@ -55,7 +55,7 @@ export type TreasuryReport = {
 
 // --- prices -----------------------------------------------------------------
 
-async function getPrices(): Promise<{ hive: number; hbd: number; eth: number }> {
+export async function getPrices(): Promise<{ hive: number; hbd: number; eth: number }> {
   try {
     const res = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=hive,hive_dollar,ethereum&vs_currencies=usd",

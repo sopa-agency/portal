@@ -38,9 +38,14 @@ export async function fetchSafeInfo(safeAddress: string, chainId: number): Promi
 export type SafeBudgetToken = { symbol: string; balance: string; usd: number | null };
 export type SafeBudget = { chainId: number; tokens: SafeBudgetToken[]; totalUsd: number };
 
+const STABLE_SYMBOLS = new Set(["USDC", "USDT", "DAI", "USDBC", "EURC", "USDS"]);
+
 /** A Safe's spendable balance on one chain, with USD values — null if the Safe
- *  isn't deployed on that chain. Used for the treasury "multisig budget" view. */
-export async function fetchSafeBudget(safeAddress: string, chainId: number): Promise<SafeBudget | null> {
+ *  isn't deployed on that chain. Used for the treasury "multisig budget" view.
+ *  We price tokens ourselves (stables = $1, ETH/WETH × `ethPrice`): the Safe
+ *  Transaction Service has stopped populating `fiatBalance`, so trusting it
+ *  rendered every budget as $0.00. `fiatBalance` is only a last-resort fallback. */
+export async function fetchSafeBudget(safeAddress: string, chainId: number, ethPrice = 0): Promise<SafeBudget | null> {
   const tx = safeTxService(chainId);
   try {
     const r = await fetch(`${tx}/api/v1/safes/${getAddress(safeAddress)}/balances/?trusted=true`, {
@@ -50,16 +55,27 @@ export async function fetchSafeBudget(safeAddress: string, chainId: number): Pro
     });
     if (!r.ok) return null; // 404 = not a Safe on this chain
     const arr = (await r.json()) as { tokenAddress: string | null; token: { symbol?: string; decimals?: number } | null; balance: string; fiatBalance?: string | null }[];
-    const STABLES = new Set(["USDC", "USDT", "DAI", "USDBC", "EURC", "USDS"]);
+    const STABLES = STABLE_SYMBOLS;
+    const priceUsd = (symbol: string, native: boolean, bal: number, fiat?: string | null): number | null => {
+      const sym = symbol.toUpperCase();
+      if (STABLES.has(sym)) return bal; // stablecoins ≈ $1
+      if (native || sym === "WETH" || sym === "ETH") return ethPrice > 0 ? bal * ethPrice : null;
+      return fiat != null && fiat !== "" ? Number(fiat) : null; // unknown token → trust API if it has it
+    };
     const rank = (t: SafeBudgetToken, native: boolean) => (native ? 0 : STABLES.has(t.symbol.toUpperCase()) ? 1 : 2);
     const tokens = arr
       .filter((b) => Number(b.balance) > 0)
-      .map((b): SafeBudgetToken & { _native: boolean } => ({
-        symbol: b.token?.symbol ?? "ETH",
-        balance: formatUnits(BigInt(b.balance), b.token?.decimals ?? 18),
-        usd: b.fiatBalance != null && b.fiatBalance !== "" ? Number(b.fiatBalance) : null,
-        _native: b.tokenAddress === null,
-      }))
+      .map((b): SafeBudgetToken & { _native: boolean } => {
+        const native = b.tokenAddress === null;
+        const symbol = b.token?.symbol ?? "ETH";
+        const balanceNum = Number(formatUnits(BigInt(b.balance), b.token?.decimals ?? 18));
+        return {
+          symbol,
+          balance: formatUnits(BigInt(b.balance), b.token?.decimals ?? 18),
+          usd: priceUsd(symbol, native, balanceNum, b.fiatBalance),
+          _native: native,
+        };
+      })
       // USD desc when known; else ETH → stablecoins → rest, then symbol.
       .sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0) || rank(a, a._native) - rank(b, b._native) || a.symbol.localeCompare(b.symbol))
       .map(({ _native, ...t }) => { void _native; return t; });

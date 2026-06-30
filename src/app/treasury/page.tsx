@@ -7,7 +7,7 @@ import { TreasuryRefresh } from "@/components/treasury-refresh";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
-import { fetchTreasuryGroups } from "@/lib/treasury";
+import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
 import { fetchCostScope } from "@/lib/fixed-costs-data";
 import { getActiveProject, getAllProjects } from "@/projects";
@@ -110,10 +110,11 @@ treasury: {
 
   // Operational budget: the configured bounty multisig(s) + spendable balances
   // per chain (USD valued), shown highlighted + separate from the DAO treasury.
+  const { eth: ethPrice } = await getPrices();
   const budgets = (
     await Promise.all(
       bountyConfigs.map(async (bc): Promise<ProjectBudget | null> => {
-        const chains = (await Promise.all([8453, 1].map((chainId) => fetchSafeBudget(bc.safeAddress, chainId)))).filter(
+        const chains = (await Promise.all([8453, 1].map((chainId) => fetchSafeBudget(bc.safeAddress, chainId, ethPrice)))).filter(
           (b): b is NonNullable<typeof b> => b !== null,
         );
         return chains.length ? { slug: bc.projectSlug, name: nameOf(bc.projectSlug), address: bc.safeAddress, chains } : null;
