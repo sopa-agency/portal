@@ -91,7 +91,7 @@ export async function fetchSafeTokens(safeAddress: string, chainId: number): Pro
       redirect: "follow",
       signal: AbortSignal.timeout(9000),
     });
-    if (!r.ok) return [];
+    if (!r.ok) { console.error(`[safe] balances ${safeAddress.slice(0, 8)} chain ${chainId} → HTTP ${r.status}`); return []; }
     const arr = (await r.json()) as { tokenAddress: string | null; token: { symbol?: string; decimals?: number } | null; balance: string }[];
     const STABLES = new Set(["USDC", "USDT", "DAI", "USDBC", "EURC", "USDS"]);
     // Stablecoins first, then native ETH, then the rest — so the canonical bounty
@@ -110,7 +110,8 @@ export async function fetchSafeTokens(safeAddress: string, chainId: number): Pro
       })
       .filter((t) => Number(t.balance) > 0)
       .sort((a, b) => rank(a) - rank(b) || a.symbol.localeCompare(b.symbol));
-  } catch {
+  } catch (err) {
+    console.error(`[safe] balances ${safeAddress.slice(0, 8)} chain ${chainId} threw: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
 }

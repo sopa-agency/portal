@@ -119,6 +119,10 @@ async function fetchBaseRpcWallet(address: string, ethPrice: number): Promise<Ev
 // --- EVM (Zapper proxy) -------------------------------------------------------
 
 async function fetchEvmWallet(label: string, address: string, ethPrice: number): Promise<EvmWalletReport> {
+  let tokens: EvmToken[] = [];
+  let zapErr: string | null = null;
+
+  // 1) Zapper proxy — the full multi-chain portfolio (when reachable).
   try {
     const res = await fetch(`https://api.keepkey.info/api/v1/zapper/portfolio/${address}`, {
       headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; MarketingPortal/1.0)" },
@@ -130,8 +134,8 @@ async function fetchEvmWallet(label: string, address: string, ethPrice: number):
       balances?: Array<{ symbol?: string; ticker?: string; chain?: string; balance?: string | number; valueUsd?: string | number }>;
       tokens?: Array<{ symbol?: string; ticker?: string; chain?: string; balance?: string | number; valueUsd?: string | number }>;
     };
-    const raw = [...(data.balances ?? []), ...(data.tokens ?? [])];
-    let tokens: EvmToken[] = raw
+    if (data._degraded) throw new Error("degraded");
+    tokens = [...(data.balances ?? []), ...(data.tokens ?? [])]
       .map((t) => ({
         symbol: t.symbol || t.ticker || "?",
         chain: t.chain || "ethereum",
@@ -140,24 +144,21 @@ async function fetchEvmWallet(label: string, address: string, ethPrice: number):
       }))
       .filter((t) => t.valueUsd >= 0.5) // dust
       .sort((a, b) => b.valueUsd - a.valueUsd);
-
-    // The proxy doesn't index every address (returns _degraded / empty for the
-    // Gnars DAO treasury) — fall back to direct Base RPC, gnars.com's source.
-    if (tokens.length === 0 || data._degraded) {
-      tokens = await fetchBaseRpcWallet(address, ethPrice);
-    }
-
-    const totalUsd = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
-    return { label, address, totalUsd, tokens: tokens.slice(0, 8) };
   } catch (err) {
-    return {
-      label,
-      address,
-      totalUsd: 0,
-      tokens: [],
-      error: err instanceof Error ? err.message : String(err),
-    };
+    zapErr = err instanceof Error ? err.message : String(err);
   }
+
+  // 2) Fallback to direct Base RPC whenever the proxy gave nothing — including
+  // when it FAILED (blocked datacenter IP / degraded), not only on empty success.
+  if (tokens.length === 0) {
+    try { tokens = await fetchBaseRpcWallet(address, ethPrice); } catch (err) {
+      zapErr = zapErr ?? (err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (tokens.length === 0) console.error(`[treasury] ${label} (${address.slice(0, 8)}) empty — zapper: ${zapErr ?? "ok-but-empty"}`);
+
+  const totalUsd = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
+  return { label, address, totalUsd, tokens: tokens.slice(0, 8), error: tokens.length === 0 ? (zapErr ?? "sem saldos") : undefined };
 }
 
 // --- Hive ---------------------------------------------------------------------
