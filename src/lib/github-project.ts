@@ -37,6 +37,8 @@ export type KanbanItem = {
   deadline?: string;
   /** GitHub login of the task OWNER (ultimate responsible). From CardPriority. */
   owner?: string;
+  /** GitHub logins requested to REVIEW the card (like git reviewers). From CardPriority. */
+  reviewers?: string[];
 };
 
 export type KanbanColumn = {
@@ -1003,6 +1005,7 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
       it.firePriority = m.firePriority;
       it.deadline = m.deadline;
       it.owner = m.owner;
+      it.reviewers = m.reviewers;
     }
   }
   for (const items of colItems.values()) items.sort(compareByPriority);
@@ -1129,5 +1132,82 @@ export async function fetchRecentCommits(
   );
   out.sort((a, b) => (a.date < b.date ? 1 : -1));
   commitsCache.set(key, { data: out, expires: Date.now() + 300_000 });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Open pull requests — the live list of open PRs across a project's repos
+// (the `repos: string[]` config), for the Kanban "PRs" toggle. Uses the same
+// token as the board; cached briefly. Independent of the Project board, so it
+// surfaces PRs that were never added to a board column.
+// ---------------------------------------------------------------------------
+
+export type OpenPullRequest = {
+  repo: string; // "owner/name"
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  authorAvatar?: string;
+  draft: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const prsCache = new Map<string, { data: OpenPullRequest[]; expires: number }>();
+
+/** Open PRs across the given "owner/name" repos, newest-updated first. */
+export async function fetchOpenPullRequests(project: ProjectConfig): Promise<OpenPullRequest[]> {
+  const token = resolveGitHubToken(project);
+  if (!token || !project.repos?.length) return [];
+  const key = project.repos.slice().sort().join(",");
+  const hit = prsCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.data;
+
+  const out: OpenPullRequest[] = [];
+  await Promise.all(
+    project.repos.slice(0, 10).map(async (full) => {
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/${full}/pulls?state=open&sort=updated&direction=desc&per_page=30`,
+          {
+            headers: {
+              Authorization: `bearer ${token}`,
+              Accept: "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+            next: { revalidate: 300 },
+          },
+        );
+        if (!res.ok) return;
+        const arr = (await res.json()) as Array<{
+          number: number;
+          title: string;
+          html_url: string;
+          draft?: boolean;
+          created_at: string;
+          updated_at: string;
+          user?: { login?: string; avatar_url?: string } | null;
+        }>;
+        for (const pr of arr) {
+          out.push({
+            repo: full,
+            number: pr.number,
+            title: pr.title,
+            url: pr.html_url,
+            author: pr.user?.login ?? "?",
+            authorAvatar: pr.user?.avatar_url,
+            draft: !!pr.draft,
+            createdAt: pr.created_at,
+            updatedAt: pr.updated_at,
+          });
+        }
+      } catch {
+        // best-effort per repo
+      }
+    }),
+  );
+  out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+  prsCache.set(key, { data: out, expires: Date.now() + 300_000 });
   return out;
 }

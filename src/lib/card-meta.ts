@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 // the member-tasks feed (For You), the SOPA aggregated board, and the briefing
 // context. Keeps the CardPriority read logic in one place.
 
-export type CardMeta = { firePriority?: number; deadline?: string; owner?: string };
+export type CardMeta = { firePriority?: number; deadline?: string; owner?: string; reviewers?: string[] };
 
 export async function loadCardMeta(itemIds: string[]): Promise<Map<string, CardMeta>> {
   const ids = [...new Set(itemIds.filter(Boolean))];
@@ -18,6 +18,7 @@ export async function loadCardMeta(itemIds: string[]): Promise<Map<string, CardM
         firePriority: r.priority || undefined,
         deadline: r.deadline ? r.deadline.toISOString().slice(0, 10) : undefined,
         owner: r.owner || undefined,
+        reviewers: r.reviewers?.length ? r.reviewers : undefined,
       },
     ]),
   );

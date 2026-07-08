@@ -42,6 +42,9 @@ import {
   CheckCheck,
   Undo2,
   Crown,
+  Link2,
+  Check,
+  Eye,
 } from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
@@ -50,6 +53,7 @@ import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/compon
 import { MemberModal, type TeamMember } from "@/components/team-view";
 import { solveIssueWithAgent, listCardNotes, addCardNote, deleteCardNote, type CardNote } from "@/app/actions/kanban";
 import { CATEGORY_LABELS, TEST_NEEDS, TEST_PASSED, type LabelSpec } from "@/lib/kanban-labels";
+import { useKanbanFxEnabled } from "@/lib/kanban-fx-pref";
 import { FirePriority, DeadlineChip } from "@/components/card-indicators";
 import { requestCardTest, resolveCardTest } from "@/app/actions/card-test";
 import { useDialogA11y } from "@/hooks/use-dialog-a11y";
@@ -487,7 +491,8 @@ export function cardFxState(
  *  content — NOT on the card element — so the card's transition-all never fights
  *  the animation (which otherwise glitched on re-render after opening a card). */
 export function CardFx({ onFire, frozen, radius = 12 }: { onFire: boolean; frozen: boolean; radius?: number }) {
-  if (!onFire && !frozen) return null;
+  const fxEnabled = useKanbanFxEnabled();
+  if (!fxEnabled || (!onFire && !frozen)) return null;
   return (
     <>
       {/* Animated electric outline — charred ember edge for fire, icy for frost. */}
@@ -1203,6 +1208,23 @@ export function CardDetailDialog({
   const [editError, setEditError] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
 
+  // --- shareable deep link (/kanban?open=<id>) — the board also keeps this in
+  // the URL bar, but a copy button makes it obvious the card IS shareable ---
+  const [linkCopied, setLinkCopied] = useState(false);
+  async function copyCardLink() {
+    if (typeof window === "undefined") return;
+    const url = `${window.location.origin}/kanban?open=${encodeURIComponent(item.id)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Clipboard blocked (permissions/insecure context) — drop the link in the
+      // URL bar so the user can copy it from there instead.
+      window.history.replaceState(window.history.state, "", `/kanban?open=${encodeURIComponent(item.id)}`);
+    }
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
   // --- draft→issue convert + solve-with-agent (issues) ---
   const [converting, setConverting] = useState(false);
   const [reopening, setReopening] = useState(false);
@@ -1326,6 +1348,34 @@ export function CardDetailDialog({
     } finally {
       setOwnerBusy(false);
     }
+  }
+
+  // Reviewers (like git reviewers) — portal-owned list, independent of the
+  // assignee set, works on any card type. Toggling a current reviewer removes it.
+  const [reviewersBusy, setReviewersBusy] = useState(false);
+  const [reviewersOpen, setReviewersOpen] = useState(false);
+  const [reviewerManual, setReviewerManual] = useState("");
+  async function setReviewers(next: string[]) {
+    if (reviewersBusy) return;
+    const desired = [...new Set(next.map((l) => l.toLowerCase()).filter(Boolean))];
+    setReviewersBusy(true);
+    try {
+      const r = await onMutate({ action: "setReviewers", itemId: item.id, reviewers: desired });
+      if (r.ok) onPatchItem(item.id, { reviewers: desired.length ? desired : undefined });
+    } finally {
+      setReviewersBusy(false);
+    }
+  }
+  function toggleReviewer(login: string) {
+    const cur = item.reviewers ?? [];
+    const has = cur.some((l) => l.toLowerCase() === login.toLowerCase());
+    return setReviewers(has ? cur.filter((l) => l.toLowerCase() !== login.toLowerCase()) : [...cur, login]);
+  }
+  function addManualReviewer() {
+    const login = reviewerManual.trim().replace(/^@/, "").replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\/.*$/, "");
+    if (!login || reviewersBusy) return;
+    if ((item.reviewers ?? []).some((l) => l.toLowerCase() === login.toLowerCase())) { setReviewerManual(""); return; }
+    void setReviewers([...(item.reviewers ?? []), login]).then(() => setReviewerManual(""));
   }
 
   async function addManualAssignee() {
@@ -1627,6 +1677,21 @@ export function CardDetailDialog({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            {!editing && (
+              <button
+                type="button"
+                onClick={copyCardLink}
+                aria-label="Copiar link do card"
+                title={linkCopied ? "Link copiado!" : "Copiar link do card"}
+                className={`rounded-lg border p-2 transition-colors ${
+                  linkCopied
+                    ? "border-success/40 bg-success/10 text-success"
+                    : "border-border text-foreground-muted hover:border-border-strong hover:text-foreground"
+                }`}
+              >
+                {linkCopied ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+              </button>
+            )}
             {item.contentId && !editing && (
               <button
                 type="button"
@@ -1874,6 +1939,7 @@ export function CardDetailDialog({
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 border-t border-border p-4">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
           <div className="relative flex min-w-0 items-center gap-2">
             {item.assignees.length > 0 ? (
               <>
@@ -1997,6 +2063,94 @@ export function CardDetailDialog({
                 </div>
               </>
             )}
+          </div>
+
+          {/* Reviewers (like git reviewers) — portal-owned, works on any card type */}
+          <div className="relative flex min-w-0 items-center gap-2 border-l border-border pl-4">
+            <Eye className="h-3.5 w-3.5 shrink-0 text-foreground-faint" aria-hidden="true" />
+            {(item.reviewers ?? []).length > 0 ? (
+              <>
+                <div className="flex -space-x-1.5">
+                  {(item.reviewers ?? []).map((login) => {
+                    const m = memberForLogin(login);
+                    return (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        key={login}
+                        src={`https://github.com/${encodeURIComponent(login)}.png?size=48`}
+                        alt={login}
+                        title={m ? `Revisor · @${m.username}` : `Revisor · @${login}`}
+                        width={24}
+                        height={24}
+                        className="h-6 w-6 rounded-full object-cover ring-2 ring-surface-elevated"
+                      />
+                    );
+                  })}
+                </div>
+                <span className="truncate text-xs text-foreground-subtle">
+                  {(item.reviewers ?? []).map((l) => `@${memberForLogin(l)?.username ?? l}`).join(", ")}
+                </span>
+              </>
+            ) : (
+              <span className="text-xs text-foreground-faint">Sem revisores</span>
+            )}
+            <button
+              type="button"
+              onClick={() => setReviewersOpen((v) => !v)}
+              aria-expanded={reviewersOpen}
+              className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+            >
+              Revisores
+            </button>
+            {reviewersOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setReviewersOpen(false)} />
+                <div className="absolute bottom-full left-0 z-20 mb-2 max-h-72 w-60 overflow-y-auto rounded-xl border border-border bg-surface-elevated py-1 shadow-xl">
+                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-foreground-faint">
+                    Solicitar revisão de
+                  </p>
+                  {team.map((m) => {
+                    const checked = (item.reviewers ?? []).some((l) => l.toLowerCase() === m.login.toLowerCase());
+                    return (
+                      <button
+                        key={m.login}
+                        type="button"
+                        disabled={reviewersBusy}
+                        onClick={() => void toggleReviewer(m.login)}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground-muted transition-colors hover:bg-surface hover:text-foreground disabled:opacity-50"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={m.avatarUrl} alt={m.login} width={22} height={22} className="h-[22px] w-[22px] rounded-full object-cover" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] text-foreground">@{m.login}</span>
+                          {m.username && <span className="block truncate text-[11px] text-foreground-subtle">{m.username}</span>}
+                        </span>
+                        {checked && <span className="text-accent">✓</span>}
+                      </button>
+                    );
+                  })}
+                  {team.length === 0 && (
+                    <p className="px-3 py-1.5 text-[11px] text-foreground-faint">Lista de colaboradores indisponível — adicione por @login abaixo.</p>
+                  )}
+                  <div className="border-t border-border px-2 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        value={reviewerManual}
+                        onChange={(e) => setReviewerManual(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addManualReviewer(); } }}
+                        placeholder="@login do GitHub"
+                        className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+                      />
+                      <button type="button" disabled={reviewersBusy || !reviewerManual.trim()} onClick={addManualReviewer} className="shrink-0 rounded-md bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-50">
+                        {reviewersBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Adicionar"}
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[10px] text-foreground-faint">Revisores são portal-owned — valem pra qualquer card (issue, PR ou draft).</p>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
           </div>
           {item.url && (
             <a

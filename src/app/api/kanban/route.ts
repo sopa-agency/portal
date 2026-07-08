@@ -89,6 +89,7 @@ export async function GET() {
       if (m.firePriority) it.firePriority = m.firePriority;
       if (m.deadline) it.deadline = m.deadline;
       if (m.owner) it.owner = m.owner;
+      if (m.reviewers) it.reviewers = m.reviewers;
     }
   }
 
@@ -160,7 +161,7 @@ type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "ensureLabels" | "createIssue"
-    | "convertDraft" | "aiBody" | "setPriority" | "setDeadline" | "setOwner" | "reopen";
+    | "convertDraft" | "aiBody" | "setPriority" | "setDeadline" | "setOwner" | "setReviewers" | "reopen";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
   projectId?: string;
@@ -193,6 +194,8 @@ type Body = {
   deadline?: string | null;
   // setOwner — GitHub login of the task owner (null/empty clears)
   owner?: string | null;
+  // setReviewers — desired final reviewer set (GitHub logins; empty clears)
+  reviewers?: string[];
 };
 
 export async function POST(req: Request) {
@@ -296,6 +299,26 @@ export async function POST(req: Request) {
       update: { owner, updatedBy: session.username },
     });
     return NextResponse.json({ ok: true, owner });
+  }
+
+  // Card reviewers (portal-owned, like owner — a LIST of GitHub logins). Works
+  // on any card type (issue/PR/draft); only needs itemId.
+  if (action === "setReviewers") {
+    if (!itemId) return NextResponse.json({ ok: false, error: "itemId required" }, { status: 400 });
+    const reviewers = [
+      ...new Set((body.reviewers ?? []).map((l) => l.trim().toLowerCase()).filter(Boolean)),
+    ];
+    const existing = await prisma.cardPriority.findUnique({ where: { itemId } }).catch(() => null);
+    if (!reviewers.length && existing && !existing.priority && !existing.deadline && !existing.owner) {
+      await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
+      return NextResponse.json({ ok: true, reviewers: [] });
+    }
+    await prisma.cardPriority.upsert({
+      where: { itemId },
+      create: { itemId, reviewers, projectSlug: targetProjectSlug ?? project.slug, updatedBy: session.username },
+      update: { reviewers, updatedBy: session.username },
+    });
+    return NextResponse.json({ ok: true, reviewers });
   }
 
   // Reopen a closed issue/PR — needs only the content node id + type.

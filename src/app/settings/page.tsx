@@ -13,6 +13,7 @@ import { TrailAdmin } from "@/components/trail-admin";
 import { listTrailAccounts } from "@/app/actions/trail-admin";
 import { sponsorConfigured } from "@/lib/farcaster-sponsor";
 import { SettingsTabs, type SettingsTab } from "@/components/settings-tabs";
+import { KanbanFxToggle } from "@/components/kanban-fx-toggle";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -63,6 +64,7 @@ export default async function SettingsPage() {
   const connectionsSection = (
     <div className="space-y-6">
       {showMyFarcaster && myFarcaster ? <MyFarcasterCard initial={myFarcaster} /> : null}
+      <KanbanFxToggle />
       <ConnectionsView
         projectName={project.name}
         connections={connections}

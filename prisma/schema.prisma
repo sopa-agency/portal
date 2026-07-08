@@ -490,6 +490,7 @@ model CardPriority {
   priority    Int       @default(0) // 1 (lowest) .. 5 (highest); 0 = unset
   deadline    DateTime? // optional due date for the card
   owner       String? // GitHub login of the task OWNER (ultimate responsible)
+  reviewers   String[]  @default([]) // GitHub logins requested to REVIEW the card (like git reviewers)
   projectSlug String?
   updatedBy   String?
   updatedAt   DateTime  @updatedAt

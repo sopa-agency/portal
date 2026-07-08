@@ -6,7 +6,8 @@ import { authorize } from "@/lib/team-access";
 import { PageHeader } from "@/components/page-header";
 import { KanbanBoard } from "@/components/kanban-board";
 import { AggregatedKanban } from "@/components/aggregated-kanban";
-import { fetchAggregatedBoards } from "@/lib/github-project";
+import { KanbanRepoPRs } from "@/components/kanban-repo-prs";
+import { fetchAggregatedBoards, fetchOpenPullRequests } from "@/lib/github-project";
 import { listBounties } from "@/app/actions/bounty";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +17,11 @@ export default async function KanbanPage() {
 
   // SOPA hub: aggregate every portal's board into one read-only view.
   if (project.kanbanAggregate) {
-    const [{ columns }, who, bountiesRes] = await Promise.all([
+    const [{ columns }, who, bountiesRes, prs] = await Promise.all([
       fetchAggregatedBoards(),
       authorize((await cookies()).get(SESSION_COOKIE)?.value, project),
       listBounties(),
+      fetchOpenPullRequests(project),
     ]);
     return (
       <div className="flex flex-col gap-6 lg:h-[calc(100dvh-4rem)]">
@@ -27,6 +29,7 @@ export default async function KanbanPage() {
           eyebrow={project.name}
           title="Kanban"
           description="Todas as tarefas de todos os portais, por status."
+          actions={project.repos?.length ? <KanbanRepoPRs prs={prs} /> : undefined}
         />
         <AggregatedKanban
           columns={columns}
@@ -41,6 +44,8 @@ export default async function KanbanPage() {
     notFound();
   }
 
+  const prs = await fetchOpenPullRequests(project);
+
   return (
     // Fixed viewport height on lg+ (100dvh minus the shell's md:p-8 padding),
     // matching where the sidebar becomes a fixed side rail. Below lg the page
@@ -50,6 +55,7 @@ export default async function KanbanPage() {
         eyebrow={project.name}
         title="Kanban"
         description="GitHub Project board — track open issues and pull requests by status."
+        actions={project.repos?.length ? <KanbanRepoPRs prs={prs} /> : undefined}
       />
       <KanbanBoard />
     </div>
