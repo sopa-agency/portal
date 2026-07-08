@@ -129,11 +129,15 @@ const gnars: ProjectConfig = {
     hiveAccounts: [{ label: "Gnars Hive Account", account: "gnars" }],
   },
   // GA4 + Search Console for gnars.com (service account: bobgnarley@gnars-489819,
-  // creds in GNARS_GOOGLE_SERVICE_ACCOUNT_JSON). GSC is a URL-prefix property
-  // (https://gnars.com/), NOT sc-domain.
+  // creds in GNARS_GOOGLE_SERVICE_ACCOUNT_JSON).
+  //
+  // GSC uses the DOMAIN property (sc-domain:gnars.com) — captures www + non-www
+  // + both protocols, and survives host changes (the site moved to the www
+  // canonical in ~May 2026). Verification is a DNS TXT on the gnars.com zone
+  // (Cloudflare). The service account must be added as a user on the property.
   analytics: {
     ga4PropertyId: "527420949",
-    gscSiteUrl: "https://gnars.com/",
+    gscSiteUrl: "sc-domain:gnars.com",
     brandedTerms: ["gnars"],
   },
   // Steve assembles the weekly recap from live governance, not Hive clips.

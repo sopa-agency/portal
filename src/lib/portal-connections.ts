@@ -411,27 +411,80 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
   }
 
   // ── Analytics (GA4 / GSC) ─────────────────────────────────────────────────
+  // Base row from config + credential presence. The Settings page upgrades this
+  // with a LIVE probe (verifyAnalyticsConnection) that actually calls GA4 + GSC,
+  // so a configured-but-unauthorized property (e.g. property not shared with the
+  // service account, or a stale host after a domain move) surfaces as a warning
+  // instead of a false "connected".
   {
     const ga4 = project.analytics?.ga4PropertyId;
     const gsc = project.analytics?.gscSiteUrl;
+    const parts = [ga4 && `GA4 property ${ga4}`, gsc && `GSC site ${gsc}`].filter(Boolean);
 
-    if (ga4 || gsc) {
-      const parts = [ga4 && `GA4 property ${ga4}`, gsc && `GSC site ${gsc}`].filter(Boolean);
-      connections.push({
-        network: "Analytics",
-        status: "connected",
-        detail: `Configured: ${parts.join(", ")}.`,
-      });
-    } else {
+    if (!ga4 && !gsc) {
       connections.push({
         network: "Analytics",
         status: "na",
         detail: "No GA4 or Search Console configuration for this project.",
       });
+    } else if (!has("GOOGLE_SERVICE_ACCOUNT_JSON")) {
+      connections.push({
+        network: "Analytics",
+        status: "missing",
+        detail: `Configured (${parts.join(", ")}), but no Google service account credential is set.`,
+        fixHint: `Set ${prefix}_GOOGLE_SERVICE_ACCOUNT_JSON`,
+      });
+    } else {
+      connections.push({
+        network: "Analytics",
+        status: "connected",
+        detail: `Configured: ${parts.join(", ")} (not yet verified live).`,
+      });
     }
   }
 
   return connections;
+}
+
+// Performs a live GA4 + GSC check: authorizes the service account and runs one
+// small report/query against each configured surface. Returns per-surface ✓/✗
+// so a property that isn't shared with the service account (or a stale host
+// after a domain move) surfaces as a warning. Never throws; never returns the
+// service-account key. Returns null when analytics isn't configured at all.
+export async function verifyAnalyticsConnection(
+  project: ProjectConfig,
+): Promise<{ status: ConnectionStatus; detail: string } | null> {
+  const ga4Id = project.analytics?.ga4PropertyId;
+  const gscSite = project.analytics?.gscSiteUrl;
+  if (!ga4Id && !gscSite) return null;
+
+  const trunc = (s: string) => (s.length > 120 ? `${s.slice(0, 120)}…` : s);
+  const { fetchGa4, fetchGsc } = await import("@/lib/google-analytics");
+  const errResult = (e: unknown) => ({ ok: false as const, reason: "error" as const, error: String(e) });
+  const [ga4, gsc] = await Promise.all([
+    ga4Id ? fetchGa4(project, 7).catch(errResult) : Promise.resolve(null),
+    gscSite ? fetchGsc(project, 7).catch(errResult) : Promise.resolve(null),
+  ]);
+
+  const bits: string[] = [];
+  let anyError = false;
+  let credMissing = false;
+  const note = (res: { ok: boolean; reason?: string; error?: string } | null, label: string, target: string) => {
+    if (!res) return;
+    if (res.ok) {
+      bits.push(`${label} ✓ (${target})`);
+      return;
+    }
+    anyError = true;
+    const err = res.reason === "error" ? res.error ?? "error" : "not configured";
+    if (/service account env/i.test(err)) credMissing = true;
+    bits.push(`${label} ✗ (${trunc(err)})`);
+  };
+  note(ga4, "GA4", `property ${ga4Id}`);
+  note(gsc, "GSC", `${gscSite}`);
+
+  const status: ConnectionStatus = credMissing ? "missing" : anyError ? "warning" : "connected";
+  return { status, detail: bits.join(" · ") };
 }
 
 // Performs live Discord API checks: bot identity + channel access.

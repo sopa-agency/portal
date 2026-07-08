@@ -4,7 +4,7 @@ import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { ConnectionsView } from "@/components/team-view";
 import { BountySetup } from "@/components/bounty-setup";
-import { getPortalConnections, verifyDiscordConnection, verifyFarcasterConnection } from "@/lib/portal-connections";
+import { getPortalConnections, verifyDiscordConnection, verifyFarcasterConnection, verifyAnalyticsConnection } from "@/lib/portal-connections";
 import { listTeamMembers } from "@/app/actions/team-admin";
 import { MyFarcasterCard } from "@/components/my-farcaster-card";
 import { getMyFarcaster } from "@/app/actions/farcaster-member";
@@ -24,6 +24,15 @@ export default async function SettingsPage() {
     const live = await verifyDiscordConnection(project);
     discordRow.status = live.status;
     discordRow.detail = live.detail;
+  }
+  // Merge live GA4 + GSC verification (skip when unconfigured or creds missing).
+  const analyticsRow = connections.find((c) => c.network === "Analytics");
+  if (analyticsRow && analyticsRow.status !== "na" && analyticsRow.status !== "missing") {
+    const live = await verifyAnalyticsConnection(project);
+    if (live) {
+      analyticsRow.status = live.status;
+      analyticsRow.detail = live.detail;
+    }
   }
   // Upgrade the Farcaster row when a signer was connected via SIWN (DB-stored).
   const farcasterRow = connections.find((c) => c.network === "Farcaster");
