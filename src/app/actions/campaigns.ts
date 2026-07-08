@@ -699,11 +699,15 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
 
 {
   "hive_snap": "...",
+  "hive_snap_pt": "...",
   "hive_mag_post": "...",
   "hive_mag_post_pt": "...",
   "farcaster": "...",
+  "farcaster_pt": "...",
   "tweets": ["...", "..."],
-  "discord": "...",${includeBinance ? `\n  "binance_square": "...",` : ""}
+  "tweets_pt": ["...", "..."],
+  "discord": "...",
+  "discord_pt": "...",${includeBinance ? `\n  "binance_square": "...",\n  "binance_square_pt": "...",` : ""}
   "email": {
     "subject": "...",
     "preheader": "...",
@@ -725,21 +729,30 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
         ]
       }
     ]
-  }
+  },
+  "email_pt": { /* SAME shape as "email" — a full Brazilian Portuguese version */ }
 }
 
 Rules:
+
+- BILINGUAL — THIS IS MANDATORY. Every artifact must be produced TWICE: once in English (the base field) and once in Brazilian Portuguese (the matching "_pt" field). The base field ("hive_snap", "farcaster", "tweets", "discord", ${includeBinance ? `"binance_square", ` : ""}"email") is ALWAYS written in natural English; the "_pt" field is a faithful, natural Brazilian Portuguese version of that same artifact — same meaning, same links, same image URLs, same length/structure — not a word-for-word transliteration. NEVER leave a "_pt" field empty and NEVER return only one language. If the brief is written in Portuguese, still write the base fields in English and put the Portuguese in the "_pt" fields.
+
 ${
   artifactsHiveAccount
     ? `- The mag post will be published at EXACTLY this URL: ${magPostUrl(artifactsProject, artifactsHiveAccount, magPostPermlink(title, campaignId))} — wherever "hive_snap", "farcaster", "tweets", "discord", or "email" link to the mag post / recap / full read, use that EXACT URL. Never invent, alter, or shorten it. Do NOT put this link inside "hive_mag_post" or "hive_mag_post_pt" (the post must not link to itself).\n`
     : ""
 }- "hive_snap": a single Hive snap (short post) that will be published as a comment under peak.snaps' daily container on ${artifactsCommunity}. Plain text, real line breaks, under 280 characters when possible. Community voice. No hashtags in front — Hive frontends pick those up from json_metadata.
+- "hive_snap_pt": the Brazilian Portuguese version of "hive_snap" — same message, same links/images, same length constraints.
 - "hive_mag_post": a long-form Hive blog post (magazine style, ~300-600 words) ready to publish to ${artifactsCommunity} as @${artifactsHiveAccount}. Markdown with headings, paragraphs, and embedded images. Expand the core idea into a real read — context, the take, why it matters. Editorial, community-to-community, no corporate marketing-speak. This IS the publishable post body — no internal-brief sections (Goal / Audience / Window / Channels / Success metric / Risks). ALWAYS WRITE THIS IN ENGLISH — Hive's audience is international — even if the brief, caption, or images are in Portuguese.
 - "hive_mag_post_pt": a faithful Brazilian Portuguese translation of "hive_mag_post" — same structure, same headings, the SAME embedded image URLs in the same places. This is stored in the post's json_metadata as the pt translation. Translate naturally, don't transliterate.
 - "farcaster": a single Farcaster cast for the /${artifactsFarcasterChannel} channel as @${artifactsHiveAccount}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.
+- "farcaster_pt": the Brazilian Portuguese version of "farcaster" — same hook + link, under 320 characters.
 - "tweets": an array of 3-5 tweet strings posted from @${artifactsHiveAccount}. The first opens the thread with a hook + payoff and ends with a downward arrow. Each subsequent tweet stands on its own. Plain text, real line breaks. Keep each under 280 characters. Don't number them ("1/", "2/") — the UI handles that.
+- "tweets_pt": the Brazilian Portuguese version of "tweets" — same number of tweets, same structure, each under 280 characters.
 - "discord": a single message for the ${artifactsProjectName} Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
-${includeBinance ? `- "binance_square": a single Binance Square post (1-3 short paragraphs) for ${artifactsProjectName}'s Binance Square feed. PLAIN TEXT ONLY — Binance REJECTS posts containing any URL or link, so include NONE (not even the mag post URL); no markdown either. Angle it for a crypto/onchain audience discovering ${artifactsProjectName}.\n` : ""}- "email": a structured email document. Open with a dark hero section + eyebrow heading "${artifactsProjectName.toUpperCase()} UPDATE" in the project accent color (${artifactsProject.theme.accentDark}) + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
+- "discord_pt": the Brazilian Portuguese version of "discord" — same structure, links, and markdown.
+${includeBinance ? `- "binance_square": a single Binance Square post (1-3 short paragraphs) for ${artifactsProjectName}'s Binance Square feed. PLAIN TEXT ONLY — Binance REJECTS posts containing any URL or link, so include NONE (not even the mag post URL); no markdown either. Angle it for a crypto/onchain audience discovering ${artifactsProjectName}.\n- "binance_square_pt": the Brazilian Portuguese version of "binance_square" — same angle, PLAIN TEXT ONLY, no links.\n` : ""}- "email": a structured email document. Open with a dark hero section + eyebrow heading "${artifactsProjectName.toUpperCase()} UPDATE" in the project accent color (${artifactsProject.theme.accentDark}) + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
+- "email_pt": the Brazilian Portuguese version of "email" — the EXACT same block structure, colors, links, and image URLs, with every subject/preheader/heading/text/button/list translated naturally to Brazilian Portuguese.
 
 Text + heading blocks support inline links via [label](url) markdown — the renderer turns those into <a> tags. Use that for any clickable link inside body text instead of a separate button. The "button" block is for the primary CTA only.
 
@@ -784,10 +797,20 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
   const saved: string[] = [];
   const missing: string[] = [];
 
+  // Each blast artifact is saved as an English base doc PLUS a "(PT)" Brazilian
+  // Portuguese sibling — both independently publishable so the campaign blasts
+  // in both languages. (The mag post is the exception: its PT rides in the EN
+  // post's json_metadata, so "Hive mag post (PT)" stays a button-less doc.)
+  const joinTweets = (arr: string[]) => arr.map((t) => t.trim()).filter(Boolean).join("\n---\n");
+
   if (parsed.hive_snap) {
     await upsertNamedDocument(campaignId, "Hive snap", parsed.hive_snap);
     saved.push("Hive snap");
   } else missing.push("Hive snap");
+  if (parsed.hive_snap_pt) {
+    await upsertNamedDocument(campaignId, "Hive snap (PT)", parsed.hive_snap_pt);
+    saved.push("Hive snap (PT)");
+  } else missing.push("Hive snap (PT)");
 
   if (parsed.hive_mag_post) {
     await upsertNamedDocument(campaignId, "Hive mag post", parsed.hive_mag_post);
@@ -805,33 +828,53 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
     await upsertNamedDocument(campaignId, "Farcaster cast", parsed.farcaster);
     saved.push("Farcaster cast");
   } else missing.push("Farcaster cast");
+  if (parsed.farcaster_pt) {
+    await upsertNamedDocument(campaignId, "Farcaster cast (PT)", parsed.farcaster_pt);
+    saved.push("Farcaster cast (PT)");
+  } else missing.push("Farcaster cast (PT)");
 
-  if (parsed.tweets.length > 0) {
-    const tweetsContent = parsed.tweets.map((t) => t.trim()).filter(Boolean).join("\n---\n");
-    if (tweetsContent) {
-      await upsertNamedDocument(campaignId, "Twitter thread", tweetsContent);
-      saved.push("Twitter thread");
-    } else missing.push("Twitter thread");
+  const tweetsContent = joinTweets(parsed.tweets);
+  if (tweetsContent) {
+    await upsertNamedDocument(campaignId, "Twitter thread", tweetsContent);
+    saved.push("Twitter thread");
   } else missing.push("Twitter thread");
+  const tweetsContentPt = joinTweets(parsed.tweets_pt);
+  if (tweetsContentPt) {
+    await upsertNamedDocument(campaignId, "Twitter thread (PT)", tweetsContentPt);
+    saved.push("Twitter thread (PT)");
+  } else missing.push("Twitter thread (PT)");
 
   if (parsed.discord) {
     await upsertNamedDocument(campaignId, "Discord announcement", parsed.discord);
     saved.push("Discord announcement");
   } else missing.push("Discord announcement");
+  if (parsed.discord_pt) {
+    await upsertNamedDocument(campaignId, "Discord announcement (PT)", parsed.discord_pt);
+    saved.push("Discord announcement (PT)");
+  } else missing.push("Discord announcement (PT)");
 
   if (includeBinance) {
     if (parsed.binance_square) {
       await upsertNamedDocument(campaignId, "Binance Square post", parsed.binance_square);
       saved.push("Binance Square post");
     } else missing.push("Binance Square post");
+    if (parsed.binance_square_pt) {
+      await upsertNamedDocument(campaignId, "Binance Square post (PT)", parsed.binance_square_pt);
+      saved.push("Binance Square post (PT)");
+    } else missing.push("Binance Square post (PT)");
   }
 
+  const frontendBase = artifactsProject.hive.frontend ?? "https://peakd.com";
   if (parsed.email) {
-    const emailDocument = normalizeAiEmail(parsed.email, artifactsProject.hive.frontend ?? "https://peakd.com");
-    const emailContent = serializeEmail(emailDocument);
+    const emailContent = serializeEmail(normalizeAiEmail(parsed.email, frontendBase));
     await upsertNamedDocument(campaignId, "Email", emailContent);
     saved.push("Email");
   } else missing.push("Email");
+  if (parsed.email_pt) {
+    const emailContentPt = serializeEmail(normalizeAiEmail(parsed.email_pt, frontendBase));
+    await upsertNamedDocument(campaignId, "Email (PT)", emailContentPt);
+    saved.push("Email (PT)");
+  } else missing.push("Email (PT)");
 
   revalidatePath(`/campaign-creator/${campaignId}`);
   revalidatePath("/campaign-creator");
@@ -1432,27 +1475,26 @@ EMAIL (this is the critical part — make it visual + clickable):
 // Tolerant extractor: returns whatever fields are present + parseable. The
 // caller decides whether the result is good enough to save. Returns null
 // only when no valid JSON object can be located at all.
-function extractArtifactsJson(raw: string): {
+type ParsedArtifacts = {
   hive_snap: string;
+  hive_snap_pt: string;
   hive_mag_post: string;
   hive_mag_post_pt: string;
   farcaster: string;
+  farcaster_pt: string;
   tweets: string[];
+  tweets_pt: string[];
   discord: string;
+  discord_pt: string;
   binance_square: string;
+  binance_square_pt: string;
   email: unknown | null;
-} | null {
+  email_pt: unknown | null;
+};
+
+function extractArtifactsJson(raw: string): ParsedArtifacts | null {
   const candidates = extractJsonCandidates(raw);
-  let fallback: {
-    hive_snap: string;
-    hive_mag_post: string;
-    hive_mag_post_pt: string;
-    farcaster: string;
-    tweets: string[];
-    discord: string;
-    binance_square: string;
-    email: unknown | null;
-  } | null = null;
+  let fallback: ParsedArtifacts | null = null;
 
   for (const candidate of candidates) {
     // Parse the candidate; if it fails (e.g. the AI left a raw newline inside a
@@ -1470,19 +1512,22 @@ function extractArtifactsJson(raw: string): {
     if (!obj || typeof obj !== "object") continue;
 
     const hive_snap = pickString(obj.hive_snap) ?? pickString(obj.hive) ?? pickString(obj.snap) ?? "";
+    const hive_snap_pt = pickString(obj.hive_snap_pt) ?? pickString(obj.hive_snap_ptbr) ?? pickString(obj.snap_pt) ?? "";
     const hive_mag_post = pickString(obj.hive_mag_post) ?? pickString(obj.hive_blog) ?? pickString(obj.mag_post) ?? "";
     const hive_mag_post_pt = pickString(obj.hive_mag_post_pt) ?? pickString(obj.hive_mag_post_ptbr) ?? pickString(obj.mag_post_pt) ?? "";
     const farcaster = pickString(obj.farcaster) ?? pickString(obj.cast) ?? "";
-    const tweetsRaw = Array.isArray(obj.tweets)
-      ? obj.tweets
-      : Array.isArray(obj.twitter)
-        ? obj.twitter
-        : [];
-    const tweets = tweetsRaw.filter((t): t is string => typeof t === "string");
+    const farcaster_pt = pickString(obj.farcaster_pt) ?? pickString(obj.cast_pt) ?? "";
+    const pickTweets = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((t): t is string => typeof t === "string") : [];
+    const tweets = pickTweets(obj.tweets).length > 0 ? pickTweets(obj.tweets) : pickTweets(obj.twitter);
+    const tweets_pt = pickTweets(obj.tweets_pt).length > 0 ? pickTweets(obj.tweets_pt) : pickTweets(obj.twitter_pt);
     const discord = pickString(obj.discord) ?? "";
+    const discord_pt = pickString(obj.discord_pt) ?? "";
     const binance_square = pickString(obj.binance_square) ?? pickString(obj.binance) ?? "";
+    const binance_square_pt = pickString(obj.binance_square_pt) ?? pickString(obj.binance_pt) ?? "";
     const email = obj.email && typeof obj.email === "object" ? obj.email : null;
-    const result = { hive_snap, hive_mag_post, hive_mag_post_pt, farcaster, tweets, discord, binance_square, email };
+    const email_pt = obj.email_pt && typeof obj.email_pt === "object" ? obj.email_pt : null;
+    const result = { hive_snap, hive_snap_pt, hive_mag_post, hive_mag_post_pt, farcaster, farcaster_pt, tweets, tweets_pt, discord, discord_pt, binance_square, binance_square_pt, email, email_pt };
 
     // Prefer the candidate that actually carries the expected fields — a nested
     // blob (e.g. an email section) can parse cleanly but have none of them.
@@ -1819,6 +1864,13 @@ export async function remixCampaignArtifact(
       ? `\n\nApply this revision: ${instruction.trim()}`
       : "";
 
+    // "(PT)" siblings must stay in Brazilian Portuguese when regenerated; every
+    // other artifact stays in English (the mag post PT rides in metadata).
+    const isPt = /\(pt\)/i.test(doc.name);
+    const languageLine = isPt
+      ? `\n\nWrite the output entirely in natural Brazilian Portuguese.`
+      : `\n\nWrite the output in English.`;
+
     const prompt = `You are ${persona}.${voiceHint ? `\n\nVoice: ${voiceHint}` : ""}
 
 Campaign: "${doc.campaign.name}"
@@ -1827,7 +1879,7 @@ Brief:
 ${brief}
 ${templateRules}
 
-Task: ${kindRule}${instructionLine}
+Task: ${kindRule}${languageLine}${instructionLine}
 
 ${kind === "tweets"
   ? `Return ONLY the tweet strings joined by \\n---\\n. No prose, no labels, no JSON wrapper.`

@@ -223,7 +223,8 @@ export function CampaignFolderShell({
           selected.kind === "hive_mag" ||
           selected.kind === "farcaster" ||
           selected.kind === "tweets" ||
-          selected.kind === "discord" ? (
+          selected.kind === "discord" ||
+          selected.kind === "binance" ? (
           <CampaignDocumentPanel
             key={selected.id}
             doc={{
