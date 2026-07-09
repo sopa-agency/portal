@@ -657,7 +657,12 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
       // If we can't fetch fresh content, fall back to the brief-only prompt.
     }
   }
-  const includeCarousel = template?.id === "weekly-stoken" && carouselSlides.length >= 2;
+  // Every campaign gets an Instagram-carousel artifact — the AI always drafts a
+  // caption, and slides are seeded below from whatever images we have (Weekly
+  // Stoken featured posts above, or a source IG carousel). No images → the doc
+  // still exists and the editor lets the user add slides by hand.
+  const includeCarousel = true;
+  const carouselIsWeeklyStoken = template?.id === "weekly-stoken";
 
   // Source carousel (when this campaign was seeded from an Instagram post) so
   // the snap / cast / mag post can embed the exact images instead of being
@@ -678,6 +683,11 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
   }
   // Serve carousel media through the SkateHive IPFS gateway, not Pinata's.
   sourceMedia = sourceMedia.map(toSkatehiveIpfsGateway);
+  // No featured-post slides (i.e. not Weekly Stoken)? Fall back to the source
+  // Instagram carousel images so IG-seeded campaigns get a ready carousel too.
+  if (carouselSlides.length === 0 && sourceMedia.length > 0) {
+    carouselSlides.push(...sourceMedia.slice(0, 10));
+  }
   const carouselBlock =
     sourceMedia.length > 0
       ? `\n\nSource Instagram carousel images — EMBED THESE (use these EXACT URLs in order; do not invent or omit them):\n${sourceMedia
@@ -759,7 +769,7 @@ ${
 - "tweets_pt": the Brazilian Portuguese version of "tweets" — same number of tweets, same structure, each under 280 characters.
 - "discord": a single message for the ${artifactsProjectName} Discord #announcements channel. Start with @everyone or @community if appropriate. Discord markdown (**bold**, bullet lists). Include the relevant link(s). More casual than the tweets.
 - "discord_pt": the Brazilian Portuguese version of "discord" — same structure, links, and markdown.
-${includeBinance ? `- "binance_square": a single Binance Square post (1-3 short paragraphs) for ${artifactsProjectName}'s Binance Square feed. PLAIN TEXT ONLY — Binance REJECTS posts containing any URL or link, so include NONE (not even the mag post URL); no markdown either. Angle it for a crypto/onchain audience discovering ${artifactsProjectName}.\n- "binance_square_pt": the Brazilian Portuguese version of "binance_square" — same angle, PLAIN TEXT ONLY, no links.\n` : ""}${includeCarousel ? `- "instagram_carousel": the Instagram CAPTION for a photo carousel of this week's featured posts (the slide images are supplied automatically from the posts — do NOT list image URLs here, only write the caption text). One engaging opener line, then a short numbered rundown of the featured skaters/posts (name + one-line hook each), then a call to action to read the full recap. Include a handful of relevant hashtags at the end (#skatehive #skateboarding etc). Plain text, real line breaks, emojis welcome. Do NOT put Hive post URLs in the caption (Instagram doesn't linkify them) — point people to the bio/link instead.
+${includeBinance ? `- "binance_square": a single Binance Square post (1-3 short paragraphs) for ${artifactsProjectName}'s Binance Square feed. PLAIN TEXT ONLY — Binance REJECTS posts containing any URL or link, so include NONE (not even the mag post URL); no markdown either. Angle it for a crypto/onchain audience discovering ${artifactsProjectName}.\n- "binance_square_pt": the Brazilian Portuguese version of "binance_square" — same angle, PLAIN TEXT ONLY, no links.\n` : ""}${includeCarousel ? `- "instagram_carousel": the Instagram CAPTION for a photo carousel promoting this campaign (the slide images are supplied automatically — do NOT list image URLs here, only write the caption text). Open with an engaging hook line, deliver the core message, ${carouselIsWeeklyStoken ? "include a short numbered rundown of the featured skaters/posts (name + one-line hook each), " : ""}then a clear call to action. End with a handful of relevant hashtags (#skatehive #skateboarding etc). Plain text, real line breaks, emojis welcome. Do NOT put URLs in the caption (Instagram doesn't linkify them) — point people to the bio/link instead.
 - "instagram_carousel_pt": the Brazilian Portuguese version of "instagram_carousel" — same structure, same hashtags, natural pt-BR.
 ` : ""}- "email": a structured email document. Open with a dark hero section + eyebrow heading "${artifactsProjectName.toUpperCase()} UPDATE" in the project accent color (${artifactsProject.theme.accentDark}) + an H1 (use {{first_name}} for personalization if it helps). Body section follows with the campaign-specific blocks (see template rules + content above).
 - "email_pt": the Brazilian Portuguese version of "email" — the EXACT same block structure, colors, links, and image URLs, with every subject/preheader/heading/text/button/list translated naturally to Brazilian Portuguese.
@@ -886,10 +896,11 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
     saved.push("Email (PT)");
   } else missing.push("Email (PT)");
 
-  // Instagram carousel (Weekly Stoken only): the AI caption + the featured
-  // posts' images as ordered slides, stored as a JSON doc the carousel editor
-  // parses. Skipped when there aren't at least 2 slide images to publish.
-  if (includeCarousel) {
+  // Instagram carousel: the AI caption + seeded slide images (Weekly Stoken
+  // featured posts, or a source IG carousel), stored as a JSON doc the carousel
+  // editor parses. Created for every campaign that has a caption or slides —
+  // the editor lets the user add/reorder slides before publishing.
+  if (includeCarousel && (parsed.instagram_carousel || carouselSlides.length > 0)) {
     const carouselDoc = JSON.stringify({
       caption: parsed.instagram_carousel || "",
       captionPt: parsed.instagram_carousel_pt || "",
