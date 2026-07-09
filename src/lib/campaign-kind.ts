@@ -9,6 +9,7 @@ export type CampaignDocumentKind =
   | "tweets"
   | "discord"
   | "binance"
+  | "instagram"
   | "email"
   | "markdown"
   | "doc";
@@ -25,6 +26,7 @@ export function classifyCampaignDocument(name: string, isMain: boolean): Campaig
   if (lower.includes("tweet") || lower.includes("twitter") || lower.includes("x thread")) return "tweets";
   if (lower.includes("discord")) return "discord";
   if (lower.includes("binance")) return "binance";
+  if (lower.includes("instagram") || lower.includes("carousel") || lower.includes("carrossel")) return "instagram";
   if (lower.includes("email")) return "email";
   if (lower.includes("markdown") || lower.includes("blog") || lower.includes("post")) return "markdown";
   return "doc";
@@ -38,6 +40,7 @@ export const PUBLISHABLE_KINDS = new Set<CampaignDocumentKind>([
   "tweets",
   "discord",
   "binance",
+  "instagram",
   "email",
 ]);
 

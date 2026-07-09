@@ -5,6 +5,7 @@ import {
   Coins,
   FileText,
   Flame,
+  Images,
   Mail,
   MessageCircleMore,
   MessageSquare,
@@ -17,6 +18,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createDocument, deleteDocument } from "@/app/actions/campaigns";
 import { CampaignArtifactActions } from "@/components/campaign-artifact-actions";
+import { CampaignCarouselEditor } from "@/components/campaign-carousel-editor";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
 import { CampaignDocumentPanel } from "@/components/campaign-document-panel";
 import {
@@ -45,6 +47,7 @@ const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail
   tweets:    { label: "Twitter / X thread",      icon: MessageCircleMore, tone: "text-foreground" },
   discord:   { label: "Discord announcement",    icon: MessageSquare,     tone: "text-indigo-400" },
   binance:   { label: "Binance Square post",     icon: Coins,             tone: "text-yellow-500" },
+  instagram: { label: "Instagram carousel",      icon: Images,            tone: "text-pink-400" },
   email:     { label: "Email",                   icon: Mail,              tone: "text-accent" },
   markdown:  { label: "Markdown post",           icon: BookOpenText,      tone: "text-amber-400" },
   doc:       { label: "Document",                icon: FileText,          tone: "text-foreground-muted" },
@@ -236,6 +239,16 @@ export function CampaignFolderShell({
             kind={selected.kind}
             brand={brand}
             content={getContent(selected)}
+            onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
+          />
+        ) : selected.kind === "instagram" ? (
+          <CampaignCarouselEditor
+            key={selected.id}
+            documentId={selected.id}
+            initialName={selected.name}
+            initialContent={selected.content}
+            initialPostedAt={selected.postedAt}
+            brand={brand}
             onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
           />
         ) : (
