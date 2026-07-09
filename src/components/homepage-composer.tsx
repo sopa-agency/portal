@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { ArrowDown, ArrowUp, Check, Eye, ImagePlus, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   createHomepagePreviewToken,
@@ -53,24 +53,47 @@ export function HomepageComposer({
   const [config, setConfig] = useState<HomepageConfigDoc>(initialConfig);
   const [meta, setMeta] = useState<HomepageMeta>(initialMeta);
   const [msg, setMsg] = useState<Msg>(null);
-  const [saving, startSave] = useTransition();
+  const [saving, setSaving] = useState(false);
   const [publishing, startPublish] = useTransition();
 
-  // Persist one section: optimistic local set + server patch.
+  // Debounced persistence. Typing updates local state IMMEDIATELY (smooth,
+  // controlled inputs) and only schedules a server save ~800ms later — the
+  // server response is NOT echoed back into `config`, so an in-flight keystroke
+  // is never clobbered (that was what stole focus / broke the keyboard).
+  const pendingRef = useRef<Partial<HomepageConfigDoc>>({});
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flush = useCallback(async (): Promise<boolean> => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    const patch = pendingRef.current;
+    if (Object.keys(patch).length === 0) return true;
+    pendingRef.current = {};
+    setSaving(true);
+    const r = await saveHomepageSection(meta.id, patch);
+    setSaving(false);
+    if (!r.ok) { setMsg({ ok: false, text: r.error }); return false; }
+    setMsg({ ok: true, text: "Salvo." });
+    return true;
+  }, [meta.id]);
+
   const save = useCallback(
     (patch: Partial<HomepageConfigDoc>) => {
       setConfig((c) => ({ ...c, ...patch }));
-      startSave(async () => {
-        const r = await saveHomepageSection(meta.id, patch);
-        if (r.ok) { setConfig(r.config); setMsg({ ok: true, text: "Salvo." }); }
-        else setMsg({ ok: false, text: r.error });
-      });
+      pendingRef.current = { ...pendingRef.current, ...patch };
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => { void flush(); }, 800);
     },
-    [meta.id],
+    [flush],
   );
+
+  // Persist any pending edits when leaving the page.
+  useEffect(() => {
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, []);
 
   function doPublish() {
     startPublish(async () => {
+      if (!(await flush())) return; // persist latest edits before validating
       const r = await publishHomepage(meta.id);
       if (r.ok) { setMeta((m) => ({ ...m, status: "published" })); setMsg({ ok: true, text: `Publicado (v${r.version}).` }); }
       else setMsg({ ok: false, text: r.error });
@@ -85,6 +108,7 @@ export function HomepageComposer({
   }
   function doPreview() {
     startPublish(async () => {
+      await flush(); // make sure the preview reflects the latest edits
       const r = await createHomepagePreviewToken(meta.id);
       if (r.ok) { window.open(r.url, "_blank", "noopener"); setMsg({ ok: true, text: "Preview aberto." }); }
       else setMsg({ ok: false, text: r.error });
