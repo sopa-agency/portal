@@ -7,9 +7,10 @@ import type { ProjectConfig } from "./types";
 //
 // Instagram is wired: @skate.mkv (business account id in VLAD_INSTAGRAM_*,
 // via the "Vlad" FB Page under the SkateHive Business Manager system user).
-// TODO(vlad): confirm the remaining @handles (TikTok/YouTube/X/Farcaster are
-// still placeholders), drop the logo at public/projects/vlad/logo.png, and
-// confirm the OpenClaw "secretário" agent id + workspace.
+// Hive posting wired as @xvlad (VLAD_HIVE_POSTING_KEY, from OpenClaw).
+// TODO(vlad): confirm the X + Farcaster @handles (still placeholders), drop the
+// logo at public/projects/vlad/logo.png, and confirm the OpenClaw "secretário"
+// agent id + workspace.
 const vlad: ProjectConfig = {
   slug: "vlad",
   // Portal lives at vlad.reelflip.com (needs the subdomain pointed in Vercel/DNS).
@@ -65,18 +66,6 @@ const vlad: ProjectConfig = {
       handle: "Vlad",
       note: "Page paired with the IG business account (the API bridge). Read-only for now.",
       summary: "Exists to anchor the skate.mkv Instagram business account in Meta's graph; metrics ride the same token.",
-    },
-    {
-      platform: "TikTok",
-      handle: "@vlad", // TODO(vlad): real TikTok handle
-      url: "https://tiktok.com/@vlad",
-      summary: "Short-form video. Listed for strategy; no live-metrics fetcher yet.",
-    },
-    {
-      platform: "YouTube",
-      handle: "@vlad", // TODO(vlad): real YouTube handle
-      url: "https://youtube.com/@vlad",
-      summary: "Long-form / Shorts. Listed for strategy; no live-metrics fetcher yet.",
     },
     {
       platform: "X",
