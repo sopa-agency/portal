@@ -17,6 +17,7 @@ import {
 } from "@/lib/social-insights-core";
 import { getProjectKanbanContext } from "@/lib/kanban-context";
 import { fetchRecentCommits } from "@/lib/github-project";
+import { sanitizeForDb } from "@/lib/sanitize";
 
 // Abort the agent call a hair before the 300s function budget so the action
 // returns a clean error instead of a raw 504 if a run goes long.
@@ -158,18 +159,6 @@ async function assembleBriefingPrompt(
   return { ok: true, prompt };
 }
 
-// Strip characters Postgres/Prisma can't serialize. Gathered content (commit
-// messages, social copy, brand docs) can carry lone UTF-16 surrogates (half of
-// an emoji split by an upstream truncation), null bytes, or other C0 control
-// chars — any of which make Prisma's query engine fail with
-// "unexpected end of hex escape". Preserve valid surrogate PAIRS + \n \r \t.
-export function sanitizeForDb(text: string): string {
-  return text
-    // keep a valid surrogate pair (2 chars); drop a lone surrogate (1 char)
-    .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g, (m) => (m.length === 2 ? m : ""))
-    // null byte + other C0 controls, except tab / newline / carriage return
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
-}
 
 // Regeneration is ENQUEUED, not run inline: Vercel can't reach the agent
 // gateway over the Tailscale funnel (TLS handshake drops), so the portal
