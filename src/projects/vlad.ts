@@ -78,6 +78,8 @@ const vlad: ProjectConfig = {
   postCreator: true,
   meetings: true,
   lab: true,
+  // Vlad doesn't use the shared userbase (email list) or Analytics (no site yet).
+  hiddenRoutes: ["/userbase", "/analytics"],
   // Personal Kanban — GitHub Project V2 (PRIVATE) owned by the sktbrd USER
   // account (not an org). fetchGitHubProject resolves owner as user OR org, so
   // `org` holds the user login here. Needs a token with project+repo access to
