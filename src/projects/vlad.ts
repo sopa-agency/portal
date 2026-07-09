@@ -8,9 +8,9 @@ import type { ProjectConfig } from "./types";
 // Instagram is wired: @skate.mkv (business account id in VLAD_INSTAGRAM_*,
 // via the "Vlad" FB Page under the SkateHive Business Manager system user).
 // Hive posting wired as @xvlad (VLAD_HIVE_POSTING_KEY, from OpenClaw).
-// TODO(vlad): confirm the X + Farcaster @handles (still placeholders), drop the
-// logo at public/projects/vlad/logo.png, and confirm the OpenClaw "secretário"
-// agent id + workspace.
+// Socials: IG @skate.mkv, X @sk8ordao, Farcaster @skateboard, Hive @xvlad.
+// TODO(vlad): drop the logo at public/projects/vlad/logo.png, and confirm the
+// OpenClaw "secretário" agent id + workspace to enable the chat/briefings.
 const vlad: ProjectConfig = {
   slug: "vlad",
   // Portal lives at vlad.reelflip.com (needs the subdomain pointed in Vercel/DNS).
@@ -57,13 +57,14 @@ const vlad: ProjectConfig = {
     },
     {
       platform: "X",
-      handle: "@vlad", // TODO(vlad): real X handle
-      url: "https://x.com/vlad",
+      handle: "@sk8ordao",
+      url: "https://x.com/sk8ordao",
       summary: "Text + repost reach. Publish via the X composer intent.",
     },
     {
       platform: "Farcaster",
-      handle: "@vlad", // TODO(vlad): real Farcaster handle
+      handle: "@skateboard",
+      url: "https://warpcast.com/skateboard",
       summary: "Onchain-native audience. Casts via managed signer when wired.",
     },
     {
@@ -79,7 +80,7 @@ const vlad: ProjectConfig = {
   lab: true,
   // Personal-brand framing for campaign-artifact generation (not a Hive platform).
   campaignArtifacts: {
-    persona: "Vlad's content lead — a personal influencer brand under Reelflip, Instagram/TikTok/YouTube-first, with a cross-post to Hive via the SkateHive community",
+    persona: "Vlad's content lead — a personal influencer brand under Reelflip, Instagram-first (@skate.mkv), with cross-posts to X, Farcaster and Hive (via the SkateHive community)",
     voiceHint: "First-person, personal and direct; the creator's own voice — not corporate. Portuguese by default.",
   },
   // The OpenClaw "secretário" agent runs Vlad's chat.
