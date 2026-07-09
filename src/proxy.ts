@@ -18,9 +18,10 @@ const PUBLIC_PATHS = [
   // the skatehive.app signup checkbox posts to subscribe cross-origin.
   "/api/newsletter/unsubscribe",
   "/api/newsletter/subscribe",
-  // Public read of the curated magazine issue — the SkateHive website's flipbook
-  // fetches this cross-origin, no session. Curation writes stay session-gated.
-  "/api/magazine/current",
+  // Public reads of the curated magazine (current / issues list / issue by
+  // number) — the SkateHive website fetches these cross-origin, no session.
+  // Curation writes are server actions (separately session-gated), not here.
+  "/api/magazine",
   // Server-to-server, gated by NEWSLETTER_API_SECRET inside the route.
   "/api/newsletter/preference",
 ];
