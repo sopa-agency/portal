@@ -889,3 +889,23 @@ model MagazineIssuePost {
   @@unique([issueId, author, permlink])
   @@index([issueId, order])
 }
+
+// Versioned, admin-curated homepage config for the SkateHive media magazine
+// homepage (/home on skatehive3.0). One JSON doc per version; latest published
+// wins. Drafts are seeded from the live config, previewed via previewToken, and
+// flipped to published. Applied via targeted SQL (db:push drifts on this DB).
+model HomepageConfig {
+  id           String    @id @default(cuid())
+  projectSlug  String
+  version      Int // monotonic, like MagazineIssue.number
+  status       String    @default("draft") // draft | published
+  data         Json // HomepageConfigDoc (see src/lib/homepage-config.ts)
+  previewToken String?   @unique // capability token for the sk3 preview mode
+  publishedAt  DateTime?
+  updatedBy    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([projectSlug, version])
+  @@index([projectSlug, status])
+}
