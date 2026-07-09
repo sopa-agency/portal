@@ -166,10 +166,8 @@ async function assembleBriefingPrompt(
 export function sanitizeForDb(text: string): string {
   return text
     // keep a valid surrogate pair (2 chars); drop a lone surrogate (1 char)
-    // eslint-disable-next-line no-misleading-character-class
     .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g, (m) => (m.length === 2 ? m : ""))
     // null byte + other C0 controls, except tab / newline / carriage return
-    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
 }
 
