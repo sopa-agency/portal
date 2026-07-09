@@ -7,6 +7,7 @@ import { getActiveProject } from "@/projects/index";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
 import { hydrateMagazinePosts, fetchTeamPosts } from "@/lib/magazine";
+import { createPinataSignedUploadUrl } from "@/lib/social-publish";
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -168,6 +169,22 @@ export async function listCandidatePosts(): Promise<Ok<{ candidates: { author: s
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Falha ao buscar posts." };
+  }
+}
+
+/** Signed Pinata upload URL for a cropped magazine cover (gated by team auth). */
+export async function signMagazineCoverUpload(
+  filename: string,
+  sizeBytes: number,
+  mimeType: string,
+): Promise<{ ok: true; url: string; gateway: string } | Err> {
+  const { who } = await gate();
+  if (!who) return { ok: false, error: "Não autorizado." };
+  if (!/^image\//.test(mimeType)) return { ok: false, error: "Envie um arquivo de imagem." };
+  try {
+    return await createPinataSignedUploadUrl(filename, sizeBytes, mimeType);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha no upload." };
   }
 }
 

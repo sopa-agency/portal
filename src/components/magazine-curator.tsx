@@ -16,6 +16,7 @@ import {
   type CuratorIssue,
   type IssueSummary,
 } from "@/app/actions/magazine";
+import { MagazineCoverEditor } from "@/components/magazine-cover-editor";
 
 type Candidate = { author: string; permlink: string; title: string; thumbnail: string | null; votes: number };
 
@@ -53,18 +54,17 @@ export function MagazineCurator({
   const [issue, setIssue] = useState(initialIssue);
   const [ref, setRef] = useState("");
   const [title, setTitle] = useState(initialIssue.title);
-  const [cover, setCover] = useState(initialIssue.coverUrl ?? "");
+  const [coverEditorOpen, setCoverEditorOpen] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Candidate[] | null>(null);
   const [searchedUser, setSearchedUser] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  // Keep the title/cover inputs in sync with the selected edition.
+  // Keep the title input in sync with the selected edition.
   useEffect(() => {
     setTitle(issue.title);
-    setCover(issue.coverUrl ?? "");
-  }, [issue.id, issue.title, issue.coverUrl]);
+  }, [issue.id, issue.title]);
 
   const inIssue = new Set(issue.posts.map((p) => `${p.author}/${p.permlink}`));
 
@@ -194,17 +194,51 @@ export function MagazineCurator({
               </button>
             </span>
           </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="mt-3 flex items-center gap-3">
+            {/* Cover thumbnail + editor */}
+            <button
+              type="button"
+              onClick={() => setCoverEditorOpen(true)}
+              className="group relative h-16 w-12 shrink-0 overflow-hidden rounded-md border border-border bg-surface-elevated"
+              aria-label="Editar capa"
+              title="Editar capa"
+            >
+              {issue.coverUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={issue.coverUrl} alt="capa" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center text-[9px] text-foreground-faint">sem capa</span>
+              )}
+              <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-[9px] font-medium text-white opacity-0 transition group-hover:opacity-100">
+                {issue.coverUrl ? "trocar" : "capa"}
+              </span>
+            </button>
             <input value={title} onChange={(e) => setTitle(e.target.value)}
               onBlur={() => title.trim() && title !== issue.title && mutate(() => setMagazineIssueMeta(issue.id, { title }))}
               placeholder="Título da edição"
-              className="rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none" />
-            <input value={cover} onChange={(e) => setCover(e.target.value)}
-              onBlur={() => cover !== (issue.coverUrl ?? "") && mutate(() => setMagazineIssueMeta(issue.id, { coverUrl: cover }))}
-              placeholder="URL da capa (opcional)"
-              className="rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none" />
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none" />
+            <button
+              type="button"
+              onClick={() => setCoverEditorOpen(true)}
+              className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs text-foreground-muted transition hover:border-border-strong hover:text-foreground"
+            >
+              Editar capa
+            </button>
           </div>
         </div>
+
+        {coverEditorOpen && (
+          <MagazineCoverEditor
+            issueId={issue.id}
+            onClose={() => setCoverEditorOpen(false)}
+            onSaved={(url) => {
+              setCoverEditorOpen(false);
+              setIssue((cur) => ({ ...cur, coverUrl: url }));
+              setMsg({ ok: true, text: "Capa atualizada." });
+              start(async () => { await refreshList(); });
+            }}
+          />
+        )}
 
         {msg && (
           <p className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs ${msg.ok ? "border-success/30 bg-success/10 text-success" : "border-danger/30 bg-danger/10 text-danger"}`}>
