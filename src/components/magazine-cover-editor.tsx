@@ -6,15 +6,24 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Flame,
   Folder,
   HardDrive,
   ImagePlus,
+  Link2,
   Loader2,
+  Search,
   Type,
   Upload,
   X,
 } from "lucide-react";
-import { signMagazineCoverUpload, setMagazineIssueMeta } from "@/app/actions/magazine";
+import { listMagazineImages, signMagazineCoverUpload, setMagazineIssueMeta } from "@/app/actions/magazine";
+
+type HiveImage = { url: string; title: string };
+type PickTab = "upload" | "drive" | "skatehive" | "url";
+// Remote (Hive / pasted-URL) images are cross-origin and would taint the export
+// canvas — route them through the same-origin proxy so toBlob still works.
+const magProxy = (u: string) => `/api/brain/image-proxy?url=${encodeURIComponent(u)}`;
 
 // Feature-rich magazine cover studio (Thrasher-style): a base photo you crop,
 // art layers on top (frames/logos), and text elements (masthead + cover lines)
@@ -104,7 +113,7 @@ export function MagazineCoverEditor({
   onClose: () => void;
   onSaved: (url: string) => void;
 }) {
-  const [tab, setTab] = useState<"upload" | "drive">("upload");
+  const [tab, setTab] = useState<PickTab>("upload");
   const [picker, setPicker] = useState<PickTarget | null>("base");
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [scale, setScale] = useState(1);
@@ -123,6 +132,13 @@ export function MagazineCoverEditor({
   const [driveErr, setDriveErr] = useState<string | null>(null);
   const [driveStack, setDriveStack] = useState<string[]>([]);
   const [driveLoading, setDriveLoading] = useState(false);
+
+  // SkateHive post-image source
+  const [sh, setSh] = useState<HiveImage[] | null>(null);
+  const [shErr, setShErr] = useState<string | null>(null);
+  const [shLoading, setShLoading] = useState(false);
+  const [shUser, setShUser] = useState("");
+  const [urlInput, setUrlInput] = useState("");
 
   const baseScale = img ? Math.max(VIEW_W / img.naturalWidth, VIEW_H / img.naturalHeight) : 1;
   const dispScale = baseScale * scale;
@@ -219,6 +235,34 @@ export function MagazineCoverEditor({
       void loadDrive(next[next.length - 1]);
       return next;
     });
+  }
+
+  const loadSkatehive = useCallback(async (username?: string) => {
+    setShErr(null);
+    setSh(null);
+    setShLoading(true);
+    try {
+      const r = await listMagazineImages(username);
+      if (r.ok) setSh(r.images);
+      else { setSh([]); setShErr(r.error); }
+    } catch (e) {
+      setSh([]);
+      setShErr(e instanceof Error ? e.message : "Falha ao buscar imagens.");
+    } finally {
+      setShLoading(false);
+    }
+  }, []);
+  // Load the community feed the first time the SkateHive tab is opened.
+  useEffect(() => {
+    if (picker && tab === "skatehive" && sh === null && !shLoading) void loadSkatehive();
+  }, [picker, tab, sh, shLoading, loadSkatehive]);
+
+  function submitUrl() {
+    if (!picker) return;
+    const u = urlInput.trim();
+    if (!/^https:\/\/\S+$/.test(u)) { setError("URL inválida (use https)."); return; }
+    addImage(magProxy(u), picker);
+    setUrlInput("");
   }
 
   // ── Pointer interactions ──
@@ -364,7 +408,7 @@ export function MagazineCoverEditor({
     }
   }
 
-  const tabBtn = (id: "upload" | "drive", label: string, Icon: typeof Upload) => (
+  const tabBtn = (id: PickTab, label: string, Icon: typeof Upload) => (
     <button type="button" onClick={() => setTab(id)}
       className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${tab === id ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`}>
       <Icon className="h-3.5 w-3.5" /> {label}
@@ -593,16 +637,21 @@ export function MagazineCoverEditor({
                 <h4 className="text-sm font-semibold text-foreground">{picker === "art" ? "Adicionar arte" : "Foto de fundo"}</h4>
                 {img && <button type="button" onClick={() => setPicker(null)} aria-label="Fechar" className="rounded p-1 text-foreground-faint hover:text-foreground"><X className="h-4 w-4" /></button>}
               </div>
-              <div className="flex gap-1 rounded-lg border border-border p-0.5">
+              <div className="flex flex-wrap gap-1 rounded-lg border border-border p-0.5">
                 {tabBtn("upload", "Enviar", Upload)}
                 {tabBtn("drive", "Drive", HardDrive)}
+                {tabBtn("skatehive", "SkateHive", Flame)}
+                {tabBtn("url", "URL", Link2)}
               </div>
-              {tab === "upload" ? (
+
+              {tab === "upload" && (
                 <button type="button" onClick={() => fileRef.current?.click()} className="mt-3 flex h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border text-foreground-faint transition hover:border-border-strong hover:text-foreground">
                   <Upload className="h-6 w-6" />
                   <span className="text-xs">{picker === "art" ? "Enviar arte (PNG)" : "Enviar imagem"}</span>
                 </button>
-              ) : (
+              )}
+
+              {tab === "drive" && (
                 <div className="mt-3">
                   <div className="mb-2 flex items-center gap-2">
                     <button type="button" onClick={driveBack} disabled={driveStack.length === 0 || driveLoading} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted disabled:opacity-40 hover:border-border-strong hover:text-foreground">
@@ -629,6 +678,49 @@ export function MagazineCoverEditor({
                   </div>
                 </div>
               )}
+
+              {tab === "skatehive" && (
+                <div className="mt-3">
+                  <div className="mb-2 flex items-center gap-1 rounded-lg border border-border bg-surface-elevated px-2">
+                    <Search className="h-3.5 w-3.5 shrink-0 text-foreground-faint" />
+                    <input
+                      value={shUser}
+                      onChange={(e) => setShUser(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void loadSkatehive(shUser); } }}
+                      placeholder="@usuário (vazio = comunidade)"
+                      className="min-w-0 flex-1 bg-transparent py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:outline-none"
+                    />
+                    <button type="button" onClick={() => void loadSkatehive(shUser)} className="rounded px-2 py-1 text-[11px] text-accent hover:bg-accent-bg">Buscar</button>
+                  </div>
+                  <div className="grid max-h-60 grid-cols-3 gap-2 overflow-y-auto">
+                    {shLoading && <div className="col-span-3 flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-foreground-faint" /></div>}
+                    {!shLoading && sh?.map((im, i) => (
+                      <button key={`${im.url}-${i}`} type="button" onClick={() => addImage(magProxy(im.url), picker)} title={im.title} className="aspect-square overflow-hidden rounded-lg border border-border bg-surface transition hover:border-accent-border">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={im.url} alt={im.title} className="h-full w-full object-cover" loading="lazy" />
+                      </button>
+                    ))}
+                    {!shLoading && sh && sh.length === 0 && <p className="col-span-3 py-4 text-center text-[11px] text-foreground-faint">{shErr ?? "Nenhuma imagem encontrada."}</p>}
+                  </div>
+                </div>
+              )}
+
+              {tab === "url" && (
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-elevated px-2">
+                    <Link2 className="h-3.5 w-3.5 shrink-0 text-foreground-faint" />
+                    <input
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitUrl(); } }}
+                      placeholder="Colar URL de imagem (https://…)"
+                      className="min-w-0 flex-1 bg-transparent py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:outline-none"
+                    />
+                  </div>
+                  <button type="button" onClick={submitUrl} disabled={!urlInput.trim()} className="w-full rounded-lg border border-accent-border bg-accent-bg py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20 disabled:opacity-50">Usar esta imagem</button>
+                </div>
+              )}
+
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0], picker)} />
               {error && <p className="mt-2 text-xs text-danger">{error}</p>}
             </div>

@@ -7,6 +7,7 @@ import { getActiveProject } from "@/projects/index";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
 import { hydrateMagazinePosts, fetchTeamPosts } from "@/lib/magazine";
+import { fetchHivePostImages, type HiveImage } from "@/lib/hive-post-images";
 import { createPinataSignedUploadUrl } from "@/lib/social-publish";
 
 type Ok<T> = { ok: true } & T;
@@ -185,6 +186,29 @@ export async function signMagazineCoverUpload(
     return await createPinataSignedUploadUrl(filename, sizeBytes, mimeType);
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Falha no upload." };
+  }
+}
+
+/** Images embedded in recent SkateHive posts — a cover-art source. With a
+ *  username, that account's posts; otherwise the community feed. */
+export async function listMagazineImages(
+  username?: string,
+): Promise<{ ok: true; images: HiveImage[] } | Err> {
+  const { who, project } = await gate();
+  if (!who) return { ok: false, error: "Não autorizado." };
+  try {
+    if (username && username.trim()) {
+      const clean = username.toLowerCase().replace(/[^a-z0-9.-]/g, "");
+      if (clean.length < 3) return { ok: false, error: "Usuário inválido." };
+      const images = await fetchHivePostImages({ account: clean });
+      return { ok: true, images: images.slice(0, 60) };
+    }
+    const community = project.hive?.community;
+    const account = project.hive?.account;
+    const images = await fetchHivePostImages(community ? { tag: community } : { account });
+    return { ok: true, images: images.slice(0, 60) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao buscar imagens." };
   }
 }
 
