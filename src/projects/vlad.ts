@@ -78,6 +78,15 @@ const vlad: ProjectConfig = {
   postCreator: true,
   meetings: true,
   lab: true,
+  // Personal Kanban — GitHub Project V2 (PRIVATE) owned by the sktbrd USER
+  // account (not an org). fetchGitHubProject resolves owner as user OR org, so
+  // `org` holds the user login here. Needs a token with project+repo access to
+  // sktbrd's projects: the global GITHUB_TOKEN (sktbrd's PAT) should cover it;
+  // else set VLAD_GITHUB_TOKEN. Replaces the Trello board the Secretário used.
+  githubProject: {
+    org: "sktbrd",
+    number: 9,
+  },
   // Personal-brand framing for campaign-artifact generation (not a Hive platform).
   campaignArtifacts: {
     persona: "Vlad's content lead — a personal influencer brand under Reelflip, Instagram-first (@skate.mkv), with cross-posts to X, Farcaster and Hive (via the SkateHive community)",
