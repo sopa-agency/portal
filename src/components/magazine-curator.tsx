@@ -7,6 +7,7 @@ import {
   listMagazineIssues,
   createDraftIssue,
   addMagazinePost,
+  listUserPosts,
   removeMagazinePost,
   reorderMagazinePosts,
   setMagazineIssueMeta,
@@ -54,6 +55,9 @@ export function MagazineCurator({
   const [title, setTitle] = useState(initialIssue.title);
   const [cover, setCover] = useState(initialIssue.coverUrl ?? "");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<Candidate[] | null>(null);
+  const [searchedUser, setSearchedUser] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   // Keep the title/cover inputs in sync with the selected edition.
@@ -91,6 +95,18 @@ export function MagazineCurator({
     setMsg(null);
     start(async () => { await loadIssue(id); });
   }
+
+  function doSearch() {
+    const u = search.trim().replace(/^@/, "");
+    if (!u) { setSearchResults(null); setSearchedUser(null); return; }
+    setMsg(null);
+    start(async () => {
+      const r = await listUserPosts(u);
+      if (r.ok) { setSearchResults(r.candidates); setSearchedUser(u.toLowerCase()); }
+      else setMsg({ ok: false, text: r.error });
+    });
+  }
+  function clearSearch() { setSearch(""); setSearchResults(null); setSearchedUser(null); }
 
   function newEdition() {
     setMsg(null);
@@ -237,9 +253,26 @@ export function MagazineCurator({
         </div>
 
         <div className="rounded-2xl border border-border bg-surface p-4">
-          <p className="text-[11px] uppercase tracking-wider text-foreground-subtle">Posts da equipe</p>
+          <p className="text-[11px] uppercase tracking-wider text-foreground-subtle">Buscar por usuário</p>
+          <div className="mt-2 flex items-center gap-1.5">
+            <input value={search} onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } }}
+              placeholder="@username do Hive"
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-[13px] text-foreground focus:border-border-strong focus:outline-none" />
+            <button type="button" onClick={doSearch} disabled={pending || !search.trim()} className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-50">Buscar</button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-[11px] uppercase tracking-wider text-foreground-subtle">
+              {searchResults ? `Resultados de @${searchedUser}` : "Posts da equipe"}
+            </p>
+            {searchResults && (
+              <button type="button" onClick={clearSearch} className="text-[10px] text-foreground-faint underline-offset-2 hover:text-foreground hover:underline">limpar</button>
+            )}
+          </div>
+
           <ul className="mt-2 space-y-1.5">
-            {candidates.map((c) => {
+            {(searchResults ?? candidates).map((c) => {
               const added = inIssue.has(`${c.author}/${c.permlink}`);
               return (
                 <li key={`${c.author}/${c.permlink}`} className="flex items-center gap-2">
@@ -257,7 +290,9 @@ export function MagazineCurator({
                 </li>
               );
             })}
-            {candidates.length === 0 && <li className="text-[11px] text-foreground-faint">Nenhum post da equipe encontrado.</li>}
+            {(searchResults ?? candidates).length === 0 && (
+              <li className="text-[11px] text-foreground-faint">{searchResults ? "Nenhum post desse usuário." : "Nenhum post da equipe encontrado."}</li>
+            )}
           </ul>
         </div>
       </aside>

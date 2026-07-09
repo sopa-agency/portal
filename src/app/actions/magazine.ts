@@ -171,6 +171,23 @@ export async function listCandidatePosts(): Promise<Ok<{ candidates: { author: s
   }
 }
 
+/** Search a specific Hive user's recent posts to pick from. */
+export async function listUserPosts(username: string): Promise<Ok<{ candidates: { author: string; permlink: string; title: string; thumbnail: string | null; votes: number }[] }> | Err> {
+  const { who } = await gate();
+  if (!who) return { ok: false, error: "Não autorizado." };
+  const u = username.trim().replace(/^@/, "").toLowerCase();
+  if (!/^[a-z0-9.-]{3,16}$/.test(u)) return { ok: false, error: "Informe um usuário Hive válido." };
+  try {
+    const posts = await fetchTeamPosts([u], 12);
+    return {
+      ok: true,
+      candidates: posts.map((p) => ({ author: p.author, permlink: p.permlink, title: p.title, thumbnail: p.thumbnail, votes: p.votes })),
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao buscar posts." };
+  }
+}
+
 /** Parse "@author/permlink", "author/permlink", or a frontend post URL. */
 function parseRef(input: string): { author: string; permlink: string } | null {
   const s = input.trim();
