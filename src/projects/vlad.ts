@@ -5,10 +5,11 @@ import type { ProjectConfig } from "./types";
 // first; cross-posts to Hive via the SkateHive community as @xvlad. Accent:
 // violet, distinct from lime (SkateHive), red (Gnars) and cyan (Reelflip).
 //
-// TODO(vlad): confirm the real @handles on each network below (placeholders for
-// now — metrics won't resolve until they match the real accounts), drop the
-// logo at public/projects/vlad/logo.png, and confirm the OpenClaw "secretário"
-// agent id + workspace (see agent/briefingAgents).
+// Instagram is wired: @skate.mkv (business account id in VLAD_INSTAGRAM_*,
+// via the "Vlad" FB Page under the SkateHive Business Manager system user).
+// TODO(vlad): confirm the remaining @handles (TikTok/YouTube/X/Farcaster are
+// still placeholders), drop the logo at public/projects/vlad/logo.png, and
+// confirm the OpenClaw "secretário" agent id + workspace.
 const vlad: ProjectConfig = {
   slug: "vlad",
   // Portal lives at vlad.reelflip.com (needs the subdomain pointed in Vercel/DNS).
@@ -54,10 +55,16 @@ const vlad: ProjectConfig = {
   socials: [
     {
       platform: "Instagram",
-      handle: "@vlad", // TODO(vlad): real IG handle
-      url: "https://instagram.com/vlad",
-      note: "Primary channel — live metrics below once the handle is confirmed.",
+      handle: "@skate.mkv",
+      url: "https://instagram.com/skate.mkv",
+      note: "Primary channel — live metrics below (VLAD_INSTAGRAM_* wired).",
       summary: "Personal influencer feed — the main operation. Reels + carousels.",
+    },
+    {
+      platform: "Facebook",
+      handle: "Vlad",
+      note: "Page paired with the IG business account (the API bridge). Read-only for now.",
+      summary: "Exists to anchor the skate.mkv Instagram business account in Meta's graph; metrics ride the same token.",
     },
     {
       platform: "TikTok",
