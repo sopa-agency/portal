@@ -176,6 +176,12 @@ export type ProjectConfig = {
    */
   meetings?: boolean;
   /**
+   * When true, the Magazine nav item + /magazine route are enabled — an editorial
+   * curator that picks + orders Hive posts into the online magazine, served at
+   * /api/magazine/current for the public site's flipbook. Absent = nav hidden + 404.
+   */
+  magazine?: boolean;
+  /**
    * Treasury wallets shown on /treasury — the SAME wallets/sources the
    * project's native app shows (skatehive.app/dao, gnars.com/treasury).
    * Omitted = nav item hidden and route 404s.

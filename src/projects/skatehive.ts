@@ -3,6 +3,7 @@ import type { ProjectConfig } from "./types";
 const skatehive: ProjectConfig = {
   slug: "skatehive",
   switcher: { rank: 30, parent: "reelflip" },
+  magazine: true,
   lab: true,
   zineStudio: true,
   name: "SkateHive",

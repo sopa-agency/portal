@@ -104,6 +104,7 @@ export default async function RootLayout({
       { href: "/brain", label: "Brain", on: true },
       { href: "/analytics", label: "Analytics", on: true },
       { href: "/kanban", label: "Kanban", on: !!project.githubProject || !!project.kanbanAggregate },
+      { href: "/magazine", label: "Magazine", on: !!project.magazine },
       { href: "/about", label: "About", on: !!project.about },
       { href: "/treasury", label: "Treasury", on: true },
       { href: "/org-chart", label: "Org Chart", on: !!project.orgChart },
@@ -143,6 +144,7 @@ export default async function RootLayout({
                 hiddenRoutes={project.hiddenRoutes}
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject || !!project.kanbanAggregate}
+                magazineEnabled={!!project.magazine}
                 aboutEnabled={!!project.about}
                 orgChartEnabled={!!project.orgChart}
                 portfolioEnabled={!!project.portfolio}

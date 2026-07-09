@@ -854,3 +854,38 @@ model IgCollaborator {
   @@index([umbrella])
   @@map("ig_collaborator")
 }
+
+// Editorial magazine — the portal curates which Hive posts (and their order)
+// make up the online magazine, replacing the website's raw "latest 20 community
+// posts" flipbook. A published issue is served (read-only) at
+// /api/magazine/current for the public site to render.
+model MagazineIssue {
+  id          String    @id @default(cuid())
+  projectSlug String
+  number      Int
+  title       String
+  coverUrl    String?
+  status      String    @default("draft") // draft | published
+  publishedAt DateTime?
+  updatedBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  posts       MagazineIssuePost[]
+
+  @@unique([projectSlug, number])
+  @@index([projectSlug, status])
+}
+
+model MagazineIssuePost {
+  id       String        @id @default(cuid())
+  issueId  String
+  issue    MagazineIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author   String // Hive author
+  permlink String // Hive permlink
+  order    Int           @default(0) // flipbook order
+  blurb    String? // optional cover-line / editorial note
+  featured Boolean       @default(false)
+
+  @@unique([issueId, author, permlink])
+  @@index([issueId, order])
+}
