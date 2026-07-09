@@ -43,6 +43,30 @@ function imagesFromMeta(raw: unknown): string[] {
 
 type HivePost = { author: string; permlink: string; title?: string; body?: string; json_metadata?: unknown };
 
+/** Every image embedded in ONE post (json_metadata cover first, then body),
+ *  deduped. Powers "choose a specific image from this post" in the composer. */
+export async function fetchSinglePostImages(author: string, permlink: string): Promise<string[]> {
+  const res = await fetch(HIVE_API, {
+    method: "POST",
+    headers: { "content-type": "application/json", "User-Agent": UA },
+    body: JSON.stringify({ jsonrpc: "2.0", method: "bridge.get_post", params: { author, permlink, observer: "" }, id: 1 }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(9000),
+  });
+  if (!res.ok) throw new Error(`Hive API HTTP ${res.status}`);
+  const json = (await res.json()) as { result?: HivePost | null };
+  const post = json.result;
+  if (!post) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const url of [...imagesFromMeta(post.json_metadata), ...imageUrlsFromMarkdown(post.body ?? "")]) {
+    if (!looksLikeImage(url) || seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+}
+
 /** Recent post images from a community tag OR a single account. Deduped. */
 export async function fetchHivePostImages(source: { tag?: string; account?: string }, limit = 20): Promise<HiveImage[]> {
   const call = async (method: string, params: unknown): Promise<HivePost[]> => {

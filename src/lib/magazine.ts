@@ -72,6 +72,33 @@ export async function fetchTeamPosts(accounts: string[], perAccount = 4): Promis
   return out;
 }
 
+/** Recent posts under a community tag / hashtag (newest first) — the homepage
+ *  composer's "search by hashtag" source. Same shape as fetchTeamPosts. */
+export async function fetchTaggedPosts(tag: string, limit = 20): Promise<TeamPost[]> {
+  const clean = tag.replace(/^#/, "").toLowerCase().trim();
+  if (!clean) return [];
+  try {
+    const posts = await callHive<HiveBridgePost[]>("bridge.get_ranked_posts", {
+      sort: "created",
+      tag: clean,
+      limit: Math.min(limit, 40),
+      observer: "",
+    });
+    return (posts ?? [])
+      .filter((p) => p.title && !/^(snap-|re-)/.test(p.permlink) && !/^[a-f0-9]{6,12}$/.test(p.permlink))
+      .map((p) => ({
+        author: p.author,
+        permlink: p.permlink,
+        title: p.title ?? "(sem título)",
+        thumbnail: firstImage(p),
+        created: p.created ? `${p.created}` : "",
+        votes: p.stats?.total_votes ?? 0,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 async function callHive<T>(method: string, params: unknown): Promise<T> {
   const res = await fetch(HIVE_API, {
     method: "POST",
