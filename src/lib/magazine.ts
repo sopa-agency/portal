@@ -29,7 +29,48 @@ type HiveBridgePost = {
   total_payout_value?: string;
   curator_payout_value?: string;
   json_metadata?: { image?: string[] } | string;
+  stats?: { total_votes?: number };
 };
+
+export type TeamPost = { author: string; permlink: string; title: string; thumbnail: string | null; created: string; votes: number };
+
+/** Recent authored posts from a set of team accounts (newest first, deduped) —
+ *  the candidate pool for magazine curation. Skips snaps/thin permlinks. */
+export async function fetchTeamPosts(accounts: string[], perAccount = 4): Promise<TeamPost[]> {
+  const results = await Promise.all(
+    accounts.map(async (account) => {
+      try {
+        const posts = await callHive<HiveBridgePost[]>("bridge.get_account_posts", {
+          sort: "posts", // authored posts only (not reblogs/comments)
+          account,
+          limit: Math.min(perAccount, 20),
+          observer: "",
+        });
+        return (posts ?? [])
+          .filter((p) => p.title && !/^(snap-|re-)/.test(p.permlink) && !/^[a-f0-9]{6,12}$/.test(p.permlink))
+          .map((p) => ({
+            author: p.author,
+            permlink: p.permlink,
+            title: p.title ?? "(sem título)",
+            thumbnail: firstImage(p),
+            created: p.created ? `${p.created}` : "",
+            votes: p.stats?.total_votes ?? 0,
+          }));
+      } catch {
+        return [];
+      }
+    }),
+  );
+  const seen = new Set<string>();
+  const out: TeamPost[] = [];
+  for (const p of results.flat().sort((a, b) => (a.created < b.created ? 1 : -1))) {
+    const key = `${p.author}/${p.permlink}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
 
 async function callHive<T>(method: string, params: unknown): Promise<T> {
   const res = await fetch(HIVE_API, {

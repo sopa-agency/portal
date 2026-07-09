@@ -54,7 +54,6 @@ export function MagazineCurator({
   const [title, setTitle] = useState(initialIssue.title);
   const [cover, setCover] = useState(initialIssue.coverUrl ?? "");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [authorFilter, setAuthorFilter] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   // Keep the title/cover inputs in sync with the selected edition.
@@ -121,15 +120,6 @@ export function MagazineCurator({
   const active = issues.find((i) => i.active);
   const drafts = issues.filter((i) => i.status === "draft");
   const old = issues.filter((i) => i.status === "published" && !i.active);
-
-  // "Usuários principais": the authors present in the candidate feed, most-posts
-  // first — filter the candidate list by one of them.
-  const authorCounts = candidates.reduce<Record<string, number>>((acc, c) => {
-    acc[c.author] = (acc[c.author] ?? 0) + 1;
-    return acc;
-  }, {});
-  const authors = Object.entries(authorCounts).sort((a, b) => b[1] - a[1]);
-  const shownCandidates = authorFilter ? candidates.filter((c) => c.author === authorFilter) : candidates;
 
   return (
     <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)_300px]">
@@ -247,31 +237,9 @@ export function MagazineCurator({
         </div>
 
         <div className="rounded-2xl border border-border bg-surface p-4">
-          <p className="text-[11px] uppercase tracking-wider text-foreground-subtle">Posts recentes da comunidade</p>
-          {authors.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              <button
-                type="button"
-                onClick={() => setAuthorFilter(null)}
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${authorFilter === null ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
-              >
-                Todos <span className="text-foreground-faint">({candidates.length})</span>
-              </button>
-              {authors.map(([author, count]) => (
-                <button
-                  key={author}
-                  type="button"
-                  onClick={() => setAuthorFilter((cur) => (cur === author ? null : author))}
-                  title={`@${author}`}
-                  className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${authorFilter === author ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
-                >
-                  @{author} <span className="text-foreground-faint">({count})</span>
-                </button>
-              ))}
-            </div>
-          )}
+          <p className="text-[11px] uppercase tracking-wider text-foreground-subtle">Posts da equipe</p>
           <ul className="mt-2 space-y-1.5">
-            {shownCandidates.map((c) => {
+            {candidates.map((c) => {
               const added = inIssue.has(`${c.author}/${c.permlink}`);
               return (
                 <li key={`${c.author}/${c.permlink}`} className="flex items-center gap-2">
@@ -289,7 +257,7 @@ export function MagazineCurator({
                 </li>
               );
             })}
-            {shownCandidates.length === 0 && <li className="text-[11px] text-foreground-faint">Nenhum post {authorFilter ? `de @${authorFilter}` : "recente disponível"}.</li>}
+            {candidates.length === 0 && <li className="text-[11px] text-foreground-faint">Nenhum post da equipe encontrado.</li>}
           </ul>
         </div>
       </aside>

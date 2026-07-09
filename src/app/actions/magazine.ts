@@ -6,8 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getActiveProject } from "@/projects/index";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
-import { fetchTopSkatehivePosts } from "@/lib/skatehive-content";
-import { hydrateMagazinePosts } from "@/lib/magazine";
+import { hydrateMagazinePosts, fetchTeamPosts } from "@/lib/magazine";
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -157,20 +156,15 @@ export async function createDraftIssue(): Promise<Ok<{ issueId: string }> | Err>
   return { ok: true, issueId: created.id };
 }
 
-/** Recent community posts to pick from (same source the old flipbook used). */
+/** Recent posts from the team's accounts (the project allowlist) to pick from. */
 export async function listCandidatePosts(): Promise<Ok<{ candidates: { author: string; permlink: string; title: string; thumbnail: string | null; votes: number }[] }> | Err> {
   const { project, who } = await gate();
   if (!who) return { ok: false, error: "Não autorizado." };
   try {
-    const posts = await fetchTopSkatehivePosts({
-      daysBack: 30,
-      limit: 20,
-      communityTag: project.hive.community,
-      frontendUrl: project.hive.frontend,
-    });
+    const posts = await fetchTeamPosts(project.allowlist, 4);
     return {
       ok: true,
-      candidates: posts.map((p) => ({ author: p.author, permlink: p.permlink, title: p.title, thumbnail: p.firstImage, votes: p.netVotes })),
+      candidates: posts.map((p) => ({ author: p.author, permlink: p.permlink, title: p.title, thumbnail: p.thumbnail, votes: p.votes })),
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Falha ao buscar posts." };
