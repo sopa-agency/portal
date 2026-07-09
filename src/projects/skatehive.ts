@@ -4,6 +4,7 @@ const skatehive: ProjectConfig = {
   slug: "skatehive",
   switcher: { rank: 30, parent: "reelflip" },
   magazine: true,
+  homepage: true,
   lab: true,
   zineStudio: true,
   name: "SkateHive",

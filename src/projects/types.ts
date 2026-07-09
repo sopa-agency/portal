@@ -181,6 +181,14 @@ export type ProjectConfig = {
    * /api/magazine/current for the public site's flipbook. Absent = nav hidden + 404.
    */
   magazine?: boolean;
+
+  /**
+   * When true, the Homepage nav item + /homepage route are enabled — an admin
+   * composer that curates the media-magazine homepage (hero slides, featured
+   * posts, spot, bounties) into a versioned HomepageConfig, served at
+   * /api/homepage/current for skatehive3.0's /home route. Absent = nav hidden + 404.
+   */
+  homepage?: boolean;
   /**
    * Treasury wallets shown on /treasury — the SAME wallets/sources the
    * project's native app shows (skatehive.app/dao, gnars.com/treasury).

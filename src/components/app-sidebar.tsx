@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
@@ -20,6 +20,7 @@ const NAV = [
   { href: "/analytics", label: "Analytics", icon: ChartColumn },
   { href: "/kanban", label: "Kanban", icon: SquareKanban, requiresKanban: true },
   { href: "/magazine", label: "Magazine", icon: Newspaper, requiresMagazine: true },
+  { href: "/homepage", label: "Homepage", icon: LayoutTemplate, requiresHomepage: true },
   { href: "/about", label: "About", icon: Presentation, requiresAbout: true },
   { href: "/treasury", label: "Treasury", icon: Landmark },
   { href: "/org-chart", label: "Org Chart", icon: Workflow, requiresOrgChart: true },
@@ -55,6 +56,7 @@ type AppSidebarProps = {
   postCreatorEnabled?: boolean;
   kanbanEnabled?: boolean;
   magazineEnabled?: boolean;
+  homepageEnabled?: boolean;
   aboutEnabled?: boolean;
   orgChartEnabled?: boolean;
   portfolioEnabled?: boolean;
@@ -64,7 +66,7 @@ type AppSidebarProps = {
   farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -105,6 +107,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if ("requiresZine" in item && item.requiresZine && !zineEnabled) return false;
     if ("requiresKanban" in item && item.requiresKanban && !kanbanEnabled) return false;
     if ("requiresMagazine" in item && item.requiresMagazine && !magazineEnabled) return false;
+    if ("requiresHomepage" in item && item.requiresHomepage && !homepageEnabled) return false;
     if ("requiresAbout" in item && item.requiresAbout && !aboutEnabled) return false;
     if ("requiresOrgChart" in item && item.requiresOrgChart && !orgChartEnabled) return false;
     if ("requiresPortfolio" in item && item.requiresPortfolio && !portfolioEnabled) return false;

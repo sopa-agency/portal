@@ -105,6 +105,7 @@ export default async function RootLayout({
       { href: "/analytics", label: "Analytics", on: true },
       { href: "/kanban", label: "Kanban", on: !!project.githubProject || !!project.kanbanAggregate },
       { href: "/magazine", label: "Magazine", on: !!project.magazine },
+      { href: "/homepage", label: "Homepage", on: !!project.homepage },
       { href: "/about", label: "About", on: !!project.about },
       { href: "/treasury", label: "Treasury", on: true },
       { href: "/org-chart", label: "Org Chart", on: !!project.orgChart },
@@ -145,6 +146,7 @@ export default async function RootLayout({
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject || !!project.kanbanAggregate}
                 magazineEnabled={!!project.magazine}
+                homepageEnabled={!!project.homepage}
                 aboutEnabled={!!project.about}
                 orgChartEnabled={!!project.orgChart}
                 portfolioEnabled={!!project.portfolio}
