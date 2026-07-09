@@ -17,22 +17,10 @@ const vlad: ProjectConfig = {
   switcher: { rank: 40, parent: "reelflip" },
   name: "Vlad",
   description: "Internal ops portal for Vlad — personal influencer brand under Reelflip.",
-  // Same access as the Reelflip family (xvlad already included).
-  allowlist: [
-    "bielcx",
-    "xvlad",
-    "vaipraonde",
-    "mengao",
-    "louzoshi",
-    "willdias",
-    "reelflip",
-    "joaoparmagnani",
-    "keepkey",
-    "illithics",
-    "humbertoperes",
-    "r4topunk",
-    "nogenta",
-  ],
+  // Restricted to @xvlad for now (personal influencer portal). SOPA global
+  // admins still have access via their global role. Add more Hive usernames
+  // here to grant others.
+  allowlist: ["xvlad"],
   theme: {
     // Violet — distinct from lime (skatehive), red (gnars), cyan (reelflip).
     accentLight: "#7c3aed", // violet-600
