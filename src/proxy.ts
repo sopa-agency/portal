@@ -22,6 +22,10 @@ const PUBLIC_PATHS = [
   // number) — the SkateHive website fetches these cross-origin, no session.
   // Curation writes are server actions (separately session-gated), not here.
   "/api/magazine",
+  // Public reads of the curated homepage config (current published + draft
+  // preview by capability token) — skatehive3.0's /home fetches these
+  // cross-origin. Composition is server actions (session-gated), not here.
+  "/api/homepage",
   // Server-to-server, gated by NEWSLETTER_API_SECRET inside the route.
   "/api/newsletter/preference",
 ];
