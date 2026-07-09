@@ -9,8 +9,8 @@ import type { ProjectConfig } from "./types";
 // via the "Vlad" FB Page under the SkateHive Business Manager system user).
 // Hive posting wired as @xvlad (VLAD_HIVE_POSTING_KEY, from OpenClaw).
 // Socials: IG @skate.mkv, X @sk8ordao, Farcaster @skateboard, Hive @xvlad.
-// TODO(vlad): drop the logo at public/projects/vlad/logo.png, and confirm the
-// OpenClaw "secretário" agent id + workspace to enable the chat/briefings.
+// Agent: OpenClaw "secretario" (chat + briefing) over the shared gateway.
+// TODO(vlad): drop the logo at public/projects/vlad/logo.png.
 const vlad: ProjectConfig = {
   slug: "vlad",
   // Portal lives at vlad.reelflip.com (needs the subdomain pointed in Vercel/DNS).
@@ -83,10 +83,13 @@ const vlad: ProjectConfig = {
     persona: "Vlad's content lead — a personal influencer brand under Reelflip, Instagram-first (@skate.mkv), with cross-posts to X, Farcaster and Hive (via the SkateHive community)",
     voiceHint: "First-person, personal and direct; the creator's own voice — not corporate. Portuguese by default.",
   },
-  // The OpenClaw "secretário" agent runs Vlad's chat.
-  // TODO(vlad): confirm the real OpenClaw agent id + gateway env prefix. When the
-  // agent + workspace are confirmed, add it to briefingAgents for home briefings.
-  briefingAgents: [],
+  // The OpenClaw "secretario" agent runs Vlad's chat + home briefing. It's a
+  // registered agent (workspace-secretario) reached over the SHARED gateway
+  // (global GATEWAY_TOKEN / OPENCLAW_GATEWAY_URL, routed by agent id) — so no
+  // VLAD_GATEWAY_TOKEN is needed.
+  briefingAgents: [
+    { slug: "secretario", label: "Secretário", tabLabel: "SEC", workspace: "workspace-secretario" },
+  ],
   agent: {
     gatewayEnvPrefix: "VLAD",
     id: "secretario",
