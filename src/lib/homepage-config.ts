@@ -42,7 +42,7 @@ export type SpotPick = {
 // live USD amount is hydrated on sk3 from /api/poidh/bounties (amount is ETH
 // wei) × /api/prices. Hive-sourced bounties carry their own fields.
 export type BountyRef =
-  | { source: "poidh"; id: string; chainId: number; name: string; issuer: string; image?: string }
+  | { source: "poidh"; id: string; chainId: number; name: string; issuer: string; image?: string; amount?: string }
   | { source: "hive"; author: string; permlink: string; title: string; sponsor: string };
 
 // Kept for forward-compat; not rendered/edited in v1 (no home for it in the
@@ -183,6 +183,7 @@ export function sanitizeHomepageDoc(input: unknown): HomepageConfigDoc {
           name: str(r.name, 200),
           issuer: str(r.issuer, 64),
           image: isHttp(r.image) ? str(r.image, 1000) : undefined,
+          ...(typeof r.amount === "string" && r.amount ? { amount: str(r.amount, 40) } : {}),
         };
       return null;
     })

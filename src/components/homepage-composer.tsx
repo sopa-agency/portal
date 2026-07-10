@@ -467,7 +467,7 @@ function BountiesEditor({ bounties, onChange }: { bounties: BountyRef[]; onChang
   const has = (id: string) => bounties.some((b) => b.source === "poidh" && b.id === id);
   const toggle = (c: PickerBounty) => {
     if (has(c.id)) onChange(bounties.filter((b) => !(b.source === "poidh" && b.id === c.id)));
-    else onChange([...bounties, { source: "poidh", id: c.id, chainId: c.chainId, name: c.name, issuer: c.issuer, image: c.image ?? undefined }]);
+    else onChange([...bounties, { source: "poidh", id: c.id, chainId: c.chainId, name: c.name, issuer: c.issuer, image: c.image ?? undefined, amount: c.amount }]);
   };
   return (
     <Section title="Bounties" hint="Bounties abertos exibidos no card de recompensas. O valor em USD é calculado ao vivo no site.">
