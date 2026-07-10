@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import type { ProjectConfig } from "./types";
 import skatehive from "./skatehive";
 import gnars from "./gnars";
-import reelflip from "./reelflip";
 import sopa from "./sopa";
 import keepkey from "./keepkey";
 import nogenta from "./nogenta";
@@ -15,7 +14,6 @@ import vlad from "./vlad";
 export const PROJECT_REGISTRY: Record<string, ProjectConfig> = {
   skatehive,
   gnars,
-  reelflip,
   sopa,
   keepkey,
   nogenta,
@@ -119,11 +117,11 @@ export async function getActiveProject(): Promise<ProjectConfig> {
 }
 
 /** Parent company a brand sits under — brands in the same umbrella share an IG
- *  leads pool. Defaults to "reelflip" (every current portal). */
+ *  leads pool. Defaults to "sopa" (the top-level org). */
 export function projectUmbrella(project: ProjectConfig): string {
-  return (project.umbrella ?? "reelflip").toLowerCase();
+  return (project.umbrella ?? "sopa").toLowerCase();
 }
 
 // Re-export types and individual project configs for convenience.
 export type { ProjectConfig } from "./types";
-export { skatehive, gnars, reelflip, sopa, keepkey };
+export { skatehive, gnars, sopa, keepkey };

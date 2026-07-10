@@ -108,8 +108,8 @@ function toCard(r: {
   };
 }
 
-/** All cards for a board, ordered. Seeds the org-chart with SOPA → Reelflip +
- *  Blockwire on first load so the page is never empty. */
+/** All cards for a board, ordered. Seeds the org-chart with SOPA → Blockwire on
+ *  first load so the page is never empty. */
 export async function listBoard(board: BoardKind): Promise<BoardCard[]> {
   await assertSopa();
   let rows = await prisma.sopaBoard.findMany({
@@ -123,8 +123,7 @@ export async function listBoard(board: BoardKind): Promise<BoardCard[]> {
     });
     await prisma.sopaBoard.createMany({
       data: [
-        { board, parentId: root.id, title: "Reelflip", order: 0 },
-        { board, parentId: root.id, title: "Blockwire", order: 1 },
+        { board, parentId: root.id, title: "Blockwire", order: 0 },
       ],
     });
     rows = await prisma.sopaBoard.findMany({

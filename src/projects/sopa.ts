@@ -50,6 +50,7 @@ const sopa: ProjectConfig = {
     "/userbase",
     "/brain",
     "/analytics",
+    "/kanban",
   ],
   // No wallets of its own — the page shows the combined view of everything
   // the org operates (empty own group is filtered out).
@@ -60,12 +61,16 @@ const sopa: ProjectConfig = {
   orgChart: true,
   portfolio: true,
   meetings: true,
-  // SOPA is the hub: its Kanban aggregates every portal's board (read-only).
-  kanbanAggregate: true,
   treasury: {
-    // SOPA's own multisig (Safe on Base).
-    ethWallets: [{ label: "SOPA Safe", address: "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2" }],
-    includeProjects: ["reelflip", "gnars", "skatehive"],
+    ethWallets: [
+      // SOPA's own multisig (Safe on Base).
+      { label: "SOPA Safe", address: "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2" },
+      // Reelflip is retired as a portal, but keep its Safe here so the funds can
+      // be transferred out later.
+      { label: "Reelflip Safe", address: "0xF82e7290d6538fE365a0ed4E4AFB9ae9E1656485" },
+    ],
+    hiveAccounts: [{ label: "Reelflip Hive Account", account: "reelflip" }],
+    includeProjects: ["gnars", "skatehive"],
   },
   switcher: { rank: 0 },
   briefingAgents: [],
