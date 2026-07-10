@@ -14,6 +14,7 @@ import { createPrivateKey, sign } from "node:crypto";
 import WebSocket from "ws";
 import type { ProjectConfig } from "@/projects/types";
 import { projectEnv } from "@/projects/secrets";
+import { sanitizeForDb } from "@/lib/sanitize";
 
 // The `ws` library dispatches an `ErrorEvent` when a socket errors. That global
 // isn't defined in Vercel's serverless runtime, so an errored WS connection
@@ -362,7 +363,10 @@ async function callViaQueue(
 ): Promise<string> {
   const { prisma } = await import("@/lib/prisma");
   const job = await prisma.agentJob.create({
-    data: { agentSlug: agentId, prompt, timeoutMs },
+    // Sanitize: the prompt concatenates fetched content (Hive posts, the GitHub
+    // board, etc.) that can carry null bytes / lone surrogates, which Postgres
+    // rejects on a text column → "Invalid `prisma.agentJob.create()` invocation".
+    data: { agentSlug: agentId, prompt: sanitizeForDb(prompt), timeoutMs },
   });
   // Surface the AgentJob id so callers (the chat) can link it to a ChatJob and
   // keep polling the worker's result past the serverless function ceiling.
