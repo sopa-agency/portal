@@ -4,7 +4,7 @@ import type { ProjectConfig } from "./types";
 // Accent: Gnars red noggles — #d11d2a (light) / #ff3344 (dark).
 const gnars: ProjectConfig = {
   slug: "gnars",
-  switcher: { rank: 20, parent: "reelflip" },
+  switcher: { rank: 20, parent: "skatehive" },
   lab: true,
   zineStudio: true,
   name: "Gnars",

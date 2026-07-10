@@ -2,7 +2,8 @@ import type { ProjectConfig } from "./types";
 
 const skatehive: ProjectConfig = {
   slug: "skatehive",
-  switcher: { rank: 30, parent: "reelflip" },
+  // Umbrella of the group — top-level parent that Gnars and Nogenta nest under.
+  switcher: { rank: 10 },
   magazine: true,
   homepage: true,
   lab: true,

@@ -12,7 +12,7 @@ import type { ProjectConfig } from "./types";
 // until then, same pattern SOPA uses.
 const nogenta: ProjectConfig = {
   slug: "nogenta",
-  switcher: { rank: 50, parent: "reelflip" },
+  switcher: { rank: 30, parent: "skatehive" },
   zineStudio: true,
   name: "Nogenta",
   description: "Internal ops portal for Nogenta — skate editorial brand under the Reelflip family.",

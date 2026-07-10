@@ -14,7 +14,8 @@ import type { ProjectConfig } from "./types";
 const vlad: ProjectConfig = {
   slug: "vlad",
   // Portal lives at vlad.reelflip.com (needs the subdomain pointed in Vercel/DNS).
-  switcher: { rank: 40, parent: "reelflip" },
+  // Personal portal — top-level (only visible to its own allowlist).
+  switcher: { rank: 40 },
   name: "Vlad",
   description: "Internal ops portal for Vlad — personal influencer brand under Reelflip.",
   // Restricted to @xvlad for now (personal influencer portal). SOPA global
