@@ -7,7 +7,9 @@ const reelflip: ProjectConfig = {
   slug: "reelflip",
   // Portal lives at admin.reelflip.com (the apex/www is for the public site).
   subdomain: "admin",
-  switcher: { rank: 10 },
+  // Paused for now — hidden from the switcher so nobody enters through it.
+  // The portal URL still resolves; flip `hidden` back off to re-list it.
+  switcher: { rank: 10, hidden: true },
   lab: true,
   zineStudio: true,
   name: "Reelflip",
