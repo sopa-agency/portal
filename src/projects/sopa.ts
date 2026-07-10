@@ -50,7 +50,6 @@ const sopa: ProjectConfig = {
     "/userbase",
     "/brain",
     "/analytics",
-    "/kanban",
   ],
   // No wallets of its own — the page shows the combined view of everything
   // the org operates (empty own group is filtered out).
@@ -61,6 +60,10 @@ const sopa: ProjectConfig = {
   orgChart: true,
   portfolio: true,
   meetings: true,
+  // SOPA is the hub: its Kanban aggregates every registered portal's board
+  // (read-only). Reelflip's board drops out automatically now that the project
+  // is unregistered — no need to disable the whole aggregate.
+  kanbanAggregate: true,
   treasury: {
     ethWallets: [
       // SOPA's own multisig (Safe on Base).
