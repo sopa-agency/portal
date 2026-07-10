@@ -13,6 +13,10 @@ const nextConfig: NextConfig = {
   // Vercel function 500s with ENOENT.
   outputFileTracingIncludes: {
     "/api/studio/render": ["./public/studio/**/*", "./node_modules/@fontsource/inter/files/*"],
+    // Briefings read prompts/{agentSlug}.md via a DYNAMIC path, which file
+    // tracing can't resolve — bundle the whole dir so the Vercel function
+    // doesn't ENOENT (e.g. "Cannot read prompt for secretario").
+    "/**": ["./prompts/**/*"],
   },
   allowedDevOrigins: [
     "100.101.51.48",
