@@ -311,7 +311,8 @@ function StripEditor({ strip, onChange }: { strip: StripCard[]; onChange: (s: St
                       ) : <div className="flex h-full items-center justify-center text-foreground-faint"><ImagePlus className="h-5 w-5" /></div>}
                     </div>
                   </button>
-                  <input className={`${input} mt-2`} value={c.title} onChange={(e) => setSlot(i, { ...c, title: e.target.value })} placeholder="Título" />
+                  <input className={`${input} mt-2`} value={c.category ?? ""} onChange={(e) => setSlot(i, { ...c, category: e.target.value })} placeholder="Categoria (ex: STREET LIFE)" />
+                  <input className={`${input} mt-1.5`} value={c.title} onChange={(e) => setSlot(i, { ...c, title: e.target.value })} placeholder="Título" />
                   <div className="mt-1 flex justify-between">
                     <button type="button" onClick={() => setPickFor(i)} className="text-[11px] text-accent hover:underline">Trocar post</button>
                     <button type="button" onClick={() => setSlot(i, null)} className="text-[11px] text-danger hover:underline">Remover</button>

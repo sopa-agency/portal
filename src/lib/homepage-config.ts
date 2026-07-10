@@ -25,7 +25,7 @@ export type HeroSlide = {
   postRef?: PostRef; // source post (byline / re-hydration)
 };
 
-export type StripCard = { id: string; postRef: PostRef; image: string; title: string };
+export type StripCard = { id: string; postRef: PostRef; image: string; title: string; category?: string };
 export type JunkItem = { id: string; postRef: PostRef; thumb: string; title: string; blurb: string };
 export type FeaturedVideo = { postRef: PostRef; cover: string; title: string; caption: string };
 
@@ -133,7 +133,8 @@ export function sanitizeHomepageDoc(input: unknown): HomepageConfigDoc {
       const r = (c && typeof c === "object" ? c : {}) as Record<string, unknown>;
       const ref = postRef(r.postRef);
       if (!ref || !isHttp(r.image)) return null;
-      return { id: str(r.id, 64) || cryptoId(), postRef: ref, image: str(r.image, 1000), title: str(r.title, 200) };
+      const cat = str(r.category, 40);
+      return { id: str(r.id, 64) || cryptoId(), postRef: ref, image: str(r.image, 1000), title: str(r.title, 200), ...(cat ? { category: cat } : {}) };
     })
     .filter((x): x is StripCard => x !== null)
     .slice(0, 4);
