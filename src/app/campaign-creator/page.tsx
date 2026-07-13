@@ -9,12 +9,16 @@ import { campaignProgress } from "@/lib/campaign-kind";
 import { prisma } from "@/lib/prisma";
 import { ageFromDate } from "@/lib/utils";
 import { getActiveProject } from "@/projects";
+import { hackmdConfigured, listHackmdNotes, type HackmdNote } from "@/lib/hackmd";
 
 export default async function CampaignCreatorPage() {
   let campaigns: { id: string; name: string; updatedAt: string; docCount: number; posted: number; publishable: number }[] = [];
   let dbError = false;
 
   const project = await getActiveProject();
+  // Team HackMD notes → "start a campaign from a HackMD doc" (best-effort).
+  let hackmdNotes: HackmdNote[] = [];
+  if (hackmdConfigured()) hackmdNotes = await listHackmdNotes(12).catch(() => []);
   try {
     const rows = await prisma.campaign.findMany({
       where: { archivedAt: null, projectSlug: project.slug },
@@ -107,6 +111,40 @@ export default async function CampaignCreatorPage() {
           ))}
         </div>
       </section>
+
+      {hackmdNotes.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground-subtle">
+              Start from a HackMD doc
+            </h2>
+            <p className="text-[11px] text-foreground-subtle">
+              Turns a HackMD note (event doc, ata…) into the campaign brief.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {hackmdNotes.map((note) => (
+              <form key={note.id} action={createCampaign}>
+                <input type="hidden" name="hackmdNoteId" value={note.id} />
+                <input type="hidden" name="name" value={note.title} />
+                <button
+                  type="submit"
+                  className="group flex w-full flex-col items-start gap-2 rounded-xl border border-border bg-surface/70 p-4 text-left transition hover:border-accent-border hover:bg-accent-bg"
+                >
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent-bg text-accent">
+                      <FileText className="h-4 w-4" />
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-foreground-subtle transition group-hover:translate-x-0.5 group-hover:text-accent" />
+                  </div>
+                  <p className="line-clamp-2 text-sm font-semibold text-foreground">{note.title}</p>
+                  <p className="text-[11px] text-foreground-subtle">HackMD</p>
+                </button>
+              </form>
+            ))}
+          </div>
+        </section>
+      )}
 
       <CampaignGrid campaigns={campaigns} />
     </div>

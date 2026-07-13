@@ -8,6 +8,7 @@ import { type TaskDeadline } from "@/app/actions/kanban";
 import { MEETING_AI_INSTRUCTION } from "@/lib/ai-prompts";
 import { ImproveAiButton } from "@/components/improve-ai-button";
 import { CopyButton } from "@/components/copy-button";
+import { MeetingAtaPanel } from "@/components/meeting-ata-panel";
 import { addSharedCalendar, deleteSharedCalendar, getAvailability, getCalendarConnectInfo, type SharedCalendarDTO, type BusyBlock, type TeamAvail } from "@/app/actions/shared-calendars";
 
 type RosterMember = { username: string; email: string | null; avatarUrl: string; github?: string | null };
@@ -842,6 +843,17 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                 <CalendarClock className="h-3.5 w-3.5" /> Ver no Google Calendar
               </a>
             )}
+            {/* Post-meeting: ata + action items + Kanban cards (existing meetings only) */}
+            {editor.id && (() => {
+              const m = meetings.find((x) => x.id === editor.id);
+              return m ? (
+                <MeetingAtaPanel
+                  meeting={m}
+                  projects={projects}
+                  onUpdated={(updated) => setMeetings((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))}
+                />
+              ) : null;
+            })()}
             {err && <p className="text-xs text-danger">{err}</p>}
             <div className="flex items-center gap-2">
               <button type="button" onClick={save} disabled={saving} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">

@@ -19,6 +19,8 @@ import { SopaBriefing, type SopaActionGroup } from "@/components/sopa-briefing";
 import { ForYou, type ForYouMention } from "@/components/for-you";
 import { KanbanActivity } from "@/components/kanban-activity";
 import { fetchKanbanActivity } from "@/lib/github-project";
+import { MeetingCoordination } from "@/components/meeting-coordination";
+import { getOpenMeetingActions } from "@/lib/meetings-context";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
@@ -146,12 +148,18 @@ export default async function Home() {
     }
 
     // GitHub kanban activity across every portal's board (straight from GitHub).
-    const activity = await fetchKanbanActivity(80).catch(() => []);
+    // Open action items from recent meetings → Coordenação panel.
+    const [activity, openActions] = await Promise.all([
+      fetchKanbanActivity(80).catch(() => []),
+      getOpenMeetingActions().catch(() => []),
+    ]);
+    const projectNames = Object.fromEntries(getAllProjects().map((p) => [p.slug, p.name]));
 
     return (
       <div className="space-y-7">
         <PageHeader eyebrow={`Daily · ${today}`} title="SOPA" description="Resumo de next actions de todos os portais." />
         {forYou ? <ForYou username={forYou.username} tasks={forYou.tasks} mentions={forYou.mentions} /> : null}
+        <MeetingCoordination actions={openActions} projectNames={projectNames} today={today} />
         <SopaBriefing groups={groups} today={today} />
         <KanbanActivity events={activity} />
       </div>

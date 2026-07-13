@@ -765,6 +765,15 @@ model Meeting {
   attendees   String[] @default([]) // emails invited to the meeting
   googleEventId String? // id of the mirrored event on the primary Google Calendar
   googleEventUrl String? // htmlLink to view the event in Google Calendar
+  // Post-meeting layer: the raw transcript, an AI/edited summary (the "ata"),
+  // an optional HackMD link to the published ata, and the extracted action
+  // items (JSON: see MeetingActionItem in src/lib/meeting-actions.ts). Action
+  // items track the GitHub card they spawned so the loop closes (done = card
+  // closed) and re-running never duplicates.
+  transcript  String?  @db.Text
+  summary     String?  @db.Text
+  summaryUrl  String? // HackMD (or other) published-ata URL
+  actionItems Json     @default("[]")
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

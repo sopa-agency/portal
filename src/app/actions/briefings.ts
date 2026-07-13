@@ -16,6 +16,7 @@ import {
   getProjectSocialMetricsContext,
 } from "@/lib/social-insights-core";
 import { getProjectKanbanContext } from "@/lib/kanban-context";
+import { getProjectMeetingsContext } from "@/lib/meetings-context";
 import { fetchRecentCommits } from "@/lib/github-project";
 import { sanitizeForDb } from "@/lib/sanitize";
 
@@ -102,11 +103,12 @@ async function assembleBriefingPrompt(
     }
   }
 
-  // Live social numbers + GitHub Project board, in parallel — grounding the
-  // agent should use as-is instead of re-fetching.
-  const [liveNumbers, kanban] = await Promise.all([
+  // Live social numbers + GitHub Project board + recent meeting decisions, in
+  // parallel — grounding the agent should use as-is instead of re-fetching.
+  const [liveNumbers, kanban, meetings] = await Promise.all([
     getProjectSocialMetricsContext(project),
     getProjectKanbanContext(project),
+    getProjectMeetingsContext(project),
   ]);
   if (liveNumbers) {
     prompt +=
@@ -117,6 +119,11 @@ async function assembleBriefingPrompt(
     prompt +=
       "\n\n=== GitHub Project board, fetched THIS run — current kanban state; ground priorities/blockers in it, label [board] ===\n" +
       kanban;
+  }
+  if (meetings) {
+    prompt +=
+      "\n\n=== [meetings] Decisões e ações das reuniões recentes — inclua uma seção '## Coordenação' cobrando as ações em aberto (dono + prazo), e cruze-as com o board ===\n" +
+      meetings;
   }
 
   // Anchor for incremental work: the timestamp of this agent's last briefing.
