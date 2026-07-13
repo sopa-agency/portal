@@ -161,7 +161,23 @@ export async function createCampaign(formData: FormData) {
 
   const rawName = (formData.get("name") as string | null)?.trim();
   const name = rawName || template?.name || "Untitled campaign";
-  const briefContent = template?.briefSeed ?? "";
+  let briefContent = template?.briefSeed ?? "";
+
+  // Seed the brief from a HackMD note when one is chosen (the meeting → campaign
+  // flow: a HackMD doc becomes the campaign brief that drives artifact/post gen).
+  const hackmdNoteId = ((formData.get("hackmdNoteId") as string | null) ?? "").trim();
+  if (hackmdNoteId) {
+    try {
+      const { hackmdConfigured, getHackmdNoteContent } = await import("@/lib/hackmd");
+      if (hackmdConfigured()) {
+        const content = await getHackmdNoteContent(hackmdNoteId);
+        if (content.trim()) briefContent = content;
+      }
+    } catch {
+      /* note fetch failed — fall back to the template seed / empty brief */
+    }
+  }
+
   const campaign = await prisma.campaign.create({
     data: {
       name,

@@ -50,3 +50,6 @@ next-env.d.ts
 /tmp/
 .playwright-cli/
 .playwright-mcp/
+
+# meeting recordings (local only — audio + transcripts, never commit)
+sopa meetings/
