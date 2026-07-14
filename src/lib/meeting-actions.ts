@@ -31,6 +31,18 @@ export type MeetingActionItem = {
   cardUrl: string | null;
 };
 
+/** One dated occurrence of a meeting, with its ata + actions. */
+export type OccurrenceDTO = {
+  id: string;
+  meetingId: string;
+  occurredOn: string; // ISO
+  hackmdUrl: string | null;
+  transcript: string | null;
+  summary: string | null;
+  actionItems: MeetingActionItem[];
+  googleEventId: string | null;
+};
+
 /** Coerce whatever is in the JSON column into a clean, typed array. */
 export function parseActionItems(value: unknown): MeetingActionItem[] {
   if (!Array.isArray(value)) return [];
