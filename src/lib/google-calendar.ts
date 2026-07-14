@@ -166,6 +166,77 @@ export async function upsertCalendarEvent(
   return data.id ? { ok: true, eventId: data.id, url: data.htmlLink ?? null } : { error: "Calendar: resposta sem id de evento." };
 }
 
+// Portal-managed block inside an event's description. We own only this block —
+// anything the user typed around it is preserved across updates.
+const ATA_MARK = "— Ata (portal) —";
+
+function mergeAtaBlock(existing: string | undefined, ataText: string): string {
+  const base = (existing ?? "").split(ATA_MARK)[0].trimEnd();
+  return `${base}${base ? "\n\n" : ""}${ATA_MARK}\n${ataText}`.trim();
+}
+
+/**
+ * Write the ata link/TL;DR into the description of the SPECIFIC occurrence of a
+ * (possibly recurring) event. For a weekly series we resolve the instance on
+ * `occurredOnISO` and patch just that instance (creating an exception); for a
+ * one-off event we patch it directly. Returns the patched event/instance id so
+ * the caller can store it on the occurrence. Best-effort — never throws.
+ */
+export async function attachAtaToOccurrence(
+  calendarId: string,
+  eventId: string,
+  occurredOnISO: string,
+  ataText: string,
+): Promise<{ ok: true; instanceId: string } | { error: string }> {
+  const tok = await getAccessToken(["https://www.googleapis.com/auth/calendar.events"]);
+  if ("error" in tok) return { error: tok.error };
+  const auth = { Authorization: `Bearer ${tok.token}` };
+  const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+
+  // Resolve the instance covering that day (works only for recurring events).
+  const day = new Date(occurredOnISO);
+  const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart.getTime() + 36 * 3600_000);
+  let targetId = eventId;
+  let existingDesc: string | undefined;
+  try {
+    const iu = new URL(`${base}/${encodeURIComponent(eventId)}/instances`);
+    iu.searchParams.set("timeMin", dayStart.toISOString());
+    iu.searchParams.set("timeMax", dayEnd.toISOString());
+    iu.searchParams.set("maxResults", "5");
+    const ir = await fetch(iu, { headers: auth, signal: AbortSignal.timeout(9000) });
+    if (ir.ok) {
+      const d = (await ir.json()) as { items?: { id: string; description?: string; start?: { dateTime?: string } }[] };
+      const inst = d.items?.[0];
+      if (inst?.id) { targetId = inst.id; existingDesc = inst.description; }
+    }
+  } catch { /* not recurring / no access — fall through to base event */ }
+
+  // If we didn't get an instance description, read the base event's.
+  if (existingDesc === undefined) {
+    try {
+      const er = await fetch(`${base}/${encodeURIComponent(targetId)}`, { headers: auth, signal: AbortSignal.timeout(9000) });
+      if (er.ok) existingDesc = ((await er.json()) as { description?: string }).description;
+    } catch { /* ignore */ }
+  }
+
+  const res = await fetch(`${base}/${encodeURIComponent(targetId)}`, {
+    method: "PATCH",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify({ description: mergeAtaBlock(existingDesc, ataText) }),
+    signal: AbortSignal.timeout(9000),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    const hint = /notFound|forbidden|insufficient|writer access|accessNotConfigured|not.*enabled/i.test(body)
+      ? " — confira o compartilhamento do calendário com a service account (editar eventos)"
+      : "";
+    return { error: `Calendar HTTP ${res.status}${hint}` };
+  }
+  const data = (await res.json()) as { id?: string };
+  return { ok: true, instanceId: data.id ?? targetId };
+}
+
 export async function deleteCalendarEvent(calendarId: string, eventId: string): Promise<{ ok: boolean; error?: string }> {
   const tok = await getAccessToken(["https://www.googleapis.com/auth/calendar.events"]);
   if ("error" in tok) return { ok: false, error: tok.error };

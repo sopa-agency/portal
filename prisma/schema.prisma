@@ -778,7 +778,34 @@ model Meeting {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  occurrences MeetingOccurrence[]
+
   @@index([projectSlug, startsAt])
+}
+
+// One dated instance of a Meeting (a weekly series has many; a one-off has one).
+// The ata lives HERE, per occurrence: HackMD holds the canonical prose (hackmdUrl),
+// the portal caches the summary + keeps the machine-usable actionItems (they drive
+// Kanban cards / briefing), and googleEventId points at the specific Calendar
+// instance whose description carries the ata link.
+model MeetingOccurrence {
+  id            String   @id @default(cuid())
+  meetingId     String
+  projectSlug   String
+  occurredOn    DateTime // the date/time of this specific occurrence
+  googleEventId String? // the Calendar INSTANCE id whose description holds the link
+  hackmdUrl     String? // canonical ata (HackMD)
+  transcript    String?  @db.Text
+  summary       String?  @db.Text // cached prose (HackMD is canonical)
+  actionItems   Json     @default("[]")
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, occurredOn])
+  @@index([projectSlug, occurredOn])
 }
 
 // A team member's calendar feed (iCal/ICS URL) for availability overlay.

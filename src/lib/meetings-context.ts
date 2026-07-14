@@ -30,17 +30,17 @@ export type OpenMeetingAction = {
  * the Coordenação panel on the SOPA home. Newest meetings first, then by
  * priority. `take` bounds how many meetings we scan.
  */
-export async function getOpenMeetingActions(take = 6): Promise<OpenMeetingAction[]> {
+export async function getOpenMeetingActions(take = 8): Promise<OpenMeetingAction[]> {
   try {
-    const rows = await prisma.meeting.findMany({
+    const rows = await prisma.meetingOccurrence.findMany({
       where: { projectSlug: "sopa" },
-      orderBy: { startsAt: "desc" },
+      orderBy: { occurredOn: "desc" },
       take,
-      select: { id: true, title: true, startsAt: true, actionItems: true },
+      include: { meeting: { select: { title: true } } },
     });
     const out: OpenMeetingAction[] = [];
     for (const m of rows) {
-      const date = m.startsAt.toISOString().slice(0, 10);
+      const date = m.occurredOn.toISOString().slice(0, 10);
       for (const it of parseActionItems(m.actionItems)) {
         if (it.done) continue;
         out.push({
@@ -51,8 +51,8 @@ export async function getOpenMeetingActions(take = 6): Promise<OpenMeetingAction
           priority: it.priority,
           deadline: it.deadline,
           carded: !!it.cardItemId,
-          meetingId: m.id,
-          meetingTitle: m.title,
+          meetingId: m.meetingId,
+          meetingTitle: m.meeting.title,
           meetingDate: date,
         });
       }
@@ -70,11 +70,11 @@ export async function getOpenMeetingActions(take = 6): Promise<OpenMeetingAction
 
 export async function getProjectMeetingsContext(project: ProjectConfig): Promise<string> {
   try {
-    const rows = await prisma.meeting.findMany({
+    const rows = await prisma.meetingOccurrence.findMany({
       where: { projectSlug: "sopa" },
-      orderBy: { startsAt: "desc" },
+      orderBy: { occurredOn: "desc" },
       take: MAX_MEETINGS,
-      select: { title: true, startsAt: true, summary: true, actionItems: true },
+      include: { meeting: { select: { title: true } } },
     });
     if (!rows.length) return "";
 
@@ -83,10 +83,10 @@ export async function getProjectMeetingsContext(project: ProjectConfig): Promise
     type Line = { text: string; priority: number; deadline: string | null; owner: string | null; meeting: string };
     const open: Line[] = [];
     for (const m of rows) {
-      const when = m.startsAt.toISOString().slice(0, 10);
+      const when = m.occurredOn.toISOString().slice(0, 10);
       for (const it of parseActionItems(m.actionItems)) {
         if (it.done || !relevant(it.project)) continue;
-        open.push({ text: it.text, priority: it.priority, deadline: it.deadline, owner: it.owner, meeting: `${m.title} (${when})` });
+        open.push({ text: it.text, priority: it.priority, deadline: it.deadline, owner: it.owner, meeting: `${m.meeting.title} (${when})` });
       }
     }
     if (!open.length && !rows[0]?.summary) return "";
@@ -96,9 +96,9 @@ export async function getProjectMeetingsContext(project: ProjectConfig): Promise
 
     const blocks: string[] = [];
     const last = rows[0];
-    const lastWhen = last.startsAt.toISOString().slice(0, 10);
+    const lastWhen = last.occurredOn.toISOString().slice(0, 10);
     if (last.summary) {
-      blocks.push(`Última reunião: ${last.title} (${lastWhen}).`);
+      blocks.push(`Última reunião: ${last.meeting.title} (${lastWhen}).`);
       blocks.push(last.summary.slice(0, 1200));
     }
     if (open.length) {
