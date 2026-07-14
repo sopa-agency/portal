@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, Sparkles, KanbanSquare, Plus, Trash2, ExternalLink, Check } from "lucide-react";
+import { Loader2, Sparkles, KanbanSquare, Plus, Trash2, ExternalLink, Check, Pencil, Eye } from "lucide-react";
+import { MarkdownContent } from "@/components/markdown-content";
 import {
   extractMeetingActions,
   saveMeetingSummary,
@@ -43,6 +44,7 @@ export function MeetingAtaPanel({
   const [busy, setBusy] = useState<null | "extract" | "save" | "cards" | "hackmd">(null);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [editingSummary, setEditingSummary] = useState(false);
 
   // Union of every project's members → owner dropdown.
   const usernames = useMemo(() => {
@@ -149,17 +151,34 @@ export function MeetingAtaPanel({
         Extrair ata + ações com IA
       </button>
 
-      {/* Summary */}
+      {/* Summary — rendered markdown by default, toggle to edit */}
       {(summary || items.length > 0) && (
         <div className="space-y-1">
-          <span className="text-[11px] text-foreground-muted">Resumo (ata)</span>
-          <textarea
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            rows={5}
-            placeholder="Resumo em markdown"
-            className="w-full resize-y rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
-          />
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-foreground-muted">Resumo (ata)</span>
+            <button
+              type="button"
+              onClick={() => setEditingSummary((v) => !v)}
+              className="flex items-center gap-1 text-[11px] text-foreground-muted hover:text-foreground"
+            >
+              {editingSummary ? <><Eye className="h-3 w-3" /> ver</> : <><Pencil className="h-3 w-3" /> editar</>}
+            </button>
+          </div>
+          {editingSummary ? (
+            <textarea
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              rows={14}
+              placeholder="Resumo em markdown"
+              className="w-full resize-y rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-foreground focus:border-border-strong focus:outline-none"
+            />
+          ) : summary ? (
+            <div className="max-h-[55vh] overflow-y-auto rounded-md border border-border bg-surface px-4 py-3">
+              <MarkdownContent markdown={summary} />
+            </div>
+          ) : (
+            <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-foreground-faint">Sem resumo ainda — extraia com a IA.</p>
+          )}
         </div>
       )}
 

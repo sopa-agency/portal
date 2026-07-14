@@ -719,7 +719,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
       {/* Editor */}
       {editor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setEditor(null)}>
-          <div className="max-h-[88vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className={`max-h-[92vh] w-full space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl ${editor.id ? "max-w-3xl" : "max-w-lg"}`} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-foreground">{editor.id ? "Editar reunião" : "Nova reunião"}</h2>
               <button type="button" onClick={() => setEditor(null)} className="text-foreground-faint hover:text-foreground"><X className="h-4 w-4" /></button>
