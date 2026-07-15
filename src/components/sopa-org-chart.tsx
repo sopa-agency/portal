@@ -15,6 +15,8 @@ import {
   listOrgRepos,
   getRevenueBalances,
   getRevenueTrends,
+  getRevenueFlows,
+  type RevenueFlowResult,
 } from "@/app/actions/sopa-boards";
 import type { RevenueTrend } from "@/lib/revenue-snapshots";
 import { uploadSopaLogo } from "@/lib/sopa-logo-upload";
@@ -92,6 +94,39 @@ function Sparkline({ points }: { points: { usd: number }[] }) {
     <svg width={W} height={H} className="shrink-0" aria-hidden>
       <path d={d} fill="none" stroke={up ? "#10b981" : "#f43f5e"} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
+  );
+}
+
+/** Cumulative-received area chart (on-chain revenue/profit curve) for one address. */
+function RevenueChart({ series }: { series: { t: string; usd: number }[] }) {
+  if (series.length < 2) return null;
+  const W = 260;
+  const H = 44;
+  const t0 = Date.parse(series[0].t);
+  const t1 = Date.parse(series[series.length - 1].t) || t0 + 1;
+  const span = t1 - t0 || 1;
+  const max = series[series.length - 1].usd || 1; // cumulative → last is max
+  const pt = (p: { t: string; usd: number }) => {
+    const x = ((Date.parse(p.t) - t0) / span) * W;
+    const y = H - (p.usd / max) * (H - 4) - 2;
+    return [x, y] as const;
+  };
+  const line = series.map((p, i) => { const [x, y] = pt(p); return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`; }).join(" ");
+  const [lastX, lastY] = pt(series[series.length - 1]);
+  const area = `${line} L${lastX.toFixed(1)},${H} L0,${H} Z`;
+  const fmtT = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return (
+    <div className="w-full">
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block" style={{ height: H }} aria-hidden>
+        <path d={area} fill="#10b98122" />
+        <path d={line} fill="none" stroke="#10b981" strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+      <div className="flex justify-between text-[9px] text-foreground-faint">
+        <span>{fmtT(series[0].t)}</span>
+        <span>recebido acumulado</span>
+        <span>{fmtT(series[series.length - 1].t)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -522,19 +557,24 @@ function CardDialog({
   // Live balances + historical trends for tracked rows, keyed by chain:address.
   const [balances, setBalances] = useState<Record<string, RevenueBalance>>({});
   const [trends, setTrends] = useState<Record<string, RevenueTrend>>({});
+  const [flows, setFlows] = useState<Record<string, RevenueFlowResult>>({});
   const [balLoading, setBalLoading] = useState(false);
   const tracked = revRows.filter((r) => r.kind !== "manual" && r.address?.trim());
   async function refreshBalances() {
     if (!tracked.length) return;
     setBalLoading(true);
-    const r = await getRevenueBalances(tracked.map((t) => ({ chain: t.chain, address: t.address!.trim() })));
+    const targets = tracked.map((t) => ({ chain: t.chain, address: t.address!.trim() }));
+    const [r, f] = await Promise.all([
+      getRevenueBalances(targets),
+      getRevenueFlows(targets).catch(() => null),
+    ]);
     if (r.ok) {
       setBalances(Object.fromEntries(r.balances.map((b) => [b.key, b])));
-      // Deltas/sparkline compared against the live values we just fetched.
       const currentUsd = Object.fromEntries(r.balances.map((b) => [b.key, b.totalUsd]));
       const t = await getRevenueTrends(card.id, currentUsd).catch(() => null);
       if (t?.ok) setTrends(Object.fromEntries(t.trends.map((x) => [x.key, x])));
     }
+    if (f?.ok) setFlows(Object.fromEntries(f.flows.map((x) => [x.key, x])));
     setBalLoading(false);
   }
   const trackedTotal = tracked.reduce((s, t) => s + (balances[balanceKey(t.chain, t.address!)]?.totalUsd ?? 0), 0);
@@ -942,6 +982,22 @@ function CardDialog({
                               <Sparkline points={tr.points} />
                               {chip("7d", tr.delta7d)}
                               {chip("30d", tr.delta30d)}
+                            </div>
+                          );
+                        })()}
+                        {(() => {
+                          const key = r.address?.trim() ? balanceKey(r.chain, r.address) : "";
+                          const fl = key ? flows[key] : undefined;
+                          if (!fl || fl.error) return null;
+                          return (
+                            <div className="mt-1 rounded-md border border-border bg-surface-elevated p-2">
+                              <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
+                                <span className="text-foreground-muted">Recebido <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(fl.receivedUsd)}</span></span>
+                                <span className="text-foreground-muted">Pago/saiu <span className="font-semibold text-foreground">{usd(fl.paidUsd)}</span></span>
+                                {bal && <span className="text-foreground-muted">Dentro <span className="font-semibold text-foreground">{usd(bal.totalUsd)}</span></span>}
+                                {fl.truncated && <span className="text-warning" title="histórico longo — mostrando parte">parcial</span>}
+                              </div>
+                              <RevenueChart series={fl.series} />
                             </div>
                           );
                         })()}
