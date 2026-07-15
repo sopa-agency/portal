@@ -257,6 +257,30 @@ export async function getRevenueBalances(
   return { ok: true, balances };
 }
 
+export type RevenueFlowResult = { key: string } & import("@/lib/revenue-onchain").RevenueFlow;
+
+/** On-chain flow history (received / paid-out / cumulative-received series) for the
+ *  given tracked addresses, via keyless Blockscout. Keyed by "<chain|all>:<addr>". */
+export async function getRevenueFlows(
+  targets: { chain: string | null; address: string }[],
+): Promise<{ ok: true; flows: RevenueFlowResult[] } | { ok: false; error: string }> {
+  await assertSopa();
+  const { fetchAddressFlows } = await import("@/lib/revenue-onchain");
+  const keyOf = (t: { chain: string | null; address: string }) => `${t.chain ?? "all"}:${t.address.trim().toLowerCase()}`;
+  const uniq = new Map<string, { chain: string | null; address: string }>();
+  for (const t of targets) {
+    if (!t.address?.trim()) continue;
+    uniq.set(keyOf(t), { chain: t.chain, address: t.address.trim() });
+  }
+  const flows = await Promise.all(
+    [...uniq.entries()].map(async ([key, t]) => {
+      const f = await fetchAddressFlows(t.address, t.chain).catch((e) => ({ receivedUsd: 0, paidUsd: 0, series: [], truncated: false, error: String(e) }));
+      return { key, ...f } as RevenueFlowResult;
+    }),
+  );
+  return { ok: true, flows };
+}
+
 /** Historical trend (Δ7d/Δ30d + sparkline points) for a card's tracked addresses,
  *  compared against the current live balances the client just fetched. */
 export async function getRevenueTrends(
