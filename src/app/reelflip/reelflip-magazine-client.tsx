@@ -40,12 +40,13 @@ type FlatPage = {
   slideCount: number;
 };
 
-const MediaPage = forwardRef<HTMLDivElement, { flat: FlatPage }>(function MediaPage(
-  { flat },
+const MediaPage = forwardRef<HTMLDivElement, { flat: FlatPage; priority?: boolean }>(function MediaPage(
+  { flat, priority = false },
   ref,
 ) {
   const { post, item, slide, slideCount } = flat;
   const [playing, setPlaying] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const isFirst = slide === 0;
   const caption = (post.caption ?? "").trim();
   const date = new Date(post.postedAt).toLocaleDateString("pt-BR", {
@@ -77,9 +78,19 @@ const MediaPage = forwardRef<HTMLDivElement, { flat: FlatPage }>(function MediaP
       <img
         src={item.kind === "video" ? (item.poster ?? post.coverUrl) : item.url}
         alt=""
-        className="h-full w-full object-cover"
+        onLoad={() => setImgLoaded(true)}
+        className={`h-full w-full object-cover transition-opacity duration-500 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
         draggable={false}
-        loading="lazy"
+        loading={priority ? "eager" : "lazy"}
+        decoding="async"
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {...({ fetchpriority: priority ? "high" : "low" } as any)}
+      />
+      {/* Magazine gutter: subtle shadow toward both binding edges, flips with the
+          page so wherever the spine falls it reads as a real crease. */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ background: "linear-gradient(90deg, rgba(0,0,0,.34) 0%, transparent 11%, transparent 89%, rgba(0,0,0,.34) 100%)" }}
       />
 
       {item.kind === "video" && (
@@ -222,6 +233,10 @@ export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[
             alt=""
             className="absolute inset-0 h-full w-full object-cover opacity-40"
             draggable={false}
+            loading="eager"
+            decoding="async"
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            {...({ fetchpriority: "high" } as any)}
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/30 to-black/90" />
@@ -241,8 +256,8 @@ export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[
         </div>
       </Page>
     );
-    const mediaPages = flatPages.map((flat) => (
-      <MediaPage key={`${flat.post.id}-${flat.slide}`} flat={flat} />
+    const mediaPages = flatPages.map((flat, i) => (
+      <MediaPage key={`${flat.post.id}-${flat.slide}`} flat={flat} priority={i < 3} />
     ));
     const back = (
       <Page key="back" className="flex flex-col items-center justify-center gap-5 text-center">
