@@ -281,6 +281,30 @@ export async function getRevenueFlows(
   return { ok: true, flows };
 }
 
+export type RealizedRevenueResult = { key: string } & import("@/lib/revenue-onchain").RealizedRevenue;
+
+/** Realized gross revenue via decoded events (AuctionSettled / SplitDistributed) —
+ *  the accurate NFT-auction / split-distribution income, keyed by "<chain|all>:<addr>". */
+export async function getRevenueRealized(
+  targets: { chain: string | null; address: string }[],
+): Promise<{ ok: true; realized: RealizedRevenueResult[] } | { ok: false; error: string }> {
+  await assertSopa();
+  const { fetchOnchainRevenue } = await import("@/lib/revenue-onchain");
+  const keyOf = (t: { chain: string | null; address: string }) => `${t.chain ?? "all"}:${t.address.trim().toLowerCase()}`;
+  const uniq = new Map<string, { chain: string | null; address: string }>();
+  for (const t of targets) {
+    if (!t.address?.trim()) continue;
+    uniq.set(keyOf(t), { chain: t.chain, address: t.address.trim() });
+  }
+  const realized = await Promise.all(
+    [...uniq.entries()].map(async ([key, t]) => {
+      const r = await fetchOnchainRevenue(t.address, t.chain).catch(() => ({ method: "none" as const, revenueUsd: 0, count: 0, series: [], truncated: false }));
+      return { key, ...r } as RealizedRevenueResult;
+    }),
+  );
+  return { ok: true, realized };
+}
+
 /** Historical trend (Δ7d/Δ30d + sparkline points) for a card's tracked addresses,
  *  compared against the current live balances the client just fetched. */
 export async function getRevenueTrends(

@@ -16,7 +16,9 @@ import {
   getRevenueBalances,
   getRevenueTrends,
   getRevenueFlows,
+  getRevenueRealized,
   type RevenueFlowResult,
+  type RealizedRevenueResult,
 } from "@/app/actions/sopa-boards";
 import type { RevenueTrend } from "@/lib/revenue-snapshots";
 import { uploadSopaLogo } from "@/lib/sopa-logo-upload";
@@ -558,15 +560,17 @@ function CardDialog({
   const [balances, setBalances] = useState<Record<string, RevenueBalance>>({});
   const [trends, setTrends] = useState<Record<string, RevenueTrend>>({});
   const [flows, setFlows] = useState<Record<string, RevenueFlowResult>>({});
+  const [realized, setRealized] = useState<Record<string, RealizedRevenueResult>>({});
   const [balLoading, setBalLoading] = useState(false);
   const tracked = revRows.filter((r) => r.kind !== "manual" && r.address?.trim());
   async function refreshBalances() {
     if (!tracked.length) return;
     setBalLoading(true);
     const targets = tracked.map((t) => ({ chain: t.chain, address: t.address!.trim() }));
-    const [r, f] = await Promise.all([
+    const [r, f, rr] = await Promise.all([
       getRevenueBalances(targets),
       getRevenueFlows(targets).catch(() => null),
+      getRevenueRealized(targets).catch(() => null),
     ]);
     if (r.ok) {
       setBalances(Object.fromEntries(r.balances.map((b) => [b.key, b])));
@@ -575,6 +579,7 @@ function CardDialog({
       if (t?.ok) setTrends(Object.fromEntries(t.trends.map((x) => [x.key, x])));
     }
     if (f?.ok) setFlows(Object.fromEntries(f.flows.map((x) => [x.key, x])));
+    if (rr?.ok) setRealized(Object.fromEntries(rr.realized.map((x) => [x.key, x])));
     setBalLoading(false);
   }
   const trackedTotal = tracked.reduce((s, t) => s + (balances[balanceKey(t.chain, t.address!)]?.totalUsd ?? 0), 0);
@@ -987,7 +992,26 @@ function CardDialog({
                         })()}
                         {(() => {
                           const key = r.address?.trim() ? balanceKey(r.chain, r.address) : "";
-                          const fl = key ? flows[key] : undefined;
+                          if (!key) return null;
+                          const rr = realized[key];
+                          const fl = flows[key];
+                          // Auction/split → accurate event-based revenue (no refund/spend noise).
+                          if (rr && rr.method !== "none" && rr.count > 0) {
+                            const label = rr.method === "auction" ? `${rr.count} leilões` : `${rr.count} distribuições`;
+                            const title = rr.method === "auction" ? "Receita de leilões" : "Distribuído (split)";
+                            return (
+                              <div className="mt-1 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2">
+                                <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
+                                  <span className="text-foreground-muted">{rr.method === "auction" ? "🔨" : "💧"} {title} <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(rr.revenueUsd)}</span></span>
+                                  <span className="text-foreground-faint">{label}</span>
+                                  {bal && <span className="text-foreground-muted">· dentro agora <span className="font-semibold text-foreground">{usd(bal.totalUsd)}</span></span>}
+                                  {rr.truncated && <span className="text-warning">parcial</span>}
+                                </div>
+                                <RevenueChart series={rr.series} />
+                              </div>
+                            );
+                          }
+                          // Wallet / other → gross in/out flows (rough proxy).
                           if (!fl || fl.error) return null;
                           return (
                             <div className="mt-1 rounded-md border border-border bg-surface-elevated p-2">
