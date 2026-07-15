@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, Brain, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 const NAV = [
@@ -16,7 +16,6 @@ const NAV = [
   { href: "/curadoria", label: "Engagement", icon: Heart, requiresFarcasterTrail: true },
   { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone },
   { href: "/userbase", label: "Userbase", icon: Users },
-  { href: "/brain", label: "Brain", icon: Brain },
   { href: "/analytics", label: "Analytics", icon: ChartColumn },
   { href: "/kanban", label: "Kanban", icon: SquareKanban, requiresKanban: true },
   { href: "/magazine", label: "Magazine", icon: Newspaper, requiresMagazine: true },

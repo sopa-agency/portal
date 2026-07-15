@@ -14,6 +14,7 @@ import { listTrailAccounts } from "@/app/actions/trail-admin";
 import { sponsorConfigured } from "@/lib/farcaster-sponsor";
 import { SettingsTabs, type SettingsTab } from "@/components/settings-tabs";
 import { KanbanFxToggle } from "@/components/kanban-fx-toggle";
+import { BrainExplorer } from "@/components/brain-explorer";
 
 export default async function SettingsPage() {
   const project = await getActiveProject();
@@ -85,8 +86,15 @@ export default async function SettingsPage() {
 
   const bountiesSection = showAdmin ? <BountySetup /> : null;
 
+  // Brain explorer lives here as a tab (was its own /brain route). Hidden where
+  // the project hides /brain (e.g. SOPA).
+  const brainSection = project.hiddenRoutes?.includes("/brain") ? null : (
+    <BrainExplorer agentName={project.agent.displayName} />
+  );
+
   const tabs: SettingsTab[] = [
     { id: "connections", label: "Conexões", content: connectionsSection },
+    { id: "brain", label: "Brain", content: brainSection },
     { id: "trail", label: "Curation Trail", content: trailSection },
     { id: "bounties", label: "Bounties", content: bountiesSection },
   ];
