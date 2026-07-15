@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronLeft, ChevronRight, Play, Images, AtSign } from "lucide-react";
 import type { ReelflipMagazinePost } from "@/lib/reelflip-magazine";
@@ -10,15 +10,20 @@ import type { ReelflipMagazinePost } from "@/lib/reelflip-magazine";
 // react-pageflip touches the DOM — load client-only.
 const HTMLFlipBook = dynamic(() => import("react-pageflip"), { ssr: false });
 
-// A single magazine page — plain div so react-pageflip can wrap/ref it. No null
-// children ever (that throws "argument must be a React element").
-function Page({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`reel-page relative h-full w-full overflow-hidden bg-[#0a0a0a] ${className}`}>{children}</div>
-  );
-}
+// A single magazine page. react-pageflip sets a ref on each top-level child and
+// only initializes once those refs point at DOM nodes — so Page MUST forward the
+// ref to its outer div (plain function components silently drop it → no flip).
+const Page = forwardRef<HTMLDivElement, { children: React.ReactNode; className?: string }>(
+  function Page({ children, className = "" }, ref) {
+    return (
+      <div ref={ref} className={`reel-page relative h-full w-full overflow-hidden bg-[#0a0a0a] ${className}`}>
+        {children}
+      </div>
+    );
+  },
+);
 
-function PostPage({ post, index }: { post: ReelflipMagazinePost; index: number }) {
+const PostPage = forwardRef<HTMLDivElement, { post: ReelflipMagazinePost; index: number }>(function PostPage({ post, index }, ref) {
   const [playing, setPlaying] = useState(false);
   const video = post.media.find((m) => m.kind === "video");
   const isCarousel = post.mediaType === "CAROUSEL_ALBUM";
@@ -26,7 +31,7 @@ function PostPage({ post, index }: { post: ReelflipMagazinePost; index: number }
   const date = new Date(post.postedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
 
   return (
-    <Page>
+    <Page ref={ref}>
       {playing && video ? (
         <video src={video.url} poster={video.poster ?? post.coverUrl} controls autoPlay playsInline className="h-full w-full bg-black object-contain" />
       ) : (
@@ -65,7 +70,7 @@ function PostPage({ post, index }: { post: ReelflipMagazinePost; index: number }
       )}
     </Page>
   );
-}
+});
 
 export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[] }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
