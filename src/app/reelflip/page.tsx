@@ -9,9 +9,15 @@ import { getReelflipMagazine } from "@/lib/reelflip-magazine";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Reelflip — a revista",
+  title: "Reelflip",
   description:
     "O arquivo do @reelflip em formato de revista interativa. Não é sobre andar de skate. É sobre enxergar como quem anda.",
+  openGraph: {
+    title: "Reelflip",
+    description:
+      "O arquivo do @reelflip em formato de revista interativa. Não é sobre andar de skate. É sobre enxergar como quem anda.",
+  },
+  twitter: { title: "Reelflip" },
 };
 
 // GA4 for the PUBLIC site (reelflip.com) — same property as the linktree.
