@@ -52,27 +52,30 @@ async function mirror(url: string | undefined): Promise<string | null> {
   }
 }
 
-/** Mirror only what the magazine page renders — the cover (durable) + the video
- *  (for playback) — instead of every carousel child. Keeps the sync fast: ~1-2
- *  pins per post. The primary is the post's own media (album → first child). */
+/** Mirror EVERY media item of the post, in order — carousels are the whole
+ *  point, so all their slides must be included. Each image/video is pinned to
+ *  IPFS. Cover is the first durable (pinned) image; posts with no pinnable image
+ *  are skipped by the caller. */
 async function buildMedia(post: IgPost): Promise<{ cover: string | null; media: ReelflipMediaItem[] }> {
-  // The representative media of the post: its own media_url/thumbnail, or the
-  // album's first child.
-  const primary = post.media_type === "CAROUSEL_ALBUM" ? post.children?.data?.[0] ?? {} : { media_type: post.media_type, media_url: post.media_url, thumbnail_url: post.thumbnail_url };
+  const children = post.media_type === "CAROUSEL_ALBUM"
+    ? post.children?.data ?? []
+    : [{ media_type: post.media_type, media_url: post.media_url, thumbnail_url: post.thumbnail_url }];
   const items: ReelflipMediaItem[] = [];
-  if (primary.media_type === "VIDEO") {
-    const poster = await mirror(primary.thumbnail_url);
-    const vid = (await mirror(primary.media_url)) ?? primary.media_url ?? null; // pin, else IG url
-    if (vid) items.push({ kind: "video", url: vid, poster: poster ?? primary.thumbnail_url ?? null });
-    if (poster) items.unshift({ kind: "image", url: poster }); // cover
-  } else {
-    const img = await mirror(primary.media_url);
-    if (img) items.push({ kind: "image", url: img });
+  let cover: string | null = null;
+  for (const c of children.slice(0, 20)) {
+    if (c.media_type === "VIDEO") {
+      const poster = await mirror(c.thumbnail_url);
+      const vid = (await mirror(c.media_url)) ?? c.media_url ?? null; // pin, else IG url
+      if (vid) items.push({ kind: "video", url: vid, poster: poster ?? c.thumbnail_url ?? null });
+      if (poster && !cover) cover = poster;
+    } else {
+      const img = await mirror(c.media_url);
+      if (img) {
+        items.push({ kind: "image", url: img });
+        if (!cover) cover = img;
+      }
+    }
   }
-  // Cover MUST be a pinned image (image items are only pushed on a successful
-  // pin) — never an expiring IG thumbnail or a video URL. No pinned image ⇒ null
-  // ⇒ the sync skips the post rather than persisting a URL that dies.
-  const cover = items.find((i) => i.kind === "image")?.url ?? null;
   return { cover, media: items };
 }
 
