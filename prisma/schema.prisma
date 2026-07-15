@@ -808,6 +808,23 @@ model MeetingOccurrence {
   @@index([projectSlug, occurredOn])
 }
 
+// Point-in-time USD balance of a tracked revenue address (org-chart card). One
+// row per (card, address) per snapshot run (~daily via the scheduler cron), so
+// the UI can show the RATE revenue accrues (Δ7d / Δ30d + a sparkline), not just
+// the current balance.
+model RevenueSnapshot {
+  id       String   @id @default(cuid())
+  cardId   String
+  address  String // lowercased 0x…
+  chain    String? // EVM chain key, or null = all chains
+  label    String? // stream label at snapshot time (for display)
+  totalUsd Float
+  takenAt  DateTime @default(now())
+
+  @@index([cardId, takenAt])
+  @@index([address, takenAt])
+}
+
 // A team member's calendar feed (iCal/ICS URL) for availability overlay.
 model SharedCalendar {
   id          String   @id @default(cuid())

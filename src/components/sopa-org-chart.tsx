@@ -14,7 +14,9 @@ import {
   deleteCard,
   listOrgRepos,
   getRevenueBalances,
+  getRevenueTrends,
 } from "@/app/actions/sopa-boards";
+import type { RevenueTrend } from "@/lib/revenue-snapshots";
 import { uploadSopaLogo } from "@/lib/sopa-logo-upload";
 
 // Engagement tiers + the roles defined for the agency. Stored on each node so a
@@ -67,6 +69,31 @@ const REVENUE_KIND_LABEL: Record<RevenueKind, string> = {
 // Same key the server (getRevenueBalances) uses to map a balance back to a row.
 const balanceKey = (chain: string | null, address: string) => `${chain ?? "all"}:${address.trim().toLowerCase()}`;
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
+const signedUsd = (n: number) => `${n >= 0 ? "+" : "−"}${usd(Math.abs(n))}`;
+
+/** Tiny inline sparkline of a revenue address's balance over time. */
+function Sparkline({ points }: { points: { usd: number }[] }) {
+  if (points.length < 2) return null;
+  const vals = points.map((p) => p.usd);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const span = max - min || 1;
+  const W = 64;
+  const H = 16;
+  const d = points
+    .map((p, i) => {
+      const x = (i / (points.length - 1)) * W;
+      const y = H - ((p.usd - min) / span) * H;
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const up = vals[vals.length - 1] >= vals[0];
+  return (
+    <svg width={W} height={H} className="shrink-0" aria-hidden>
+      <path d={d} fill="none" stroke={up ? "#10b981" : "#f43f5e"} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 export type Person = { username: string; avatarUrl: string; profileUrl: string };
 
@@ -492,16 +519,23 @@ function CardDialog({
   const setRevKind = (i: number, kind: RevenueKind) =>
     setRev(i, { kind, chain: kind === "manual" ? null : revRows[i].chain ?? "base" });
 
-  // Live balances for tracked rows, keyed by chain:address.
+  // Live balances + historical trends for tracked rows, keyed by chain:address.
   const [balances, setBalances] = useState<Record<string, RevenueBalance>>({});
+  const [trends, setTrends] = useState<Record<string, RevenueTrend>>({});
   const [balLoading, setBalLoading] = useState(false);
   const tracked = revRows.filter((r) => r.kind !== "manual" && r.address?.trim());
   async function refreshBalances() {
     if (!tracked.length) return;
     setBalLoading(true);
     const r = await getRevenueBalances(tracked.map((t) => ({ chain: t.chain, address: t.address!.trim() })));
+    if (r.ok) {
+      setBalances(Object.fromEntries(r.balances.map((b) => [b.key, b])));
+      // Deltas/sparkline compared against the live values we just fetched.
+      const currentUsd = Object.fromEntries(r.balances.map((b) => [b.key, b.totalUsd]));
+      const t = await getRevenueTrends(card.id, currentUsd).catch(() => null);
+      if (t?.ok) setTrends(Object.fromEntries(t.trends.map((x) => [x.key, x])));
+    }
     setBalLoading(false);
-    if (r.ok) setBalances(Object.fromEntries(r.balances.map((b) => [b.key, b])));
   }
   const trackedTotal = tracked.reduce((s, t) => s + (balances[balanceKey(t.chain, t.address!)]?.totalUsd ?? 0), 0);
 
@@ -886,13 +920,31 @@ function CardDialog({
                             ) : (
                               <>
                                 <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(bal.totalUsd)}</span>
-                                <span className="text-foreground-faint">
+                                <span className="truncate text-foreground-faint">
                                   {bal.tokens.map((t) => `${t.balance.toLocaleString("en-US", { maximumFractionDigits: 3 })} ${t.symbol}@${t.chain}`).join(" · ") || "sem saldo"}
                                 </span>
                               </>
                             )}
                           </div>
                         )}
+                        {(() => {
+                          const key = r.address?.trim() ? balanceKey(r.chain, r.address) : "";
+                          const tr = key ? trends[key] : undefined;
+                          if (!tr || tr.points.length < 2) return null;
+                          const chip = (label: string, v: number | null) =>
+                            v == null ? null : (
+                              <span className={v >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-danger"}>
+                                {label} {signedUsd(v)}
+                              </span>
+                            );
+                          return (
+                            <div className="flex items-center gap-2 px-0.5 text-[10px] text-foreground-faint">
+                              <Sparkline points={tr.points} />
+                              {chip("7d", tr.delta7d)}
+                              {chip("30d", tr.delta30d)}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
