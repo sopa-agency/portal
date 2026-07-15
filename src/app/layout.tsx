@@ -105,7 +105,7 @@ export default async function RootLayout({
       { href: "/marketing-suggestions", label: "Post Suggestions", on: true },
       { href: "/campaign-creator", label: "Campaign Creator", on: true },
       { href: "/userbase", label: "Userbase", on: true },
-      { href: "/brain", label: "Brain", on: true },
+      { href: "/settings?tab=brain", label: "Brain", on: !project.hiddenRoutes?.includes("/brain") },
       { href: "/analytics", label: "Analytics", on: true },
       { href: "/kanban", label: "Kanban", on: !!project.githubProject || !!project.kanbanAggregate },
       { href: "/magazine", label: "Magazine", on: !!project.magazine },
