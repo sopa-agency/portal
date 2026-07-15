@@ -66,11 +66,13 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
     if (pathname.startsWith("/api/newsletter/")) {
       return NextResponse.next({ request: { headers: requestHeaders } });
     }
-    if (pathname === "/" || pathname === "/home") {
+    // Apex "/" serves the public Reelflip magazine (its OWN route — NOT the
+    // shared /home, which stays the portals' page). Cookie stripped = public.
+    if (pathname === "/" || pathname === "/reelflip") {
       requestHeaders.delete("cookie");
-      const homeUrl = req.nextUrl.clone();
-      homeUrl.pathname = "/home";
-      return NextResponse.rewrite(homeUrl, { request: { headers: requestHeaders } });
+      const magUrl = req.nextUrl.clone();
+      magUrl.pathname = "/reelflip";
+      return NextResponse.rewrite(magUrl, { request: { headers: requestHeaders } });
     }
     const rootUrl = req.nextUrl.clone();
     rootUrl.pathname = "/";
