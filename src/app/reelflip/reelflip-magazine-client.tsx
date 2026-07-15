@@ -241,9 +241,6 @@ export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/30 to-black/90" />
         <div className="relative z-10 px-8">
-          <p className="mb-3 text-xs font-medium uppercase tracking-[0.35em] text-[#cbff3e]">
-            Instagram Archive
-          </p>
           <h1 className="font-mono text-6xl font-black tracking-tight text-white md:text-7xl">
             REELFLIP
           </h1>
@@ -251,7 +248,7 @@ export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[
             Não é sobre andar de skate. É sobre enxergar como quem anda.
           </p>
           <p className="mt-8 text-[11px] uppercase tracking-widest text-white/40">
-            {flatPages.length} páginas · vire →
+            {flatPages.length} páginas · arraste pra virar →
           </p>
         </div>
       </Page>
@@ -320,7 +317,9 @@ export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[
             useMouseEvents
             renderOnlyPageLengthChange={true}
             showPageCorners={false}
-            disableFlipByClick={false}
+            // Flip only by drag/swipe + arrows + buttons — so tapping a video's
+            // play button (or a link) never turns the page.
+            disableFlipByClick={true}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             onInit={(e: any) => {
               instRef.current = e?.object ?? e;
