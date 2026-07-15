@@ -137,6 +137,31 @@ async function fetchEvmWallet(label: string, address: string, ethPrice: number):
   return { label, address, totalUsd, tokens, error: tokens.length === 0 ? "sem saldos" : undefined };
 }
 
+// --- single-address balance (revenue tracking) -------------------------------
+
+/** EVM chains we can track a receiving wallet/contract/split on. */
+export const EVM_CHAIN_KEYS = EVM_CHAINS.map((c) => c.key);
+
+export type AddressBalance = { address: string; chain: string | null; totalUsd: number; tokens: EvmToken[]; error?: string };
+
+/**
+ * Live native-ETH + USDC balance of any address (wallet, contract, or a 0xSplits
+ * split), USD-valued. `chainKey` restricts to one chain; omit for the sum across
+ * all supported chains. Reuses the treasury RPC path — same numbers as /treasury.
+ */
+export async function fetchAddressBalance(address: string, chainKey?: string | null): Promise<AddressBalance> {
+  const addr = address.trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return { address, chain: chainKey ?? null, totalUsd: 0, tokens: [], error: "endereço inválido" };
+  const chains = chainKey ? EVM_CHAINS.filter((c) => c.key === chainKey) : EVM_CHAINS;
+  if (chains.length === 0) return { address: addr, chain: chainKey ?? null, totalUsd: 0, tokens: [], error: "chain desconhecida" };
+  const { eth } = await getPrices();
+  const perChain = await Promise.all(
+    chains.map((c) => fetchChainBalances(addr, c, eth).catch(() => [] as EvmToken[])),
+  );
+  const tokens = perChain.flat().filter((t) => t.valueUsd >= 0.5).sort((a, b) => b.valueUsd - a.valueUsd);
+  return { address: addr, chain: chainKey ?? null, totalUsd: tokens.reduce((s, t) => s + t.valueUsd, 0), tokens };
+}
+
 // --- Hive ---------------------------------------------------------------------
 
 async function hiveRpc<T>(method: string, params: unknown): Promise<T> {
