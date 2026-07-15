@@ -2,88 +2,205 @@
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ChevronLeft, ChevronRight, Play, Images, AtSign } from "lucide-react";
-import type { ReelflipMagazinePost } from "@/lib/reelflip-magazine";
+import { ChevronLeft, ChevronRight, Play, AtSign } from "lucide-react";
+import type { ReelflipMagazinePost, ReelflipMediaItem } from "@/lib/reelflip-magazine";
 
 /* eslint-disable @next/next/no-img-element */
 
 // react-pageflip touches the DOM — load client-only.
 const HTMLFlipBook = dynamic(() => import("react-pageflip"), { ssr: false });
 
-// A single magazine page. react-pageflip sets a ref on each top-level child and
-// only initializes once those refs point at DOM nodes — so Page MUST forward the
-// ref to its outer div (plain function components silently drop it → no flip).
+// ─────────────────────────────────────────────────────────────────────────────
+// Pages. react-pageflip sets a ref on each TOP-LEVEL child and only initializes
+// once those refs point at DOM nodes. This repo is React 19 (no Chakra Box like
+// sk3's Magazine.tsx), so every direct child of HTMLFlipBook MUST be a
+// forwardRef component that attaches the ref to its outer <div> — a plain
+// function component silently drops the ref and the flip never works.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const Page = forwardRef<HTMLDivElement, { children: React.ReactNode; className?: string }>(
   function Page({ children, className = "" }, ref) {
     return (
-      <div ref={ref} className={`reel-page relative h-full w-full overflow-hidden bg-[#0a0a0a] ${className}`}>
+      <div
+        ref={ref}
+        className={`relative h-full w-full overflow-hidden bg-[#0a0a0a] ${className}`}
+      >
         {children}
       </div>
     );
   },
 );
 
-const PostPage = forwardRef<HTMLDivElement, { post: ReelflipMagazinePost; index: number }>(function PostPage({ post, index }, ref) {
+// One flattened magazine page = one media item of one post (carousels emit one
+// page per slide, in order — the whole point of the archive).
+type FlatPage = {
+  post: ReelflipMagazinePost;
+  item: ReelflipMediaItem;
+  slide: number; // 0-based index within the post
+  slideCount: number;
+};
+
+const MediaPage = forwardRef<HTMLDivElement, { flat: FlatPage }>(function MediaPage(
+  { flat },
+  ref,
+) {
+  const { post, item, slide, slideCount } = flat;
   const [playing, setPlaying] = useState(false);
-  const video = post.media.find((m) => m.kind === "video");
-  const isCarousel = post.mediaType === "CAROUSEL_ALBUM";
+  const isFirst = slide === 0;
   const caption = (post.caption ?? "").trim();
-  const date = new Date(post.postedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+  const date = new Date(post.postedAt).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
+  if (item.kind === "video" && playing) {
+    return (
+      <Page ref={ref}>
+        <video
+          src={item.url}
+          poster={item.poster ?? post.coverUrl}
+          controls
+          autoPlay
+          playsInline
+          onMouseDown={stop}
+          onTouchStart={stop}
+          className="h-full w-full bg-black object-contain"
+        />
+      </Page>
+    );
+  }
 
   return (
     <Page ref={ref}>
-      {playing && video ? (
-        <video src={video.url} poster={video.poster ?? post.coverUrl} controls autoPlay playsInline className="h-full w-full bg-black object-contain" />
-      ) : (
+      <img
+        src={item.kind === "video" ? (item.poster ?? post.coverUrl) : item.url}
+        alt=""
+        className="h-full w-full object-cover"
+        draggable={false}
+        loading="lazy"
+      />
+
+      {item.kind === "video" && (
+        <button
+          type="button"
+          onMouseDown={stop}
+          onTouchStart={stop}
+          onClick={(e) => {
+            e.stopPropagation();
+            setPlaying(true);
+          }}
+          className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur transition hover:scale-105 hover:bg-black/70"
+          aria-label="Reproduzir vídeo"
+        >
+          <Play className="h-7 w-7 translate-x-0.5" fill="currentColor" />
+        </button>
+      )}
+
+      {isFirst ? (
         <>
-          <img src={post.coverUrl} alt="" className="h-full w-full object-cover" draggable={false} />
-          {/* readability gradient */}
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/30" />
-          {/* top badges */}
-          <div className="absolute left-3 right-3 top-3 flex items-center justify-between text-[10px] font-medium uppercase tracking-wider text-white/70">
+          {/* readability scrim */}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/40" />
+          {/* top: date + slide indicator */}
+          <div className="pointer-events-none absolute left-4 right-4 top-4 flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-white/75">
             <span>{date}</span>
-            {isCarousel && (
-              <span className="flex items-center gap-1 rounded-full bg-black/40 px-2 py-0.5 backdrop-blur">
-                <Images className="h-3 w-3" /> álbum
+            {slideCount > 1 && (
+              <span className="rounded-full bg-black/45 px-2 py-0.5 backdrop-blur">
+                1/{slideCount}
               </span>
             )}
           </div>
-          {video && (
-            <button
-              type="button"
-              onClick={() => setPlaying(true)}
-              className="absolute left-1/2 top-1/2 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur transition hover:scale-105 hover:bg-black/70"
-              aria-label="Play"
-            >
-              <Play className="h-6 w-6 translate-x-0.5" fill="currentColor" />
-            </button>
-          )}
-          {caption && (
-            <div className="absolute inset-x-0 bottom-0 p-4">
-              <p className="line-clamp-5 whitespace-pre-line text-[13px] leading-snug text-white/95" style={{ textShadow: "0 1px 3px rgba(0,0,0,.6)" }}>
+          {/* bottom: caption + permalink */}
+          <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-5">
+            {caption && (
+              <p
+                className="pointer-events-none line-clamp-4 whitespace-pre-line text-sm leading-snug text-white/95"
+                style={{ textShadow: "0 1px 3px rgba(0,0,0,.7)" }}
+              >
                 {caption}
               </p>
-            </div>
-          )}
-          <span className="absolute bottom-2 right-3 text-[9px] font-semibold text-white/40">{index + 1}</span>
+            )}
+            {post.permalink && (
+              <a
+                href={post.permalink}
+                target="_blank"
+                rel="noopener noreferrer"
+                onMouseDown={stop}
+                onTouchStart={stop}
+                onClick={stop}
+                className="inline-flex w-fit items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-white/60 transition hover:text-[#cbff3e]"
+              >
+                <AtSign className="h-3 w-3" /> ver no instagram
+              </a>
+            )}
+          </div>
         </>
+      ) : (
+        slideCount > 1 && (
+          <span className="pointer-events-none absolute bottom-3 right-4 rounded-full bg-black/40 px-2 py-0.5 text-[10px] font-medium text-white/60 backdrop-blur">
+            {slide + 1}/{slideCount}
+          </span>
+        )
       )}
     </Page>
   );
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[] }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bookRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const instRef = useRef<any>(null); // fallback: PageFlip instance from onInit
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [page, setPage] = useState(0);
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
 
-  const flip = (dir: -1 | 1) => {
-    const pf = bookRef.current?.pageFlip?.();
-    if (!pf) return;
-    dir === 1 ? pf.flipNext() : pf.flipPrev();
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = 0.2;
+  }, [ready]);
+
+  const playSound = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    a.currentTime = 0.02;
+    void a.play().catch(() => {});
   };
+
+  // Flatten: cover-less posts fall back to their coverUrl so no page is empty.
+  const flatPages = useMemo<FlatPage[]>(
+    () =>
+      posts.flatMap((post) => {
+        const media: ReelflipMediaItem[] = post.media.length
+          ? post.media
+          : [{ kind: "image", url: post.coverUrl }];
+        return media.map((item, slide) => ({
+          post,
+          item,
+          slide,
+          slideCount: media.length,
+        }));
+      }),
+    [posts],
+  );
+
+  const getBook = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const viaRef: any = bookRef.current?.pageFlip?.();
+    if (viaRef) return viaRef;
+    const inst = instRef.current;
+    return inst && typeof inst.flipNext === "function" ? inst : null;
+  };
+  const flip = (dir: -1 | 1) => {
+    const book = getBook();
+    if (!book) return;
+    if (dir === 1) book.flipNext();
+    else book.flipPrev();
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") flip(1);
@@ -91,40 +208,57 @@ export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cover + one page per post. Filtered so no nulls reach the flipbook.
+  // Cover + one page per media item + back cover. Filtered so no null/false
+  // ever reaches HTMLFlipBook (it throws on non-element children).
   const pages = useMemo(() => {
     const cover = (
-      <Page key="cover" className="flex flex-col items-center justify-center bg-[#0a0a0a] text-center">
-        {posts[0] && <img src={posts[0].coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" draggable={false} />}
+      <Page key="cover" className="flex flex-col items-center justify-center text-center">
+        {posts[0] && (
+          <img
+            src={posts[0].coverUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover opacity-40"
+            draggable={false}
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/30 to-black/90" />
-        <div className="relative z-10 px-6">
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.35em] text-[#cbff3e]">Instagram Archive</p>
-          <h1 className="font-mono text-5xl font-black tracking-tight text-white">REELFLIP</h1>
-          <p className="mx-auto mt-3 max-w-[16rem] text-[13px] leading-snug text-white/70">
+        <div className="relative z-10 px-8">
+          <p className="mb-3 text-xs font-medium uppercase tracking-[0.35em] text-[#cbff3e]">
+            Instagram Archive
+          </p>
+          <h1 className="font-mono text-6xl font-black tracking-tight text-white md:text-7xl">
+            REELFLIP
+          </h1>
+          <p className="mx-auto mt-4 max-w-xs text-sm leading-snug text-white/70">
             Não é sobre andar de skate. É sobre enxergar como quem anda.
           </p>
-          <p className="mt-6 text-[10px] uppercase tracking-widest text-white/40">{posts.length} páginas · vire →</p>
+          <p className="mt-8 text-[11px] uppercase tracking-widest text-white/40">
+            {flatPages.length} páginas · vire →
+          </p>
         </div>
       </Page>
     );
-    const postPages = posts.map((p, i) => <PostPage key={p.id} post={p} index={i} />);
+    const mediaPages = flatPages.map((flat) => (
+      <MediaPage key={`${flat.post.id}-${flat.slide}`} flat={flat} />
+    ));
     const back = (
-      <Page key="back" className="flex flex-col items-center justify-center gap-4 bg-[#0a0a0a] text-center">
-        <h2 className="font-mono text-2xl font-bold text-white">fim.</h2>
+      <Page key="back" className="flex flex-col items-center justify-center gap-5 text-center">
+        <h2 className="font-mono text-3xl font-bold text-white">fim.</h2>
         <a
           href="https://instagram.com/reelflip"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-white transition hover:border-[#cbff3e] hover:text-[#cbff3e]"
+          className="flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-sm text-white transition hover:border-[#cbff3e] hover:text-[#cbff3e]"
         >
           <AtSign className="h-4 w-4" /> reelflip
         </a>
       </Page>
     );
-    return [cover, ...postPages, back].filter(Boolean);
-  }, [posts]);
+    return [cover, ...mediaPages, back].filter(Boolean);
+  }, [posts, flatPages]);
 
   const total = pages.length;
 
@@ -132,32 +266,59 @@ export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-3 text-center">
         <h1 className="font-mono text-4xl font-black text-foreground">REELFLIP</h1>
-        <p className="text-sm text-foreground-muted">A revista está sendo montada. Volte em breve.</p>
+        <p className="text-sm text-foreground-muted">
+          A revista está sendo montada. Volte em breve.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-background px-3 py-6">
-      <div className="relative">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-3 bg-background px-2 py-4">
+      <audio ref={audioRef} src="/pageflip.mp3" preload="auto" />
+
+      <div className="w-full max-w-6xl">
         {ready && (
-          // @ts-expect-error — react-pageflip's types don't include all props
+          // Config mirrored from the proven sk3 Magazine.tsx setup.
           <HTMLFlipBook
             ref={bookRef}
-            width={420}
-            height={580}
+            className="flipbook"
+            style={{ width: "100%", height: "90vh" }}
+            width={1000}
+            height={1300}
+            minWidth={0}
+            maxWidth={10000}
+            minHeight={0}
+            maxHeight={10000}
+            startPage={0}
             size="stretch"
-            minWidth={300}
-            maxWidth={560}
-            minHeight={420}
-            maxHeight={760}
-            maxShadowOpacity={0.5}
-            drawShadow
-            showCover
-            mobileScrollSupport
-            flippingTime={700}
-            className="reel-book"
-            onFlip={(e: { data: number }) => setPage(e.data)}
+            drawShadow={false}
+            flippingTime={600}
+            usePortrait
+            startZIndex={0}
+            autoSize={false}
+            maxShadowOpacity={0.1}
+            showCover={false}
+            mobileScrollSupport={false}
+            swipeDistance={30}
+            clickEventForward={false}
+            useMouseEvents
+            renderOnlyPageLengthChange={true}
+            showPageCorners={false}
+            disableFlipByClick={false}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onInit={(e: any) => {
+              instRef.current = e?.object ?? e;
+            }}
+            onFlip={(e: { data: number }) => {
+              setPage(e.data);
+              playSound();
+              // Pause any inline post video still playing on the page we left.
+              document.querySelectorAll(".flipbook video").forEach((v) => {
+                const vid = v as HTMLVideoElement;
+                if (!vid.paused) vid.pause();
+              });
+            }}
           >
             {pages}
           </HTMLFlipBook>
@@ -166,14 +327,49 @@ export function ReelflipMagazineClient({ posts }: { posts: ReelflipMagazinePost[
 
       {/* Controls */}
       <div className="flex items-center gap-4">
-        <button type="button" onClick={() => flip(-1)} disabled={page <= 0} className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-30" aria-label="Anterior">
+        <button
+          type="button"
+          onClick={() => flip(-1)}
+          disabled={page <= 0}
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-border text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-30"
+          aria-label="Página anterior"
+        >
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <span className="min-w-16 text-center font-mono text-xs text-foreground-muted">{Math.min(page + 1, total)} / {total}</span>
-        <button type="button" onClick={() => flip(1)} disabled={page >= total - 1} className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-30" aria-label="Próxima">
+        <span className="min-w-16 text-center font-mono text-xs text-foreground-muted">
+          {Math.min(page + 1, total)} / {total}
+        </span>
+        <button
+          type="button"
+          onClick={() => flip(1)}
+          disabled={page >= total - 1}
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-border text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-30"
+          aria-label="Próxima página"
+        >
           <ChevronRight className="h-5 w-5" />
         </button>
       </div>
+
+      {/* Perf hints + scrollbar hiding for the flipbook (mirrors sk3). */}
+      <style>{`
+        .flipbook {
+          will-change: transform;
+          transform: translateZ(0);
+          touch-action: pan-y pinch-zoom;
+        }
+        .flipbook * {
+          touch-action: manipulation;
+        }
+        .flipbook,
+        .flipbook * {
+          scrollbar-width: none !important;
+          -ms-overflow-style: none !important;
+        }
+        .flipbook::-webkit-scrollbar,
+        .flipbook *::-webkit-scrollbar {
+          display: none !important;
+        }
+      `}</style>
     </div>
   );
 }
