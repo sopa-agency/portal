@@ -4,28 +4,53 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /** Section header this item sits under (Home/Settings stay ungrouped). */
+  group?: string;
+  requiresPostCreator?: boolean;
+  requiresLab?: boolean;
+  requiresZine?: boolean;
+  requiresKanban?: boolean;
+  requiresMagazine?: boolean;
+  requiresHomepage?: boolean;
+  requiresAbout?: boolean;
+  requiresOrgChart?: boolean;
+  requiresPortfolio?: boolean;
+  requiresMeetings?: boolean;
+  requiresFarcasterTrail?: boolean;
+};
+
+// Grouped by what you're doing: Home on top, Settings pinned at the bottom.
+const NAV: NavItem[] = [
   { href: "/", label: "Home", icon: Home },
-  { href: "/post-creator", label: "Post Creator", icon: SquarePen, requiresPostCreator: true },
-  { href: "/lab", label: "Lab", icon: FlaskConical, requiresLab: true },
-  { href: "/zine", label: "Zine Studio", icon: BookOpenText, requiresZine: true },
-  { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles },
-  { href: "/curadoria", label: "Engagement", icon: Heart, requiresFarcasterTrail: true },
-  { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone },
-  { href: "/userbase", label: "Userbase", icon: Users },
-  { href: "/analytics", label: "Analytics", icon: ChartColumn },
-  { href: "/kanban", label: "Kanban", icon: SquareKanban, requiresKanban: true },
-  { href: "/magazine", label: "Magazine", icon: Newspaper, requiresMagazine: true },
-  { href: "/homepage", label: "Homepage", icon: LayoutTemplate, requiresHomepage: true },
-  { href: "/about", label: "About", icon: Presentation, requiresAbout: true },
-  { href: "/treasury", label: "Treasury", icon: Landmark },
-  { href: "/org-chart", label: "Org Chart", icon: Workflow, requiresOrgChart: true },
-  { href: "/reunioes", label: "Reuniões", icon: CalendarDays, requiresMeetings: true },
-  { href: "/portfolio", label: "Portfolio", icon: Briefcase, requiresPortfolio: true },
-  { href: "/team", label: "Team", icon: UsersRound },
+
+  { href: "/post-creator", label: "Post Creator", icon: SquarePen, group: "Criação", requiresPostCreator: true },
+  { href: "/zine", label: "Zine Studio", icon: BookOpenText, group: "Criação", requiresZine: true },
+  { href: "/lab", label: "Lab", icon: FlaskConical, group: "Criação", requiresLab: true },
+  { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone, group: "Criação" },
+  { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles, group: "Criação" },
+
+  { href: "/curadoria", label: "Engagement", icon: Heart, group: "Crescimento", requiresFarcasterTrail: true },
+  { href: "/analytics", label: "Analytics", icon: ChartColumn, group: "Crescimento" },
+  { href: "/userbase", label: "Userbase", icon: Users, group: "Crescimento" },
+
+  { href: "/magazine", label: "Magazine", icon: Newspaper, group: "Publicação", requiresMagazine: true },
+  { href: "/homepage", label: "Homepage", icon: LayoutTemplate, group: "Publicação", requiresHomepage: true },
+
+  { href: "/kanban", label: "Kanban", icon: SquareKanban, group: "Operação", requiresKanban: true },
+  { href: "/treasury", label: "Treasury", icon: Landmark, group: "Operação" },
+  { href: "/org-chart", label: "Org Chart", icon: Workflow, group: "Operação", requiresOrgChart: true },
+  { href: "/portfolio", label: "Portfolio", icon: Briefcase, group: "Operação", requiresPortfolio: true },
+  { href: "/reunioes", label: "Reuniões", icon: CalendarDays, group: "Operação", requiresMeetings: true },
+  { href: "/about", label: "About", icon: Presentation, group: "Operação", requiresAbout: true },
+  { href: "/team", label: "Team", icon: UsersRound, group: "Operação" },
+
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -197,25 +222,46 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
       </div>
       <nav className="px-3 pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         <ul className="space-y-1">
-          {nav.map(({ href, label, icon: Icon }) => {
-            const active = isActive(pathname, href);
-            return (
-              <li key={href}>
-                <Link
-                  href={href}
-                  aria-current={active ? "page" : undefined}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                    active
-                      ? "bg-accent-bg text-accent"
-                      : "text-foreground-muted hover:bg-foreground/5 hover:text-foreground"
-                  }`}
-                >
-                  <Icon className={`h-4 w-4 ${active ? "text-accent" : ""}`} />
-                  {label}
-                </Link>
-              </li>
-            );
-          })}
+          {(() => {
+            const items: React.ReactNode[] = [];
+            let lastGroup: string | undefined;
+            for (const { href, label, icon: Icon, group } of nav) {
+              // Section header when entering a new group.
+              if (group && group !== lastGroup) {
+                items.push(
+                  <li
+                    key={`group-${group}`}
+                    className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint"
+                  >
+                    {group}
+                  </li>,
+                );
+              }
+              // Divider before a trailing ungrouped item (Settings).
+              if (!group && lastGroup) {
+                items.push(<li key={`sep-${href}`} role="separator" className="my-2 border-t border-border" />);
+              }
+              lastGroup = group;
+              const active = isActive(pathname, href);
+              items.push(
+                <li key={href}>
+                  <Link
+                    href={href}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      active
+                        ? "bg-accent-bg text-accent"
+                        : "text-foreground-muted hover:bg-foreground/5 hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className={`h-4 w-4 ${active ? "text-accent" : ""}`} />
+                    {label}
+                  </Link>
+                </li>,
+              );
+            }
+            return items;
+          })()}
         </ul>
       </nav>
       <div className="mt-auto border-t border-border px-3 py-3">
