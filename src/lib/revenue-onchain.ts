@@ -58,6 +58,90 @@ async function pageAll(host: string, path: string): Promise<{ items: Record<stri
 
 const lc = (v: unknown): string => (typeof v === "string" ? v.toLowerCase() : (v as { hash?: string })?.hash?.toLowerCase() ?? "");
 
+// --- realized revenue via decoded events (accurate, no refund/spend noise) ----
+// AuctionSettled(amount) = a Nouns Builder auction's winning bid (ETH). 0xSplits
+// SplitDistributed(token, distributor, amount) = a distribution. Blockscout
+// decodes both; we sum the amounts → true gross revenue, with a time series.
+
+const STABLE_DECIMALS: Record<string, number> = {
+  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": 6, // USDC base
+  "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca": 6, // USDbC base
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": 6, // USDC ethereum
+};
+const WETH = new Set([
+  "0x4200000000000000000000000000000000000006", // base/op
+  "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", // ethereum
+]);
+const NATIVE = new Set(["0x0000000000000000000000000000000000000000", "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]);
+
+export type RealizedRevenue = {
+  method: "auction" | "split" | "none";
+  revenueUsd: number;
+  count: number;
+  series: { t: string; usd: number }[]; // cumulative
+  truncated: boolean;
+};
+
+type DecodedLog = {
+  block_timestamp?: string;
+  decoded?: { method_call?: string; parameters?: { name?: string; value?: unknown }[] } | null;
+};
+
+const REALIZED_MAX_PAGES = 40; // ~2000 logs — full history for these DAOs
+
+/** Sum realized revenue from a contract's decoded events (AuctionSettled / SplitDistributed). */
+export async function fetchOnchainRevenue(address: string, chainKey: string | null): Promise<RealizedRevenue> {
+  const addr = address.trim().toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(addr)) return { method: "none", revenueUsd: 0, count: 0, series: [], truncated: false };
+  const host = BLOCKSCOUT_HOST[chainKey ?? "base"] ?? BLOCKSCOUT_HOST.base;
+  const { eth: ethPrice } = await getPrices();
+
+  // Page decoded logs.
+  const items: DecodedLog[] = [];
+  let next: Record<string, string> | null | undefined = {};
+  let pages = 0;
+  while (next && pages < REALIZED_MAX_PAGES) {
+    const res = await bs(host, `/addresses/${addr}/logs`, pages === 0 ? {} : (next as Record<string, string>));
+    if (!res) break;
+    items.push(...((res.items as DecodedLog[]) ?? []));
+    next = res.next_page_params;
+    pages++;
+  }
+  const truncated = !!next;
+
+  const param = (log: DecodedLog, name: string): string | undefined =>
+    log.decoded?.parameters?.find((p) => p.name === name)?.value as string | undefined;
+
+  type Ev = { t: number; usd: number };
+  const auctions: Ev[] = [];
+  const splits: Ev[] = [];
+  for (const log of items) {
+    const call = log.decoded?.method_call ?? "";
+    const t = Date.parse(log.block_timestamp ?? "") || 0;
+    if (call.startsWith("AuctionSettled")) {
+      const amt = Number(param(log, "amount") ?? 0) / 1e18;
+      if (amt > 0) auctions.push({ t, usd: amt * ethPrice });
+    } else if (call.startsWith("SplitDistributed")) {
+      const token = (param(log, "token") ?? "").toLowerCase();
+      const raw = Number(param(log, "amount") ?? 0);
+      let usd = 0;
+      if (STABLE_DECIMALS[token]) usd = raw / 10 ** STABLE_DECIMALS[token];
+      else if (WETH.has(token) || NATIVE.has(token)) usd = (raw / 1e18) * ethPrice;
+      if (usd > 0) splits.push({ t, usd });
+    }
+  }
+
+  const chosen = auctions.length ? { evs: auctions, method: "auction" as const } : splits.length ? { evs: splits, method: "split" as const } : { evs: [], method: "none" as const };
+  chosen.evs.sort((a, b) => a.t - b.t);
+  let cum = 0;
+  const series: { t: string; usd: number }[] = [];
+  for (const e of chosen.evs) {
+    cum += e.usd;
+    if (e.t) series.push({ t: new Date(e.t).toISOString(), usd: cum });
+  }
+  return { method: chosen.method, revenueUsd: cum, count: chosen.evs.length, series, truncated };
+}
+
 export async function fetchAddressFlows(address: string, chainKey: string | null): Promise<RevenueFlow> {
   const addr = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(addr)) return { receivedUsd: 0, paidUsd: 0, series: [], truncated: false, error: "endereço inválido" };
