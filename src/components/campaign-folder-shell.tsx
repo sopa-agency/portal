@@ -27,6 +27,7 @@ import {
   type CampaignPreviewBrand,
 } from "@/components/campaign-document-preview";
 import { CampaignEmailEditor } from "@/components/campaign-email-editor";
+import { CampaignOutreachPanel } from "@/components/campaign-outreach-panel";
 import { DEFAULT_EMAIL_BRAND } from "@/lib/campaign-email";
 import { CampaignGenerateBar } from "@/components/campaign-generate-bar";
 
@@ -221,6 +222,7 @@ export function CampaignFolderShell({
               initialPostedAt={selected.postedAt}
               onContentChange={(c) => setLocalContent((prev) => ({ ...prev, [selected.id]: c }))}
             />
+            <CampaignOutreachPanel campaignId={campaignId} />
           </div>
         ) : selected.kind === "hive" ||
           selected.kind === "hive_mag" ||
