@@ -1,13 +1,19 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import { Plus, X, Trash2, Check, Loader2, ImagePlus } from "lucide-react";
+import { Plus, X, Trash2, Check, Loader2, ImagePlus, DollarSign, Globe, Code2, RefreshCw } from "lucide-react";
 import {
   type BoardCard,
   type TeamMember,
+  type RevenueStream,
+  type RevenueKind,
+  type RevenueBalance,
+  type OrgRepoOption,
   createCard,
   updateCard,
   deleteCard,
+  listOrgRepos,
+  getRevenueBalances,
 } from "@/app/actions/sopa-boards";
 import { uploadSopaLogo } from "@/lib/sopa-logo-upload";
 
@@ -48,6 +54,20 @@ const KIND_STYLE: Record<NodeKind, { wrap: string; title: string; badge: string 
   },
 };
 
+const githubHref = (v: string) => (v.startsWith("http") ? v : `https://github.com/${v}`);
+
+// EVM chains a receiving address can be tracked on (mirrors treasury.ts).
+const REVENUE_CHAINS = ["base", "ethereum", "optimism", "arbitrum"] as const;
+const REVENUE_KIND_LABEL: Record<RevenueKind, string> = {
+  manual: "Manual",
+  wallet: "Wallet",
+  contract: "Contrato",
+  split: "Split",
+};
+// Same key the server (getRevenueBalances) uses to map a balance back to a row.
+const balanceKey = (chain: string | null, address: string) => `${chain ?? "all"}:${address.trim().toLowerCase()}`;
+const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
+
 export type Person = { username: string; avatarUrl: string; profileUrl: string };
 
 type CardPatch = {
@@ -56,6 +76,10 @@ type CardPatch = {
   tier?: string | null;
   team?: TeamMember[];
   logoUrl?: string | null;
+  revenueStreams?: RevenueStream[];
+  website?: string | null;
+  githubOrg?: string | null;
+  repos?: string[];
 };
 
 type Node = BoardCard & { children: Node[] };
@@ -251,34 +275,59 @@ function TreeNode({
               {node.body}
             </span>
           )}
-          {node.team.length > 0 && (
-            <div className="mt-2 flex items-center justify-center -space-x-1.5 border-t border-border pt-2.5">
-              {/* One avatar per person — collapse multiple roles for the same
-                  user, listing all their roles in the tooltip. */}
-              {(() => {
-                const byUser = new Map<string, string[]>();
-                for (const m of node.team) {
-                  const key = m.username.toLowerCase();
-                  byUser.set(key, [...(byUser.get(key) ?? []), m.role]);
-                }
-                return [...byUser.entries()].map(([key, roles]) => {
-                  const person = rosterMap.get(key);
-                  const username = person?.username ?? key;
-                  return (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={key}
-                      src={person?.avatarUrl ?? `https://images.hive.blog/u/${username}/avatar`}
-                      alt={username}
-                      title={`${roles.join(", ")}: @${username}`}
-                      className="h-6 w-6 rounded-full border-2 border-surface-elevated object-cover"
-                    />
-                  );
-                });
-              })()}
+          {node.revenueStreams.length > 0 && (
+            <div className="mt-2 space-y-0.5 border-t border-border pt-2 text-left">
+              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                <DollarSign className="h-2.5 w-2.5" /> Receita
+              </span>
+              {node.revenueStreams.slice(0, 4).map((s, i) => (
+                <span
+                  key={i}
+                  className="block truncate text-[10px] text-foreground-muted"
+                  title={s.detail ? `${s.label} — ${s.detail}` : s.label}
+                >
+                  • {s.label}
+                  {s.detail ? <span className="text-foreground-faint"> · {s.detail}</span> : null}
+                </span>
+              ))}
+              {node.revenueStreams.length > 4 && (
+                <span className="block text-[10px] text-foreground-faint">
+                  +{node.revenueStreams.length - 4} mais
+                </span>
+              )}
             </div>
           )}
         </button>
+
+        {(node.website || node.githubOrg || node.repos.length > 0) && (
+          <div className="flex items-center gap-2">
+            {node.website && (
+              <a
+                href={node.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={node.website}
+                className="flex items-center gap-1 text-[10px] text-foreground-muted hover:text-accent"
+              >
+                <Globe className="h-3 w-3" /> site
+              </a>
+            )}
+            {node.githubOrg && (
+              <a
+                href={githubHref(node.githubOrg)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={node.repos.length ? node.repos.join(", ") : node.githubOrg}
+                className="flex items-center gap-1 text-[10px] text-foreground-muted hover:text-accent"
+              >
+                <Code2 className="h-3 w-3" /> {node.githubOrg}
+                {node.repos.length > 0 && <span className="text-foreground-faint">· {node.repos.length} repo{node.repos.length > 1 ? "s" : ""}</span>}
+              </a>
+            )}
+          </div>
+        )}
 
         {adding ? (
           <div className="flex items-center gap-1">
@@ -368,12 +417,17 @@ function CardDialog({
   const [body, setBody] = useState(card.body ?? "");
   const [tier, setTier] = useState<string | null>(card.tier);
   const [logoUrl, setLogoUrl] = useState<string | null>(card.logoUrl);
+  const [website, setWebsite] = useState(card.website ?? "");
+  const [githubOrg, setGithubOrg] = useState(card.githubOrg ?? "");
+  const [repos, setRepos] = useState<string[]>(() => card.repos);
+  const [orgRepos, setOrgRepos] = useState<OrgRepoOption[]>([]);
+  const [repoLoading, setRepoLoading] = useState(false);
+  const [repoErr, setRepoErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // Team rows: the predefined ROLES always show (fixed label), plus any custom
-  // roles already on the card, plus any the user adds. `fixed` roles keep a
-  // static label; custom ones expose an editable role-name input + remove.
+  // roles already on the card, plus any the user adds.
   type Row = { role: string; username: string; fixed: boolean };
   const [rows, setRows] = useState<Row[]>(() => {
     const byRole = new Map(card.team.map((t) => [t.role, t.username]));
@@ -384,23 +438,72 @@ function CardDialog({
     return [...fixed, ...custom];
   });
   const [confirmDel, setConfirmDel] = useState(false);
+  const [revRows, setRevRows] = useState<RevenueStream[]>(() => card.revenueStreams);
+  const [tab, setTab] = useState<"geral" | "time" | "receita">("geral");
 
   const kind = nodeKind(card);
   const rosterByUser = new Map(roster.map((p) => [p.username.toLowerCase(), p]));
   const teamArr: TeamMember[] = rows
     .map((r) => ({ role: r.role.trim(), username: r.username.trim() }))
     .filter((m) => m.role && m.username);
+  const revArr: RevenueStream[] = revRows
+    .map((r) => ({
+      label: r.label.trim(),
+      detail: r.detail?.trim() || null,
+      kind: r.kind,
+      chain: r.kind === "manual" ? null : r.chain,
+      address: r.kind === "manual" ? null : r.address?.trim() || null,
+    }))
+    .filter((r) => r.label);
   const dirty =
     title !== card.title ||
     body !== (card.body ?? "") ||
     tier !== card.tier ||
     logoUrl !== card.logoUrl ||
-    JSON.stringify(teamArr) !== JSON.stringify(card.team);
+    website.trim() !== (card.website ?? "") ||
+    githubOrg.trim() !== (card.githubOrg ?? "") ||
+    JSON.stringify([...repos].sort()) !== JSON.stringify([...card.repos].sort()) ||
+    JSON.stringify(teamArr) !== JSON.stringify(card.team) ||
+    JSON.stringify(revArr) !== JSON.stringify(card.revenueStreams);
+
+  async function fetchRepos() {
+    const org = githubOrg.trim();
+    if (!org) return;
+    setRepoLoading(true);
+    setRepoErr(null);
+    const r = await listOrgRepos(org);
+    setRepoLoading(false);
+    if (r.ok) setOrgRepos(r.repos);
+    else setRepoErr(r.error);
+  }
+  const toggleRepo = (fullName: string) =>
+    setRepos((prev) => (prev.includes(fullName) ? prev.filter((x) => x !== fullName) : [...prev, fullName]));
 
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addRole = () => setRows((prev) => [...prev, { role: "", username: "", fixed: false }]);
   const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
+  const setRev = (i: number, patch: Partial<RevenueStream>) =>
+    setRevRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addRev = () =>
+    setRevRows((prev) => [...prev, { label: "", detail: null, kind: "manual", chain: null, address: null }]);
+  const removeRev = (i: number) => setRevRows((prev) => prev.filter((_, idx) => idx !== i));
+  // Switching a row to a tracked kind defaults its chain to Base.
+  const setRevKind = (i: number, kind: RevenueKind) =>
+    setRev(i, { kind, chain: kind === "manual" ? null : revRows[i].chain ?? "base" });
+
+  // Live balances for tracked rows, keyed by chain:address.
+  const [balances, setBalances] = useState<Record<string, RevenueBalance>>({});
+  const [balLoading, setBalLoading] = useState(false);
+  const tracked = revRows.filter((r) => r.kind !== "manual" && r.address?.trim());
+  async function refreshBalances() {
+    if (!tracked.length) return;
+    setBalLoading(true);
+    const r = await getRevenueBalances(tracked.map((t) => ({ chain: t.chain, address: t.address!.trim() })));
+    setBalLoading(false);
+    if (r.ok) setBalances(Object.fromEntries(r.balances.map((b) => [b.key, b])));
+  }
+  const trackedTotal = tracked.reduce((s, t) => s + (balances[balanceKey(t.chain, t.address!)]?.totalUsd ?? 0), 0);
 
   async function onPickLogo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -414,13 +517,15 @@ function CardDialog({
     else setUploadErr(res.error);
   }
 
+  const teamCount = new Set(teamArr.map((t) => t.username)).size;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl"
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -435,154 +540,382 @@ function CardDialog({
           </button>
         </div>
 
-        <label className="mb-1 block text-xs font-medium text-foreground-muted">Logo</label>
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-elevated">
-            {logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" />
-            ) : (
-              <ImagePlus className="h-5 w-5 text-foreground-faint" />
-            )}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <input ref={fileRef} type="file" accept="image/*" onChange={onPickLogo} className="hidden" />
+        {/* Tabs */}
+        <div className="mb-4 flex items-center gap-1 border-b border-border">
+          {(
+            [
+              ["geral", "Geral"],
+              ["time", "Time"],
+              ["receita", "Receita"],
+            ] as const
+          ).map(([id, lbl]) => (
             <button
+              key={id}
               type="button"
-              disabled={uploading || busy}
-              onClick={() => fileRef.current?.click()}
-              className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-50"
+              onClick={() => setTab(id)}
+              className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition ${
+                tab === id
+                  ? "border-accent text-accent"
+                  : "border-transparent text-foreground-muted hover:text-foreground"
+              }`}
             >
-              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
-              {logoUrl ? "Trocar logo" : "Enviar logo"}
+              {lbl}
+              {id === "time" && teamCount > 0 ? ` (${teamCount})` : ""}
+              {id === "receita" && revArr.length > 0 ? ` (${revArr.length})` : ""}
             </button>
-            {logoUrl && (
-              <button
-                type="button"
-                onClick={() => setLogoUrl(null)}
-                className="w-fit text-[11px] text-foreground-muted hover:text-danger"
-              >
-                Remover
-              </button>
-            )}
-          </div>
+          ))}
         </div>
-        {uploadErr && <p className="mb-3 text-xs text-danger">{uploadErr}</p>}
 
-        <label className="mb-1 block text-xs font-medium text-foreground-muted">Nome</label>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
-        />
-
-        {kind === "client" && (
+        {tab === "geral" && (
           <>
-            <label className="mb-1 block text-xs font-medium text-foreground-muted">
-              Tier de trabalho
-            </label>
-            <div className="mb-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setTier(null)}
-                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                  tier === null
-                    ? "border-border-strong bg-surface-elevated text-foreground"
-                    : "border-border text-foreground-muted hover:border-border-strong"
-                }`}
-              >
-                Nenhum
-              </button>
-              {TIERS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTier(t.id)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                    tier === t.id
-                      ? "border-sky-400/50 bg-sky-400/10 text-sky-600 dark:text-sky-300"
-                      : "border-border text-foreground-muted hover:border-border-strong"
-                  }`}
-                >
-                  {t.label} · {t.pct}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        <label className="mb-1.5 block text-xs font-medium text-foreground-muted">
-          Time <span className="text-foreground-faint">(membros dos projetos)</span>
-        </label>
-        <div className="mb-2 space-y-2">
-          {rows.map((row, i) => {
-            const selected = rosterByUser.get(row.username.toLowerCase());
-            return (
-              <div key={`${row.fixed ? "fixed" : "custom"}-${i}`} className="flex items-center gap-2">
-                {row.fixed ? (
-                  <span className="w-40 shrink-0 text-[11px] text-foreground-subtle">{row.role}</span>
-                ) : (
-                  <input
-                    value={row.role}
-                    onChange={(e) => setRow(i, { role: e.target.value })}
-                    placeholder="Papel"
-                    className="w-40 shrink-0 rounded-md border border-border bg-surface-elevated px-2 py-1 text-[11px] text-foreground focus:border-border-strong focus:outline-none"
-                  />
-                )}
-                {selected ? (
+            <label className="mb-1 block text-xs font-medium text-foreground-muted">Logo</label>
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-elevated">
+                {logoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={selected.avatarUrl}
-                    alt=""
-                    className="h-5 w-5 shrink-0 rounded-full object-cover"
-                  />
+                  <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" />
                 ) : (
-                  <span className="h-5 w-5 shrink-0 rounded-full border border-dashed border-border" />
+                  <ImagePlus className="h-5 w-5 text-foreground-faint" />
                 )}
-                <select
-                  value={row.username}
-                  onChange={(e) => setRow(i, { username: e.target.value })}
-                  className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <input ref={fileRef} type="file" accept="image/*" onChange={onPickLogo} className="hidden" />
+                <button
+                  type="button"
+                  disabled={uploading || busy}
+                  onClick={() => fileRef.current?.click()}
+                  className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-50"
                 >
-                  <option value="">—</option>
-                  {roster.map((p) => (
-                    <option key={p.username} value={p.username}>
-                      @{p.username}
-                    </option>
-                  ))}
-                </select>
-                {!row.fixed && (
+                  {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                  {logoUrl ? "Trocar logo" : "Enviar logo"}
+                </button>
+                {logoUrl && (
                   <button
                     type="button"
-                    onClick={() => removeRow(i)}
-                    aria-label="Remover papel"
-                    className="shrink-0 rounded-md p-1 text-foreground-faint hover:text-danger"
+                    onClick={() => setLogoUrl(null)}
+                    className="w-fit text-[11px] text-foreground-muted hover:text-danger"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    Remover
                   </button>
                 )}
               </div>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          onClick={addRole}
-          className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground-muted transition hover:border-accent-border hover:text-accent"
-        >
-          <Plus className="h-3.5 w-3.5" /> Adicionar papel
-        </button>
+            </div>
+            {uploadErr && <p className="mb-3 text-xs text-danger">{uploadErr}</p>}
 
-        <label className="mb-1 block text-xs font-medium text-foreground-muted">Detalhes</label>
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={4}
-          placeholder="Notas, links…"
-          className="mb-4 w-full resize-none rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
-        />
+            <label className="mb-1 block text-xs font-medium text-foreground-muted">Nome</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="mb-4 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
+            />
 
-        <div className="flex items-center justify-between">
+            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
+              <Globe className="h-3.5 w-3.5" /> Website
+            </label>
+            <input
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              placeholder="https://…"
+              inputMode="url"
+              className="mb-4 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
+            />
+
+            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
+              <Code2 className="h-3.5 w-3.5" /> GitHub org
+            </label>
+            <div className="mb-2 flex gap-1.5">
+              <input
+                value={githubOrg}
+                onChange={(e) => setGithubOrg(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); fetchRepos(); } }}
+                placeholder="org ou usuário (ex: SkateHive)"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={fetchRepos}
+                disabled={!githubOrg.trim() || repoLoading}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-50"
+              >
+                {repoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Code2 className="h-3.5 w-3.5" />}
+                Buscar repos
+              </button>
+            </div>
+            {repoErr && <p className="mb-2 text-xs text-danger">{repoErr}</p>}
+
+            {/* Currently-selected repos (persist even before a fresh fetch). */}
+            {repos.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1">
+                {repos.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => toggleRepo(r)}
+                    className="inline-flex items-center gap-1 rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] text-accent"
+                    title={`Remover ${r}`}
+                  >
+                    {r} <X className="h-2.5 w-2.5" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Fetched repo list to pick from. */}
+            {orgRepos.length > 0 && (
+              <div className="mb-4 max-h-48 space-y-0.5 overflow-y-auto rounded-lg border border-border bg-surface-elevated p-2">
+                <p className="mb-1 px-1 text-[10px] uppercase tracking-wide text-foreground-subtle">
+                  Repos de {githubOrg.trim()} — marque os relevantes
+                </p>
+                {orgRepos.map((r) => {
+                  const on = repos.includes(r.fullName);
+                  return (
+                    <label
+                      key={r.fullName}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-surface"
+                      title={r.description ?? r.fullName}
+                    >
+                      <input type="checkbox" checked={on} onChange={() => toggleRepo(r.fullName)} className="shrink-0" />
+                      <span className={`min-w-0 flex-1 truncate ${on ? "text-foreground" : "text-foreground-muted"}`}>{r.name}</span>
+                      {r.private && <span className="shrink-0 rounded bg-foreground/10 px-1 text-[9px] text-foreground-subtle">priv</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {orgRepos.length === 0 && <div className="mb-2" />}
+
+            {kind === "client" && (
+              <>
+                <label className="mb-1 block text-xs font-medium text-foreground-muted">
+                  Tier de trabalho
+                </label>
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTier(null)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                      tier === null
+                        ? "border-border-strong bg-surface-elevated text-foreground"
+                        : "border-border text-foreground-muted hover:border-border-strong"
+                    }`}
+                  >
+                    Nenhum
+                  </button>
+                  {TIERS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTier(t.id)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                        tier === t.id
+                          ? "border-sky-400/50 bg-sky-400/10 text-sky-600 dark:text-sky-300"
+                          : "border-border text-foreground-muted hover:border-border-strong"
+                      }`}
+                    >
+                      {t.label} · {t.pct}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <label className="mb-1 block text-xs font-medium text-foreground-muted">Detalhes</label>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={5}
+              placeholder="Notas, links…"
+              className="mb-4 w-full resize-none rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
+            />
+          </>
+        )}
+
+        {tab === "time" && (
+          <>
+            <label className="mb-1.5 block text-xs font-medium text-foreground-muted">
+              Time <span className="text-foreground-faint">(membros dos projetos)</span>
+            </label>
+            <div className="mb-2 space-y-2">
+              {rows.map((row, i) => {
+                const selected = rosterByUser.get(row.username.toLowerCase());
+                return (
+                  <div key={`${row.fixed ? "fixed" : "custom"}-${i}`} className="flex items-center gap-2">
+                    {row.fixed ? (
+                      <span className="w-40 shrink-0 text-[11px] text-foreground-subtle">{row.role}</span>
+                    ) : (
+                      <input
+                        value={row.role}
+                        onChange={(e) => setRow(i, { role: e.target.value })}
+                        placeholder="Papel"
+                        className="w-40 shrink-0 rounded-md border border-border bg-surface-elevated px-2 py-1 text-[11px] text-foreground focus:border-border-strong focus:outline-none"
+                      />
+                    )}
+                    {selected ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={selected.avatarUrl}
+                        alt=""
+                        className="h-5 w-5 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <span className="h-5 w-5 shrink-0 rounded-full border border-dashed border-border" />
+                    )}
+                    <select
+                      value={row.username}
+                      onChange={(e) => setRow(i, { username: e.target.value })}
+                      className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
+                    >
+                      <option value="">—</option>
+                      {roster.map((p) => (
+                        <option key={p.username} value={p.username}>
+                          @{p.username}
+                        </option>
+                      ))}
+                    </select>
+                    {!row.fixed && (
+                      <button
+                        type="button"
+                        onClick={() => removeRow(i)}
+                        aria-label="Remover papel"
+                        className="shrink-0 rounded-md p-1 text-foreground-faint hover:text-danger"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={addRole}
+              className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground-muted transition hover:border-accent-border hover:text-accent"
+            >
+              <Plus className="h-3.5 w-3.5" /> Adicionar papel
+            </button>
+          </>
+        )}
+
+        {tab === "receita" && (
+          <>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
+                <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                Fontes de receita
+              </label>
+              {tracked.length > 0 && (
+                <div className="flex items-center gap-2">
+                  {Object.keys(balances).length > 0 && (
+                    <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">on-chain: {usd(trackedTotal)}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={refreshBalances}
+                    disabled={balLoading}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-foreground-muted hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                  >
+                    {balLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} atualizar saldos
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="mb-2 space-y-2">
+              {revRows.map((r, i) => {
+                const bal = r.kind !== "manual" && r.address?.trim() ? balances[balanceKey(r.chain, r.address)] : undefined;
+                return (
+                  <div key={i} className="rounded-lg border border-border bg-surface p-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={r.label}
+                        onChange={(e) => setRev(i, { label: e.target.value })}
+                        placeholder="Fonte (ex: Venda de zines, Split do serviço)"
+                        className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
+                      />
+                      <select
+                        value={r.kind}
+                        onChange={(e) => setRevKind(i, e.target.value as RevenueKind)}
+                        className="shrink-0 rounded-md border border-border bg-surface-elevated px-1.5 py-1.5 text-[11px] text-foreground focus:border-border-strong focus:outline-none"
+                      >
+                        {(Object.keys(REVENUE_KIND_LABEL) as RevenueKind[]).map((k) => (
+                          <option key={k} value={k}>{REVENUE_KIND_LABEL[k]}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => removeRev(i)}
+                        aria-label="Remover fonte"
+                        className="shrink-0 rounded-md p-1 text-foreground-faint hover:text-danger"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {r.kind === "manual" ? (
+                      <input
+                        value={r.detail ?? ""}
+                        onChange={(e) => setRev(i, { detail: e.target.value })}
+                        placeholder="Detalhe / valor (opcional)"
+                        className="mt-1.5 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
+                      />
+                    ) : (
+                      <div className="mt-1.5 space-y-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={r.chain ?? "all"}
+                            onChange={(e) => setRev(i, { chain: e.target.value === "all" ? null : e.target.value })}
+                            className="shrink-0 rounded-md border border-border bg-surface-elevated px-1.5 py-1.5 text-[11px] text-foreground focus:border-border-strong focus:outline-none"
+                          >
+                            <option value="all">todas chains</option>
+                            {REVENUE_CHAINS.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                          <input
+                            value={r.address ?? ""}
+                            onChange={(e) => setRev(i, { address: e.target.value })}
+                            placeholder="0x… (wallet, contrato ou split de recebimento)"
+                            spellCheck={false}
+                            className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 font-mono text-[11px] text-foreground focus:border-border-strong focus:outline-none"
+                          />
+                        </div>
+                        {bal && (
+                          <div className="flex items-center gap-2 px-0.5 text-[10px]">
+                            {bal.error ? (
+                              <span className="text-warning">{bal.error}</span>
+                            ) : (
+                              <>
+                                <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(bal.totalUsd)}</span>
+                                <span className="text-foreground-faint">
+                                  {bal.tokens.map((t) => `${t.balance.toLocaleString("en-US", { maximumFractionDigits: 3 })} ${t.symbol}@${t.chain}`).join(" · ") || "sem saldo"}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {revRows.length === 0 && (
+                <p className="text-[11px] text-foreground-faint">Nenhuma fonte de receita ainda.</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={addRev}
+              className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground-muted transition hover:border-emerald-500/40 hover:text-emerald-600 dark:hover:text-emerald-400"
+            >
+              <Plus className="h-3.5 w-3.5" /> Adicionar fonte de receita
+            </button>
+            <p className="mb-4 text-[10px] text-foreground-faint">
+              Wallet / Contrato / Split mostram saldo ao vivo (ETH + USDC via RPC, igual ao /treasury). Split = endereço de um contrato 0xSplits de recebimento.
+            </p>
+          </>
+        )}
+
+        <div className="mt-2 flex items-center justify-between border-t border-border pt-4">
           {!isRoot ? (
             confirmDel ? (
               <button
@@ -616,6 +949,10 @@ function CardDialog({
                 tier: kind === "client" ? tier : null,
                 team: teamArr,
                 logoUrl,
+                revenueStreams: revArr,
+                website: website.trim() || null,
+                githubOrg: githubOrg.trim() || null,
+                repos,
               })
             }
             className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-40"

@@ -774,6 +774,38 @@ export async function addItemComment(args: {
 
 export type RepoLabel = { id: string; name: string; color: string };
 
+export type OrgRepo = { fullName: string; name: string; description: string | null; private: boolean; pushedAt: string | null };
+
+/**
+ * List the repos of a GitHub org (or user), most-recently-pushed first. Tries the
+ * org endpoint, then the user endpoint (so a personal account works too). Used by
+ * the SOPA org-chart to let a project attach its relevant repos.
+ */
+export async function fetchOrgRepos(
+  token: string,
+  org: string,
+): Promise<{ ok: true; repos: OrgRepo[] } | { ok: false; error: string }> {
+  const login = org.trim().replace(/^@/, "").replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\/.*$/, "");
+  if (!login) return { ok: false, error: "Informe o nome do org/usuário." };
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+  for (const path of [`orgs/${login}/repos`, `users/${login}/repos`]) {
+    let res: Response;
+    try {
+      res = await fetch(`https://api.github.com/${path}?per_page=100&sort=pushed`, { headers, signal: AbortSignal.timeout(9000) });
+    } catch {
+      return { ok: false, error: "Falha de rede ao consultar o GitHub." };
+    }
+    if (res.status === 404) continue; // not an org → try user
+    if (!res.ok) return { ok: false, error: `GitHub HTTP ${res.status}` };
+    const data = (await res.json()) as { full_name: string; name: string; description: string | null; private: boolean; pushed_at: string | null }[];
+    return {
+      ok: true,
+      repos: data.map((r) => ({ fullName: r.full_name, name: r.name, description: r.description ?? null, private: r.private, pushedAt: r.pushed_at ?? null })),
+    };
+  }
+  return { ok: false, error: `Org/usuário "${login}" não encontrado.` };
+}
+
 export async function fetchRepoMeta(
   token: string,
   owner: string,
