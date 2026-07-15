@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { runScheduledPublish, macLeaseIsStale, MAC_LEASE_GRACE_MS } from "@/lib/scheduler-core";
 import { autoBoostFromVotes } from "@/lib/auto-boost";
+import { snapshotRevenueIfDue } from "@/lib/revenue-snapshots";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -30,6 +31,10 @@ export async function GET(req: Request) {
   // lease (it only reads Hive + queues DB rows; not residential-IP-sensitive).
   const autoBoost = await autoBoostFromVotes().catch((e) => ({ ok: false, error: String(e) }));
 
+  // Revenue snapshots — records tracked org-chart balances (~once/day, self-
+  // throttled). RPC reads + DB writes only, so it runs regardless of the lease.
+  const revenue = await snapshotRevenueIfDue(now).catch((e) => ({ ran: false, reason: String(e) }));
+
   if (!(await macLeaseIsStale(now))) {
     return NextResponse.json({
       checkedAt: new Date(now).toISOString(),
@@ -37,10 +42,11 @@ export async function GET(req: Request) {
       skipped: true,
       reason: `mac-alive (within ${Math.round(MAC_LEASE_GRACE_MS / 60000)}m grace)`,
       autoBoost,
+      revenue,
     });
   }
 
   // Mac is down → take over.
   const result = await runScheduledPublish(now);
-  return NextResponse.json({ ...result, fallback: true, skipped: false, autoBoost });
+  return NextResponse.json({ ...result, fallback: true, skipped: false, autoBoost, revenue });
 }

@@ -257,6 +257,18 @@ export async function getRevenueBalances(
   return { ok: true, balances };
 }
 
+/** Historical trend (Δ7d/Δ30d + sparkline points) for a card's tracked addresses,
+ *  compared against the current live balances the client just fetched. */
+export async function getRevenueTrends(
+  cardId: string,
+  currentUsd: Record<string, number>,
+): Promise<{ ok: true; trends: import("@/lib/revenue-snapshots").RevenueTrend[] } | { ok: false; error: string }> {
+  await assertSopa();
+  const { getRevenueTrends: computeTrends } = await import("@/lib/revenue-snapshots");
+  const trends = await computeTrends(cardId, currentUsd);
+  return { ok: true, trends };
+}
+
 /** Signed-URL handshake for a direct browser→Pinata logo upload, gated to SOPA.
  *  Mirrors signPostMediaUpload but without the Post Creator requirement (SOPA
  *  has no Post Creator, so that action's authGate would reject it). */
