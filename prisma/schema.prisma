@@ -825,6 +825,24 @@ model RevenueSnapshot {
   @@index([address, takenAt])
 }
 
+// A post from the @reelflip Instagram, mirrored for the public reelflip.com
+// magazine. Media is pinned to IPFS (Pinata) so the page survives IG's expiring
+// CDN URLs. `media` is a JSON array of { kind: "image"|"video", url, poster? }.
+model ReelflipPost {
+  id        String   @id @default(cuid())
+  igId      String   @unique
+  caption   String?  @db.Text
+  mediaType String // IMAGE | VIDEO | CAROUSEL_ALBUM
+  permalink String?
+  postedAt  DateTime
+  coverUrl  String // durable (Pinata) primary visual for the magazine page
+  media     Json     @default("[]")
+  order     Int      @default(0)
+  syncedAt  DateTime @default(now())
+
+  @@index([order])
+}
+
 // A team member's calendar feed (iCal/ICS URL) for availability overlay.
 model SharedCalendar {
   id          String   @id @default(cuid())
