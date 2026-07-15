@@ -69,8 +69,11 @@ async function buildMedia(post: IgPost): Promise<{ cover: string | null; media: 
     const img = await mirror(primary.media_url);
     if (img) items.push({ kind: "image", url: img });
   }
-  const cover = items.find((i) => i.kind === "image")?.url ?? items.find((i) => i.poster)?.poster ?? items[0]?.url ?? null;
-  return { cover: cover ?? null, media: items };
+  // Cover MUST be a pinned image (image items are only pushed on a successful
+  // pin) — never an expiring IG thumbnail or a video URL. No pinned image ⇒ null
+  // ⇒ the sync skips the post rather than persisting a URL that dies.
+  const cover = items.find((i) => i.kind === "image")?.url ?? null;
+  return { cover, media: items };
 }
 
 /**

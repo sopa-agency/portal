@@ -52,6 +52,10 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   const host = req.headers.get("host");
   const slug = resolveProjectSlug(host);
   const requestHeaders = new Headers(req.headers);
+  // Strip client-supplied trust headers up front — only THIS proxy may set them.
+  // Otherwise a request could spoof x-public-page to skip the layout's auth
+  // redirect on a portal it shouldn't access.
+  requestHeaders.delete("x-public-page");
   requestHeaders.set("x-portal-project", slug);
   // Pathname so the root layout can tell the public /login route apart when
   // deciding whether to render the page or an access screen.
