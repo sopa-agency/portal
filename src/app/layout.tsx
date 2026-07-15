@@ -52,13 +52,17 @@ export default async function RootLayout({
   const access = authed ? await getAccess(authed.username, project) : null;
   const session = access?.allowed ? authed : null;
   // The /login route always renders (so users can sign in / switch accounts).
-  const pathname = (await headers()).get("x-pathname") ?? "";
+  const hdrs = await headers();
+  const pathname = hdrs.get("x-pathname") ?? "";
   const isLoginRoute = pathname === "/login";
+  // Public apex page (reelflip.com magazine): the proxy stamps x-public-page and
+  // strips the cookie, so it must render bare without the auth-redirect.
+  const isPublicPage = hdrs.get("x-public-page") === "1";
   // Authorization. Redirect (not conditional render) so an unauthorized page's
   // Server Components never execute into the RSC payload. Middleware already
   // bounces the fully-unauthenticated; this also covers authenticated-without-
   // access-to-this-portal.
-  if (!session && !isLoginRoute) {
+  if (!session && !isLoginRoute && !isPublicPage) {
     redirect(`/login?next=${encodeURIComponent(pathname || "/")}`);
   }
 
