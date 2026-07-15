@@ -70,6 +70,10 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
     // shared /home, which stays the portals' page). Cookie stripped = public.
     if (pathname === "/" || pathname === "/reelflip") {
       requestHeaders.delete("cookie");
+      // Tell the root layout this is a PUBLIC page so it renders bare (no portal
+      // chrome) and skips the auth-redirect — otherwise the stripped cookie ⇒ no
+      // session ⇒ redirect to /login ⇒ apex bounces it back ⇒ redirect loop.
+      requestHeaders.set("x-public-page", "1");
       const magUrl = req.nextUrl.clone();
       magUrl.pathname = "/reelflip";
       return NextResponse.rewrite(magUrl, { request: { headers: requestHeaders } });
