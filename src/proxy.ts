@@ -41,7 +41,7 @@ const HOME_HOSTS = (process.env.PORTAL_HOME_HOSTS ?? "reelflip.com,www.reelflip.
 // SCHEDULER_TICK_SECRET) rather than a session cookie. The session gate below
 // would otherwise 307-redirect these to /login, silently breaking the
 // scheduled-post autopublisher (the PM2 worker tick AND the Vercel fallback cron).
-const MACHINE_PATHS = ["/api/scheduler"];
+const MACHINE_PATHS = ["/api/scheduler", "/api/reelflip"];
 
 export async function proxy(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl;

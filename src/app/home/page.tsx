@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { HomeClient } from "./home-client";
+import { ReelflipMagazineClient } from "./reelflip-magazine-client";
+import { getReelflipMagazine } from "@/lib/reelflip-magazine";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Reelflip",
+  title: "Reelflip — a revista",
   description:
-    "Não é sobre andar de skate. É sobre enxergar como quem anda. Marca editorial que aplica o olhar do skate à cultura.",
+    "O arquivo do @reelflip em formato de revista interativa. Não é sobre andar de skate. É sobre enxergar como quem anda.",
 };
 
 // GA4 measurement id for the PUBLIC site (reelflip.com). Deliberately loaded
@@ -18,7 +21,8 @@ const GA_MEASUREMENT_ID = "G-EB83SJZ8E2";
  * rewrites "/" there to this route and bypasses the session gate. Everything
  * else on the apex redirects back here; the portals live on the subdomains.
  */
-export default function HomePage() {
+export default async function HomePage() {
+  const posts = await getReelflipMagazine();
   return (
     <>
       <Script
@@ -32,7 +36,7 @@ function gtag(){dataLayer.push(arguments);}
 gtag('js', new Date());
 gtag('config', '${GA_MEASUREMENT_ID}');`}
       </Script>
-      <HomeClient />
+      <ReelflipMagazineClient posts={posts} />
     </>
   );
 }
