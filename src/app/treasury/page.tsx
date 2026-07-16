@@ -18,6 +18,7 @@ import { StreamStatus } from "@/components/stream-status";
 import { CreatePoolButton } from "@/components/create-pool-button";
 import { StreamActions } from "@/components/stream-actions";
 import { StreamFlowView } from "@/components/stream-flow-view";
+import { StreamSustainability } from "@/components/stream-sustainability";
 import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE, SUPERFLUID } from "@/lib/superfluid";
 import { ConnectPoolButton } from "@/components/connect-pool-button";
 import { StakingPanel } from "@/components/staking-panel";
@@ -251,6 +252,15 @@ treasury: {
                 monthlyUsd={streamStatus?.monthlyUsd ?? null}
               />
               <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />
+              {!!poolAddress && (
+                <StreamSustainability
+                  yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
+                  burnMonthly={streamStatus?.monthlyUsd ?? 0}
+                  bufferUsdcx={streamStatus?.safeUsdcxUsd ?? 0}
+                  runwayDays={streamStatus?.runwayDays ?? null}
+                  canEdit={!!session}
+                />
+              )}
               {stakePosition && <StakingPanel position={stakePosition} canEdit={!!session} />}
               {!poolAddress && !!session && <CreatePoolButton />}
               {!!poolAddress && <ConnectPoolButton pool={poolAddress} forwarder={SUPERFLUID.gdaForwarder} />}

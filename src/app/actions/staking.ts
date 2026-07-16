@@ -6,13 +6,17 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { proposeSafeTx, proposeSafeBatch, proposerAddress } from "@/lib/safe-propose";
-import { SOPA_SAFE } from "@/lib/superfluid";
+import { SOPA_SAFE, SUPERFLUID } from "@/lib/superfluid";
 import { MORPHO } from "@/lib/staking";
 
 // ERC-4626 subset — deposit(assets, receiver) / withdraw(assets, receiver, owner).
 const VAULT_ABI = [
   { name: "deposit", type: "function", stateMutability: "nonpayable", inputs: [{ name: "assets", type: "uint256" }, { name: "receiver", type: "address" }], outputs: [{ type: "uint256" }] },
   { name: "withdraw", type: "function", stateMutability: "nonpayable", inputs: [{ name: "assets", type: "uint256" }, { name: "receiver", type: "address" }, { name: "owner", type: "address" }], outputs: [{ type: "uint256" }] },
+] as const;
+
+const UPGRADE_ABI = [
+  { name: "upgrade", type: "function", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
 ] as const;
 
 async function gate() {
@@ -79,5 +83,38 @@ export async function proposeUnstake(amount: string): Promise<
     });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor saque." };
+  }
+}
+
+/**
+ * Harvest into the stream buffer: withdraw `amount` USDC from Morpho and wrap it
+ * to USDCx — one batched Safe proposal (withdraw + approve + upgrade). Feeds the
+ * stream so it never runs dry, ideally with only the yield.
+ */
+export async function proposeHarvest(amount: string): Promise<
+  { ok: true; url: string } | { ok: false; error: string }
+> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const assets = parseAmount(amount);
+  if (assets == null) return { ok: false, error: "Valor inválido." };
+  const amount18 = parseUnits(amount.trim(), 18);
+  try {
+    const safe = getAddress(SOPA_SAFE);
+    const vault = getAddress(MORPHO.vault);
+    const usdc = getAddress(MORPHO.usdc);
+    const usdcx = getAddress(SUPERFLUID.usdcx);
+    return await proposeSafeBatch({
+      chainId: MORPHO.chainId,
+      safe,
+      origin: `SOPA: colher ${amount} do stake → buffer do stream`,
+      calls: [
+        { to: vault, data: encodeFunctionData({ abi: VAULT_ABI, functionName: "withdraw", args: [assets, safe, safe] }) },
+        { to: usdc, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [usdcx, assets] }) },
+        { to: usdcx, data: encodeFunctionData({ abi: UPGRADE_ABI, functionName: "upgrade", args: [amount18] }) },
+      ],
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor colheita." };
   }
 }
