@@ -160,18 +160,31 @@ export async function createCampaign(formData: FormData) {
   const template = templateId ? getCampaignTemplate(templateId, project) : null;
 
   const rawName = (formData.get("name") as string | null)?.trim();
-  const name = rawName || template?.name || "Untitled campaign";
+  let name = rawName || template?.name || "Untitled campaign";
   let briefContent = template?.briefSeed ?? "";
 
   // Seed the brief from a HackMD note when one is chosen (the meeting → campaign
   // flow: a HackMD doc becomes the campaign brief that drives artifact/post gen).
+  // Either an explicit note id (card flow) or a pasted HackMD link (import).
   const hackmdNoteId = ((formData.get("hackmdNoteId") as string | null) ?? "").trim();
-  if (hackmdNoteId) {
+  const hackmdUrl = ((formData.get("hackmdUrl") as string | null) ?? "").trim();
+  if (hackmdNoteId || hackmdUrl) {
     try {
-      const { hackmdConfigured, getHackmdNoteContent } = await import("@/lib/hackmd");
-      if (hackmdConfigured()) {
-        const content = await getHackmdNoteContent(hackmdNoteId);
-        if (content.trim()) briefContent = content;
+      const { hackmdConfigured, getHackmdNoteContent, noteIdFromUrl } = await import("@/lib/hackmd");
+      const noteId = hackmdNoteId || noteIdFromUrl(hackmdUrl);
+      if (noteId && hackmdConfigured()) {
+        const content = await getHackmdNoteContent(noteId);
+        if (content.trim()) {
+          briefContent = content;
+          // No explicit/template name → title the campaign from the doc's first heading.
+          if (!rawName && !template) {
+            const heading = content
+              .split("\n")
+              .map((l) => l.trim())
+              .find((l) => /^#{1,6}\s+/.test(l));
+            if (heading) name = heading.replace(/^#{1,6}\s+/, "").replace(/[#*`_]/g, "").trim().slice(0, 120) || name;
+          }
+        }
       }
     } catch {
       /* note fetch failed — fall back to the template seed / empty brief */

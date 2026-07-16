@@ -9,16 +9,15 @@ import { campaignProgress } from "@/lib/campaign-kind";
 import { prisma } from "@/lib/prisma";
 import { ageFromDate } from "@/lib/utils";
 import { getActiveProject } from "@/projects";
-import { hackmdConfigured, listHackmdNotes, type HackmdNote } from "@/lib/hackmd";
+import { hackmdConfigured } from "@/lib/hackmd";
 
 export default async function CampaignCreatorPage() {
   let campaigns: { id: string; name: string; updatedAt: string; docCount: number; posted: number; publishable: number }[] = [];
   let dbError = false;
 
   const project = await getActiveProject();
-  // Team HackMD notes → "start a campaign from a HackMD doc" (best-effort).
-  let hackmdNotes: HackmdNote[] = [];
-  if (hackmdConfigured()) hackmdNotes = await listHackmdNotes(12).catch(() => []);
+  // Import a campaign brief straight from a HackMD link (event doc, ata…).
+  const hackmdOn = hackmdConfigured();
   try {
     const rows = await prisma.campaign.findMany({
       where: { archivedAt: null, projectSlug: project.slug },
@@ -112,37 +111,35 @@ export default async function CampaignCreatorPage() {
         </div>
       </section>
 
-      {hackmdNotes.length > 0 && (
+      {hackmdOn && (
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground-subtle">
-              Start from a HackMD doc
+              Import from a HackMD link
             </h2>
             <p className="text-[11px] text-foreground-subtle">
-              Turns a HackMD note (event doc, ata…) into the campaign brief.
+              Paste a HackMD URL (event doc, ata…) — its content becomes the campaign brief.
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {hackmdNotes.map((note) => (
-              <form key={note.id} action={createCampaign}>
-                <input type="hidden" name="hackmdNoteId" value={note.id} />
-                <input type="hidden" name="name" value={note.title} />
-                <button
-                  type="submit"
-                  className="group flex w-full flex-col items-start gap-2 rounded-xl border border-border bg-surface/70 p-4 text-left transition hover:border-accent-border hover:bg-accent-bg"
-                >
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent-bg text-accent">
-                      <FileText className="h-4 w-4" />
-                    </span>
-                    <ChevronRight className="h-4 w-4 text-foreground-subtle transition group-hover:translate-x-0.5 group-hover:text-accent" />
-                  </div>
-                  <p className="line-clamp-2 text-sm font-semibold text-foreground">{note.title}</p>
-                  <p className="text-[11px] text-foreground-subtle">HackMD</p>
-                </button>
-              </form>
-            ))}
-          </div>
+          <form action={createCampaign} className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <FileText className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground-faint" />
+              <input
+                type="url"
+                name="hackmdUrl"
+                required
+                placeholder="https://hackmd.io/…"
+                spellCheck={false}
+                className="w-full rounded-xl border border-border bg-surface py-2.5 pl-9 pr-3 text-sm text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-accent/20 px-4 py-2.5 text-sm font-semibold text-accent transition hover:bg-lime-400/30"
+            >
+              <Plus className="h-4 w-4" /> Import
+            </button>
+          </form>
         </section>
       )}
 
