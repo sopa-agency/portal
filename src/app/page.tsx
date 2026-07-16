@@ -13,6 +13,8 @@ import { ChannelStrategy } from "@/components/social-dashboard";
 import { HomeTabs, type SplitTab } from "@/components/home-split";
 import { loadLatestBriefing, todayIsoDate } from "@/lib/morning-briefing";
 import { fetchChannelMetrics } from "@/lib/social-metrics";
+import { listUnifiedCalendar } from "@/app/actions/post-creator";
+import { NextPosts } from "@/components/next-posts";
 import { getActiveProject, getAllProjects } from "@/projects";
 import { SopaBriefing, type SopaActionGroup } from "@/components/sopa-briefing";
 import { ForYou, type ForYouMention } from "@/components/for-you";
@@ -120,7 +122,7 @@ export default async function Home() {
     return ig(a.platform) - ig(b.platform);
   });
 
-  const [briefResults, channelMetrics] = await Promise.all([
+  const [briefResults, channelMetrics, cal] = await Promise.all([
     Promise.all(briefingAgents.map((a) => loadLatestBriefing(a))),
     Promise.all(
       socials.map((s) =>
@@ -129,7 +131,9 @@ export default async function Home() {
         ),
       ),
     ),
+    listUnifiedCalendar().catch(() => null),
   ]);
+  const calEvents = cal?.ok ? cal.events : [];
 
   // Logged-in user's own Kanban tasks (shown below the briefing).
   const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
@@ -220,6 +224,7 @@ export default async function Home() {
           ) : null
         }
         socialTiles={tiles.filter((t) => t.label !== "Briefings")}
+        socialAside={<NextPosts events={calEvents} activeSlug={project.slug} />}
         briefAbove={
           session && project.githubProject ? (
             <MyTasks tasks={myTasks} username={session.username} />
