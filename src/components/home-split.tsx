@@ -51,11 +51,17 @@ export function HomeTabs({
   briefTabs,
   channelTabs,
   briefAbove,
+  briefBand,
+  socialBand,
 }: {
   briefTabs: SplitTab[];
   channelTabs: SplitTab[];
   /** Rendered above the Morning brief content (e.g. the user's own tasks). */
   briefAbove?: ReactNode;
+  /** At-a-glance tiles shown at the top of the Morning brief tab (under the tabs). */
+  briefBand?: ReactNode;
+  /** At-a-glance tiles shown at the top of the Socials tab (under the tabs). */
+  socialBand?: ReactNode;
 }) {
   const views: { id: string; label: string; icon: LucideIcon }[] = [];
   if (briefTabs.length) views.push({ id: "briefing", label: "Morning brief", icon: FileText });
@@ -105,6 +111,7 @@ export function HomeTabs({
       <div role="tabpanel">
         {showingBrief ? (
           <>
+            {briefBand ? <div className="mb-6">{briefBand}</div> : null}
             {briefAbove ? <div className="mb-6">{briefAbove}</div> : null}
             {briefTabs.length > 1 && (
               <div className="mb-5 overflow-x-auto">
@@ -115,6 +122,7 @@ export function HomeTabs({
           </>
         ) : (
           <>
+            {socialBand ? <div className="mb-6">{socialBand}</div> : null}
             {channelTabs.length > 1 && (
               <div className="mb-5 overflow-x-auto">
                 <Seg tabs={channelTabs} active={currentChannel?.slug ?? ""} onChange={setSocialActive} />
