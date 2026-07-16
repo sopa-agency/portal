@@ -373,17 +373,21 @@ function WalletDetail({ groups, withHeadings }: { groups: TreasuryGroup[]; withH
  * collapsible section below. Multiple groups (admin overview) add a tab bar and
  * a "by project" allocation.
  */
-export function TreasuryViews({ groups }: { groups: TreasuryGroup[] }) {
+export function TreasuryViews({ groups, hideSelector = false }: { groups: TreasuryGroup[]; hideSelector?: boolean }) {
   const [view, setView] = useState<string>("all");
   const [showDetail, setShowDetail] = useState(false);
   const multi = groups.length > 1;
-  const visible = view === "all" ? groups : groups.filter((g) => g.slug === view);
+  // When a parent owns the project filter (SOPA dashboard), it passes already
+  // filtered `groups` and hides this local selector — so balances and revenue
+  // switch together instead of drifting apart.
+  const effectiveView = hideSelector ? "all" : view;
+  const visible = effectiveView === "all" ? groups : groups.filter((g) => g.slug === effectiveView);
   const prices = groups[0]?.report.prices;
-  const title = view === "all" && multi ? "Tesouro combinado" : visible[0]?.name ?? "Tesouro";
+  const title = effectiveView === "all" ? (multi ? "Tesouro combinado" : visible[0]?.name ?? "Tesouro") : visible[0]?.name ?? "Tesouro";
 
   return (
     <div className="space-y-6">
-      {multi && (
+      {multi && !hideSelector && (
         <div className="flex flex-wrap gap-1.5">
           {[{ slug: "all", name: "Tudo" }, ...groups].map((g) => (
             <button
