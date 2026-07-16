@@ -17,6 +17,7 @@ import { getTeamRoster } from "@/lib/team-roster";
 import { StreamStatus } from "@/components/stream-status";
 import { CreatePoolButton } from "@/components/create-pool-button";
 import { StreamActions } from "@/components/stream-actions";
+import { StreamFlowView } from "@/components/stream-flow-view";
 import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE } from "@/lib/superfluid";
 import { StakingPanel } from "@/components/staking-panel";
 import { getStakePosition } from "@/lib/staking";
@@ -243,6 +244,11 @@ treasury: {
           treasury={treasuryContent}
           members={
             <div className="space-y-6">
+              <StreamFlowView
+                members={payroll.filter((m) => m.active).map((m) => ({ label: m.label, units: m.units }))}
+                streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
+                monthlyUsd={streamStatus?.monthlyUsd ?? null}
+              />
               <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />
               {stakePosition && <StakingPanel position={stakePosition} canEdit={!!session} />}
               {!poolAddress && !!session && <CreatePoolButton />}
