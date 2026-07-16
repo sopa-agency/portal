@@ -3,10 +3,11 @@
 import { type ReactNode } from "react";
 import { FileText, Megaphone, type LucideIcon } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
+import { SummaryBand, type BandTile } from "@/components/summary-band";
 
-// Home layout: Morning brief and Socials split into two TOP-LEVEL tabs (was a
-// side-by-side "Split Desk") so the page reads one thing at a time. Each tab
-// keeps its own segmented sub-switcher (per briefing agent / per channel).
+// Home layout: Morning brief and Socials split into two TOP-LEVEL tabs. Morning
+// brief shows every agent side by side; Socials uses its metric tiles AS the
+// channel selector (no duplicate sub-switcher).
 
 export type SplitTab = {
   slug: string;
@@ -14,45 +15,12 @@ export type SplitTab = {
   content: ReactNode;
 };
 
-// Small segmented sub-switcher within a tab (DEV/MKT, Instagram/Farcaster…).
-function Seg({
-  tabs,
-  active,
-  onChange,
-}: {
-  tabs: SplitTab[];
-  active: string;
-  onChange: (slug: string) => void;
-}) {
-  if (tabs.length <= 1) return null;
-  return (
-    <div className="flex flex-wrap gap-0.5 rounded-lg bg-surface-elevated p-0.5">
-      {tabs.map((t) => (
-        <button
-          key={t.slug}
-          type="button"
-          role="tab"
-          aria-selected={t.slug === active}
-          onClick={() => onChange(t.slug)}
-          className={`rounded-md px-3 py-1 text-[12.5px] font-semibold transition-colors ${
-            t.slug === active
-              ? "bg-surface text-accent shadow-sm"
-              : "text-foreground-muted hover:text-foreground"
-          }`}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function HomeTabs({
   briefTabs,
   channelTabs,
   briefAbove,
   briefBand,
-  socialBand,
+  socialTiles,
 }: {
   briefTabs: SplitTab[];
   channelTabs: SplitTab[];
@@ -60,8 +28,8 @@ export function HomeTabs({
   briefAbove?: ReactNode;
   /** At-a-glance tiles shown at the top of the Morning brief tab (under the tabs). */
   briefBand?: ReactNode;
-  /** At-a-glance tiles shown at the top of the Socials tab (under the tabs). */
-  socialBand?: ReactNode;
+  /** Social metric tiles — double as the channel selector on the Socials tab. */
+  socialTiles?: BandTile[];
 }) {
   const views: { id: string; label: string; icon: LucideIcon }[] = [];
   if (briefTabs.length) views.push({ id: "briefing", label: "Morning brief", icon: FileText });
@@ -109,7 +77,7 @@ export function HomeTabs({
       <div role="tabpanel">
         {showingBrief ? (
           <>
-            {briefBand ? <div className="mb-6">{briefBand}</div> : null}
+            {briefBand ? <div className="mb-6 flex justify-center">{briefBand}</div> : null}
             {briefAbove ? <div className="mb-6">{briefAbove}</div> : null}
             {/* Show every briefing agent side by side (DEV ∥ MKT) instead of a
                 switcher — the full-width tab has room for both at once. */}
@@ -130,10 +98,10 @@ export function HomeTabs({
           </>
         ) : (
           <>
-            {socialBand ? <div className="mb-6">{socialBand}</div> : null}
-            {channelTabs.length > 1 && (
-              <div className="mb-5 overflow-x-auto">
-                <Seg tabs={channelTabs} active={currentChannel?.slug ?? ""} onChange={setSocialActive} />
+            {socialTiles && socialTiles.length > 0 && (
+              <div className="mb-6 flex justify-center">
+                {/* Tiles ARE the channel selector — click a channel's metric to switch. */}
+                <SummaryBand tiles={socialTiles} activeSlug={currentChannel?.slug} onSelect={setSocialActive} />
               </div>
             )}
             <div>{currentChannel?.content}</div>

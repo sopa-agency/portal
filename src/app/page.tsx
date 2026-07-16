@@ -5,9 +5,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 import { redirect } from "next/navigation";
-import { TrendingDown, TrendingUp } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { SummaryBand, type BandTile } from "@/components/summary-band";
 import { MorningBriefing, BriefingMissing } from "@/components/morning-briefing";
 import { RegenerateBriefingButton } from "@/components/regenerate-briefing-button";
 import { ChannelStrategy } from "@/components/social-dashboard";
@@ -38,56 +37,6 @@ function formatNumber(n: number): string {
   return String(n);
 }
 
-type BandTile = {
-  label: string;
-  value: string;
-  delta?: number | null;
-  sub?: string;
-  tone?: "ok" | "warn";
-  /** Social platform name — renders the brand mark next to the label. */
-  platform?: string;
-};
-
-function SummaryBand({ tiles }: { tiles: BandTile[] }) {
-  if (tiles.length === 0) return null;
-  // Content-width (doesn't stretch): one tile stays a small pill, many tiles a
-  // tight row. Compact padding + type so it never dominates the tab.
-  return (
-    <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-border bg-surface">
-      {tiles.map((t, i) => (
-        <div
-          key={`${t.label}-${i}`}
-          className={`flex min-w-[84px] flex-col gap-0.5 px-3 py-1.5 ${
-            i < tiles.length - 1 ? "border-r border-border" : ""
-          }`}
-        >
-          <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.1em] text-foreground-faint">
-            {t.platform && <SocialBrandIcon platform={t.platform} className="h-2.5 w-2.5 shrink-0" />}
-            {t.tone && (
-              <span
-                className={`h-[6px] w-[6px] shrink-0 rounded-full ${t.tone === "ok" ? "bg-success" : "bg-warning"}`}
-                aria-hidden
-              />
-            )}
-            <span className="whitespace-nowrap">{t.label}</span>
-          </span>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-base font-bold leading-none tracking-tight text-foreground">{t.value}</span>
-            {t.delta != null && t.delta !== 0 ? (
-              <span className={`flex items-center gap-0.5 text-[10px] font-semibold ${t.delta > 0 ? "text-success" : "text-danger"}`}>
-                {t.delta > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-                {t.delta > 0 ? "+" : ""}
-                {formatNumber(t.delta)}
-              </span>
-            ) : (
-              <span className="whitespace-nowrap text-[10px] text-foreground-faint">{t.sub ?? "—"}</span>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export default async function Home() {
   const project = await getActiveProject();
@@ -237,14 +186,17 @@ export default async function Home() {
       tone: freshBriefs === briefTabs.length && briefTabs.length > 0 ? "ok" : "warn",
     },
     ...socials.map((s, i): BandTile => {
+      // slug matches the channelTabs slug so the band tile can select the channel.
+      const slug = s.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       const m = channelMetrics[i];
       if (m && m.ok && m.followers != null) {
-        return { label: s.platform, value: formatNumber(m.followers), delta: m.followersDelta7d, platform: s.platform };
+        return { label: s.platform, value: formatNumber(m.followers), delta: m.followersDelta7d, platform: s.platform, slug };
       }
       return {
         label: s.platform,
         value: "—",
         platform: s.platform,
+        slug,
         sub: m && !m.ok && m.reason === "not-connected" ? "not connected" : "no data",
       };
     }),
@@ -267,11 +219,7 @@ export default async function Home() {
             <SummaryBand tiles={tiles.filter((t) => t.label === "Briefings")} />
           ) : null
         }
-        socialBand={
-          tiles.filter((t) => t.label !== "Briefings").length ? (
-            <SummaryBand tiles={tiles.filter((t) => t.label !== "Briefings")} />
-          ) : null
-        }
+        socialTiles={tiles.filter((t) => t.label !== "Briefings")}
         briefAbove={
           session && project.githubProject ? (
             <MyTasks tasks={myTasks} username={session.username} />
