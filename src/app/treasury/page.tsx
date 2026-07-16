@@ -16,7 +16,9 @@ import { listPayrollMembers } from "@/app/actions/payroll";
 import { getTeamRoster } from "@/lib/team-roster";
 import { StreamStatus } from "@/components/stream-status";
 import { CreatePoolButton } from "@/components/create-pool-button";
-import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS } from "@/lib/superfluid";
+import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE } from "@/lib/superfluid";
+import { StakingPanel } from "@/components/staking-panel";
+import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
@@ -168,6 +170,7 @@ treasury: {
   // Pool address: hardcoded constant, else auto-discovered by admin = SOPA Safe.
   const poolAddress = isSopa ? SOPA_POOL_ADDRESS ?? (await findSopaPool().catch(() => null)) : null;
   const streamStatus = poolAddress ? await getStreamStatus(poolAddress).catch(() => null) : null;
+  const stakePosition = isSopa ? await getStakePosition(SOPA_SAFE).catch(() => null) : null;
   // Agency's share = SOPA_SPLIT_SHARE of every tracked swap split's realized income.
   const onchainShare: OnchainShare[] =
     isSopa && orgRevenue
@@ -240,6 +243,7 @@ treasury: {
           members={
             <div className="space-y-6">
               <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />
+              {stakePosition && <StakingPanel position={stakePosition} canEdit={!!session} />}
               {!poolAddress && !!session && <CreatePoolButton />}
               <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} />
             </div>

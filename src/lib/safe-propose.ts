@@ -37,8 +37,12 @@ const SAFE_TX_TYPES = {
   ],
 } as const;
 
-/** Next safe nonce = max(on-chain nonce, highest queued nonce + 1) to avoid collisions. */
-async function nextSafeNonce(tx: string, safe: string): Promise<number> {
+/** Next safe nonce = max(on-chain nonce, highest queued nonce + 1) to avoid
+ *  collisions. Exported so callers can sequence a multi-tx flow (approve→deposit)
+ *  at nonce, nonce+1, … in guaranteed execution order. */
+export async function nextSafeNonce(chainId: number, safeAddr: string): Promise<number> {
+  const tx = safeTxService(chainId);
+  const safe = getAddress(safeAddr);
   let onchain = 0;
   try {
     const r = await fetch(`${tx}/api/v1/safes/${safe}/`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
@@ -72,6 +76,8 @@ export async function proposeSafeTx(args: {
   data: `0x${string}`;
   value?: bigint;
   origin?: string;
+  /** Explicit nonce (to sequence a multi-tx flow); computed if omitted. */
+  nonce?: number;
 }): Promise<{ ok: true; safeTxHash: string; url: string } | { ok: false; error: string }> {
   const account = proposerAccount();
   if (!account) return { ok: false, error: "SAFE_PROPOSER_PRIVATE_KEY não configurado." };
@@ -88,7 +94,7 @@ export async function proposeSafeTx(args: {
   const value = args.value ?? BigInt(0);
 
   try {
-    const nonce = await nextSafeNonce(tx, safe);
+    const nonce = args.nonce ?? (await nextSafeNonce(args.chainId, safe));
     const message = {
       to,
       value,
