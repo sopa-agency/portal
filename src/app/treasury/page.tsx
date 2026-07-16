@@ -18,7 +18,8 @@ import { StreamStatus } from "@/components/stream-status";
 import { CreatePoolButton } from "@/components/create-pool-button";
 import { StreamActions } from "@/components/stream-actions";
 import { StreamFlowView } from "@/components/stream-flow-view";
-import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE } from "@/lib/superfluid";
+import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE, SUPERFLUID } from "@/lib/superfluid";
+import { ConnectPoolButton } from "@/components/connect-pool-button";
 import { StakingPanel } from "@/components/staking-panel";
 import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
@@ -252,6 +253,7 @@ treasury: {
               <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />
               {stakePosition && <StakingPanel position={stakePosition} canEdit={!!session} />}
               {!poolAddress && !!session && <CreatePoolButton />}
+              {!!poolAddress && <ConnectPoolButton pool={poolAddress} forwarder={SUPERFLUID.gdaForwarder} />}
               {!!poolAddress && <StreamActions canEdit={!!session} />}
               <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} />
             </div>
