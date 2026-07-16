@@ -21,7 +21,7 @@ const vlad: ProjectConfig = {
   // Restricted to @xvlad for now (personal influencer portal). SOPA global
   // admins still have access via their global role. Add more Hive usernames
   // here to grant others.
-  allowlist: ["xvlad"],
+  allowlist: ["xvlad", "highlander22"],
   theme: {
     // Violet — distinct from lime (skatehive), red (gnars), cyan (reelflip).
     accentLight: "#7c3aed", // violet-600

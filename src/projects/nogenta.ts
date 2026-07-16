@@ -30,6 +30,7 @@ const nogenta: ProjectConfig = {
     "illithics",
     "humbertoperes",
     "r4topunk",
+    "highlander22",
   ],
   theme: {
     // Monochrome: near-black accent in light mode, near-white in dark. The only
