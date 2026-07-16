@@ -1,7 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, getAddress } from "viem";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
@@ -53,24 +53,29 @@ export async function proposeCreatePool(): Promise<
   if (!g.ok) return g;
   if (!proposerAddress()) return { ok: false, error: "Proposer (SAFE_PROPOSER_PRIVATE_KEY) não configurado." };
 
-  const existing = await findSopaPool();
-  if (existing) return { ok: false, error: "Já existe uma pool para este Safe." };
+  try {
+    const existing = await findSopaPool();
+    if (existing) return { ok: false, error: "Já existe uma pool para este Safe." };
 
-  const data = encodeFunctionData({
-    abi: GDA_ABI,
-    functionName: "createPool",
-    args: [
-      SUPERFLUID.usdcx as `0x${string}`,
-      SOPA_SAFE as `0x${string}`,
-      { transferabilityForUnitsOwner: false, distributionFromAnyAddress: false },
-    ],
-  });
+    const data = encodeFunctionData({
+      abi: GDA_ABI,
+      functionName: "createPool",
+      // getAddress → checksummed; viem rejects non-checksummed address args.
+      args: [
+        getAddress(SUPERFLUID.usdcx),
+        getAddress(SOPA_SAFE),
+        { transferabilityForUnitsOwner: false, distributionFromAnyAddress: false },
+      ],
+    });
 
-  return proposeSafeTx({
-    chainId: SUPERFLUID.chainId,
-    safe: SOPA_SAFE,
-    to: SUPERFLUID.gdaForwarder,
-    data,
-    origin: "SOPA: criar pool de payroll (Superfluid GDA)",
-  });
+    return await proposeSafeTx({
+      chainId: SUPERFLUID.chainId,
+      safe: SOPA_SAFE,
+      to: SUPERFLUID.gdaForwarder,
+      data,
+      origin: "SOPA: criar pool de payroll (Superfluid GDA)",
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor a pool." };
+  }
 }
