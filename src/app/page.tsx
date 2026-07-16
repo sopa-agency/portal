@@ -261,11 +261,19 @@ export default async function Home() {
         actions={<RegenerateBriefingButton />}
       />
 
-      <SummaryBand tiles={tiles} />
-
       <HomeTabs
         briefTabs={briefTabs}
         channelTabs={channelTabs}
+        briefBand={
+          tiles.filter((t) => t.label === "Briefings").length ? (
+            <SummaryBand tiles={tiles.filter((t) => t.label === "Briefings")} />
+          ) : null
+        }
+        socialBand={
+          tiles.filter((t) => t.label !== "Briefings").length ? (
+            <SummaryBand tiles={tiles.filter((t) => t.label !== "Briefings")} />
+          ) : null
+        }
         briefAbove={
           session && project.githubProject ? (
             <MyTasks tasks={myTasks} username={session.username} />
