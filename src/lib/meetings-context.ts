@@ -2,6 +2,8 @@ import "server-only";
 import type { ProjectConfig } from "@/projects/types";
 import { prisma } from "@/lib/prisma";
 import { parseActionItems } from "@/lib/meeting-actions";
+import { getDoneCardItemIds } from "@/lib/kanban-context";
+import { getAllProjects } from "@/projects";
 
 // Compact recent-meetings snapshot for the morning-briefing prompt. Meetings
 // live on the SOPA portal, but their action items are tagged with a target
@@ -26,6 +28,34 @@ export type OpenMeetingAction = {
 };
 
 /**
+ * Union of finished card ids across every project referenced by the carded
+ * action items in `rows`. One board fetch per distinct target project (cached),
+ * so a completed card marks its source action item done regardless of which
+ * portal's board it lives on.
+ */
+async function collectDoneCardIds(
+  rows: { actionItems: unknown }[],
+): Promise<Set<string>> {
+  const slugs = new Set<string>();
+  for (const m of rows) {
+    for (const it of parseActionItems(m.actionItems)) {
+      if (!it.done && it.cardItemId && it.project) slugs.add(it.project);
+    }
+  }
+  const doneIds = new Set<string>();
+  if (!slugs.size) return doneIds;
+  const bySlug = new Map(getAllProjects().map((p) => [p.slug, p]));
+  await Promise.all(
+    [...slugs].map(async (slug) => {
+      const p = bySlug.get(slug);
+      if (!p) return;
+      for (const id of await getDoneCardItemIds(p)) doneIds.add(id);
+    }),
+  );
+  return doneIds;
+}
+
+/**
  * Structured open (not-done) action items from recent SOPA meetings — powers
  * the Coordenação panel on the SOPA home. Newest meetings first, then by
  * priority. `take` bounds how many meetings we scan.
@@ -38,11 +68,17 @@ export async function getOpenMeetingActions(take = 8): Promise<OpenMeetingAction
       take,
       include: { meeting: { select: { title: true } } },
     });
+    // Treat an action as done if its linked card is finished on its board,
+    // not just when the ata's own `done` flag was toggled — moving the card to
+    // Done never writes back, so this read-time cross-reference keeps the
+    // Coordenação panel from re-surfacing already-shipped work.
+    const doneCardIds = await collectDoneCardIds(rows);
+
     const out: OpenMeetingAction[] = [];
     for (const m of rows) {
       const date = m.occurredOn.toISOString().slice(0, 10);
       for (const it of parseActionItems(m.actionItems)) {
-        if (it.done) continue;
+        if (it.done || (it.cardItemId && doneCardIds.has(it.cardItemId))) continue;
         out.push({
           id: it.id,
           text: it.text,
@@ -79,13 +115,16 @@ export async function getProjectMeetingsContext(project: ProjectConfig): Promise
     if (!rows.length) return "";
 
     const relevant = (slug: string) => slug === project.slug || (project.slug === "sopa" && slug === "");
+    // Cards finished on the board count as done even if the ata flag wasn't
+    // toggled — see collectDoneCardIds / getOpenMeetingActions.
+    const doneCardIds = await collectDoneCardIds(rows);
 
     type Line = { text: string; priority: number; deadline: string | null; owner: string | null; meeting: string };
     const open: Line[] = [];
     for (const m of rows) {
       const when = m.occurredOn.toISOString().slice(0, 10);
       for (const it of parseActionItems(m.actionItems)) {
-        if (it.done || !relevant(it.project)) continue;
+        if (it.done || (it.cardItemId && doneCardIds.has(it.cardItemId)) || !relevant(it.project)) continue;
         open.push({ text: it.text, priority: it.priority, deadline: it.deadline, owner: it.owner, meeting: `${m.meeting.title} (${when})` });
       }
     }
