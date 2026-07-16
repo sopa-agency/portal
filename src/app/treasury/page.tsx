@@ -13,6 +13,7 @@ import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-p
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
+import { SopaTreasury } from "@/components/sopa-treasury";
 
 // Agency's on-chain cut of the brand swap splits (SkateHive + Gnars split 50%
 // with the SOPA treasury).
@@ -161,20 +162,31 @@ treasury: {
       : [];
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
 
-  const treasuryContent = (
-    <div className="space-y-8">
-      <TreasuryViews groups={groups} />
-      {isSopa && (
+  // SOPA: one project selector filters balances + revenue together. Brand
+  // portals show their single treasury + their own revenue directly.
+  const overviewAndRevenue = isSopa ? (
+    <SopaTreasury
+      groups={groups}
+      revenue={orgRevenue}
+      agency={
         <SopaRevenuePanel
           initialJobs={jobs}
           canEdit={!!session}
           sharePct={SOPA_SPLIT_SHARE}
           onchainShare={onchainShare}
         />
-      )}
-      {orgRevenue && orgRevenue.projects.length > 0 && (
-        <TreasuryRevenue data={orgRevenue} aggregate={isSopa} />
-      )}
+      }
+    />
+  ) : (
+    <>
+      <TreasuryViews groups={groups} />
+      {orgRevenue && orgRevenue.projects.length > 0 && <TreasuryRevenue data={orgRevenue} aggregate={false} />}
+    </>
+  );
+
+  const treasuryContent = (
+    <div className="space-y-8">
+      {overviewAndRevenue}
       <MultisigBudgets budgets={budgets} />
       <SafeActivity safes={safes} />
       <div className="border-t border-border pt-8">
