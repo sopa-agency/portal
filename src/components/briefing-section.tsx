@@ -11,6 +11,7 @@ import {
 import type { ComponentType, SVGProps } from "react";
 import type { BriefingKind } from "@/lib/morning-briefing";
 import { MarkdownContent } from "@/components/markdown-content";
+import type { IssueIndex } from "@/lib/issue-index";
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -42,11 +43,13 @@ export function BriefingSection({
   kind,
   body,
   githubRepo,
+  issueInfo,
 }: {
   heading: string;
   kind: BriefingKind;
   body: string;
   githubRepo?: string;
+  issueInfo?: IssueIndex;
 }) {
   const style = STYLES[kind];
   const Icon = style.icon;
@@ -63,14 +66,24 @@ export function BriefingSection({
           <span className="truncate">{eyebrow}</span>
         </div>
         <div className="text-[13.5px] leading-relaxed [&_li]:my-0.5 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm">
-          <MarkdownContent markdown={body} githubRepo={githubRepo} />
+          <MarkdownContent markdown={body} githubRepo={githubRepo} issueInfo={issueInfo} />
         </div>
       </div>
     </section>
   );
 }
 
-export function BriefingSources({ heading, body, githubRepo }: { heading: string; body: string; githubRepo?: string }) {
+export function BriefingSources({
+  heading,
+  body,
+  githubRepo,
+  issueInfo,
+}: {
+  heading: string;
+  body: string;
+  githubRepo?: string;
+  issueInfo?: IssueIndex;
+}) {
   return (
     <details className="group rounded-2xl border border-border bg-surface/40 px-5 py-4 open:bg-surface">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-foreground-subtle [&::-webkit-details-marker]:hidden">
@@ -84,7 +97,7 @@ export function BriefingSources({ heading, body, githubRepo }: { heading: string
         </span>
       </summary>
       <div className="mt-3 border-t border-border pt-3">
-        <MarkdownContent markdown={body} githubRepo={githubRepo} />
+        <MarkdownContent markdown={body} githubRepo={githubRepo} issueInfo={issueInfo} />
       </div>
     </details>
   );

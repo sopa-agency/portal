@@ -8,6 +8,7 @@ import { freshnessLabel } from "@/lib/morning-briefing";
 import { BriefingSection, BriefingSources } from "@/components/briefing-section";
 import { MarkdownContent } from "@/components/markdown-content";
 import { BriefingOptions } from "@/components/briefing-options";
+import type { IssueIndex } from "@/lib/issue-index";
 
 const FRESHNESS_BADGE: Record<
   ReturnType<typeof freshnessLabel>["tone"],
@@ -39,6 +40,7 @@ export function MorningBriefing({
   projectName = "",
   githubRepo,
   postCreatorEnabled = false,
+  issueInfo,
 }: {
   briefing: Briefing;
   today: string;
@@ -46,6 +48,7 @@ export function MorningBriefing({
   projectName?: string;
   githubRepo?: string;
   postCreatorEnabled?: boolean;
+  issueInfo?: IssueIndex;
 }) {
   const { status, actions, sources, middle } = partitionSections(briefing.sections);
   const freshness = freshnessLabel(briefing.date, today);
@@ -85,25 +88,25 @@ export function MorningBriefing({
 
       {!hasAnySections && briefing.preamble && (
         <section className="rounded-2xl border border-border bg-surface p-5">
-          <MarkdownContent markdown={briefing.preamble} githubRepo={githubRepo} />
+          <MarkdownContent markdown={briefing.preamble} githubRepo={githubRepo} issueInfo={issueInfo} />
         </section>
       )}
 
       {status.map((s, i) => (
-        <BriefingSection key={`status-${i}`} {...s} githubRepo={githubRepo} />
+        <BriefingSection key={`status-${i}`} {...s} githubRepo={githubRepo} issueInfo={issueInfo} />
       ))}
 
       {/* Ledger flow (Split Desk design): compact vertical action points. */}
       {middle.map((s, i) => (
-        <BriefingSection key={`middle-${i}`} {...s} githubRepo={githubRepo} />
+        <BriefingSection key={`middle-${i}`} {...s} githubRepo={githubRepo} issueInfo={issueInfo} />
       ))}
 
       {actions.map((s, i) => (
-        <BriefingSection key={`actions-${i}`} {...s} githubRepo={githubRepo} />
+        <BriefingSection key={`actions-${i}`} {...s} githubRepo={githubRepo} issueInfo={issueInfo} />
       ))}
 
       {sources.map((s, i) => (
-        <BriefingSources key={`sources-${i}`} heading={s.heading} body={s.body} githubRepo={githubRepo} />
+        <BriefingSources key={`sources-${i}`} heading={s.heading} body={s.body} githubRepo={githubRepo} issueInfo={issueInfo} />
       ))}
     </article>
   );
