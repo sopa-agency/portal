@@ -12,23 +12,46 @@ import {
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const pct = (n: number) => `${n >= 9.95 ? Math.round(n) : n.toFixed(1)}%`;
 
+/** A team-roster member the payroll form can pre-fill from (address auto-detected). */
+export type PayrollRosterOption = { username: string; avatarUrl: string; address?: string };
+
 type Draft = { label: string; address: string; units: string };
 const emptyDraft = (): Draft => ({ label: "", address: "", units: "" });
 
 function MemberForm({
   initial,
   busy,
+  roster,
   onSave,
   onCancel,
 }: {
   initial: Draft;
   busy: boolean;
+  /** When set, a "pick from team" selector pre-fills name + wallet. */
+  roster?: PayrollRosterOption[];
   onSave: (d: Draft) => void;
   onCancel: () => void;
 }) {
   const [d, setD] = useState<Draft>(initial);
   return (
     <div className="space-y-2 rounded-lg border border-accent-border bg-accent-bg/40 p-2.5">
+      {roster && roster.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => {
+            const r = roster.find((x) => x.username === e.target.value);
+            if (r) setD((prev) => ({ ...prev, label: r.username, address: r.address ?? prev.address }));
+          }}
+          className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
+        >
+          <option value="">— escolher do time —</option>
+          {roster.map((r) => (
+            <option key={r.username} value={r.username}>
+              @{r.username}{r.address ? " · carteira ✓" : ""}
+            </option>
+          ))}
+        </select>
+      )}
       <div className="flex flex-wrap gap-2">
         <input
           value={d.label}
@@ -76,12 +99,30 @@ function MemberForm({
 // SOPA payroll stream registry: the members + wallets + weights (units) behind
 // the Superfluid distribution pool. The portal stores/plans it; the actual pool
 // is configured in the Safe. Shares are computed live from active units.
-export function PayrollPanel({ initial, canEdit }: { initial: PayrollMemberDTO[]; canEdit: boolean }) {
+export function PayrollPanel({
+  initial,
+  canEdit,
+  roster = [],
+}: {
+  initial: PayrollMemberDTO[];
+  canEdit: boolean;
+  roster?: PayrollRosterOption[];
+}) {
   const [members, setMembers] = useState<PayrollMemberDTO[]>(initial);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
+
+  // Roster members not already on payroll (matched by username or wallet).
+  const available = roster.filter(
+    (r) =>
+      !members.some(
+        (m) =>
+          m.label.toLowerCase() === r.username.toLowerCase() ||
+          (r.address && m.address.toLowerCase() === r.address.toLowerCase()),
+      ),
+  );
 
   const totalUnits = members.filter((m) => m.active).reduce((s, m) => s + m.units, 0);
   const share = (m: PayrollMemberDTO) => (m.active && totalUnits > 0 ? (m.units / totalUnits) * 100 : 0);
@@ -139,7 +180,7 @@ export function PayrollPanel({ initial, canEdit }: { initial: PayrollMemberDTO[]
 
       {adding && (
         <div className="mb-3">
-          <MemberForm initial={emptyDraft()} busy={pending} onSave={doCreate} onCancel={() => setAdding(false)} />
+          <MemberForm initial={emptyDraft()} busy={pending} roster={available} onSave={doCreate} onCancel={() => setAdding(false)} />
         </div>
       )}
 

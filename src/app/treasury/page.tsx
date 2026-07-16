@@ -11,8 +11,9 @@ import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue } from "@/lib/org-revenue";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
-import { PayrollPanel } from "@/components/payroll-panel";
+import { PayrollPanel, type PayrollRosterOption } from "@/components/payroll-panel";
 import { listPayrollMembers } from "@/app/actions/payroll";
+import { getTeamRoster } from "@/lib/team-roster";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
@@ -150,6 +151,14 @@ treasury: {
     isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
   ]);
   const payrollRes = isSopa ? await listPayrollMembers().catch(() => null) : null;
+  // Team roster → payroll member picker (auto-detect an EVM wallet in contacts).
+  const roster: PayrollRosterOption[] = isSopa
+    ? (await getTeamRoster(project).catch(() => [])).map((m) => ({
+        username: m.username,
+        avatarUrl: m.avatarUrl,
+        address: m.contacts.find((c) => /^0x[a-fA-F0-9]{40}$/.test(c.value.trim()))?.value.trim(),
+      }))
+    : [];
 
   const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
   const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
@@ -222,7 +231,7 @@ treasury: {
       {isSopa ? (
         <TreasuryTabs
           treasury={treasuryContent}
-          members={<PayrollPanel initial={payroll} canEdit={!!session} />}
+          members={<PayrollPanel initial={payroll} canEdit={!!session} roster={roster} />}
           plan={<FinancialPlan />}
         />
       ) : (
