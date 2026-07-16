@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Gauge, Loader2, ExternalLink, Sprout, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Gauge, Loader2, ExternalLink, Sprout, AlertTriangle, CheckCircle2, Zap } from "lucide-react";
 import { proposeHarvest } from "@/app/actions/staking";
+import { proposeAutoWrap } from "@/app/actions/superfluid";
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
 
@@ -26,6 +27,9 @@ export function StreamSustainability({
   const [amount, setAmount] = useState(suggested);
   const [pending, start] = useTransition();
   const [res, setRes] = useState<{ ok: true; url: string } | { ok: false; error: string } | null>(null);
+  const [allowance, setAllowance] = useState("500");
+  const [awPending, startAw] = useTransition();
+  const [awRes, setAwRes] = useState<{ ok: true; url: string } | { ok: false; error: string } | null>(null);
 
   const streaming = burnMonthly > 0;
   const sustainable = yieldMonthly != null && streaming && yieldMonthly >= burnMonthly;
@@ -40,6 +44,12 @@ export function StreamSustainability({
     start(async () => {
       setRes(null);
       setRes(await proposeHarvest(amount));
+    });
+
+  const enableAutoWrap = () =>
+    startAw(async () => {
+      setAwRes(null);
+      setAwRes(await proposeAutoWrap(allowance));
     });
 
   const verdict = !streaming
@@ -100,8 +110,9 @@ export function StreamSustainability({
         </div>
       </div>
 
-      {/* Guided action: harvest yield → buffer */}
+      {/* Guided actions */}
       {canEdit && (
+        <>
         <div className="border-t border-border pt-4">
           <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-foreground">
             <Sprout className="h-3.5 w-3.5 text-success" /> Colher yield → buffer do stream
@@ -140,6 +151,45 @@ export function StreamSustainability({
             </p>
           )}
         </div>
+
+        {/* Automatic: Auto-Wrap keeps the buffer topped up without clicking */}
+        <div className="mt-4 border-t border-border pt-4">
+          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            <Zap className="h-3.5 w-3.5 text-accent" /> Automatizar (Auto-Wrap)
+          </div>
+          <p className="mb-2 text-[11px] text-foreground-subtle">
+            Um keeper wrappa USDC → USDCx sozinho quando o buffer baixa (topo de ~7 dias, gatilho em ~2 dias) — o stream nunca zera sem você clicar. Você aprova um limite de gasto.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={allowance}
+              onChange={(e) => setAllowance(e.target.value)}
+              inputMode="decimal"
+              placeholder="limite USDC"
+              className="w-32 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm tabular-nums text-foreground focus:border-border-strong focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={enableAutoWrap}
+              disabled={awPending || !allowance}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50"
+            >
+              {awPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+              Ativar Auto-Wrap
+            </button>
+            <span className="text-[11px] text-foreground-faint">limite = teto de USDC que o keeper pode wrappar</span>
+          </div>
+          {awRes && !awRes.ok && <p className="mt-2 text-[11px] text-danger">{awRes.error}</p>}
+          {awRes && awRes.ok && (
+            <p className="mt-2 text-[11px] text-foreground-muted">
+              Proposta na fila.{" "}
+              <a href={awRes.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
+                Abrir no Safe <ExternalLink className="h-3 w-3" />
+              </a>
+            </p>
+          )}
+        </div>
+        </>
       )}
     </section>
   );

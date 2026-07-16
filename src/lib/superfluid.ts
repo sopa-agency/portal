@@ -14,6 +14,13 @@ export const SUPERFLUID = {
   subgraph: "https://subgraph-endpoints.superfluid.dev/base-mainnet/protocol-v1",
 } as const;
 
+// Superfluid Auto-Wrap on Base — a keeper tops up USDCx from USDC automatically
+// so the stream never runs dry. Addresses from @superfluid-finance/metadata.
+export const AUTO_WRAP = {
+  manager: "0x041D4bF21367e9B92016B28Fb5A2f697c1befd01",
+  strategy: "0xD790CDE7A1B3194d8Ce3CF21544F03a770336E23",
+} as const;
+
 /** The SOPA Safe (pool admin + stream source). */
 export const SOPA_SAFE = "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2";
 
