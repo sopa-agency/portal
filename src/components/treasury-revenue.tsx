@@ -124,7 +124,7 @@ function StreamRow({ stream }: { stream: OrgRevenueStream }) {
 // Organization revenue section for the treasury page: per-project on-chain
 // revenue streams (balances + realized gross + trend), mirroring the org-chart
 // Receita tab but read-only. Rendered only when tracked streams exist.
-export function TreasuryRevenue({ data }: { data: OrgRevenue }) {
+export function TreasuryRevenue({ data, aggregate = true }: { data: OrgRevenue; aggregate?: boolean }) {
   if (!data.projects.length) return null;
   return (
     <section className="space-y-4">
@@ -134,7 +134,9 @@ export function TreasuryRevenue({ data }: { data: OrgRevenue }) {
             <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> Receita on-chain
           </h2>
           <p className="mt-0.5 text-xs text-foreground-subtle">
-            Fontes de receita rastreadas por projeto — leituras ao vivo das mesmas carteiras/contratos do org-chart.
+            {aggregate
+              ? "Fontes de receita rastreadas por projeto — leituras ao vivo das mesmas carteiras/contratos do org-chart."
+              : "Fontes de receita rastreadas deste projeto — leituras on-chain ao vivo (configuradas no org-chart)."}
           </p>
         </div>
         <div className="flex gap-5 text-right">
