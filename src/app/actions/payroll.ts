@@ -100,6 +100,29 @@ export async function updatePayrollMember(
   return { ok: true, member: toDTO(row) };
 }
 
+/** Batch-set units for several members at once (the visual weight divider). */
+export async function setPayrollWeights(
+  weights: { id: string; units: number }[],
+): Promise<{ ok: true; members: PayrollMemberDTO[] } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const clean = weights.map((w) => ({ id: w.id, units: Math.round(Number(w.units)) }));
+  if (clean.some((w) => !w.id || !Number.isFinite(w.units) || w.units < 0)) return { ok: false, error: "Peso inválido." };
+  const owned = new Set(
+    (await prisma.payrollMember.findMany({ where: { projectSlug: SLUG }, select: { id: true } })).map((r) => r.id),
+  );
+  const valid = clean.filter((w) => owned.has(w.id));
+  if (valid.length) {
+    await prisma.$transaction(valid.map((w) => prisma.payrollMember.update({ where: { id: w.id }, data: { units: w.units } })));
+  }
+  revalidatePath("/treasury");
+  const rows = await prisma.payrollMember.findMany({
+    where: { projectSlug: SLUG },
+    orderBy: [{ active: "desc" }, { units: "desc" }, { createdAt: "asc" }],
+  });
+  return { ok: true, members: rows.map(toDTO) };
+}
+
 export async function deletePayrollMember(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
