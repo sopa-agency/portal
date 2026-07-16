@@ -50,41 +50,39 @@ type BandTile = {
 
 function SummaryBand({ tiles }: { tiles: BandTile[] }) {
   if (tiles.length === 0) return null;
+  // Content-width (doesn't stretch): one tile stays a small pill, many tiles a
+  // tight row. Compact padding + type so it never dominates the tab.
   return (
-    <div className="flex overflow-x-auto rounded-2xl border border-border bg-surface shadow-sm">
+    <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-border bg-surface">
       {tiles.map((t, i) => (
         <div
           key={`${t.label}-${i}`}
-          className={`flex min-w-[124px] flex-1 flex-col gap-1 px-4 py-3 ${
+          className={`flex min-w-[84px] flex-col gap-0.5 px-3 py-1.5 ${
             i < tiles.length - 1 ? "border-r border-border" : ""
           }`}
         >
-          <span className="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-[0.12em] text-foreground-faint">
-            {t.platform && <SocialBrandIcon platform={t.platform} className="h-3 w-3 shrink-0" />}
+          <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.1em] text-foreground-faint">
+            {t.platform && <SocialBrandIcon platform={t.platform} className="h-2.5 w-2.5 shrink-0" />}
             {t.tone && (
               <span
-                className={`h-[7px] w-[7px] shrink-0 rounded-full ${t.tone === "ok" ? "bg-success" : "bg-warning"}`}
+                className={`h-[6px] w-[6px] shrink-0 rounded-full ${t.tone === "ok" ? "bg-success" : "bg-warning"}`}
                 aria-hidden
               />
             )}
             <span className="whitespace-nowrap">{t.label}</span>
           </span>
-          <span className="text-[22px] font-extrabold leading-none tracking-tight text-foreground">
-            {t.value}
-          </span>
-          {t.delta != null && t.delta !== 0 ? (
-            <span
-              className={`flex items-center gap-1 text-[11px] font-semibold ${
-                t.delta > 0 ? "text-success" : "text-danger"
-              }`}
-            >
-              {t.delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-              {t.delta > 0 ? "+" : ""}
-              {formatNumber(t.delta)} · 7d
-            </span>
-          ) : (
-            <span className="text-[11px] text-foreground-faint">{t.sub ?? "—"}</span>
-          )}
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base font-bold leading-none tracking-tight text-foreground">{t.value}</span>
+            {t.delta != null && t.delta !== 0 ? (
+              <span className={`flex items-center gap-0.5 text-[10px] font-semibold ${t.delta > 0 ? "text-success" : "text-danger"}`}>
+                {t.delta > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                {t.delta > 0 ? "+" : ""}
+                {formatNumber(t.delta)}
+              </span>
+            ) : (
+              <span className="whitespace-nowrap text-[10px] text-foreground-faint">{t.sub ?? "—"}</span>
+            )}
+          </div>
         </div>
       ))}
     </div>
