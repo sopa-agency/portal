@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ImagePlus,
+  Plus,
   Loader2,
   Copy,
   Save,
@@ -853,6 +854,7 @@ function ScheduledCalendar({
   extras,
   onOpenPost,
   onImport,
+  onAddPost,
 }: {
   items: DraftRow[];
   extras: CalendarExtra[];
@@ -861,6 +863,8 @@ function ScheduledCalendar({
     | { ok: true; imported: number; skipped: number; total: number }
     | { ok: false; error: string }
   >;
+  /** Hover "+" on a day → start a new post scheduled to it (today/future). */
+  onAddPost?: (dateKey: string) => void;
 }) {
   const [extraList, setExtraList] = useState<CalendarExtra[]>(extras);
   const [openExtra, setOpenExtra] = useState<CalendarExtra | null>(null);
@@ -1103,16 +1107,28 @@ function ScheduledCalendar({
             const overflow = dayPosts.length + dayExtras.length - Math.min(dayPosts.length, CHIP_LIMIT) - shownExtras.length;
             const isToday = cellKey === todayKey;
             const isLastRow = idx >= 35;
+            const canAdd = !!onAddPost && inMonth && cellKey >= todayKey;
 
             return (
               <div
                 key={cellKey}
-                className={`min-h-[80px] border-border p-1.5 ${
+                className={`group relative min-h-[80px] border-border p-1.5 ${
                   idx % 7 !== 6 ? "border-r" : ""
                 } ${!isLastRow ? "border-b" : ""} ${
                   !inMonth ? "bg-surface-elevated/40" : ""
                 }`}
               >
+                {canAdd && (
+                  <button
+                    type="button"
+                    onClick={() => onAddPost!(cellKey)}
+                    title="Criar post nesta data"
+                    aria-label={`Criar post em ${cellKey}`}
+                    className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-md border border-border bg-surface text-foreground-muted opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:border-accent-border hover:text-accent"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                )}
                 {/* Day number */}
                 <div className="mb-1 flex items-center justify-center">
                   <span
@@ -3828,6 +3844,12 @@ export function PostCreator({
                 const res = await importRecentInstagramPosts(10);
                 if (res.ok && res.imported > 0) await refreshDrafts();
                 return res;
+              }}
+              onAddPost={(dateKey) => {
+                // Fresh composer, pre-scheduled to noon on the clicked day.
+                handleNewPost();
+                const dt = new Date(`${dateKey}T12:00:00`);
+                if (!Number.isNaN(dt.getTime())) setScheduleValue(toDatetimeLocalValue(dt));
               }}
             />
           ) : (
