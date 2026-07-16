@@ -14,6 +14,8 @@ import { listSopaJobs } from "@/app/actions/sopa-jobs";
 import { PayrollPanel, type PayrollRosterOption } from "@/components/payroll-panel";
 import { listPayrollMembers } from "@/app/actions/payroll";
 import { getTeamRoster } from "@/lib/team-roster";
+import { StreamStatus } from "@/components/stream-status";
+import { getStreamStatus, SOPA_POOL_ADDRESS } from "@/lib/superfluid";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
@@ -162,6 +164,7 @@ treasury: {
 
   const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
   const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
+  const streamStatus = isSopa && SOPA_POOL_ADDRESS ? await getStreamStatus(SOPA_POOL_ADDRESS).catch(() => null) : null;
   // Agency's share = SOPA_SPLIT_SHARE of every tracked swap split's realized income.
   const onchainShare: OnchainShare[] =
     isSopa && orgRevenue
@@ -231,7 +234,12 @@ treasury: {
       {isSopa ? (
         <TreasuryTabs
           treasury={treasuryContent}
-          members={<PayrollPanel initial={payroll} canEdit={!!session} roster={roster} />}
+          members={
+            <div className="space-y-6">
+              <StreamStatus data={streamStatus} poolConfigured={!!SOPA_POOL_ADDRESS} portalMembers={payroll} />
+              <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} />
+            </div>
+          }
           plan={<FinancialPlan />}
         />
       ) : (
