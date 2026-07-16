@@ -7,9 +7,32 @@ import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import { proposeSafeTx, proposeSafeBatch, proposerAddress } from "@/lib/safe-propose";
-import { SUPERFLUID, SOPA_SAFE, findSopaPool } from "@/lib/superfluid";
+import { SUPERFLUID, SOPA_SAFE, AUTO_WRAP, findSopaPool } from "@/lib/superfluid";
 
 const SECONDS_PER_MONTH = 2_592_000;
+
+// Auto-Wrap tuning: keeper tops up when < LOWER seconds of stream remain, up to
+// UPPER seconds' worth; schedule valid until EXPIRY.
+const AW_EXPIRY = BigInt(4_102_444_800); // 2100-01-01
+const AW_LOWER = BigInt(2 * 86_400); // 2 days
+const AW_UPPER = BigInt(7 * 86_400); // 7 days
+
+const AUTOWRAP_ABI = [
+  {
+    name: "createWrapSchedule",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "superToken", type: "address" },
+      { name: "strategy", type: "address" },
+      { name: "liquidityToken", type: "address" },
+      { name: "expiry", type: "uint64" },
+      { name: "lowerLimit", type: "uint64" },
+      { name: "upperLimit", type: "uint64" },
+    ],
+    outputs: [],
+  },
+] as const;
 
 // GDAv1Forwarder.createPool(token, admin, PoolConfig{transferabilityForUnitsOwner, distributionFromAnyAddress})
 const GDA_ABI = [
@@ -174,6 +197,47 @@ export async function proposeWrap(amount: string): Promise<
     });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor wrap." };
+  }
+}
+
+/**
+ * Enable Auto-Wrap: approve the WrapStrategy to pull up to `allowance` USDC, and
+ * register a wrap schedule so a keeper keeps USDCx topped up automatically. One
+ * batched Safe proposal. `allowance` bounds the standing approval.
+ */
+export async function proposeAutoWrap(allowance: string): Promise<
+  { ok: true; url: string } | { ok: false; error: string }
+> {
+  const g = await gate();
+  if (!g.ok) return g;
+  if (!proposerAddress()) return { ok: false, error: "Proposer não configurado." };
+  const n = Number(allowance);
+  if (!Number.isFinite(n) || n <= 0) return { ok: false, error: "Limite (allowance) inválido." };
+  try {
+    const safe = getAddress(SOPA_SAFE);
+    const usdc = getAddress(SUPERFLUID.usdc);
+    const usdcx = getAddress(SUPERFLUID.usdcx);
+    const strategy = getAddress(AUTO_WRAP.strategy);
+    const manager = getAddress(AUTO_WRAP.manager);
+    const allowance6 = parseUnits(allowance.trim(), 6);
+    return await proposeSafeBatch({
+      chainId: SUPERFLUID.chainId,
+      safe,
+      origin: `SOPA: ativar Auto-Wrap (limite ${allowance} USDC)`,
+      calls: [
+        { to: usdc, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [strategy, allowance6] }) },
+        {
+          to: manager,
+          data: encodeFunctionData({
+            abi: AUTOWRAP_ABI,
+            functionName: "createWrapSchedule",
+            args: [usdcx, strategy, usdc, AW_EXPIRY, AW_LOWER, AW_UPPER],
+          }),
+        },
+      ],
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao ativar Auto-Wrap." };
   }
 }
 
