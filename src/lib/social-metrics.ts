@@ -146,7 +146,21 @@ type RawHivePost = {
   pending_payout_value?: string;
   payout?: number;
   json_metadata?: string;
+  body?: string;
 };
+
+/** First image URL in a Hive post body — the fallback thumbnail for snaps/short
+ *  posts that carry no json_metadata.image (markdown, then <img>, then bare url). */
+function firstImageFromBody(body?: string): string | undefined {
+  if (!body) return undefined;
+  const md = body.match(/!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/);
+  if (md) return md[1];
+  const img = body.match(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/i);
+  if (img) return img[1];
+  const bare = body.match(/https?:\/\/[^\s)"']+\.(?:jpe?g|png|gif|webp|avif)(?:\?[^\s)"']*)?/i);
+  if (bare) return bare[0];
+  return undefined;
+}
 
 function mapHivePosts(rawPosts: RawHivePost[] | undefined, fallbackAuthor: string, project: ProjectConfig): PostMetric[] {
   return (rawPosts ?? []).map((p) => {
@@ -160,7 +174,8 @@ function mapHivePosts(rawPosts: RawHivePost[] | undefined, fallbackAuthor: strin
     // SkateHive/Gnars/Reelflip portals), not the universal peakd fallback.
     const url = buildPostUrl(p.author ?? fallbackAuthor, p.permlink ?? "", project.hive.frontend);
 
-    // Best-effort thumbnail from json_metadata
+    // Thumbnail: json_metadata.image first, then the first image in the body
+    // (snaps/short posts usually have no json_metadata.image).
     let thumbnail: string | undefined;
     try {
       if (p.json_metadata) {
@@ -172,6 +187,7 @@ function mapHivePosts(rawPosts: RawHivePost[] | undefined, fallbackAuthor: strin
     } catch {
       // ignore parse errors
     }
+    if (!thumbnail) thumbnail = firstImageFromBody(p.body);
 
     return {
       title: p.title ?? undefined,

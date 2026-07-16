@@ -40,9 +40,8 @@ export function ChannelStrategy({
 }) {
   return (
     <div className="space-y-6">
-      {/* Live metrics — loads async from /api/socials/metrics */}
-      <ChannelMetrics platform={channel.platform} />
-
+      {/* Header first — AI insights + Open sit at the top-right, not buried
+          below the metrics/recent posts. */}
       <header className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-border bg-surface px-5 py-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -71,6 +70,9 @@ export function ChannelStrategy({
           )}
         </div>
       </header>
+
+      {/* Live metrics + recent posts — loads async from /api/socials/metrics */}
+      <ChannelMetrics platform={channel.platform} />
     </div>
   );
 }
