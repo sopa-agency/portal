@@ -73,6 +73,24 @@ type SubgraphPool = {
   } | null;
 };
 
+/** Auto-discover the SOPA pool by admin = the Safe (so no manual address wiring
+ *  once it's created on-chain). Returns the pool address or null. */
+export async function findSopaPool(safeAddress = SOPA_SAFE): Promise<string | null> {
+  try {
+    const query = `query($admin: String!){ pools(where:{admin:$admin}, first:1, orderBy:createdAtTimestamp, orderDirection:desc){ id } }`;
+    const res = await fetch(SUPERFLUID.subgraph, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query, variables: { admin: safeAddress.toLowerCase() } }),
+      next: { revalidate: 60, tags: ["stream"] },
+    });
+    const json = (await res.json()) as { data?: { pools?: { id: string }[] } };
+    return json.data?.pools?.[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function querySubgraph(pool: string): Promise<SubgraphPool["pool"]> {
   const query = `query($pool: ID!) {
     pool(id: $pool) {
