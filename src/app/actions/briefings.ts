@@ -122,7 +122,7 @@ async function assembleBriefingPrompt(
   }
   if (meetings) {
     prompt +=
-      "\n\n=== [meetings] Decisões e ações das reuniões recentes — inclua uma seção '## Coordenação' cobrando as ações em aberto (dono + prazo), e cruze-as com o board ===\n" +
+      "\n\n=== [meetings] Decisões e ações das reuniões recentes (contexto). Traga SÓ o que é do teu escopo (não repita a coordenação inteira que o outro agente já cobre); cruze com o board quando fizer sentido; cite [meetings] ===\n" +
       meetings;
   }
 
