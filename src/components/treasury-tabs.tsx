@@ -1,17 +1,18 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Wallet, ScrollText } from "lucide-react";
+import { Wallet, ScrollText, Users2, type LucideIcon } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
 
 // Top-level tabs on the SOPA treasury page: the live treasury (balances,
-// revenue, costs) and the financial plan (the endowment/3-bucket study).
-export function TreasuryTabs({ treasury, plan }: { treasury: ReactNode; plan: ReactNode }) {
-  const [tab, setTab] = useUrlTab("tab", "tesouro");
-  const tabs = [
-    { id: "tesouro", label: "Tesouro", icon: Wallet },
-    { id: "plano", label: "Plano financeiro", icon: ScrollText },
+// revenue, costs), the payroll stream members, and the financial plan.
+export function TreasuryTabs({ treasury, members, plan }: { treasury: ReactNode; members?: ReactNode; plan: ReactNode }) {
+  const tabs: { id: string; label: string; icon: LucideIcon; node: ReactNode }[] = [
+    { id: "tesouro", label: "Tesouro", icon: Wallet, node: treasury },
+    ...(members ? [{ id: "membros", label: "Membros", icon: Users2, node: members }] : []),
+    { id: "plano", label: "Plano financeiro", icon: ScrollText, node: plan },
   ];
+  const [tab, setTab] = useUrlTab("tab", "tesouro");
   const active = tabs.some((t) => t.id === tab) ? tab : "tesouro";
 
   return (
@@ -37,7 +38,7 @@ export function TreasuryTabs({ treasury, plan }: { treasury: ReactNode; plan: Re
           );
         })}
       </div>
-      <div role="tabpanel">{active === "plano" ? plan : treasury}</div>
+      <div role="tabpanel">{tabs.find((t) => t.id === active)?.node}</div>
     </div>
   );
 }
