@@ -7,6 +7,8 @@ import { TreasuryRefresh } from "@/components/treasury-refresh";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
+import { TreasuryRevenue } from "@/components/treasury-revenue";
+import { getOrgRevenue } from "@/lib/org-revenue";
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
 import { fetchCostScope } from "@/lib/fixed-costs-data";
@@ -126,9 +128,11 @@ treasury: {
   // (each group's slug), so a brand portal sees only its own and SOPA the lot.
   // `canEdit` = any allowlisted member of the active portal.
   const costGroups = groups.map((g) => ({ slug: g.slug, name: g.name, treasuryUsd: g.report.grandTotalUsd }));
-  const [costScope, session] = await Promise.all([
+  const [costScope, session, orgRevenue] = await Promise.all([
     fetchCostScope(costGroups.map((g) => g.slug)),
     verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
+    // Revenue streams are tracked on the SOPA org-chart → shown on the org's treasury.
+    project.slug === "sopa" ? getOrgRevenue().catch(() => null) : Promise.resolve(null),
   ]);
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
 
@@ -146,6 +150,7 @@ treasury: {
         actions={<TreasuryRefresh />}
       />
       <TreasuryViews groups={groups} />
+      {orgRevenue && orgRevenue.projects.length > 0 && <TreasuryRevenue data={orgRevenue} />}
       <MultisigBudgets budgets={budgets} />
       <SafeActivity safes={safes} />
       <div className="border-t border-border pt-8">
