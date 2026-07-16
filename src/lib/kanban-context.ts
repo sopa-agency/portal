@@ -16,6 +16,37 @@ const ITEMS_PER_COLUMN = 6;
 // share one board fetch instead of hitting GitHub twice.
 const ctxCache = new Map<string, { data: string; expires: number }>();
 
+// A card is "finished" when it sits in a Done-ish column OR is closed/merged.
+// Kept in sync with the same notion in team-admin.ts (getMemberTasks).
+const DONE_COLUMN = /done|conclu|complete|shipped|archiv|encerrad|fechad|✅/i;
+
+/**
+ * GitHub Project item node ids whose card is finished on `project`'s board
+ * (Done column, or closed/merged issue/PR). Meeting action items carry a
+ * `cardItemId` pointing at one of these — so callers can treat an action as
+ * done once its linked card lands in Done, without any write-back (always
+ * fresh, cheap: the board fetch is shared/cached). Empty set on any failure.
+ */
+export async function getDoneCardItemIds(project: ProjectConfig): Promise<Set<string>> {
+  const done = new Set<string>();
+  if (!project.githubProject) return done;
+  try {
+    const board = await fetchGitHubProject(project);
+    if (!board.ok) return done;
+    for (const col of board.columns) {
+      const colDone = DONE_COLUMN.test(col.name);
+      for (const it of col.items) {
+        if (colDone || it.merged === true || (it.state ?? "").toUpperCase() === "CLOSED") {
+          done.add(it.id);
+        }
+      }
+    }
+  } catch {
+    /* best-effort */
+  }
+  return done;
+}
+
 export async function getProjectKanbanContext(project: ProjectConfig): Promise<string> {
   if (!project.githubProject) return "";
   const cached = ctxCache.get(project.slug);
