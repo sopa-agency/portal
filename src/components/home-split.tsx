@@ -21,6 +21,7 @@ export function HomeTabs({
   briefAbove,
   briefBand,
   socialTiles,
+  socialAside,
 }: {
   briefTabs: SplitTab[];
   channelTabs: SplitTab[];
@@ -30,6 +31,8 @@ export function HomeTabs({
   briefBand?: ReactNode;
   /** Social metric tiles — double as the channel selector on the Socials tab. */
   socialTiles?: BandTile[];
+  /** Side panel on the Socials tab (e.g. upcoming posts + calendar). */
+  socialAside?: ReactNode;
 }) {
   const views: { id: string; label: string; icon: LucideIcon }[] = [];
   if (briefTabs.length) views.push({ id: "briefing", label: "Morning brief", icon: FileText });
@@ -104,7 +107,15 @@ export function HomeTabs({
                 <SummaryBand tiles={socialTiles} activeSlug={currentChannel?.slug} onSelect={setSocialActive} />
               </div>
             )}
-            <div>{currentChannel?.content}</div>
+            {socialAside ? (
+              // Split: the selected channel (recent posts) + the posts calendar aside.
+              <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+                <div className="min-w-0">{currentChannel?.content}</div>
+                <div className="min-w-0">{socialAside}</div>
+              </div>
+            ) : (
+              <div>{currentChannel?.content}</div>
+            )}
           </>
         )}
       </div>
