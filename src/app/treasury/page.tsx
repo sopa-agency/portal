@@ -191,7 +191,6 @@ treasury: {
   const treasuryContent = (
     <div className="space-y-8">
       {overviewAndRevenue}
-      {isSopa && <PayrollPanel initial={payroll} canEdit={!!session} />}
       <MultisigBudgets budgets={budgets} />
       <SafeActivity safes={safes} />
       <div className="border-t border-border pt-8">
@@ -221,7 +220,11 @@ treasury: {
       {/* SOPA gets a "Plano financeiro" tab (the endowment study); brand portals
           just render the treasury content directly. */}
       {isSopa ? (
-        <TreasuryTabs treasury={treasuryContent} plan={<FinancialPlan />} />
+        <TreasuryTabs
+          treasury={treasuryContent}
+          members={<PayrollPanel initial={payroll} canEdit={!!session} />}
+          plan={<FinancialPlan />}
+        />
       ) : (
         treasuryContent
       )}
