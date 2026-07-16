@@ -11,7 +11,7 @@ import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { MorningBriefing, BriefingMissing } from "@/components/morning-briefing";
 import { RegenerateBriefingButton } from "@/components/regenerate-briefing-button";
 import { ChannelStrategy } from "@/components/social-dashboard";
-import { HomeSplit, type SplitTab } from "@/components/home-split";
+import { HomeTabs, type SplitTab } from "@/components/home-split";
 import { loadLatestBriefing, todayIsoDate } from "@/lib/morning-briefing";
 import { fetchChannelMetrics } from "@/lib/social-metrics";
 import { getActiveProject, getAllProjects } from "@/projects";
@@ -263,7 +263,7 @@ export default async function Home() {
 
       <SummaryBand tiles={tiles} />
 
-      <HomeSplit
+      <HomeTabs
         briefTabs={briefTabs}
         channelTabs={channelTabs}
         briefAbove={
