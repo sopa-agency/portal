@@ -16,6 +16,7 @@ import { listPayrollMembers } from "@/app/actions/payroll";
 import { getTeamRoster } from "@/lib/team-roster";
 import { StreamStatus } from "@/components/stream-status";
 import { CreatePoolButton } from "@/components/create-pool-button";
+import { StreamActions } from "@/components/stream-actions";
 import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE } from "@/lib/superfluid";
 import { StakingPanel } from "@/components/staking-panel";
 import { getStakePosition } from "@/lib/staking";
@@ -245,6 +246,7 @@ treasury: {
               <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />
               {stakePosition && <StakingPanel position={stakePosition} canEdit={!!session} />}
               {!poolAddress && !!session && <CreatePoolButton />}
+              {!!poolAddress && <StreamActions canEdit={!!session} />}
               <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} />
             </div>
           }
