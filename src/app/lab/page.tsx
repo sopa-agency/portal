@@ -47,6 +47,7 @@ export default async function LabPage() {
       insights={insights}
       hasRepo={(project.repos?.length ?? 0) > 0}
       cardStyles={[...cardStyles]}
+      canCreate={!!project.postCreator}
     />
   );
 }

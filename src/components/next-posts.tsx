@@ -18,7 +18,15 @@ function whenLabel(iso: string): string {
 
 // "Próximos posts" — upcoming scheduled posts from the unified calendar, plus a
 // Calendário button that opens the full month grid in a dialog.
-export function NextPosts({ events, activeSlug }: { events: CalendarExtra[]; activeSlug: string }) {
+export function NextPosts({
+  events,
+  activeSlug,
+  canCreate = false,
+}: {
+  events: CalendarExtra[];
+  activeSlug: string;
+  canCreate?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   // Capture "now" once (Date.now() during render is impure).
   const [now] = useState(() => Date.now());
@@ -74,7 +82,7 @@ export function NextPosts({ events, activeSlug }: { events: CalendarExtra[]; act
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <ScheduleCalendar events={events} activeSlug={activeSlug} />
+            <ScheduleCalendar events={events} activeSlug={activeSlug} canCreate={canCreate} />
           </div>
         </div>
       )}
