@@ -9,7 +9,7 @@ export const SUPERFLUID = {
   rpc: "https://mainnet.base.org",
   gdaForwarder: "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08",
   host: "0x4C073B3baB6d8826b8C5b229f3cfdC1eC6E47E74",
-  usdcx: "0xD04383398DD2426297da660F9CCA3d439AF9ce1b", // Super USDC, 18 dec
+  usdcx: "0xD04383398dD2426297da660F9CCA3d439AF9ce1b", // Super USDC, 18 dec (checksummed)
   usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // native USDC, 6 dec
   subgraph: "https://subgraph-endpoints.superfluid.dev/base-mainnet/protocol-v1",
 } as const;

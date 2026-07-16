@@ -44,6 +44,9 @@ const CURSOR_THROTTLE_MS = 50;
 const CURSOR_TTL_MS = 6000; // hide cursors that stopped moving
 const RECONNECT_MIN_MS = 2000;
 const RECONNECT_MAX_MS = 30_000;
+// The relay lives on a Tailscale host — unreachable off the tailnet. Give up
+// after a few tries so we don't hammer the console with reconnect failures.
+const RECONNECT_MAX_ATTEMPTS = 5;
 
 function relayUrl(projectSlug: string, username: string): string | null {
   const base = process.env.NEXT_PUBLIC_PRESENCE_WS_URL;
@@ -88,6 +91,7 @@ export function PresenceProvider({
     let closed = false;
     let retryDelay = RECONNECT_MIN_MS;
     let retryTimer: number | undefined;
+    let attempts = 0;
 
     const connect = () => {
       if (closed) return;
@@ -100,6 +104,7 @@ export function PresenceProvider({
 
       ws.onopen = () => {
         retryDelay = RECONNECT_MIN_MS;
+        attempts = 0; // reachable — reset the give-up counter
         ws?.send(JSON.stringify({ type: "track", path: pathRef.current }));
       };
 
@@ -127,6 +132,7 @@ export function PresenceProvider({
         wsRef.current = null;
         setOnline([]);
         if (closed || event.code === 4001) return; // unauthorized — don't hammer
+        if (++attempts > RECONNECT_MAX_ATTEMPTS) return; // relay unreachable — give up quietly
         retryTimer = window.setTimeout(connect, retryDelay);
         retryDelay = Math.min(retryDelay * 2, RECONNECT_MAX_MS);
       };
