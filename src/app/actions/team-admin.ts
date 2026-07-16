@@ -118,6 +118,12 @@ export async function getMemberTasks(
   if (!login) return { ok: true, tasks: [] };
   const { fetchGitHubProject } = await import("@/lib/github-project");
 
+  // A card the member already finished shouldn't show as an open task: skip
+  // Done/Closed/Archived status columns and any closed/merged issue or PR.
+  const DONE_COLUMN = /done|conclu|complete|shipped|archiv|encerrad|fechad|✅/i;
+  const isDone = (colName: string, it: { state?: string; merged?: boolean }) =>
+    DONE_COLUMN.test(colName) || it.merged === true || (it.state ?? "").toUpperCase() === "CLOSED";
+
   // Merge portal-owned fire priority + deadline onto each task (and its card
   // payload), then sort priority-first so For You leads with what matters.
   const finalize = async (
@@ -157,6 +163,7 @@ export async function getMemberTasks(
       const statusOptions = board.columns.filter((c) => c.optionId).map((c) => ({ name: c.name, optionId: c.optionId! }));
       for (const col of board.columns) {
         for (const it of col.items) {
+          if (isDone(col.name, it)) continue;
           if (it.assignees.some((a) => a.login.toLowerCase() === login)) {
             tasks.push({
               id: it.id,
@@ -187,6 +194,7 @@ export async function getMemberTasks(
   const tasks: MemberTask[] = [];
   for (const col of board.columns) {
     for (const it of col.items) {
+      if (isDone(col.name, it)) continue;
       if (it.assignees.some((a) => a.login.toLowerCase() === login)) {
         tasks.push({
           id: it.id,
