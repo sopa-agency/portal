@@ -131,8 +131,9 @@ treasury: {
   const [costScope, session, orgRevenue] = await Promise.all([
     fetchCostScope(costGroups.map((g) => g.slug)),
     verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
-    // Revenue streams are tracked on the SOPA org-chart → shown on the org's treasury.
-    project.slug === "sopa" ? getOrgRevenue().catch(() => null) : Promise.resolve(null),
+    // Revenue is tracked on the org-chart. On SOPA show every project (grouped);
+    // on a brand portal show only that project's own streams.
+    getOrgRevenue(project.slug === "sopa" ? undefined : { name: project.name, slug: project.slug }).catch(() => null),
   ]);
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
 
@@ -150,7 +151,9 @@ treasury: {
         actions={<TreasuryRefresh />}
       />
       <TreasuryViews groups={groups} />
-      {orgRevenue && orgRevenue.projects.length > 0 && <TreasuryRevenue data={orgRevenue} />}
+      {orgRevenue && orgRevenue.projects.length > 0 && (
+        <TreasuryRevenue data={orgRevenue} aggregate={project.slug === "sopa"} />
+      )}
       <MultisigBudgets budgets={budgets} />
       <SafeActivity safes={safes} />
       <div className="border-t border-border pt-8">

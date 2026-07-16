@@ -50,8 +50,14 @@ export type OrgRevenue = {
 
 const keyOf = (chain: string | null, address: string) => `${chain ?? "all"}:${address.trim().toLowerCase()}`;
 const KINDS: Kind[] = ["manual", "wallet", "contract", "split"];
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-export async function getOrgRevenue(): Promise<OrgRevenue> {
+/**
+ * @param only  When set, keep only the org-chart card matching this project
+ *   (by title ≈ name or slug) — so a brand portal's treasury shows just its own
+ *   revenue. Omit for the SOPA org view (every tracked project, grouped).
+ */
+export async function getOrgRevenue(only?: { name: string; slug: string }): Promise<OrgRevenue> {
   const rows = await prisma.sopaBoard
     .findMany({ where: { board: "orgchart" }, orderBy: [{ order: "asc" }, { createdAt: "asc" }] })
     .catch(() => []);
@@ -70,9 +76,9 @@ export async function getOrgRevenue(): Promise<OrgRevenue> {
         address: typeof s.address === "string" ? s.address.trim() : "",
       }))
       .filter((s) => s.kind !== "manual" && /^0x[a-fA-F0-9]{40}$/.test(s.address));
-    if (streams.length) {
-      cards.push({ cardId: r.id, name: r.title, logoUrl: typeof meta.logoUrl === "string" ? meta.logoUrl : null, streams });
-    }
+    if (!streams.length) continue;
+    if (only && norm(r.title) !== norm(only.name) && norm(r.title) !== norm(only.slug)) continue;
+    cards.push({ cardId: r.id, name: r.title, logoUrl: typeof meta.logoUrl === "string" ? meta.logoUrl : null, streams });
   }
   if (!cards.length) return { projects: [], balanceTotalUsd: 0, realizedTotalUsd: 0 };
 
