@@ -6,6 +6,8 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
+import { IssueHoverCard } from "@/components/issue-hover-card";
+import type { IssueIndex } from "@/lib/issue-index";
 
 // remark-gfm: tables, task lists, strikethrough, autolinks.
 // rehype-raw: render inline HTML embedded in the markdown source.
@@ -27,7 +29,23 @@ function linkPullRequests(markdown: string, githubRepo?: string): string {
     .replace(/(^|[\s(])#(\d+)\b/g, (_, prefix: string, n: string) => `${prefix}[#${n}](${pullUrl(n)})`);
 }
 
-export function MarkdownContent({ markdown, githubRepo }: { markdown: string; githubRepo?: string }) {
+// Pull the issue/PR number out of a github.com/{owner}/{repo}/(pull|issues)/N url.
+function issueNumberFromHref(href?: string): number | null {
+  if (!href) return null;
+  const m = /github\.com\/[^/]+\/[^/]+\/(?:pull|issues)\/(\d+)/.exec(href);
+  return m ? Number(m[1]) : null;
+}
+
+export function MarkdownContent({
+  markdown,
+  githubRepo,
+  issueInfo,
+}: {
+  markdown: string;
+  githubRepo?: string;
+  /** number → card info, so #N references render a hover card. */
+  issueInfo?: IssueIndex;
+}) {
   const linkedMarkdown = linkPullRequests(markdown, githubRepo);
   return (
     <div className="prose-skatehive space-y-3 text-sm text-foreground leading-7">
@@ -45,16 +63,23 @@ export function MarkdownContent({ markdown, githubRepo }: { markdown: string; gi
             <h3 className="mt-3 text-base font-semibold text-foreground">{children}</h3>
           ),
           p: ({ children }) => <p className="text-foreground-muted">{children}</p>,
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-accent underline hover:text-accent/80"
-            >
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            // A #N reference we have board data for → hover card instead of a
+            // plain link. Unknown numbers / other links fall back to a link.
+            const num = issueNumberFromHref(href);
+            const info = num != null ? issueInfo?.[num] : undefined;
+            if (info) return <IssueHoverCard info={info}>{children}</IssueHoverCard>;
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline hover:text-accent/80"
+              >
+                {children}
+              </a>
+            );
+          },
           ul: ({ children }) => <ul className="list-disc space-y-1 pl-6 text-foreground-muted">{children}</ul>,
           ol: ({ children }) => <ol className="list-decimal space-y-1 pl-6 text-foreground-muted">{children}</ol>,
           table: ({ children }) => (

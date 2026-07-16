@@ -28,6 +28,7 @@ import { verifySession } from "@/lib/team-access";
 import { getTeamRoster } from "@/lib/team-roster";
 import { getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
 import { MyTasks } from "@/components/my-tasks";
+import { getProjectIssueIndex } from "@/lib/issue-index";
 
 // Direction B home (from the Claude Design handoff): summary band with the
 // at-a-glance numbers up top, then Morning brief and Socials SIDE BY SIDE —
@@ -122,7 +123,7 @@ export default async function Home() {
     return ig(a.platform) - ig(b.platform);
   });
 
-  const [briefResults, channelMetrics, cal] = await Promise.all([
+  const [briefResults, channelMetrics, cal, issueInfo] = await Promise.all([
     Promise.all(briefingAgents.map((a) => loadLatestBriefing(a))),
     Promise.all(
       socials.map((s) =>
@@ -132,6 +133,8 @@ export default async function Home() {
       ),
     ),
     listUnifiedCalendar().catch(() => null),
+    // number → card info, so briefing #N references get a hover card.
+    getProjectIssueIndex(project).catch(() => ({})),
   ]);
   const calEvents = cal?.ok ? cal.events : [];
 
@@ -167,6 +170,7 @@ export default async function Home() {
           projectName={project.name}
           githubRepo={project.repos[0]}
           postCreatorEnabled={!!project.postCreator}
+          issueInfo={issueInfo}
         />
       ) : (
         <BriefingMissing agent={result.agent} error={result.error} />
