@@ -947,6 +947,25 @@ model SopaJob {
   @@index([projectSlug])
 }
 
+// Payroll stream members — the registry behind SOPA's Superfluid distribution
+// pool. Each member has a wallet + `units` (the weight); their live share is
+// units ÷ total active units. The portal is the source of truth the team
+// references when configuring the on-chain pool in the Safe (the portal itself
+// doesn't move funds).
+model PayrollMember {
+  id          String   @id @default(cuid())
+  projectSlug String   @default("sopa")
+  label       String // name / handle
+  address     String // 0x… receiving wallet
+  units       Int      @default(0) // weight; share = units ÷ Σ active units
+  active      Boolean  @default(true)
+  addedBy     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug])
+}
+
 // Accumulated pool of Instagram handles to suggest as post collaborators — an
 // autocomplete source built from the userbase IG identities, people who comment
 // on our posts, and accounts we've actually collaborated with. (The Graph API

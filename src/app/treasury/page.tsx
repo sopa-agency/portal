@@ -11,6 +11,8 @@ import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue } from "@/lib/org-revenue";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
+import { PayrollPanel } from "@/components/payroll-panel";
+import { listPayrollMembers } from "@/app/actions/payroll";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
@@ -147,8 +149,10 @@ treasury: {
     // SOPA agency revenue: client jobs (manual).
     isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
   ]);
+  const payrollRes = isSopa ? await listPayrollMembers().catch(() => null) : null;
 
   const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
+  const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
   // Agency's share = SOPA_SPLIT_SHARE of every tracked swap split's realized income.
   const onchainShare: OnchainShare[] =
     isSopa && orgRevenue
@@ -187,6 +191,7 @@ treasury: {
   const treasuryContent = (
     <div className="space-y-8">
       {overviewAndRevenue}
+      {isSopa && <PayrollPanel initial={payroll} canEdit={!!session} />}
       <MultisigBudgets budgets={budgets} />
       <SafeActivity safes={safes} />
       <div className="border-t border-border pt-8">
