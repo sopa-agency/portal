@@ -68,11 +68,9 @@ export function HomeTabs({
   if (channelTabs.length) views.push({ id: "social", label: "Socials", icon: Megaphone });
 
   const [view, setView] = useUrlTab("view", views[0]?.id ?? "briefing");
-  const [briefActive, setBriefActive] = useUrlTab("brief", briefTabs[0]?.slug ?? "");
   const [socialActive, setSocialActive] = useUrlTab("social", channelTabs[0]?.slug ?? "");
 
   const activeView = views.find((v) => v.id === view) ?? views[0];
-  const currentBrief = briefTabs.find((t) => t.slug === briefActive) ?? briefTabs[0];
   const currentChannel = channelTabs.find((t) => t.slug === socialActive) ?? channelTabs[0];
 
   if (!views.length) return null;
@@ -113,12 +111,22 @@ export function HomeTabs({
           <>
             {briefBand ? <div className="mb-6">{briefBand}</div> : null}
             {briefAbove ? <div className="mb-6">{briefAbove}</div> : null}
-            {briefTabs.length > 1 && (
-              <div className="mb-5 overflow-x-auto">
-                <Seg tabs={briefTabs} active={currentBrief?.slug ?? ""} onChange={setBriefActive} />
+            {/* Show every briefing agent side by side (DEV ∥ MKT) instead of a
+                switcher — the full-width tab has room for both at once. */}
+            {briefTabs.length > 1 ? (
+              <div className="grid gap-8 lg:grid-cols-2 lg:gap-6">
+                {briefTabs.map((t) => (
+                  <section key={t.slug} className="min-w-0">
+                    <div className="mb-4 border-b border-border pb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground-subtle">
+                      {t.label}
+                    </div>
+                    {t.content}
+                  </section>
+                ))}
               </div>
+            ) : (
+              <div>{briefTabs[0]?.content}</div>
             )}
-            <div>{currentBrief?.content}</div>
           </>
         ) : (
           <>
