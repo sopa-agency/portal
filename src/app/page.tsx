@@ -228,7 +228,7 @@ export default async function Home() {
           ) : null
         }
         socialTiles={tiles.filter((t) => t.label !== "Briefings")}
-        socialAside={<NextPosts events={calEvents} activeSlug={project.slug} />}
+        socialAside={<NextPosts events={calEvents} activeSlug={project.slug} canCreate={!!project.postCreator} />}
         briefAbove={
           session && project.githubProject ? (
             <MyTasks tasks={myTasks} username={session.username} />

@@ -190,7 +190,7 @@ export default async function MarketingSuggestionsPage({
       ? calendarResult.value.events
       : [];
   const calendar = (
-    <ScheduleCalendar events={calendarEvents} activeSlug={project?.slug ?? ""} />
+    <ScheduleCalendar events={calendarEvents} activeSlug={project?.slug ?? ""} canCreate={!!project?.postCreator} />
   );
 
   return (

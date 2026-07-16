@@ -6,7 +6,7 @@
 // thumbnail calendar.
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { CalendarExtra } from "@/app/actions/post-creator";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
@@ -20,9 +20,12 @@ function dayKey(d: Date): string {
 export function ScheduleCalendar({
   events,
   activeSlug,
+  canCreate = false,
 }: {
   events: CalendarExtra[];
   activeSlug: string;
+  /** Show a hover "+" per day that opens the Post Creator pre-scheduled to it. */
+  canCreate?: boolean;
 }) {
   const [list, setList] = useState<CalendarExtra[]>(events);
   const [openEvent, setOpenEvent] = useState<CalendarExtra | null>(null);
@@ -104,11 +107,23 @@ export function ScheduleCalendar({
             const key = dayKey(date);
             const dayEvents = byDay[key] ?? [];
             const isToday = key === todayKey;
+            const canAdd = canCreate && inMonth && key >= todayKey;
             return (
               <div
                 key={key}
-                className={`min-h-[76px] border-border p-1.5 ${idx % 7 !== 6 ? "border-r" : ""} ${idx < 35 ? "border-b" : ""} ${!inMonth ? "bg-surface-elevated/40" : ""}`}
+                className={`group relative min-h-[76px] border-border p-1.5 ${idx % 7 !== 6 ? "border-r" : ""} ${idx < 35 ? "border-b" : ""} ${!inMonth ? "bg-surface-elevated/40" : ""}`}
               >
+                {canAdd && (
+                  <a
+                    href={`/post-creator?date=${key}`}
+                    title="Criar post nesta data"
+                    aria-label={`Criar post em ${key}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-md border border-border bg-surface text-foreground-muted opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:border-accent-border hover:text-accent"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </a>
+                )}
                 <div className="mb-1 flex items-center justify-center">
                   <span
                     className={`flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-medium tabular-nums ${

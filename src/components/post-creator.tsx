@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ImagePlus,
   Loader2,
@@ -1799,6 +1799,22 @@ export function PostCreator({
   const [scheduleValue, setScheduleValue] = useState("");
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
   const [schedulePending, startScheduleTransition] = useTransition();
+
+  // Landing here from a calendar "+" (/post-creator?date=YYYY-MM-DD) seeds the
+  // schedule picker to noon on that day for a fresh post. Runs once on mount.
+  const searchParams = useSearchParams();
+  const seededDate = useRef(false);
+  useEffect(() => {
+    if (seededDate.current) return;
+    const d = searchParams.get("date");
+    if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    seededDate.current = true;
+    const dt = new Date(`${d}T12:00:00`);
+    if (Number.isNaN(dt.getTime())) return;
+    setScheduleValue(toDatetimeLocalValue(dt));
+    setViewTab("create");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Drafts
   const [drafts, setDrafts] = useState<DraftRow[]>([]);

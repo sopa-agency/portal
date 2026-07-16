@@ -132,6 +132,7 @@ export function PostLab({
   insights,
   hasRepo,
   cardStyles = [],
+  canCreate = false,
 }: {
   brand: LabBrand;
   calendarEvents: CalendarExtra[];
@@ -140,6 +141,8 @@ export function PostLab({
   hasRepo: boolean;
   /** Studio card-overlay templates (POIDH bounty, SkateHive trading cards). */
   cardStyles?: ("holo" | "pixel" | "gold" | "bounty" | "skatecard")[];
+  /** Show the calendar's hover "+" to create a post on a day (Post Creator enabled). */
+  canCreate?: boolean;
 }) {
   const router = useRouter();
   const [view, setView] = useState<"compose" | "calendar">("compose");
@@ -446,7 +449,7 @@ export function PostLab({
               Nada agendado ainda. Agende um post na aba Compor.
             </p>
           ) : (
-            <ScheduleCalendar events={calendarEvents} activeSlug={activeSlug} />
+            <ScheduleCalendar events={calendarEvents} activeSlug={activeSlug} canCreate={canCreate} />
           )}
         </div>
       ) : (
