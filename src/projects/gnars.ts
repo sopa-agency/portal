@@ -23,6 +23,7 @@ const gnars: ProjectConfig = {
     "humbertoperes",
     "r4topunk",
     "nogenta",
+    "highlander22",
   ],
   theme: {
     // Gnars red noggles — matches portal-gnars globals.css exactly.
