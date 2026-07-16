@@ -11,6 +11,8 @@ import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue } from "@/lib/org-revenue";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
+import { TreasuryTabs } from "@/components/treasury-tabs";
+import { FinancialPlan } from "@/components/financial-plan";
 
 // Agency's on-chain cut of the brand swap splits (SkateHive + Gnars split 50%
 // with the SOPA treasury).
@@ -159,19 +161,8 @@ treasury: {
       : [];
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
 
-  return (
+  const treasuryContent = (
     <div className="space-y-8">
-      <PageHeader
-        eyebrow="Treasury"
-        title={groups.length > 1 ? "Treasuries overview" : `${project.name} treasury`}
-        description={
-          groups.length > 1
-            ? `The ${project.name} Safe plus every portal treasury it operates — same wallets and sources as the native apps.`
-            : "The same wallets and data sources the native app shows — live balances across chains."
-        }
-        status={usd(combined)}
-        actions={<TreasuryRefresh />}
-      />
       <TreasuryViews groups={groups} />
       {isSopa && (
         <SopaRevenuePanel
@@ -194,6 +185,29 @@ treasury: {
           canEdit={!!session}
         />
       </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Treasury"
+        title={groups.length > 1 ? "Treasuries overview" : `${project.name} treasury`}
+        description={
+          groups.length > 1
+            ? `The ${project.name} Safe plus every portal treasury it operates — same wallets and sources as the native apps.`
+            : "The same wallets and data sources the native app shows — live balances across chains."
+        }
+        status={usd(combined)}
+        actions={<TreasuryRefresh />}
+      />
+      {/* SOPA gets a "Plano financeiro" tab (the endowment study); brand portals
+          just render the treasury content directly. */}
+      {isSopa ? (
+        <TreasuryTabs treasury={treasuryContent} plan={<FinancialPlan />} />
+      ) : (
+        treasuryContent
+      )}
     </div>
   );
 }
