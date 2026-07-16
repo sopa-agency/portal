@@ -9,6 +9,12 @@ import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budge
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue } from "@/lib/org-revenue";
+import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
+import { listSopaJobs } from "@/app/actions/sopa-jobs";
+
+// Agency's on-chain cut of the brand swap splits (SkateHive + Gnars split 50%
+// with the SOPA treasury).
+const SOPA_SPLIT_SHARE = 0.5;
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
 import { fetchCostScope } from "@/lib/fixed-costs-data";
@@ -128,13 +134,29 @@ treasury: {
   // (each group's slug), so a brand portal sees only its own and SOPA the lot.
   // `canEdit` = any allowlisted member of the active portal.
   const costGroups = groups.map((g) => ({ slug: g.slug, name: g.name, treasuryUsd: g.report.grandTotalUsd }));
-  const [costScope, session, orgRevenue] = await Promise.all([
+  const isSopa = project.slug === "sopa";
+  const [costScope, session, orgRevenue, jobsRes] = await Promise.all([
     fetchCostScope(costGroups.map((g) => g.slug)),
     verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
     // Revenue is tracked on the org-chart. On SOPA show every project (grouped);
     // on a brand portal show only that project's own streams.
-    getOrgRevenue(project.slug === "sopa" ? undefined : { name: project.name, slug: project.slug }).catch(() => null),
+    getOrgRevenue(isSopa ? undefined : { name: project.name, slug: project.slug }).catch(() => null),
+    // SOPA agency revenue: client jobs (manual).
+    isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
   ]);
+
+  const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
+  // Agency's share = SOPA_SPLIT_SHARE of every tracked swap split's realized income.
+  const onchainShare: OnchainShare[] =
+    isSopa && orgRevenue
+      ? orgRevenue.projects.flatMap((p) =>
+          p.streams.flatMap((s, i) =>
+            s.kind === "split" && s.realized && s.realized.revenueUsd > 0
+              ? [{ key: `${p.cardId}:${i}`, projectName: p.name, label: s.label, realizedUsd: s.realized.revenueUsd }]
+              : [],
+          ),
+        )
+      : [];
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
 
   return (
@@ -151,8 +173,16 @@ treasury: {
         actions={<TreasuryRefresh />}
       />
       <TreasuryViews groups={groups} />
+      {isSopa && (
+        <SopaRevenuePanel
+          initialJobs={jobs}
+          canEdit={!!session}
+          sharePct={SOPA_SPLIT_SHARE}
+          onchainShare={onchainShare}
+        />
+      )}
       {orgRevenue && orgRevenue.projects.length > 0 && (
-        <TreasuryRevenue data={orgRevenue} aggregate={project.slug === "sopa"} />
+        <TreasuryRevenue data={orgRevenue} aggregate={isSopa} />
       )}
       <MultisigBudgets budgets={budgets} />
       <SafeActivity safes={safes} />

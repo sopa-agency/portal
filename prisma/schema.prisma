@@ -928,6 +928,25 @@ model FixedCostActual {
   @@index([costId])
 }
 
+// SOPA agency revenue from client jobs (e.g. the Venice bot gig). Unlike the
+// brands' on-chain auction/split income, agency revenue is job-based and entered
+// by hand: client, amount, when, and whether it's been paid. Summed on the SOPA
+// treasury alongside the agency's on-chain share of the brand swap splits.
+model SopaJob {
+  id          String   @id @default(cuid())
+  projectSlug String   @default("sopa")
+  client      String // who the job was for (e.g. "Venice bot")
+  description String? // scope of the work
+  amountUsd   Float
+  status      String   @default("paid") // paid | pending
+  occurredOn  DateTime // date the job was done / invoiced
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug])
+}
+
 // Accumulated pool of Instagram handles to suggest as post collaborators — an
 // autocomplete source built from the userbase IG identities, people who comment
 // on our posts, and accounts we've actually collaborated with. (The Graph API
