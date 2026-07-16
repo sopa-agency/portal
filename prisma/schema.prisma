@@ -166,6 +166,7 @@ model Campaign {
   // the Hive snap / Farcaster cast / Hive mag post drafts.
   sourceMediaUrls Json?
   sourcePermalink String?
+  outreachContacts OutreachContact[]
 
   @@index([projectSlug, archivedAt, updatedAt(sort: Desc)])
 }
@@ -183,6 +184,30 @@ model CampaignDocument {
   updatedAt  DateTime  @updatedAt
 
   @@index([campaignId, updatedAt(sort: Desc)])
+}
+
+// Per-recipient outreach tracking for controlled email delivery (see
+// src/app/actions/outreach.ts). One row per (campaign, email): the audience is
+// enqueued as "pending", sent in manual daily-controlled batches, and each row
+// records its own status so the same person is NEVER re-emailed within a
+// campaign. "responded" is set when a contacted skater posts on Hive again.
+// Applied via targeted SQL (db:push drifts on this DB) — scripts/create-outreach-table.cjs.
+model OutreachContact {
+  id           String    @id @default(cuid())
+  campaignId   String
+  campaign     Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  email        String
+  hiveUsername String?
+  status       String    @default("pending") // pending | sent | responded | bounced | skipped | opted_out
+  sentAt       DateTime?
+  respondedAt  DateTime?
+  error        String?
+  projectSlug  String    @default("skatehive")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([campaignId, email])
+  @@index([campaignId, status])
 }
 
 model Briefing {
