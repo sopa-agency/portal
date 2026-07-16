@@ -6,7 +6,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
-import { proposeSafeTx, nextSafeNonce, proposerAddress } from "@/lib/safe-propose";
+import { proposeSafeTx, proposeSafeBatch, proposerAddress } from "@/lib/safe-propose";
 import { SUPERFLUID, SOPA_SAFE, findSopaPool } from "@/lib/superfluid";
 
 const SECONDS_PER_MONTH = 2_592_000;
@@ -132,27 +132,17 @@ export async function proposeSetUnits(): Promise<
 
     const safe = getAddress(SOPA_SAFE);
     const poolAddr = getAddress(pool);
-    const base = await nextSafeNonce(SUPERFLUID.chainId, safe);
-    let url = "";
-    for (let i = 0; i < valid.length; i++) {
-      const m = valid[i];
-      const data = encodeFunctionData({
+    const calls = valid.map((m) => ({
+      to: SUPERFLUID.gdaForwarder,
+      data: encodeFunctionData({
         abi: GDA_ABI,
         functionName: "updateMemberUnits",
         args: [poolAddr, getAddress(m.address), BigInt(m.units), "0x"],
-      });
-      const r = await proposeSafeTx({
-        chainId: SUPERFLUID.chainId,
-        safe,
-        to: SUPERFLUID.gdaForwarder,
-        data,
-        nonce: base + i,
-        origin: `SOPA: units ${m.label.slice(0, 40)} = ${m.units}`,
-      });
-      if (!r.ok) return r;
-      url = r.url;
-    }
-    return { ok: true, url, count: valid.length };
+      }),
+    }));
+    const r = await proposeSafeBatch({ chainId: SUPERFLUID.chainId, safe, calls, origin: `SOPA: sincronizar ${valid.length} pesos` });
+    if (!r.ok) return r;
+    return { ok: true, url: r.url, count: valid.length };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor units." };
   }
@@ -172,27 +162,16 @@ export async function proposeWrap(amount: string): Promise<
     const usdcx = getAddress(SUPERFLUID.usdcx);
     const amount6 = parseUnits(amount.trim(), 6); // approve on 6-dec USDC
     const amount18 = parseUnits(amount.trim(), 18); // upgrade arg is 18-dec
-    const base = await nextSafeNonce(SUPERFLUID.chainId, safe);
 
-    const approve = await proposeSafeTx({
+    return await proposeSafeBatch({
       chainId: SUPERFLUID.chainId,
       safe,
-      to: getAddress(SUPERFLUID.usdc),
-      data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [usdcx, amount6] }),
-      nonce: base,
-      origin: "SOPA: aprovar USDC p/ wrap",
+      origin: `SOPA: wrap ${amount} USDC → USDCx`,
+      calls: [
+        { to: getAddress(SUPERFLUID.usdc), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [usdcx, amount6] }) },
+        { to: usdcx, data: encodeFunctionData({ abi: SUPERTOKEN_ABI, functionName: "upgrade", args: [amount18] }) },
+      ],
     });
-    if (!approve.ok) return approve;
-
-    const upgrade = await proposeSafeTx({
-      chainId: SUPERFLUID.chainId,
-      safe,
-      to: usdcx,
-      data: encodeFunctionData({ abi: SUPERTOKEN_ABI, functionName: "upgrade", args: [amount18] }),
-      nonce: base + 1,
-      origin: "SOPA: wrap USDC → USDCx",
-    });
-    return upgrade.ok ? { ok: true, url: upgrade.url } : upgrade;
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor wrap." };
   }

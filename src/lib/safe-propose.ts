@@ -1,7 +1,28 @@
 import "server-only";
-import { getAddress, hashTypedData, zeroAddress } from "viem";
+import { getAddress, hashTypedData, zeroAddress, encodeFunctionData } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { safeTxService } from "@/lib/safe-tx";
+
+// MultiSendCallOnly 1.4.1 (canonical, and already used by the SOPA Safe at
+// setup). Lets us batch N calls into ONE Safe proposal (operation = delegatecall).
+const MULTISEND_CALL_ONLY = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2";
+const MULTISEND_ABI = [
+  { name: "multiSend", type: "function", stateMutability: "payable", inputs: [{ name: "transactions", type: "bytes" }], outputs: [] },
+] as const;
+
+export type SafeCall = { to: string; data: `0x${string}`; value?: bigint };
+
+/** Pack calls into MultiSend's `transactions` bytes: per call operation(0)+to+value+len+data. */
+function encodeMultiSend(calls: SafeCall[]): `0x${string}` {
+  const parts = calls.map((c) => {
+    const to = getAddress(c.to).slice(2).toLowerCase();
+    const value = (c.value ?? BigInt(0)).toString(16).padStart(64, "0");
+    const data = (c.data || "0x").slice(2);
+    const len = (data.length / 2).toString(16).padStart(64, "0");
+    return `00${to}${value}${len}${data}`; // 00 = CALL
+  });
+  return `0x${parts.join("")}`;
+}
 
 // Server-side Safe transaction proposer. The SAFE_PROPOSER_PRIVATE_KEY account
 // (a delegate on the Safe) signs the safeTxHash and POSTs it to the Safe
@@ -78,6 +99,8 @@ export async function proposeSafeTx(args: {
   origin?: string;
   /** Explicit nonce (to sequence a multi-tx flow); computed if omitted. */
   nonce?: number;
+  /** 0 = CALL (default), 1 = DELEGATECALL (MultiSend batches). */
+  operation?: 0 | 1;
 }): Promise<{ ok: true; safeTxHash: string; url: string } | { ok: false; error: string }> {
   const account = proposerAccount();
   if (!account) return { ok: false, error: "SAFE_PROPOSER_PRIVATE_KEY não configurado." };
@@ -92,6 +115,7 @@ export async function proposeSafeTx(args: {
   }
   const tx = safeTxService(args.chainId);
   const value = args.value ?? BigInt(0);
+  const operation = args.operation ?? 0;
 
   try {
     const nonce = args.nonce ?? (await nextSafeNonce(args.chainId, safe));
@@ -99,7 +123,7 @@ export async function proposeSafeTx(args: {
       to,
       value,
       data: args.data,
-      operation: 0,
+      operation,
       safeTxGas: BigInt(0),
       baseGas: BigInt(0),
       gasPrice: BigInt(0),
@@ -118,7 +142,7 @@ export async function proposeSafeTx(args: {
         to,
         value: value.toString(),
         data: args.data,
-        operation: 0,
+        operation,
         safeTxGas: "0",
         baseGas: "0",
         gasPrice: "0",
@@ -140,4 +164,33 @@ export async function proposeSafeTx(args: {
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Falha ao propor transação." };
   }
+}
+
+/**
+ * Propose several calls as ONE Safe transaction via MultiSendCallOnly — so an
+ * action (approve+deposit, N updateMemberUnits) is a single queue entry / one
+ * signing round instead of piling up. Falls back to a plain tx for a single call.
+ */
+export async function proposeSafeBatch(args: {
+  chainId: number;
+  safe: string;
+  calls: SafeCall[];
+  origin?: string;
+  nonce?: number;
+}): Promise<{ ok: true; safeTxHash: string; url: string } | { ok: false; error: string }> {
+  if (args.calls.length === 0) return { ok: false, error: "Nada para propor." };
+  if (args.calls.length === 1) {
+    const c = args.calls[0];
+    return proposeSafeTx({ chainId: args.chainId, safe: args.safe, to: c.to, data: c.data, value: c.value, origin: args.origin, nonce: args.nonce });
+  }
+  const data = encodeFunctionData({ abi: MULTISEND_ABI, functionName: "multiSend", args: [encodeMultiSend(args.calls)] });
+  return proposeSafeTx({
+    chainId: args.chainId,
+    safe: args.safe,
+    to: MULTISEND_CALL_ONLY,
+    data,
+    operation: 1, // delegatecall into MultiSend
+    origin: args.origin,
+    nonce: args.nonce,
+  });
 }

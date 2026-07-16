@@ -5,7 +5,7 @@ import { encodeFunctionData, getAddress, parseUnits, erc20Abi } from "viem";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
-import { proposeSafeTx, nextSafeNonce, proposerAddress } from "@/lib/safe-propose";
+import { proposeSafeTx, proposeSafeBatch, proposerAddress } from "@/lib/safe-propose";
 import { SOPA_SAFE } from "@/lib/superfluid";
 import { MORPHO } from "@/lib/staking";
 
@@ -46,28 +46,15 @@ export async function proposeStake(amount: string): Promise<
   try {
     const safe = getAddress(SOPA_SAFE);
     const vault = getAddress(MORPHO.vault);
-    const base = await nextSafeNonce(MORPHO.chainId, safe);
-
-    const approve = await proposeSafeTx({
+    return await proposeSafeBatch({
       chainId: MORPHO.chainId,
       safe,
-      to: getAddress(MORPHO.usdc),
-      data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [vault, assets] }),
-      nonce: base,
-      origin: "SOPA: aprovar USDC p/ Morpho",
+      origin: "SOPA: stakar USDC no Morpho (approve + deposit)",
+      calls: [
+        { to: getAddress(MORPHO.usdc), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [vault, assets] }) },
+        { to: vault, data: encodeFunctionData({ abi: VAULT_ABI, functionName: "deposit", args: [assets, safe] }) },
+      ],
     });
-    if (!approve.ok) return approve;
-
-    const deposit = await proposeSafeTx({
-      chainId: MORPHO.chainId,
-      safe,
-      to: vault,
-      data: encodeFunctionData({ abi: VAULT_ABI, functionName: "deposit", args: [assets, safe] }),
-      nonce: base + 1,
-      origin: "SOPA: stakar USDC no Morpho",
-    });
-    if (!deposit.ok) return deposit;
-    return { ok: true, url: deposit.url };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor stake." };
   }
