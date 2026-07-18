@@ -268,7 +268,7 @@ treasury: {
         revenue={
           orgRevenue && orgRevenue.projects.length > 0 ? <TreasuryRevenue data={orgRevenue} aggregate={false} /> : null
         }
-        balances={<TreasuryViews groups={groups} />}
+        balances={<TreasuryViews groups={groups} hideTotal />}
         costs={
           <FixedCostsPanel
             groups={costGroups}

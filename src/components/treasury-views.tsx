@@ -104,7 +104,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 /** The hero + composition + holdings overview for the current view. */
-function Overview({ groups, title }: { groups: TreasuryGroup[]; title: string }) {
+function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[]; title: string; hideTotal?: boolean }) {
   const grand = groups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
   const evmTotal = groups.reduce((s, g) => s + g.report.evmTotalUsd, 0);
   const hiveTotal = groups.reduce((s, g) => s + g.report.hiveTotalUsd, 0);
@@ -139,10 +139,14 @@ function Overview({ groups, title }: { groups: TreasuryGroup[]; title: string })
   return (
     <div className="overflow-hidden rounded-3xl border border-border bg-surface">
       {/* Hero */}
-      <div className="border-b border-border bg-gradient-to-br from-accent-bg to-transparent p-6">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">{title}</p>
-        <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums text-foreground">{usd(grand)}</p>
-        <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className={`border-b border-border p-6 ${hideTotal ? "" : "bg-gradient-to-br from-accent-bg to-transparent"}`}>
+        {!hideTotal && (
+          <>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">{title}</p>
+            <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums text-foreground">{usd(grand)}</p>
+          </>
+        )}
+        <div className={`grid grid-cols-2 gap-4 sm:grid-cols-4 ${hideTotal ? "" : "mt-5"}`}>
           <Stat label="EVM" value={usd(evmTotal)} />
           <Stat label="Hive" value={usd(hiveTotal)} />
           <Stat label="Ativos" value={String(assets.length)} />
@@ -373,7 +377,7 @@ function WalletDetail({ groups, withHeadings }: { groups: TreasuryGroup[]; withH
  * collapsible section below. Multiple groups (admin overview) add a tab bar and
  * a "by project" allocation.
  */
-export function TreasuryViews({ groups, hideSelector = false }: { groups: TreasuryGroup[]; hideSelector?: boolean }) {
+export function TreasuryViews({ groups, hideSelector = false, hideTotal = false }: { groups: TreasuryGroup[]; hideSelector?: boolean; hideTotal?: boolean }) {
   const [view, setView] = useState<string>("all");
   const [showDetail, setShowDetail] = useState(false);
   const multi = groups.length > 1;
@@ -406,7 +410,7 @@ export function TreasuryViews({ groups, hideSelector = false }: { groups: Treasu
         </div>
       )}
 
-      <Overview groups={visible} title={title} />
+      <Overview groups={visible} title={title} hideTotal={hideTotal} />
 
       <div>
         <button

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Coins, Wallet, Briefcase } from "lucide-react";
+import { Coins } from "lucide-react";
 import type { FinanceMonthPoint, FinancialDashboardView } from "@/lib/financial-dashboard";
 
 // "Entrada vs saída" — the operating view, laid out per the Claude Design:
@@ -81,7 +81,6 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
   const outgoingUsd = sum(visibleSeries, "outgoingUsd");
   const jobsUsd = sum(visibleSeries, "jobsUsd");
   const onchainIncomingUsd = sum(visibleSeries, "onchainIncomingUsd");
-  const fixedCostsUsd = sum(visibleSeries, "fixedCostsUsd");
   const netUsd = incomingUsd - outgoingUsd;
   const jobsShare = incomingUsd > 0 ? (jobsUsd / incomingUsd) * 100 : 0;
   const onchainShare = incomingUsd > 0 ? (onchainIncomingUsd / incomingUsd) * 100 : 0;
@@ -136,7 +135,7 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
       </section>
 
       {/* Revenue mix + standing numbers */}
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-3">
         <div className="rounded-2xl border border-border bg-surface p-4">
           <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle">
             <Coins className="h-4 w-4 text-foreground-faint" /> De onde vem a receita
@@ -170,21 +169,6 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-surface p-4">
-          <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle">
-            <Wallet className="h-4 w-4 text-foreground-faint" /> Saldo on-chain
-          </div>
-          <div className="mt-2 text-2xl font-bold tabular-nums text-foreground">{usd(view.onchainBalanceUsd)}</div>
-          <p className="mt-1 text-xs text-foreground-faint">{usd(view.onchainRealizedTotalUsd)} de receita realizada até agora</p>
-        </div>
-
-        <div className="rounded-2xl border border-border bg-surface p-4">
-          <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle">
-            <Briefcase className="h-4 w-4 text-foreground-faint" /> A receber
-          </div>
-          <div className="mt-2 text-2xl font-bold tabular-nums text-foreground">{usd(view.pendingJobsUsd)}</div>
-          <p className="mt-1 text-xs text-foreground-faint">{usd(fixedCostsUsd)} de custos fixos no período</p>
-        </div>
       </div>
     </div>
   );
