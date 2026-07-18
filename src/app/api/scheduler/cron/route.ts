@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { runScheduledPublish, macLeaseIsStale, MAC_LEASE_GRACE_MS } from "@/lib/scheduler-core";
 import { autoBoostFromVotes } from "@/lib/auto-boost";
 import { snapshotRevenueIfDue } from "@/lib/revenue-snapshots";
+import { refillStreamIfLow } from "@/lib/stream-autopilot";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,6 +36,11 @@ export async function GET(req: Request) {
   // throttled). RPC reads + DB writes only, so it runs regardless of the lease.
   const revenue = await snapshotRevenueIfDue(now).catch((e) => ({ ran: false, reason: String(e) }));
 
+  // Payroll autopilot — if the stream buffer is running low, propose the refill
+  // (withdraw yield from the vault + wrap) for the Safe owners to sign. Read +
+  // propose only; no funds move without their signatures.
+  const streamRefill = await refillStreamIfLow().catch((e) => ({ ran: false, reason: String(e) }));
+
   if (!(await macLeaseIsStale(now))) {
     return NextResponse.json({
       checkedAt: new Date(now).toISOString(),
@@ -43,10 +49,11 @@ export async function GET(req: Request) {
       reason: `mac-alive (within ${Math.round(MAC_LEASE_GRACE_MS / 60000)}m grace)`,
       autoBoost,
       revenue,
+      streamRefill,
     });
   }
 
   // Mac is down → take over.
   const result = await runScheduledPublish(now);
-  return NextResponse.json({ ...result, fallback: true, skipped: false, autoBoost, revenue });
+  return NextResponse.json({ ...result, fallback: true, skipped: false, autoBoost, revenue, streamRefill });
 }
