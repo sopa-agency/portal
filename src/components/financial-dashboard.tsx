@@ -71,19 +71,19 @@ function FlowChart({ series }: { series: FinanceMonthPoint[] }) {
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-foreground-muted">
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          Incoming
+          Entrada
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-orange-400" />
-          Outgoing
+          Saída
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-accent" />
-          Net
+          Líquido
         </span>
       </div>
 
-      <svg viewBox={`0 0 ${width} ${height}`} className="block h-[260px] w-full" aria-label="Incoming and outgoing chart">
+      <svg viewBox={`0 0 ${width} ${height}`} className="block h-[260px] w-full" aria-label="Gráfico de entrada e saída">
         {[0, 0.5, 1].map((step) => {
           const y = top + innerH - innerH * step;
           return (
@@ -105,10 +105,10 @@ function FlowChart({ series }: { series: FinanceMonthPoint[] }) {
           return (
             <g key={point.month}>
               <rect x={x - barW - 2} y={incomingY} width={barW} height={Math.max(inH, 2)} rx="5" fill="#10b981" opacity="0.95">
-                <title>{`${point.month} incoming ${usd(point.incomingUsd, 0)}`}</title>
+                <title>{`${point.month}: entrou ${usd(point.incomingUsd, 0)}`}</title>
               </rect>
               <rect x={x + 2} y={outgoingY} width={barW} height={Math.max(outH, 2)} rx="5" fill="#fb923c" opacity="0.95">
-                <title>{`${point.month} outgoing ${usd(point.outgoingUsd, 0)}`}</title>
+                <title>{`${point.month}: saiu ${usd(point.outgoingUsd, 0)}`}</title>
               </rect>
               <text x={x} y={height - 10} textAnchor="middle" className="fill-foreground-faint text-[10px]">
                 {monthLabel(point.month)}
@@ -148,9 +148,9 @@ export function FinancialDashboard({
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">Financial dashboard</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">Entrada vs saída</h2>
           <p className="mt-0.5 text-xs text-foreground-subtle">
-            Main operating view for incoming vs outgoing, using tracked on-chain revenue, SOPA jobs and fixed costs already in the portal.
+            O que entrou e o que saiu, mês a mês — receita on-chain rastreada, jobs da SOPA e custos fixos.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -175,30 +175,30 @@ export function FinancialDashboard({
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Incoming"
+          label="Entrada"
           value={usd(incomingUsd, 0)}
-          hint={`${range}m total`}
+          hint={`total em ${range} ${range === 1 ? "mês" : "meses"}`}
           tone="text-emerald-600 dark:text-emerald-400"
           icon={<ArrowUpRight className="h-4 w-4" />}
         />
         <StatCard
-          label="Outgoing"
+          label="Saída"
           value={usd(outgoingUsd, 0)}
-          hint="operating costs tracked here"
+          hint="custos operacionais rastreados aqui"
           tone="text-orange-500"
           icon={<ArrowDownRight className="h-4 w-4" />}
         />
         <StatCard
-          label="Net"
+          label="Líquido no período"
           value={usd(netUsd, 0)}
-          hint={latest ? `${monthLabel(latest.month)} net ${usd(latest.incomingUsd - latest.outgoingUsd, 0)}` : "no data"}
+          hint={latest ? `${monthLabel(latest.month)}: ${usd(latest.incomingUsd - latest.outgoingUsd, 0)}` : "sem dados"}
           tone={netTone(netUsd)}
           icon={<CalendarRange className="h-4 w-4" />}
         />
         <StatCard
           label="Runway"
-          value={view.runwayMonths == null ? "∞" : `${view.runwayMonths >= 10 ? Math.round(view.runwayMonths) : view.runwayMonths.toFixed(1)} mo`}
-          hint={`${usd(view.treasuryUsd, 0)} treasury · ${usd(view.burnUsd, 0)}/mo burn`}
+          value={view.runwayMonths == null ? "∞" : `${view.runwayMonths >= 10 ? Math.round(view.runwayMonths) : view.runwayMonths.toFixed(1)} meses`}
+          hint={`${usd(view.treasuryUsd, 0)} no tesouro · ${usd(view.burnUsd, 0)}/mês de gasto`}
           icon={<Wallet className="h-4 w-4" />}
         />
       </div>
@@ -207,12 +207,13 @@ export function FinancialDashboard({
         <div className="rounded-2xl border border-border bg-surface p-4">
           <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle">
             <Coins className="h-4 w-4 text-foreground-faint" />
-            Revenue mix
+            De onde vem a receita
           </div>
+          <p className="mt-1 text-[11px] text-foreground-faint">Jobs = trabalhos da agência. On-chain = fatia dos leilões e swaps das marcas.</p>
           <div className="mt-3 space-y-2">
             <div>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-foreground-muted">On-chain</span>
+                <span className="text-foreground-muted">Marcas (on-chain)</span>
                 <span className="font-semibold tabular-nums text-foreground">{usd(onchainIncomingUsd, 0)} · {Math.round(onchainShare)}%</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-border">
@@ -221,7 +222,7 @@ export function FinancialDashboard({
             </div>
             <div>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-foreground-muted">Jobs</span>
+                <span className="text-foreground-muted">Agência (jobs)</span>
                 <span className="font-semibold tabular-nums text-foreground">{usd(jobsUsd, 0)} · {Math.round(jobsShare)}%</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-border">
@@ -232,16 +233,16 @@ export function FinancialDashboard({
         </div>
 
         <StatCard
-          label="On-chain balance"
+          label="Saldo on-chain"
           value={usd(view.onchainBalanceUsd, 0)}
-          hint={`${usd(view.onchainRealizedTotalUsd, 0)} realized revenue tracked so far`}
+          hint={`${usd(view.onchainRealizedTotalUsd, 0)} de receita realizada até agora`}
           icon={<Coins className="h-4 w-4" />}
         />
 
         <StatCard
-          label="Receivables / costs"
+          label="A receber"
           value={usd(view.pendingJobsUsd, 0)}
-          hint={`${usd(fixedCostsUsd, 0)} fixed costs in the selected window`}
+          hint={`${usd(fixedCostsUsd, 0)} de custos fixos no período`}
           icon={<Briefcase className="h-4 w-4" />}
         />
       </div>
