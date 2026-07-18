@@ -332,6 +332,7 @@ treasury: {
                     bufferUsdcx={streamStatus?.safeUsdcxUsd ?? 0}
                     runwayDays={streamStatus?.runwayDays ?? null}
                     canEdit={!!session}
+                    harvestableUsd={stakePosition?.harvestableUsd ?? null}
                   />
                 ) : null
               }
