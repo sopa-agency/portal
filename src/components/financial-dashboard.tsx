@@ -27,9 +27,11 @@ function Bars({ series }: { series: FinanceMonthPoint[] }) {
   const max = Math.max(1, ...series.flatMap((p) => [p.incomingUsd, p.outgoingUsd]));
   return (
     <div>
+      {/* items-end stops the columns from stretching, so they need h-full —
+          otherwise the bars' percentage heights resolve against zero. */}
       <div className="flex h-[150px] items-end gap-2.5 border-b border-border">
         {series.map((p) => (
-          <div key={p.month} className="flex flex-1 items-end justify-center gap-1">
+          <div key={p.month} className="flex h-full flex-1 items-end justify-center gap-1">
             <div
               className="w-3.5 rounded-t bg-accent"
               style={{ height: `${Math.max((p.incomingUsd / max) * 100, p.incomingUsd > 0 ? 2 : 0)}%` }}
