@@ -231,12 +231,16 @@ treasury: {
       {allocation && (
         <TreasuryAllocation
           initial={allocation}
-          totalUsd={combined}
+          // SOPA's OWN pot and SOPA's OWN costs — not the brand treasuries it
+          // merely reports on (those are separate money, own multisigs).
+          totalUsd={groups.find((g) => g.slug === project.slug)?.report.grandTotalUsd ?? 0}
           stakedUsd={stakePosition?.valueUsd ?? 0}
           canEdit={!!session}
           streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
           apy={stakePosition?.apy ?? null}
-          monthlyCostsUsd={initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0)}
+          monthlyCostsUsd={initialCosts
+            .filter((c) => c.active && c.projectSlug === project.slug)
+            .reduce((s, c) => s + c.monthlyUsd, 0)}
         />
       )}
       {overviewAndRevenue}
