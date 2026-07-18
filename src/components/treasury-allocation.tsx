@@ -86,8 +86,8 @@ export function TreasuryAllocation({
         )}
       </div>
       <p className="mb-4 text-xs text-foreground-subtle">
-        O dinheiro fica todo junto no cofre rendendo — isto aqui é só a etiqueta de <em>pra que serve cada parte</em>. Mudar não move nada;
-        você só saca do cofre na hora de usar.
+        Só o caixa da <b>SOPA</b> (os tesouros das marcas são dinheiro à parte, em multisigs próprios). O dinheiro fica todo junto no cofre
+        rendendo — isto aqui é só a etiqueta de <em>pra que serve cada parte</em>. Mudar não move nada; você só saca na hora de usar.
       </p>
 
       {/* Stacked bar */}
@@ -104,7 +104,7 @@ export function TreasuryAllocation({
       </div>
       <div className="mb-4 flex items-center justify-between text-[11px] text-foreground-faint">
         <span>
-          Total no tesouro <span className="font-semibold tabular-nums text-foreground">{usd(totalUsd)}</span>
+          Caixa da SOPA <span className="font-semibold tabular-nums text-foreground">{usd(totalUsd)}</span>
         </span>
         <span className={sum > 100 ? "text-danger" : ""}>
           {sum}% destinado{free > 0 ? ` · ${free}% sem destino` : ""}
