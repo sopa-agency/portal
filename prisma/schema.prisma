@@ -947,6 +947,22 @@ model SopaJob {
   @@index([projectSlug])
 }
 
+// How the treasury is earmarked. The money is ONE pot (staked in the vault,
+// earning) — these are labels on top of it, not separate wallets: how much of
+// the pot is meant for salaries (the stream), operating costs, and free budget.
+// Percentages of the total; the UI compares them against what each bucket
+// actually needs (stream rate, fixed costs) so over/under-funding is visible.
+model TreasuryAllocation {
+  id           String   @id @default(cuid())
+  projectSlug  String   @unique
+  salariosPct  Int      @default(50)
+  custosPct    Int      @default(15)
+  orcamentoPct Int      @default(35)
+  updatedBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 // Payroll stream members — the registry behind SOPA's Superfluid distribution
 // pool. Each member has a wallet + `units` (the weight); their live share is
 // units ÷ total active units. The portal is the source of truth the team
