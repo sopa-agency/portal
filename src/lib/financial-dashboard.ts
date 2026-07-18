@@ -91,6 +91,19 @@ export function buildFinancialDashboardViews({
   const months = monthWindow(currentMonth, 12);
   const monthIndex = new Map(months.map((month, idx) => [month, idx]));
 
+  // Paid jobs by month + total pending. Jobs are SOPA agency revenue, so they're
+  // attributed to the SOPA group (not only the aggregate) — see the map below.
+  const paidJobsByMonth = new Map<number, number>();
+  let pendingJobsUsd = 0;
+  for (const job of jobs) {
+    if (job.status === "pending") {
+      pendingJobsUsd += job.amountUsd;
+      continue;
+    }
+    const idx = monthIndex.get(job.occurredOn.slice(0, 7));
+    if (idx != null) paidJobsByMonth.set(idx, (paidJobsByMonth.get(idx) ?? 0) + job.amountUsd);
+  }
+
   const views = groups.map((group) => {
     const matchedProjects =
       revenue?.projects.filter((project) => {
@@ -120,6 +133,15 @@ export function buildFinancialDashboardViews({
       series[idx].fixedCostsUsd += burn;
     }
 
+    // Jobs are SOPA agency revenue → fold paid jobs into the SOPA group's series.
+    const isSopaGroup = norm(group.slug) === "sopa" || norm(group.name) === "sopa";
+    if (isSopaGroup) {
+      for (const [idx, amt] of paidJobsByMonth) {
+        series[idx].incomingUsd += amt;
+        series[idx].jobsUsd += amt;
+      }
+    }
+
     const treasuryUsd = group.report.grandTotalUsd;
     const burnUsd = groupCosts.reduce((sum, cost) => sum + cost.monthlyUsd, 0);
 
@@ -132,10 +154,11 @@ export function buildFinancialDashboardViews({
       runwayMonths: burnUsd > 0 ? treasuryUsd / burnUsd : null,
       onchainBalanceUsd: matchedProjects.reduce((sum, project) => sum + project.balanceTotalUsd, 0),
       onchainRealizedTotalUsd: matchedProjects.reduce((sum, project) => sum + project.realizedTotalUsd, 0),
-      pendingJobsUsd: 0,
+      pendingJobsUsd: isSopaGroup ? pendingJobsUsd : 0,
     };
   });
 
+  const sopaExists = views.some((view) => norm(view.slug) === "sopa" || norm(view.name) === "sopa");
   const allSeries = emptySeries(months);
   for (const view of views) {
     view.series.forEach((point, idx) => {
@@ -146,17 +169,13 @@ export function buildFinancialDashboardViews({
       allSeries[idx].fixedCostsUsd += point.fixedCostsUsd;
     });
   }
-
-  let pendingJobsUsd = 0;
-  for (const job of jobs) {
-    if (job.status === "pending") {
-      pendingJobsUsd += job.amountUsd;
-      continue;
+  // No SOPA group present → jobs weren't folded into any view; add them to the
+  // aggregate directly so "Tudo" still shows them (no double count when it is).
+  if (!sopaExists) {
+    for (const [idx, amt] of paidJobsByMonth) {
+      allSeries[idx].incomingUsd += amt;
+      allSeries[idx].jobsUsd += amt;
     }
-    const idx = monthIndex.get(job.occurredOn.slice(0, 7));
-    if (idx == null) continue;
-    allSeries[idx].incomingUsd += job.amountUsd;
-    allSeries[idx].jobsUsd += job.amountUsd;
   }
 
   const totalTreasuryUsd = views.reduce((sum, view) => sum + view.treasuryUsd, 0);
