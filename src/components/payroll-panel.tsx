@@ -309,7 +309,7 @@ export function PayrollPanel({
     <section className="rounded-2xl border border-border bg-surface p-5">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-          <Users2 className="h-4 w-4 text-accent" /> Stream do time
+          <Users2 className="h-4 w-4 text-accent" /> O time e as fatias
         </h2>
         {canEdit && idle && (
           <div className="flex gap-1.5">
@@ -333,7 +333,7 @@ export function PayrollPanel({
         )}
       </div>
       <p className="mb-3 text-xs text-foreground-subtle">
-        Membros, carteiras e pesos da pool de distribuição. Pesos são relativos — a fatia de cada um é units ÷ total. Configure a pool no Safe/Superfluid com estes valores.
+        Quem recebe, a carteira e o peso de cada um. A fatia é o peso dividido pelo total — arraste em “Dividir pesos” e os valores por mês se ajustam sozinhos.
       </p>
 
       {err && <p className="mb-2 text-[11px] text-danger">{err}</p>}

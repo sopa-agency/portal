@@ -53,17 +53,17 @@ export function StreamSustainability({
     });
 
   const verdict = !streaming
-    ? { tone: "muted", icon: Gauge, text: "Stream parado — abra o stream na aba de ações pra começar a pagar." }
+    ? { tone: "muted", icon: Gauge, text: "Pagamento parado — ligue a torneira nos Controles pra começar a pagar." }
     : sustainable
-      ? { tone: "success", icon: CheckCircle2, text: "Sustentável: o yield do stake cobre o stream. O principal fica intacto — pra sempre." }
-      : { tone: "danger", icon: AlertTriangle, text: "Atenção: o stream consome mais que o yield. Reduza a taxa (aba Ações) ou aumente o stake — senão o principal encolhe." };
+      ? { tone: "success", icon: CheckCircle2, text: "Sustentável: o rendimento do cofre cobre o pagamento. O principal fica intacto — pra sempre." }
+      : { tone: "danger", icon: AlertTriangle, text: "Atenção: o pagamento consome mais que o rendimento. Reduza a torneira ou guarde mais no cofre — senão o principal encolhe." };
   const Vi = verdict.icon;
   const vColor = verdict.tone === "success" ? "text-success" : verdict.tone === "danger" ? "text-danger" : "text-foreground-muted";
 
   return (
     <section className="rounded-2xl border border-border bg-surface p-5">
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-        <Gauge className="h-4 w-4 text-accent" /> Sustentabilidade do stream
+        <Gauge className="h-4 w-4 text-accent" /> Isso é sustentável?
       </h2>
 
       {/* Verdict */}
@@ -77,8 +77,8 @@ export function StreamSustainability({
       {/* Yield vs burn */}
       <div className="mb-4">
         <div className="mb-1 flex items-center justify-between text-xs">
-          <span className="text-foreground-muted">Yield/mês <span className="font-semibold text-success">{yieldMonthly != null ? usd(yieldMonthly) : "—"}</span></span>
-          <span className="text-foreground-muted">Consumo/mês <span className="font-semibold text-foreground">{usd(burnMonthly)}</span></span>
+          <span className="text-foreground-muted">Rendimento <span className="font-semibold text-success">{yieldMonthly != null ? usd(yieldMonthly) : "—"}</span></span>
+          <span className="text-foreground-muted">Pagamento <span className="font-semibold text-foreground">{usd(burnMonthly)}</span></span>
         </div>
         <div className="relative h-2.5 overflow-hidden rounded-full bg-border">
           <div
@@ -87,16 +87,16 @@ export function StreamSustainability({
           />
         </div>
         <p className="mt-1 text-[11px] text-foreground-faint">
-          {coverage == null ? "Sem stream ativo." : coverage >= 1 ? `O yield cobre ${Math.round(coverage * 100)}% do consumo — sobra recompõe o principal.` : `O yield cobre só ${Math.round(coverage * 100)}% do consumo.`}
+          {coverage == null ? "Sem pagamento ativo." : coverage >= 1 ? `O rendimento cobre ${Math.round(coverage * 100)}% do pagamento — a sobra recompõe o principal.` : `O rendimento cobre só ${Math.round(coverage * 100)}% do pagamento. Pra ser sustentável pra sempre, a barra precisa encher.`}
         </p>
       </div>
 
       {/* Runway meter (a régua) */}
       <div className="mb-4">
         <div className="mb-1 flex items-center justify-between text-xs">
-          <span className="text-foreground-muted">Runway do buffer</span>
+          <span className="text-foreground-muted">Reserva dura</span>
           <span className="font-semibold tabular-nums" style={{ color: runwayColor }}>
-            {runwayDays == null ? "∞" : `${Math.floor(runwayDays)}d`} · buffer {usd(bufferUsdcx)}
+            {runwayDays == null ? "∞" : `${Math.floor(runwayDays)}d`} · na reserva {usd(bufferUsdcx)}
           </span>
         </div>
         <div className="relative h-3 rounded-full bg-border">
@@ -115,10 +115,10 @@ export function StreamSustainability({
         <>
         <div className="border-t border-border pt-4">
           <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <Sprout className="h-3.5 w-3.5 text-success" /> Colher yield → buffer do stream
+            <Sprout className="h-3.5 w-3.5 text-success" /> Colher rendimento → reserva
           </div>
           <p className="mb-2 text-[11px] text-foreground-subtle">
-            Saca do Morpho e wrappa pra USDCx numa proposta só — reforça o buffer sem tocar no principal (colha só o rendimento).
+            Colher rendimento reforça a reserva sem tocar no principal — é o que mantém o pagamento de pé.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -135,7 +135,7 @@ export function StreamSustainability({
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent/20 px-3 py-2 text-xs font-semibold text-accent hover:bg-lime-400/30 disabled:opacity-50"
             >
               {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sprout className="h-3.5 w-3.5" />}
-              Colher → buffer
+              Colher rendimento
             </button>
             {suggested && (
               <span className="text-[11px] text-foreground-faint">sugerido: {usd(Number(suggested))} (≈ 1 mês de yield)</span>
@@ -155,10 +155,10 @@ export function StreamSustainability({
         {/* Automatic: Auto-Wrap keeps the buffer topped up without clicking */}
         <div className="mt-4 border-t border-border pt-4">
           <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <Zap className="h-3.5 w-3.5 text-accent" /> Automatizar (Auto-Wrap)
+            <Zap className="h-3.5 w-3.5 text-accent" /> Ligar piloto automático
           </div>
           <p className="mb-2 text-[11px] text-foreground-subtle">
-            Um keeper wrappa USDC → USDCx sozinho quando o buffer baixa (topo de ~7 dias, gatilho em ~2 dias) — o stream nunca zera sem você clicar. Você aprova um limite de gasto.
+            O piloto automático repõe a reserva sozinho quando ela baixa (repõe até ~7 dias, dispara com ~2) — o pagamento nunca para. Você aprova um limite de gasto.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -175,9 +175,9 @@ export function StreamSustainability({
               className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50"
             >
               {awPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-              Ativar Auto-Wrap
+              Ligar piloto automático
             </button>
-            <span className="text-[11px] text-foreground-faint">limite = teto de USDC que o keeper pode wrappar</span>
+            <span className="text-[11px] text-foreground-faint">limite = teto que o piloto pode usar</span>
           </div>
           {awRes && !awRes.ok && <p className="mt-2 text-[11px] text-danger">{awRes.error}</p>}
           {awRes && awRes.ok && (

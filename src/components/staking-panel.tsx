@@ -32,31 +32,31 @@ export function StakingPanel({ position, canEdit }: { position: StakePosition; c
     <section className="rounded-2xl border border-emerald-500/40 bg-surface p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-          <PiggyBank className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> Superstaking · Morpho
+          <PiggyBank className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> O cofre
         </h2>
         <span className="font-mono text-[11px] text-foreground-faint">Moonwell Flagship USDC</span>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Staked</div>
+          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Guardado</div>
           <div className="text-sm font-semibold tabular-nums text-foreground">{usd(position.valueUsd)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">APY</div>
+          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Rendimento ao ano</div>
           <div className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
             {position.apy != null ? pct(position.apy) : "—"}
           </div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Yield / mês</div>
+          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Rende por mês</div>
           <div className="text-sm font-semibold tabular-nums text-foreground">
             {position.monthlyYieldUsd != null ? usd(position.monthlyYieldUsd) : "—"}
           </div>
         </div>
       </div>
       <p className="mt-2 text-[11px] text-foreground-subtle">
-        Esse yield é o teto sustentável do stream — mantenha a taxa da pool ≤ o yield/mês pra nunca comer o principal.
+        O cofre guarda o dinheiro do time rendendo juros. Esse rendimento é o teto do que dá pra pagar sem comer o principal.
       </p>
 
       {canEdit && (
@@ -72,7 +72,7 @@ export function StakingPanel({ position, canEdit }: { position: StakePosition; c
                 }`}
               >
                 {m === "stake" ? <ArrowDownToLine className="h-3.5 w-3.5" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
-                {m === "stake" ? "Stakar" : "Sacar"}
+                {m === "stake" ? "Guardar" : "Retirar"}
               </button>
             ))}
           </div>
@@ -91,7 +91,7 @@ export function StakingPanel({ position, canEdit }: { position: StakePosition; c
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent/20 px-3 py-2 text-xs font-semibold text-accent hover:bg-lime-400/30 disabled:opacity-50"
             >
               {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Propor {mode === "stake" ? "stake" : "saque"} no Safe
+              Propor no Safe
             </button>
           </div>
           {err && <p className="mt-2 text-[11px] text-danger">{err}</p>}
@@ -101,7 +101,7 @@ export function StakingPanel({ position, canEdit }: { position: StakePosition; c
               <a href={done} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
                 Abrir no Safe <ExternalLink className="h-3 w-3" />
               </a>{" "}
-              (stake = 2 txs: aprovar + depositar).
+              (guardar = aprovar + depositar, numa proposta só).
             </p>
           )}
         </div>
