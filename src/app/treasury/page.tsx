@@ -22,12 +22,14 @@ import { StreamSustainability } from "@/components/stream-sustainability";
 import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE, SUPERFLUID } from "@/lib/superfluid";
 import { ConnectPoolButton } from "@/components/connect-pool-button";
 import { MembersTab } from "@/components/members-tab";
+import { BrandTreasury } from "@/components/brand-treasury";
 import { StakingPanel } from "@/components/staking-panel";
 import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
 import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
+import { FinancialDashboard } from "@/components/financial-dashboard";
 
 // Agency's on-chain cut of the brand swap splits (SkateHive + Gnars split 50%
 // with the SOPA treasury).
@@ -189,9 +191,14 @@ treasury: {
         )
       : [];
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
-  const dashboardViews = isSopa
-    ? buildFinancialDashboardViews({ groups, revenue: orgRevenue, costs: initialCosts, jobs })
-    : [];
+  // Brand portals get the same chart (their own revenue vs their own costs) —
+  // they just have no agency jobs to fold in.
+  const dashboardViews = buildFinancialDashboardViews({
+    groups,
+    revenue: orgRevenue,
+    costs: initialCosts,
+    jobs: isSopa ? jobs : [],
+  });
 
   // SOPA: one project selector filters balances + revenue together. Brand
   // portals show their single treasury + their own revenue directly.
@@ -209,14 +216,14 @@ treasury: {
         />
       }
     />
-  ) : (
-    <>
-      <TreasuryViews groups={groups} />
-      {orgRevenue && orgRevenue.projects.length > 0 && <TreasuryRevenue data={orgRevenue} aggregate={false} />}
-    </>
-  );
+  ) : null;
 
-  const treasuryContent = (
+  // Brand portal (Gnars, SkateHive…): no stake/stream payroll, so the treasury
+  // reads as "quanto temos → está saudável? → de onde vem → onde está → o que sai".
+  const brandView = groups.find((g) => g.slug === project.slug) ?? groups[0];
+  const brandBurn = initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0);
+
+  const treasuryContent = isSopa ? (
     <div className="space-y-8">
       {overviewAndRevenue}
       <MultisigBudgets budgets={budgets} />
@@ -229,6 +236,32 @@ treasury: {
           canEdit={!!session}
         />
       </div>
+    </div>
+  ) : (
+    <div className="space-y-8">
+      <BrandTreasury
+        group={brandView}
+        monthlyBurnUsd={brandBurn}
+        dashboard={
+          dashboardViews.some((v) => v.slug === project.slug) ? (
+            <FinancialDashboard views={dashboardViews} selectedView={project.slug} />
+          ) : null
+        }
+        revenue={
+          orgRevenue && orgRevenue.projects.length > 0 ? <TreasuryRevenue data={orgRevenue} aggregate={false} /> : null
+        }
+        balances={<TreasuryViews groups={groups} />}
+        costs={
+          <FixedCostsPanel
+            groups={costGroups}
+            initialCosts={initialCosts}
+            usdBrl={costScope.usdBrl}
+            canEdit={!!session}
+          />
+        }
+      />
+      <MultisigBudgets budgets={budgets} />
+      <SafeActivity safes={safes} />
     </div>
   );
 
