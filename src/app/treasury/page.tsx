@@ -23,6 +23,8 @@ import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE, SUPERFLUID
 import { ConnectPoolButton } from "@/components/connect-pool-button";
 import { MembersTab } from "@/components/members-tab";
 import { BrandTreasury } from "@/components/brand-treasury";
+import { TreasuryAllocation } from "@/components/treasury-allocation";
+import { getAllocation } from "@/app/actions/allocation";
 import { StakingPanel } from "@/components/staking-panel";
 import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
@@ -179,6 +181,7 @@ treasury: {
   const poolAddress = isSopa ? SOPA_POOL_ADDRESS ?? (await findSopaPool().catch(() => null)) : null;
   const streamStatus = poolAddress ? await getStreamStatus(poolAddress).catch(() => null) : null;
   const stakePosition = isSopa ? await getStakePosition(SOPA_SAFE).catch(() => null) : null;
+  const allocation = isSopa ? await getAllocation(project.slug) : null;
   // Agency's share = SOPA_SPLIT_SHARE of every tracked swap split's realized income.
   const onchainShare: OnchainShare[] =
     isSopa && orgRevenue
@@ -225,6 +228,17 @@ treasury: {
 
   const treasuryContent = isSopa ? (
     <div className="space-y-8">
+      {allocation && (
+        <TreasuryAllocation
+          initial={allocation}
+          totalUsd={combined}
+          stakedUsd={stakePosition?.valueUsd ?? 0}
+          canEdit={!!session}
+          streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
+          apy={stakePosition?.apy ?? null}
+          monthlyCostsUsd={initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0)}
+        />
+      )}
       {overviewAndRevenue}
       <MultisigBudgets budgets={budgets} />
       <SafeActivity safes={safes} />
