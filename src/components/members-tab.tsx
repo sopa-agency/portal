@@ -9,13 +9,24 @@ import { Radio, Users2, Wallet } from "lucide-react";
 // reserva = stream buffer, cofre = staking, pesos = units, torneira = flow.
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
+// Streams accrue in tiny increments — show enough decimals for them to be visible.
+const fmtTiny = (n: number) => (n === 0 ? "$0" : n < 0.01 ? `$${n.toFixed(6)}` : usd(n));
 const pct = (n: number) => `${n >= 9.95 ? Math.round(n) : n.toFixed(1)}%`;
 const initials = (s: string) => s.replace(/^@/, "").slice(0, 2).toUpperCase();
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 const PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#06b6d4", "#ec4899", "#8b5cf6", "#84cc16", "#f97316", "#14b8a6", "#e11d48"];
 
-export type MemberRow = { label: string; address: string; units: number; connected: boolean };
+export type MemberRow = {
+  label: string;
+  address: string;
+  units: number;
+  connected: boolean;
+  /** Total already streamed to them since joining. */
+  receivedUsd?: number;
+  /** How much of that they already pulled out. */
+  claimedUsd?: number;
+};
 
 function Stat({ label, value, sub, hint, tone = "text-foreground" }: { label: string; value: string; sub?: string; hint?: string; tone?: string }) {
   return (
@@ -86,9 +97,18 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
               <div className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-border sm:block">
                 <div className="h-full rounded-full" style={{ width: `${Math.max(share, 2)}%`, backgroundColor: color }} />
               </div>
-              <div className="w-12 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">{pct(share)}</div>
-              <div className="w-20 shrink-0 text-right text-[11px] tabular-nums text-foreground-faint">
-                {monthlyUsd != null ? `${usd((monthlyUsd * share) / 100)}/mês` : "—"}
+              <div className="w-12 shrink-0 text-right">
+                <div className="text-sm font-semibold tabular-nums text-foreground">{pct(share)}</div>
+                <div className="text-[10px] tabular-nums text-foreground-faint">
+                  {monthlyUsd != null ? `${usd((monthlyUsd * share) / 100)}/mês` : "—"}
+                </div>
+              </div>
+              <div className="w-24 shrink-0 border-l border-border pl-2 text-right">
+                <div className="text-[10px] uppercase tracking-wider text-foreground-faint">acumulado</div>
+                <div className="text-sm font-semibold tabular-nums text-success">{fmtTiny(m.receivedUsd ?? 0)}</div>
+                <div className="text-[10px] tabular-nums text-foreground-faint">
+                  {(m.claimedUsd ?? 0) > 0 ? `${fmtTiny(m.claimedUsd ?? 0)} sacado` : "nada sacado"}
+                </div>
               </div>
             </li>
           );
