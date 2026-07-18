@@ -1,0 +1,179 @@
+import type { FixedCostDTO } from "@/lib/fixed-costs";
+import type { OrgRevenue } from "@/lib/org-revenue";
+import type { TreasuryGroup } from "@/lib/treasury";
+
+type JobLike = {
+  amountUsd: number;
+  occurredOn: string;
+  status: "paid" | "pending";
+};
+
+export type FinanceMonthPoint = {
+  month: string;
+  incomingUsd: number;
+  outgoingUsd: number;
+  jobsUsd: number;
+  onchainIncomingUsd: number;
+  fixedCostsUsd: number;
+};
+
+export type FinancialDashboardView = {
+  slug: string;
+  name: string;
+  series: FinanceMonthPoint[];
+  treasuryUsd: number;
+  burnUsd: number;
+  runwayMonths: number | null;
+  onchainBalanceUsd: number;
+  onchainRealizedTotalUsd: number;
+  pendingJobsUsd: number;
+};
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function monthWindow(currentMonth: string, count = 12): string[] {
+  const [y, m] = currentMonth.split("-").map(Number);
+  const out: string[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+  return out;
+}
+
+function emptySeries(months: string[]): FinanceMonthPoint[] {
+  return months.map((month) => ({
+    month,
+    incomingUsd: 0,
+    outgoingUsd: 0,
+    jobsUsd: 0,
+    onchainIncomingUsd: 0,
+    fixedCostsUsd: 0,
+  }));
+}
+
+function addCumulativeSeries(
+  series: FinanceMonthPoint[],
+  cumulative: { t: string; usd: number }[],
+  field: "incomingUsd" | "onchainIncomingUsd",
+  monthIndex: Map<string, number>,
+) {
+  let prev = 0;
+  for (const point of cumulative) {
+    const delta = Math.max(0, point.usd - prev);
+    prev = point.usd;
+    if (delta <= 0) continue;
+    const month = point.t.slice(0, 7);
+    const idx = monthIndex.get(month);
+    if (idx == null) continue;
+    series[idx][field] += delta;
+  }
+}
+
+function monthlyCost(cost: FixedCostDTO, month: string): number {
+  if (!cost.active) return 0;
+  if (!cost.variable) return cost.estimateUsd;
+  return cost.actuals.find((actual) => actual.month === month)?.monthlyUsd ?? cost.estimateUsd;
+}
+
+export function buildFinancialDashboardViews({
+  groups,
+  revenue,
+  costs,
+  jobs,
+}: {
+  groups: TreasuryGroup[];
+  revenue: OrgRevenue | null;
+  costs: FixedCostDTO[];
+  jobs: JobLike[];
+}): FinancialDashboardView[] {
+  const currentMonth = costs[0]?.currentMonth ?? new Date().toISOString().slice(0, 7);
+  const months = monthWindow(currentMonth, 12);
+  const monthIndex = new Map(months.map((month, idx) => [month, idx]));
+
+  const views = groups.map((group) => {
+    const matchedProjects =
+      revenue?.projects.filter((project) => {
+        const projectKey = norm(project.name);
+        return projectKey === norm(group.name) || projectKey === norm(group.slug);
+      }) ?? [];
+    const groupCosts = costs.filter((cost) => cost.projectSlug === group.slug && cost.active);
+    const series = emptySeries(months);
+
+    for (const project of matchedProjects) {
+      for (const stream of project.streams) {
+        if (stream.realized?.series.length) {
+          addCumulativeSeries(series, stream.realized.series, "incomingUsd", monthIndex);
+          addCumulativeSeries(series, stream.realized.series, "onchainIncomingUsd", monthIndex);
+        } else if (stream.flow?.series.length) {
+          addCumulativeSeries(series, stream.flow.series, "incomingUsd", monthIndex);
+          addCumulativeSeries(series, stream.flow.series, "onchainIncomingUsd", monthIndex);
+        }
+      }
+    }
+
+    for (const month of months) {
+      const idx = monthIndex.get(month);
+      if (idx == null) continue;
+      const burn = groupCosts.reduce((sum, cost) => sum + monthlyCost(cost, month), 0);
+      series[idx].outgoingUsd += burn;
+      series[idx].fixedCostsUsd += burn;
+    }
+
+    const treasuryUsd = group.report.grandTotalUsd;
+    const burnUsd = groupCosts.reduce((sum, cost) => sum + cost.monthlyUsd, 0);
+
+    return {
+      slug: group.slug,
+      name: group.name,
+      series,
+      treasuryUsd,
+      burnUsd,
+      runwayMonths: burnUsd > 0 ? treasuryUsd / burnUsd : null,
+      onchainBalanceUsd: matchedProjects.reduce((sum, project) => sum + project.balanceTotalUsd, 0),
+      onchainRealizedTotalUsd: matchedProjects.reduce((sum, project) => sum + project.realizedTotalUsd, 0),
+      pendingJobsUsd: 0,
+    };
+  });
+
+  const allSeries = emptySeries(months);
+  for (const view of views) {
+    view.series.forEach((point, idx) => {
+      allSeries[idx].incomingUsd += point.incomingUsd;
+      allSeries[idx].outgoingUsd += point.outgoingUsd;
+      allSeries[idx].jobsUsd += point.jobsUsd;
+      allSeries[idx].onchainIncomingUsd += point.onchainIncomingUsd;
+      allSeries[idx].fixedCostsUsd += point.fixedCostsUsd;
+    });
+  }
+
+  let pendingJobsUsd = 0;
+  for (const job of jobs) {
+    if (job.status === "pending") {
+      pendingJobsUsd += job.amountUsd;
+      continue;
+    }
+    const idx = monthIndex.get(job.occurredOn.slice(0, 7));
+    if (idx == null) continue;
+    allSeries[idx].incomingUsd += job.amountUsd;
+    allSeries[idx].jobsUsd += job.amountUsd;
+  }
+
+  const totalTreasuryUsd = views.reduce((sum, view) => sum + view.treasuryUsd, 0);
+  const totalBurnUsd = views.reduce((sum, view) => sum + view.burnUsd, 0);
+
+  return [
+    {
+      slug: "all",
+      name: "Tudo",
+      series: allSeries,
+      treasuryUsd: totalTreasuryUsd,
+      burnUsd: totalBurnUsd,
+      runwayMonths: totalBurnUsd > 0 ? totalTreasuryUsd / totalBurnUsd : null,
+      onchainBalanceUsd: revenue?.balanceTotalUsd ?? 0,
+      onchainRealizedTotalUsd: revenue?.realizedTotalUsd ?? 0,
+      pendingJobsUsd,
+    },
+    ...views,
+  ];
+}

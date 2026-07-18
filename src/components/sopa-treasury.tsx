@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from "react";
 import type { TreasuryGroup } from "@/lib/treasury";
 import type { OrgRevenue } from "@/lib/org-revenue";
+import type { FinancialDashboardView } from "@/lib/financial-dashboard";
+import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryViews } from "@/components/treasury-views";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 
@@ -15,10 +17,12 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 export function SopaTreasury({
   groups,
   revenue,
+  dashboardViews,
   agency,
 }: {
   groups: TreasuryGroup[];
   revenue: OrgRevenue | null;
+  dashboardViews: FinancialDashboardView[];
   /** SOPA-level agency revenue (jobs + split share) — shown only on "Tudo". */
   agency: ReactNode;
 }) {
@@ -64,6 +68,8 @@ export function SopaTreasury({
           ))}
         </div>
       )}
+
+      <FinancialDashboard views={dashboardViews} selectedView={view} />
 
       <TreasuryViews groups={visibleGroups} hideSelector />
 

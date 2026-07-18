@@ -26,6 +26,7 @@ import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
+import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
 
 // Agency's on-chain cut of the brand swap splits (SkateHive + Gnars split 50%
 // with the SOPA treasury).
@@ -187,6 +188,9 @@ treasury: {
         )
       : [];
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
+  const dashboardViews = isSopa
+    ? buildFinancialDashboardViews({ groups, revenue: orgRevenue, costs: initialCosts, jobs })
+    : [];
 
   // SOPA: one project selector filters balances + revenue together. Brand
   // portals show their single treasury + their own revenue directly.
@@ -194,6 +198,7 @@ treasury: {
     <SopaTreasury
       groups={groups}
       revenue={orgRevenue}
+      dashboardViews={dashboardViews}
       agency={
         <SopaRevenuePanel
           initialJobs={jobs}
