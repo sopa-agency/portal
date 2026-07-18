@@ -19,7 +19,49 @@ export type StakePosition = {
   valueUsd: number; // current value of the Safe's shares (principal + accrued)
   apy: number | null; // net APY (fraction, e.g. 0.045)
   monthlyYieldUsd: number | null;
+  /** Net USDC put in (deposits − withdrawals), from on-chain transfers. */
+  netDepositedUsd: number | null;
+  /** Yield accrued so far = current value − net deposited. Null if unknown. */
+  harvestableUsd: number | null;
 };
+
+/**
+ * Net USDC deposited into the vault by `safe` — the vault auto-compounds yield
+ * into the share price, so there's no separate rewards balance: what's
+ * harvestable is `current value − net deposited`. Read from Blockscout token
+ * transfers between the Safe and the vault (the public RPC caps eth_getLogs).
+ */
+async function fetchNetDeposited(safe: string): Promise<number | null> {
+  const vault = MORPHO.vault.toLowerCase();
+  const usdc = MORPHO.usdc.toLowerCase();
+  try {
+    let url: string | null = `https://base.blockscout.com/api/v2/addresses/${safe}/token-transfers?type=ERC-20`;
+    let deposited = 0;
+    let withdrawn = 0;
+    for (let page = 0; url && page < 5; page++) {
+      const res = await fetch(url, { headers: { Accept: "application/json" }, next: { revalidate: 300, tags: ["stake"] } });
+      if (!res.ok) return null;
+      const json = (await res.json()) as {
+        items?: { token?: { address?: string; address_hash?: string }; from?: { hash?: string }; to?: { hash?: string }; total?: { value?: string; decimals?: string } }[];
+        next_page_params?: Record<string, string> | null;
+      };
+      for (const t of json.items ?? []) {
+        const token = (t.token?.address ?? t.token?.address_hash ?? "").toLowerCase();
+        if (token !== usdc) continue;
+        const from = (t.from?.hash ?? "").toLowerCase();
+        const to = (t.to?.hash ?? "").toLowerCase();
+        const value = Number(t.total?.value ?? 0) / 10 ** Number(t.total?.decimals ?? MORPHO.usdcDecimals);
+        if (to === vault) deposited += value;
+        if (from === vault) withdrawn += value;
+      }
+      const next = json.next_page_params;
+      url = next ? `https://base.blockscout.com/api/v2/addresses/${safe}/token-transfers?type=ERC-20&${new URLSearchParams(next)}` : null;
+    }
+    return deposited - withdrawn;
+  } catch {
+    return null;
+  }
+}
 
 async function ethCall(to: string, data: string): Promise<string> {
   const res = await fetch(MORPHO.rpc, {
@@ -63,9 +105,17 @@ export async function getStakePosition(safe: string): Promise<StakePosition> {
       const assets = await ethCall(MORPHO.vault, `0x07a2d13a${arg}`);
       valueUsd = assets && assets !== "0x" ? Number(BigInt(assets)) / 10 ** MORPHO.usdcDecimals : 0;
     }
-    const apy = await fetchApy();
-    return { valueUsd, apy, monthlyYieldUsd: apy != null ? (valueUsd * apy) / 12 : null };
+    const [apy, netDeposited] = await Promise.all([fetchApy(), valueUsd > 0 ? fetchNetDeposited(safe) : Promise.resolve(null)]);
+    // Yield accrued = value now − what we put in. Clamp tiny negatives (rounding).
+    const harvestable = netDeposited == null ? null : Math.max(0, valueUsd - netDeposited);
+    return {
+      valueUsd,
+      apy,
+      monthlyYieldUsd: apy != null ? (valueUsd * apy) / 12 : null,
+      netDepositedUsd: netDeposited,
+      harvestableUsd: harvestable,
+    };
   } catch {
-    return { valueUsd: 0, apy: null, monthlyYieldUsd: null };
+    return { valueUsd: 0, apy: null, monthlyYieldUsd: null, netDepositedUsd: null, harvestableUsd: null };
   }
 }

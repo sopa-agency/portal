@@ -16,14 +16,23 @@ export function StreamSustainability({
   bufferUsdcx,
   runwayDays,
   canEdit,
+  harvestableUsd = null,
 }: {
   yieldMonthly: number | null;
   burnMonthly: number;
   bufferUsdcx: number;
   runwayDays: number | null;
   canEdit: boolean;
+  /** Yield accrued in the vault right now (value − net deposited). */
+  harvestableUsd?: number | null;
 }) {
-  const suggested = yieldMonthly && yieldMonthly > 0 ? yieldMonthly.toFixed(2) : "";
+  // Prefill with what's actually harvestable now; fall back to ~1 month of yield.
+  const suggested =
+    harvestableUsd != null && harvestableUsd > 0
+      ? harvestableUsd.toFixed(harvestableUsd < 1 ? 4 : 2)
+      : yieldMonthly && yieldMonthly > 0
+        ? yieldMonthly.toFixed(2)
+        : "";
   const [amount, setAmount] = useState(suggested);
   const [pending, start] = useTransition();
   const [res, setRes] = useState<{ ok: true; url: string } | { ok: false; error: string } | null>(null);
@@ -137,9 +146,14 @@ export function StreamSustainability({
               {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sprout className="h-3.5 w-3.5" />}
               Colher rendimento
             </button>
-            {suggested && (
-              <span className="text-[11px] text-foreground-faint">sugerido: {usd(Number(suggested))} (≈ 1 mês de yield)</span>
-            )}
+            {harvestableUsd != null ? (
+              <span className="text-[11px] text-foreground-faint">
+                rendido até agora: <b className="text-success">{usd(harvestableUsd)}</b>
+                {harvestableUsd <= 0 && " — ainda não rendeu o suficiente pra colher"}
+              </span>
+            ) : suggested ? (
+              <span className="text-[11px] text-foreground-faint">sugerido: {usd(Number(suggested))} (≈ 1 mês de rendimento)</span>
+            ) : null}
           </div>
           {res && !res.ok && <p className="mt-2 text-[11px] text-danger">{res.error}</p>}
           {res && res.ok && (
