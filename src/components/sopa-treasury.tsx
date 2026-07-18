@@ -8,6 +8,7 @@ import type { FinancialDashboardView } from "@/lib/financial-dashboard";
 import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryViews } from "@/components/treasury-views";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
+import { Section } from "@/components/section-heading";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -124,13 +125,12 @@ export function SopaTreasury({
 
       <FinancialDashboard views={dashboardViews} selectedView={view} />
 
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">Onde o dinheiro está</h2>
-          <p className="mt-0.5 text-xs text-foreground-subtle">Cada carteira e ativo que compõe o tesouro{isAll ? ", somando todos os projetos" : ""}.</p>
-        </div>
-        <TreasuryViews groups={visibleGroups} hideSelector />
-      </section>
+      <Section
+        title="Onde o dinheiro está"
+        hint={`Cada carteira e ativo que compõe o tesouro${isAll ? ", somando todos os projetos" : ""}.`}
+      >
+        <TreasuryViews groups={visibleGroups} hideSelector hideTotal />
+      </Section>
 
       {/* Agency revenue is SOPA-level (not a single project) — only on "Tudo". */}
       {isAll && agency}

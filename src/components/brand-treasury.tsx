@@ -1,6 +1,7 @@
 import { Wallet, Activity, Coins, PiggyBank } from "lucide-react";
 import type { ReactNode } from "react";
 import type { TreasuryGroup } from "@/lib/treasury";
+import { Section } from "@/components/section-heading";
 
 // Brand treasury (Gnars, SkateHive…) in the same design language as the SOPA
 // cockpit — but these portals have NO stake/stream payroll setup, so there's no
@@ -15,18 +16,6 @@ function health(runwayMonths: number | null): { label: string; phrase: string; c
   if (runwayMonths >= 12) return { label: "Saudável", phrase: "O caixa cobre bem mais de um ano no ritmo atual.", cls: "bg-success/15 text-success" };
   if (runwayMonths >= 3) return { label: "Atenção", phrase: "Menos de um ano de caixa — vale acompanhar de perto.", cls: "bg-warning/15 text-warning" };
   return { label: "Crítico", phrase: "Menos de 3 meses de caixa no ritmo atual.", cls: "bg-danger/15 text-danger" };
-}
-
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
-        {hint && <p className="mt-0.5 text-xs text-foreground-subtle">{hint}</p>}
-      </div>
-      {children}
-    </section>
-  );
 }
 
 export function BrandTreasury({
