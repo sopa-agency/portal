@@ -36,7 +36,8 @@ export type StreamMember = {
   address: string;
   units: number;
   connected: boolean;
-  receivedUsd: number; // cumulative, approx (USDCx ≈ USD)
+  receivedUsd: number; // cumulative distributed to them (USDCx ≈ USD)
+  claimedUsd: number; // how much they've already pulled out
 };
 
 export type StreamStatus = {
@@ -76,7 +77,7 @@ type SubgraphPool = {
     flowRate: string;
     totalUnits: string;
     totalConnectedUnits: string;
-    poolMembers: { units: string; isConnected: boolean; totalAmountReceivedUntilUpdatedAt: string; account: { id: string } }[];
+    poolMembers: { units: string; isConnected: boolean; totalAmountReceivedUntilUpdatedAt: string; totalAmountClaimed: string; account: { id: string } }[];
   } | null;
 };
 
@@ -103,7 +104,7 @@ async function querySubgraph(pool: string): Promise<SubgraphPool["pool"]> {
     pool(id: $pool) {
       id flowRate totalUnits totalConnectedUnits
       poolMembers(first: 500) {
-        units isConnected totalAmountReceivedUntilUpdatedAt
+        units isConnected totalAmountReceivedUntilUpdatedAt totalAmountClaimed
         account { id }
       }
     }
@@ -138,6 +139,7 @@ export async function getStreamStatus(poolAddress: string, safeAddress = SOPA_SA
       units: Number(m.units || "0"),
       connected: m.isConnected,
       receivedUsd: Number(BigInt(m.totalAmountReceivedUntilUpdatedAt || "0")) / 1e18,
+      claimedUsd: Number(BigInt(m.totalAmountClaimed || "0")) / 1e18,
     }));
     return {
       poolAddress,

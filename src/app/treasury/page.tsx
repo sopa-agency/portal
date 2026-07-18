@@ -306,14 +306,17 @@ treasury: {
               canEdit={!!session}
               members={payroll
                 .filter((m) => m.active)
-                .map((m) => ({
-                  label: m.label,
-                  address: m.address,
-                  units: m.units,
-                  connected: !!streamStatus?.members.find(
-                    (sm) => sm.address.toLowerCase() === m.address.toLowerCase() && sm.connected,
-                  ),
-                }))}
+                .map((m) => {
+                  const chain = streamStatus?.members.find((sm) => sm.address.toLowerCase() === m.address.toLowerCase());
+                  return {
+                    label: m.label,
+                    address: m.address,
+                    units: m.units,
+                    connected: !!chain?.connected,
+                    receivedUsd: chain?.receivedUsd ?? 0,
+                    claimedUsd: chain?.claimedUsd ?? 0,
+                  };
+                })}
               monthlyUsd={streamStatus?.monthlyUsd ?? null}
               streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
               runwayDays={streamStatus?.runwayDays ?? null}
