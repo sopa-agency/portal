@@ -21,6 +21,7 @@ import { StreamFlowView } from "@/components/stream-flow-view";
 import { StreamSustainability } from "@/components/stream-sustainability";
 import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE, SUPERFLUID } from "@/lib/superfluid";
 import { ConnectPoolButton } from "@/components/connect-pool-button";
+import { MembersTab } from "@/components/members-tab";
 import { StakingPanel } from "@/components/staking-panel";
 import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
@@ -250,20 +251,34 @@ treasury: {
         <TreasuryTabs
           treasury={treasuryContent}
           members={
-            <div className="space-y-10">
-              {/* PAINEL — o estado ao vivo, pra qualquer membro acompanhar */}
-              <div className="space-y-6">
-                <div className="border-b border-border pb-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground-subtle">Painel ao vivo</h3>
-                  <p className="mt-0.5 text-xs text-foreground-faint">Como o pagamento do time está agora — qualquer membro pode acompanhar.</p>
-                </div>
-                <StreamFlowView
-                  members={payroll.filter((m) => m.active).map((m) => ({ label: m.label, units: m.units }))}
-                  streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
-                  monthlyUsd={streamStatus?.monthlyUsd ?? null}
-                />
-                <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />
-                {!!poolAddress && (
+            <MembersTab
+              canEdit={!!session}
+              members={payroll
+                .filter((m) => m.active)
+                .map((m) => ({
+                  label: m.label,
+                  address: m.address,
+                  units: m.units,
+                  connected: !!streamStatus?.members.find(
+                    (sm) => sm.address.toLowerCase() === m.address.toLowerCase() && sm.connected,
+                  ),
+                }))}
+              monthlyUsd={streamStatus?.monthlyUsd ?? null}
+              streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
+              runwayDays={streamStatus?.runwayDays ?? null}
+              bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
+              flow={
+                <>
+                  <StreamFlowView
+                    members={payroll.filter((m) => m.active).map((m) => ({ label: m.label, units: m.units }))}
+                    streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
+                    monthlyUsd={streamStatus?.monthlyUsd ?? null}
+                  />
+                  {!poolAddress && <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />}
+                </>
+              }
+              sustainability={
+                poolAddress ? (
                   <StreamSustainability
                     yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
                     burnMonthly={streamStatus?.monthlyUsd ?? 0}
@@ -271,22 +286,18 @@ treasury: {
                     runwayDays={streamStatus?.runwayDays ?? null}
                     canEdit={!!session}
                   />
-                )}
-                {!!poolAddress && <ConnectPoolButton pool={poolAddress} forwarder={SUPERFLUID.gdaForwarder} />}
-              </div>
-
-              {/* CONFIGURAÇÃO & AÇÕES — guardar, definir o time, ligar o pagamento */}
-              <div className="space-y-6">
-                <div className="border-b border-border pb-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground-subtle">Configuração &amp; ações</h3>
-                  <p className="mt-0.5 text-xs text-foreground-faint">Guardar dinheiro, definir o time e ligar o pagamento. Cada ação vira uma proposta no Safe (o time assina).</p>
-                </div>
-                {stakePosition && <StakingPanel position={stakePosition} canEdit={!!session} />}
-                {!poolAddress && !!session && <CreatePoolButton />}
-                {!!poolAddress && <StreamActions canEdit={!!session} />}
-                <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} />
-              </div>
-            </div>
+                ) : null
+              }
+              connect={poolAddress ? <ConnectPoolButton pool={poolAddress} forwarder={SUPERFLUID.gdaForwarder} /> : null}
+              steps={[
+                ...(stakePosition
+                  ? [{ title: "Guardar dinheiro rendendo", node: <StakingPanel position={stakePosition} canEdit={!!session} /> }]
+                  : []),
+                ...(!poolAddress && session ? [{ title: "Criar a pool de pagamento", node: <CreatePoolButton /> }] : []),
+                { title: "Definir o time e as fatias", node: <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} /> },
+                ...(poolAddress ? [{ title: "Ligar o pagamento", node: <StreamActions canEdit={!!session} /> }] : []),
+              ]}
+            />
           }
           plan={<FinancialPlan />}
         />

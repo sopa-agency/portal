@@ -30,10 +30,10 @@ export function StreamActions({ canEdit }: { canEdit: boolean }) {
   return (
     <section className="rounded-2xl border border-border bg-surface p-5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-        <Settings2 className="h-4 w-4 text-accent" /> Ações do stream
+        <Settings2 className="h-4 w-4 text-accent" /> Ligar o pagamento
       </h2>
       <p className="mb-3 text-xs text-foreground-subtle">
-        Cada ação vira uma proposta no Safe (os signatários aprovam + executam). Ordem sugerida: sincronizar pesos → wrap → abrir stream.
+        Primeiro converta o dinheiro pra reserva, depois abra a torneira. Cada ação vira uma proposta no Safe.
       </p>
 
       <div className="space-y-3">
@@ -46,9 +46,9 @@ export function StreamActions({ canEdit }: { canEdit: boolean }) {
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-50"
           >
             {busy("units") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Sincronizar pesos → pool
+            Salvar fatias na pool
           </button>
-          <span className="text-[11px] text-foreground-faint">empurra os units dos membros ativos pra pool on-chain</span>
+          <span className="text-[11px] text-foreground-faint">grava os pesos definidos aqui na pool on-chain</span>
         </div>
 
         {/* Wrap */}
@@ -67,7 +67,7 @@ export function StreamActions({ canEdit }: { canEdit: boolean }) {
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-50"
           >
             {busy("wrap") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Package className="h-3.5 w-3.5" />}
-            Wrap USDC → USDCx
+            Converter pra reserva
           </button>
         </div>
 
@@ -87,7 +87,7 @@ export function StreamActions({ canEdit }: { canEdit: boolean }) {
             className="inline-flex items-center gap-1.5 rounded-lg bg-accent/20 px-3 py-2 text-xs font-semibold text-accent hover:bg-lime-400/30 disabled:opacity-50"
           >
             {busy("flow") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            Abrir / ajustar stream
+            Abrir / ajustar torneira
           </button>
           <button
             type="button"
@@ -96,7 +96,7 @@ export function StreamActions({ canEdit }: { canEdit: boolean }) {
             className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 px-3 py-2 text-xs font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
           >
             {busy("stop") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-            Parar
+            Parar pagamento
           </button>
         </div>
       </div>
