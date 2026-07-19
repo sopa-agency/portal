@@ -13,14 +13,24 @@ import { getActiveProject } from "@/projects/index";
 
 export type Allocation = { salariosPct: number; custosPct: number; orcamentoPct: number };
 
+/** `saved: false` means nobody ever chose these — they are only a suggestion. */
+export type StoredAllocation = Allocation & { saved: boolean; updatedBy: string | null };
+
 const DEFAULT: Allocation = { salariosPct: 50, custosPct: 15, orcamentoPct: 35 };
 
-export async function getAllocation(projectSlug: string): Promise<Allocation> {
+export async function getAllocation(projectSlug: string): Promise<StoredAllocation> {
   try {
     const row = await prisma.treasuryAllocation.findUnique({ where: { projectSlug } });
-    return row ? { salariosPct: row.salariosPct, custosPct: row.custosPct, orcamentoPct: row.orcamentoPct } : DEFAULT;
+    if (!row) return { ...DEFAULT, saved: false, updatedBy: null };
+    return {
+      salariosPct: row.salariosPct,
+      custosPct: row.custosPct,
+      orcamentoPct: row.orcamentoPct,
+      saved: true,
+      updatedBy: row.updatedBy,
+    };
   } catch {
-    return DEFAULT;
+    return { ...DEFAULT, saved: false, updatedBy: null };
   }
 }
 

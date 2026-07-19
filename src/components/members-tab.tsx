@@ -176,6 +176,17 @@ export function MembersTab({
 
       {tab === "painel" ? (
         <div className="space-y-5">
+          {/* The payroll rails are fully wired, but the rate can be so small that
+              the panel reads as a production payroll when it is really a dry run.
+              Say so out loud instead of letting the bars imply otherwise. */}
+          {streaming && monthlyUsd != null && monthlyUsd > 0 && monthlyUsd < 5 && (
+            <p className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+              <b>Torneira simbólica.</b> O stream está em {usd(monthlyUsd)}/mês — o encanamento funciona, mas isso não paga ninguém de
+              verdade. Os pesos e as barras abaixo mostram como o dinheiro <em>seria</em> dividido. Pra valer, suba a vazão em
+              Controles → stream.
+            </p>
+          )}
+
           {flow}
 
           {/* At-a-glance numbers, in plain words */}

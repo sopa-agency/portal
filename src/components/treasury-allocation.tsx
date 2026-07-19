@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Layers, Loader2, Check, X, SlidersHorizontal, PiggyBank, Users2, Cog, Wallet } from "lucide-react";
-import { setAllocation, type Allocation } from "@/app/actions/allocation";
+import { setAllocation, type Allocation, type StoredAllocation } from "@/app/actions/allocation";
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
 
@@ -30,7 +30,7 @@ export function TreasuryAllocation({
   monthlyCostsUsd,
   costMonthsTarget = 6,
 }: {
-  initial: Allocation;
+  initial: StoredAllocation;
   /** Everything the treasury holds (staked + free + reserve). */
   totalUsd: number;
   /** How much of it is already earning in the vault. */
@@ -42,6 +42,7 @@ export function TreasuryAllocation({
   costMonthsTarget?: number;
 }) {
   const [alloc, setAlloc] = useState<Allocation>(initial);
+  const [saved, setSaved] = useState(initial.saved);
   const [draft, setDraft] = useState<Allocation | null>(null);
   const [pending, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
@@ -63,6 +64,7 @@ export function TreasuryAllocation({
       const res = await setAllocation(cur);
       if (res.ok) {
         setAlloc(res.allocation);
+        setSaved(true);
         setDraft(null);
       } else setErr(res.error);
     });
@@ -74,6 +76,11 @@ export function TreasuryAllocation({
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
           <Layers className="h-4 w-4 text-accent" /> Pra que é cada parte do dinheiro
+          {!saved && (
+            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning">
+              sugestão
+            </span>
+          )}
         </h2>
         {canEdit && !draft && (
           <button
@@ -85,6 +92,12 @@ export function TreasuryAllocation({
           </button>
         )}
       </div>
+      {!saved && (
+        <p className="mb-3 rounded-lg border border-warning/30 bg-warning/10 p-2.5 text-[11px] text-warning">
+          Estes números são só um <b>ponto de partida</b> — ninguém do time definiu essas fatias ainda. Ajuste e salve pra virar uma
+          decisão de verdade.
+        </p>
+      )}
       <p className="mb-4 text-xs text-foreground-subtle">
         Só o caixa da <b>SOPA</b> (os tesouros das marcas são dinheiro à parte, em multisigs próprios). O dinheiro fica todo junto no cofre
         rendendo — isto aqui é só a etiqueta de <em>pra que serve cada parte</em>. Mudar não move nada; você só saca na hora de usar.

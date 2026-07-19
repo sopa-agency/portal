@@ -11,6 +11,7 @@ import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { Section } from "@/components/section-heading";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const usd2 = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n < 100 ? 2 : 0 });
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 // SOPA treasury dashboard: ONE project selector at the top that filters both
@@ -56,6 +57,7 @@ export function SopaTreasury({
   const totalUsd = visibleGroups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
   const walletCount = visibleGroups.reduce((s, g) => s + g.report.evm.length + g.report.hive.length, 0);
   const runwayMonths = dash?.runwayMonths ?? null;
+  const burnUsd = dash?.burnUsd ?? 0;
   const projLabel = isAll ? "Tudo" : selected?.name ?? "";
   const h =
     runwayMonths == null
@@ -119,7 +121,13 @@ export function SopaTreasury({
             {runwayMonths == null ? "∞" : runwayMonths >= 10 ? Math.round(runwayMonths) : runwayMonths.toFixed(1)}
             {runwayMonths != null && <span className="ml-1 text-sm font-medium text-foreground-faint">meses</span>}
           </div>
-          <p className="mt-1 text-xs text-foreground-faint">no ritmo de gasto atual</p>
+          {/* Naming the burn keeps the runway honest: a huge number usually just
+              means few costs are booked against this filter, not real safety. */}
+          <p className="mt-1 text-xs text-foreground-faint">
+            {burnUsd > 0
+              ? `contando ${usd2(burnUsd)}/mês de custos${isAll ? " de todos os projetos" : ""}`
+              : "nenhum custo fixo lançado neste filtro"}
+          </p>
         </div>
       </section>
 
