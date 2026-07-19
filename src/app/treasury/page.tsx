@@ -32,6 +32,8 @@ import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
 import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
 import { FinancialDashboard } from "@/components/financial-dashboard";
+import { TreasuryBriefingButton } from "@/components/treasury-briefing";
+import { buildTreasuryBriefing } from "@/lib/treasury-briefing";
 
 // Agency's on-chain cut of the brand swap splits (SkateHive + Gnars split 50%
 // with the SOPA treasury).
@@ -283,6 +285,39 @@ treasury: {
     </div>
   );
 
+  // The page in prose. Same live values the cards render, said out loud so the
+  // state is readable in half a minute.
+  const ownGroup = groups.find((g) => g.slug === project.slug) ?? groups[0];
+  const ownView = dashboardViews.find((v) => v.slug === project.slug);
+  const last6 = (ownView ?? dashboardViews[0])?.series.slice(-6) ?? [];
+  const briefing = buildTreasuryBriefing({
+    projectName: project.name,
+    ownTreasuryUsd: ownGroup?.report.grandTotalUsd ?? 0,
+    combinedTreasuryUsd: combined,
+    brandCount: Math.max(0, groups.length - 1),
+    stakedUsd: stakePosition?.valueUsd ?? null,
+    apy: stakePosition?.apy ?? null,
+    monthlyYieldUsd: stakePosition?.monthlyYieldUsd ?? null,
+    harvestableUsd: stakePosition?.harvestableUsd ?? null,
+    streamMonthlyUsd: streamStatus ? streamStatus.monthlyUsd : null,
+    streamBufferUsd: streamStatus?.safeUsdcxUsd ?? 0,
+    streamRunwayDays: streamStatus?.runwayDays ?? null,
+    memberCount: payroll.filter((m) => m.active).length,
+    connectedCount: streamStatus?.members.filter((m) => m.connected).length ?? 0,
+    ownMonthlyCostsUsd: initialCosts
+      .filter((c) => c.active && c.projectSlug === project.slug)
+      .reduce((s, c) => s + c.monthlyUsd, 0),
+    allMonthlyCostsUsd: initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0),
+    incomingLast6Usd: last6.reduce((s, p) => s + p.incomingUsd, 0),
+    jobsLast6Usd: last6.reduce((s, p) => s + p.jobsUsd, 0),
+    pendingJobsUsd: ownView?.pendingJobsUsd ?? 0,
+    queued: safes
+      .flatMap((s) => s.activity.queued)
+      .sort((a, b) => a.nonce - b.nonce)
+      .map((q) => ({ nonce: q.nonce, action: q.action, confirmations: q.confirmations, required: q.required })),
+    allocationSaved: allocation?.saved ?? true,
+  });
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -294,7 +329,12 @@ treasury: {
             : "The same wallets and data sources the native app shows — live balances across chains."
         }
         status={usd(combined)}
-        actions={<TreasuryRefresh />}
+        actions={
+          <div className="flex items-center gap-2">
+            <TreasuryBriefingButton briefing={briefing} />
+            <TreasuryRefresh />
+          </div>
+        }
       />
       {/* SOPA gets a "Plano financeiro" tab (the endowment study); brand portals
           just render the treasury content directly. */}
