@@ -12,10 +12,12 @@ const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits
 //   Salários  → principal needed so the yield covers the stream (rate ÷ APY)
 //   Custos    → N months of the real fixed costs
 //   Orçamento → free capital, no target
+// Colors are theme tokens (--viz-*), stepped per mode and validated for the
+// lightness band, chroma floor, CVD separation and 3:1 contrast in BOTH themes.
 const BUCKETS = [
-  { key: "salariosPct", label: "Salários", icon: Users2, color: "#10b981", hint: "Banca o pagamento do time. O ideal é render o suficiente pra cobrir a torneira sem tocar no principal." },
-  { key: "custosPct", label: "Custos operacionais", icon: Cog, color: "#f59e0b", hint: "Infra e ferramentas. A meta é ter alguns meses de custo cobertos." },
-  { key: "orcamentoPct", label: "Orçamento livre", icon: Wallet, color: "#6366f1", hint: "Capital de giro pra pagamentos avulsos — sem meta fixa." },
+  { key: "salariosPct", label: "Salários", icon: Users2, color: "var(--viz-1)", hint: "Banca o pagamento do time. O ideal é render o suficiente pra cobrir a torneira sem tocar no principal." },
+  { key: "custosPct", label: "Custos operacionais", icon: Cog, color: "var(--viz-2)", hint: "Infra e ferramentas. A meta é ter alguns meses de custo cobertos." },
+  { key: "orcamentoPct", label: "Orçamento livre", icon: Wallet, color: "var(--viz-3)", hint: "Capital de giro pra pagamentos avulsos — sem meta fixa." },
 ] as const;
 
 type Key = (typeof BUCKETS)[number]["key"];
@@ -103,80 +105,110 @@ export function TreasuryAllocation({
         rendendo — isto aqui é só a etiqueta de <em>pra que serve cada parte</em>. Mudar não move nada; você só saca na hora de usar.
       </p>
 
-      {/* Stacked bar */}
-      <div className="mb-2 flex h-3.5 overflow-hidden rounded-full bg-border">
-        {BUCKETS.map((b) => (
+      {/* The pot as a vessel: one cylinder, filled bottom-up. Deliberately FLAT —
+          no 3D ellipses or perspective, which would distort the very proportions
+          the chart exists to show. Segment heights stay linear in the percentage. */}
+      <div className="flex flex-wrap items-stretch gap-5">
+        <figure className="m-0 flex shrink-0 flex-col items-center">
+          <figcaption className="mb-1.5 text-center">
+            <div className="text-[10px] uppercase tracking-widest text-foreground-faint">Caixa da SOPA</div>
+            <div className="font-mono text-sm font-semibold tabular-nums text-foreground">{usd(totalUsd)}</div>
+          </figcaption>
           <div
-            key={b.key}
-            className="h-full first:rounded-l-full"
-            style={{ width: `${cur[b.key]}%`, backgroundColor: b.color }}
-            title={`${b.label} · ${cur[b.key]}%`}
-          />
-        ))}
-        {free > 0 && <div className="h-full rounded-r-full bg-foreground/10" style={{ width: `${free}%` }} title={`Sem destino · ${free}%`} />}
-      </div>
-      <div className="mb-4 flex items-center justify-between text-[11px] text-foreground-faint">
-        <span>
-          Caixa da SOPA <span className="font-semibold tabular-nums text-foreground">{usd(totalUsd)}</span>
-        </span>
-        <span className={sum > 100 ? "text-danger" : ""}>
-          {sum}% destinado{free > 0 ? ` · ${free}% sem destino` : ""}
-        </span>
-      </div>
-
-      {/* Buckets */}
-      <ul className="space-y-2.5">
-        {BUCKETS.map((b) => {
-          const pct = cur[b.key];
-          const value = (totalUsd * pct) / 100;
-          const need = needs[b.key];
-          const covered = need == null ? null : value >= need;
-          const Icon = b.icon;
-          return (
-            <li key={b.key} className="rounded-xl border border-border bg-surface-elevated p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Icon className="h-4 w-4 shrink-0" style={{ color: b.color }} />
-                <span className="text-sm font-medium text-foreground">{b.label}</span>
-                <span className="ml-auto text-sm font-semibold tabular-nums text-foreground">{usd(value)}</span>
-                <span className="w-10 text-right text-xs tabular-nums text-foreground-faint">{pct}%</span>
+            className="flex w-[86px] flex-col-reverse gap-[2px] overflow-hidden rounded-[43px] border border-border bg-surface-elevated p-[3px]"
+            style={{ height: 250 }}
+            role="img"
+            aria-label={BUCKETS.map((b) => `${b.label} ${cur[b.key]}%`).join(", ") + (free > 0 ? `, sem destino ${free}%` : "")}
+          >
+            {BUCKETS.map((b, idx) => {
+              const pct = cur[b.key];
+              if (pct <= 0) return null;
+              return (
+                <div
+                  key={b.key}
+                  className={`flex min-h-0 items-center justify-center transition-[height] duration-200 ${
+                    idx === 0 ? "rounded-b-[40px]" : ""
+                  } ${free <= 0 && idx === BUCKETS.length - 1 ? "rounded-t-[40px]" : ""}`}
+                  style={{ height: `${pct}%`, backgroundColor: b.color }}
+                  title={`${b.label} · ${pct}% · ${usd((totalUsd * pct) / 100)}`}
+                >
+                  {/* Direct-label only where the text actually fits. */}
+                  {pct >= 12 && <span className="font-mono text-[11px] font-bold text-white/95">{pct}%</span>}
+                </div>
+              );
+            })}
+            {free > 0 && (
+              <div
+                className="flex min-h-0 items-center justify-center rounded-t-[40px] bg-foreground/[0.07]"
+                style={{ height: `${free}%` }}
+                title={`Sem destino · ${free}%`}
+              >
+                {free >= 12 && <span className="font-mono text-[11px] font-semibold text-foreground-faint">{free}%</span>}
               </div>
-              <p className="mt-1 text-[11px] text-foreground-subtle">{b.hint}</p>
+            )}
+          </div>
+          <div className={`mt-1.5 text-[10px] tabular-nums ${sum > 100 ? "text-danger" : "text-foreground-faint"}`}>
+            {sum}% destinado
+          </div>
+        </figure>
 
-              {draft && canEdit && (
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={pct}
-                    onChange={(e) => setDraft({ ...cur, [b.key]: Number(e.target.value) })}
-                    className="h-1.5 min-w-0 flex-1 cursor-pointer accent-accent"
-                    aria-label={`Fatia de ${b.label}`}
-                  />
-                  <span className="w-10 text-right text-xs tabular-nums text-foreground">{pct}%</span>
+        {/* Legend — identity is never color-alone: swatch + icon + name + value. */}
+        <ul className="min-w-[240px] flex-1 space-y-2.5">
+          {BUCKETS.map((b) => {
+            const pct = cur[b.key];
+            const value = (totalUsd * pct) / 100;
+            const need = needs[b.key];
+            const covered = need == null ? null : value >= need;
+            const Icon = b.icon;
+            return (
+              <li key={b.key}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: b.color }} />
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-foreground-faint" />
+                  <span className="text-sm font-medium text-foreground">{b.label}</span>
+                  <span className="ml-auto text-sm font-semibold tabular-nums text-foreground">{usd(value)}</span>
+                  <span className="w-9 text-right text-xs tabular-nums text-foreground-faint">{pct}%</span>
                 </div>
-              )}
+                <p className="mt-0.5 pl-[22px] text-[11px] text-foreground-subtle">{b.hint}</p>
 
-              {need != null && (
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span className="text-foreground-muted">
-                    precisa de <span className="font-semibold tabular-nums text-foreground">{usd(need)}</span>
-                  </span>
-                  <span className={`rounded-full px-1.5 py-0.5 font-semibold ${covered ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>
-                    {covered ? "coberto" : `faltam ${usd(Math.max(0, need - value))}`}
-                  </span>
-                  <div className="h-1.5 min-w-[80px] flex-1 overflow-hidden rounded-full bg-border">
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${Math.min(100, need > 0 ? (value / need) * 100 : 0)}%`, backgroundColor: covered ? "var(--success)" : "var(--warning)" }}
+                {draft && canEdit && (
+                  <div className="mt-1.5 flex items-center gap-2 pl-[22px]">
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={pct}
+                      onChange={(e) => setDraft({ ...cur, [b.key]: Number(e.target.value) })}
+                      className="h-1.5 min-w-0 flex-1 cursor-pointer accent-accent"
+                      aria-label={`Fatia de ${b.label}`}
                     />
+                    <span className="w-9 text-right text-xs tabular-nums text-foreground">{pct}%</span>
                   </div>
-                </div>
-              )}
+                )}
+
+                {need != null && (
+                  <div className="mt-1 flex flex-wrap items-center gap-2 pl-[22px] text-[11px]">
+                    <span className="text-foreground-muted">
+                      precisa de <span className="font-semibold tabular-nums text-foreground">{usd(need)}</span>
+                    </span>
+                    <span className={`rounded-full px-1.5 py-0.5 font-semibold ${covered ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>
+                      {covered ? "coberto" : `faltam ${usd(Math.max(0, need - value))}`}
+                    </span>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+          {free > 0 && (
+            <li className="flex items-center gap-2 text-[11px] text-foreground-faint">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-foreground/[0.12]" />
+              Sem destino
+              <span className="ml-auto tabular-nums">{usd((totalUsd * free) / 100)}</span>
+              <span className="w-9 text-right tabular-nums">{free}%</span>
             </li>
-          );
-        })}
-      </ul>
+          )}
+        </ul>
+      </div>
 
       {err && <p className="mt-2 text-[11px] text-danger">{err}</p>}
 
