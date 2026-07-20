@@ -411,7 +411,16 @@ treasury: {
               ]}
             />
           }
-          plan={<FinancialPlan />}
+          plan={
+            <FinancialPlan
+              liveStakedUsd={stakePosition?.valueUsd ?? 0}
+              liveApy={stakePosition?.apy ?? null}
+              monthlyCostsUsd={initialCosts
+                .filter((c) => c.active && c.projectSlug === project.slug)
+                .reduce((s, c) => s + c.monthlyUsd, 0)}
+              streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
+            />
+          }
         />
       ) : (
         treasuryContent

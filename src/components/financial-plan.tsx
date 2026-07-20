@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Landmark, Wallet, Repeat, Cog, Infinity as InfinityIcon, Shield, Users2, LineChart, ListChecks } from "lucide-react";
+import { StakingCalculator } from "@/components/staking-calculator";
 
 // SOPA financial plan — a study/proposal for turning the net liquid treasury
 // into a self-sustaining (endowment) model on Base. Read-only reference for the
@@ -274,7 +275,18 @@ function Bullets({ items }: { items: string[] }) {
   );
 }
 
-export function FinancialPlan() {
+export function FinancialPlan({
+  liveStakedUsd = 0,
+  liveApy = null,
+  monthlyCostsUsd = 0,
+  streamMonthlyUsd = 0,
+}: {
+  /** Live figures so the calculator opens on reality, not a blank form. */
+  liveStakedUsd?: number;
+  liveApy?: number | null;
+  monthlyCostsUsd?: number;
+  streamMonthlyUsd?: number;
+} = {}) {
   const [lang, setLang] = useState<Lang>("pt");
   const t = C[lang];
 
@@ -473,9 +485,21 @@ export function FinancialPlan() {
         <div className="max-w-2xl"><Bullets items={t.s06items} /></div>
       </section>
 
+      {/* Run the numbers yourself */}
+      <section>
+        <Eyebrow n="07" icon={InfinityIcon}>{lang === "pt" ? "Simule os números" : "Run the numbers"}</Eyebrow>
+        <StakingCalculator
+          lang={lang}
+          liveStakedUsd={liveStakedUsd}
+          liveApy={liveApy}
+          monthlyCostsUsd={monthlyCostsUsd}
+          streamMonthlyUsd={streamMonthlyUsd}
+        />
+      </section>
+
       {/* Rollout */}
       <section>
-        <Eyebrow n="07" icon={LineChart}>{t.s07}</Eyebrow>
+        <Eyebrow n="08" icon={LineChart}>{t.s07}</Eyebrow>
         <div className="rounded-2xl border border-border bg-surface">
           {t.phases.map(([title, desc], i) => (
             <div key={title} className={`flex gap-4 p-4 ${i > 0 ? "border-t border-border" : ""}`}>
@@ -491,7 +515,7 @@ export function FinancialPlan() {
 
       {/* Decisions */}
       <section>
-        <Eyebrow n="08" icon={ListChecks}>{t.s08}</Eyebrow>
+        <Eyebrow n="09" icon={ListChecks}>{t.s08}</Eyebrow>
         <div className="grid gap-3 sm:grid-cols-2">
           {t.decisions.map(([k, v]) => (
             <div key={k} className="rounded-xl border border-border bg-surface p-4">
