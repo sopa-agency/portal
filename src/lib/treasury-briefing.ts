@@ -36,13 +36,27 @@ export type BriefingInput = {
 export type BriefingSection = { title: string; paragraphs: string[] };
 export type Briefing = { headline: string; sections: BriefingSection[]; generatedAt: string };
 
-const usd = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < 100 ? 2 : 0 });
+// Numbers are wrapped in a marker so the renderer can emphasize them without
+// the generator knowing anything about styling. Prose stays plain text.
+export const NUM = "⁣"; // invisible separator — never appears in real copy
 
-const pct = (n: number) => `${Math.round(n * 100)}%`;
+const mark = (s: string) => `${NUM}${s}${NUM}`;
+
+const usd = (n: number) =>
+  mark(n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < 100 ? 2 : 0 }));
+
+const pct = (n: number) => mark(`${Math.round(n * 100)}%`);
+
+/** Split a paragraph into plain/emphasized runs for rendering. */
+export function briefingRuns(text: string): { text: string; num: boolean }[] {
+  return text
+    .split(NUM)
+    .map((part, i) => ({ text: part, num: i % 2 === 1 }))
+    .filter((r) => r.text.length > 0);
+}
 
 /** "3 pessoas" / "1 pessoa" */
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const plural = (n: number, one: string, many: string) => `${mark(String(n))} ${n === 1 ? one : many}`;
 
 export function buildTreasuryBriefing(i: BriefingInput): Briefing {
   const sections: BriefingSection[] = [];
@@ -108,7 +122,7 @@ export function buildTreasuryBriefing(i: BriefingInput): Briefing {
     const meses = i.ownTreasuryUsd / i.ownMonthlyCostsUsd;
     sai.push(
       `Os custos fixos da ${i.projectName} são ${usd(i.ownMonthlyCostsUsd)} por mês. No caixa atual isso dura ` +
-        (meses > 120 ? "mais de 10 anos" : `cerca de ${Math.round(meses)} meses`) +
+        (meses > 120 ? "mais de 10 anos" : `cerca de ${mark(String(Math.round(meses)))} meses`) +
         ".",
     );
   }
@@ -148,12 +162,12 @@ export function buildTreasuryBriefing(i: BriefingInput): Briefing {
   }
   if (i.memberCount > 0 && i.connectedCount < i.memberCount) {
     pag.push(
-      `${i.connectedCount} de ${i.memberCount} conectaram a carteira à pool. Quem não conectou acumula a parte dele, mas só recebe de fato depois de conectar.`,
+      `${mark(String(i.connectedCount))} de ${mark(String(i.memberCount))} conectaram a carteira à pool. Quem não conectou acumula a parte dele, mas só recebe de fato depois de conectar.`,
     );
   }
   if (i.streamRunwayDays != null && i.streamMonthlyUsd != null && i.streamMonthlyUsd > 0) {
     pag.push(
-      `A reserva convertida é de ${usd(i.streamBufferUsd)} e, sem repor nada, o pagamento continua por ${Math.floor(i.streamRunwayDays)} dias.`,
+      `A reserva convertida é de ${usd(i.streamBufferUsd)} e, sem repor nada, o pagamento continua por ${mark(String(Math.floor(i.streamRunwayDays)))} dias.`,
     );
   }
   sections.push({ title: "Pagamentos", paragraphs: pag });
@@ -167,7 +181,7 @@ export function buildTreasuryBriefing(i: BriefingInput): Briefing {
         `Elas executam em ordem, então a primeira travada segura todas as outras.`,
     );
     for (const q of i.queued.slice(0, 5)) {
-      atencao.push(`· #${q.nonce} — ${q.action} (${q.confirmations}/${q.required} assinaturas)`);
+      atencao.push(`· #${mark(String(q.nonce))} — ${q.action} (${mark(`${q.confirmations}/${q.required}`)} assinaturas)`);
     }
     if (unsigned.length === i.queued.length) {
       atencao.push("Nenhuma delas tem assinatura ainda. Assinar ou rejeitar destrava a fila; deixar parado não.");

@@ -34,10 +34,8 @@ import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
 import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryBriefingButton } from "@/components/treasury-briefing";
 import { buildTreasuryBriefing } from "@/lib/treasury-briefing";
+import { getSplitConfig } from "@/lib/splits";
 
-// Agency's on-chain cut of the brand swap splits (SkateHive + Gnars split 50%
-// with the SOPA treasury).
-const SOPA_SPLIT_SHARE = 0.5;
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
 import { fetchCostScope } from "@/lib/fixed-costs-data";
@@ -184,17 +182,37 @@ treasury: {
   const streamStatus = poolAddress ? await getStreamStatus(poolAddress).catch(() => null) : null;
   const stakePosition = isSopa ? await getStakePosition(SOPA_SAFE).catch(() => null) : null;
   const allocation = isSopa ? await getAllocation(project.slug) : null;
-  // Agency's share = SOPA_SPLIT_SHARE of every tracked swap split's realized income.
-  const onchainShare: OnchainShare[] =
+  // Agency's share of each swap split, read from the split contract itself.
+  // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
+  // both halves are surfaced so the page shows the whole fee, not just our cut.
+  const splitStreams =
     isSopa && orgRevenue
       ? orgRevenue.projects.flatMap((p) =>
           p.streams.flatMap((s, i) =>
             s.kind === "split" && s.realized && s.realized.revenueUsd > 0
-              ? [{ key: `${p.cardId}:${i}`, projectName: p.name, label: s.label, realizedUsd: s.realized.revenueUsd }]
+              ? [{ key: `${p.cardId}:${i}`, projectName: p.name, label: s.label, address: s.address, chain: s.chain, realizedUsd: s.realized.revenueUsd }]
               : [],
           ),
         )
       : [];
+  const onchainShare: OnchainShare[] = await Promise.all(
+    splitStreams.map(async (s) => {
+      const cfg = await getSplitConfig(s.address, s.chain);
+      return {
+        key: s.key,
+        projectName: s.projectName,
+        label: s.label,
+        realizedUsd: s.realizedUsd,
+        sopaShare: cfg?.shareFor(SOPA_SAFE) ?? null,
+        recipients:
+          cfg?.recipients.map((r) => ({
+            address: r.address,
+            share: r.share,
+            label: r.address.toLowerCase() === SOPA_SAFE.toLowerCase() ? "SOPA" : s.projectName,
+          })) ?? [],
+      };
+    }),
+  );
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
   // Brand portals get the same chart (their own revenue vs their own costs) —
   // they just have no agency jobs to fold in.
@@ -216,7 +234,6 @@ treasury: {
         <SopaRevenuePanel
           initialJobs={jobs}
           canEdit={!!session}
-          sharePct={SOPA_SPLIT_SHARE}
           onchainShare={onchainShare}
         />
       }

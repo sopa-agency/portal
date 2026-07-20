@@ -18,7 +18,12 @@ export type OnchainShare = {
   key: string;
   projectName: string;
   label: string;
+  /** Gross that passed through the split. */
   realizedUsd: number;
+  /** SOPA's cut, read from the split's own config on-chain. Null = unreadable. */
+  sopaShare: number | null;
+  /** Every recipient, so the page can show where the other half goes. */
+  recipients: { address: string; share: number; label: string }[];
 };
 
 type Draft = { client: string; amountUsd: string; occurredOn: string; status: JobStatus; description: string };
@@ -109,12 +114,10 @@ function JobForm({
 export function SopaRevenuePanel({
   initialJobs,
   canEdit,
-  sharePct,
   onchainShare,
 }: {
   initialJobs: SopaJobDTO[];
   canEdit: boolean;
-  sharePct: number;
   onchainShare: OnchainShare[];
 }) {
   const [jobs, setJobs] = useState<SopaJobDTO[]>(initialJobs);
@@ -123,7 +126,10 @@ export function SopaRevenuePanel({
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  const shareTotal = onchainShare.reduce((s, o) => s + o.realizedUsd * sharePct, 0);
+  // Only count a split whose config we could actually read. An unreadable split
+  // contributes nothing rather than being guessed at a default share.
+  const shareTotal = onchainShare.reduce((s, o) => s + o.realizedUsd * (o.sopaShare ?? 0), 0);
+  const unreadable = onchainShare.filter((o) => o.sopaShare == null).length;
   const jobsPaid = jobs.filter((j) => j.status === "paid").reduce((s, j) => s + j.amountUsd, 0);
   const jobsPending = jobs.filter((j) => j.status === "pending").reduce((s, j) => s + j.amountUsd, 0);
   const realizedTotal = shareTotal + jobsPaid;
@@ -176,7 +182,7 @@ export function SopaRevenuePanel({
             <Briefcase className="h-4 w-4 text-accent" /> Receita da SOPA
           </h2>
           <p className="mt-0.5 text-xs text-foreground-subtle">
-            Receita da agência: jobs de clientes + a fatia on-chain ({Math.round(sharePct * 100)}%) dos swap splits das marcas.
+            Receita da agência: jobs de clientes + a fatia on-chain dos swap splits das marcas.
           </p>
         </div>
         <div className="flex gap-5 text-right">
@@ -196,20 +202,48 @@ export function SopaRevenuePanel({
       {/* On-chain agency share of the brand swap splits (read-only, computed). */}
       {onchainShare.length > 0 && (
         <div className="rounded-2xl border border-border bg-surface p-4">
-          <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
-            <Link2 className="h-3.5 w-3.5" /> Participação on-chain · {Math.round(sharePct * 100)}% dos swaps
+          <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
+            <Link2 className="h-3.5 w-3.5" /> Participação on-chain nos swaps
           </h3>
-          <ul className="space-y-1.5">
+          <p className="mb-2.5 text-[11px] text-foreground-faint">
+            A taxa de cada swap cai num split contract que divide entre a SOPA e o tesouro da marca. As fatias abaixo são lidas do
+            próprio contrato — não são um valor assumido.
+          </p>
+          <ul className="space-y-2.5">
             {onchainShare.map((o) => (
-              <li key={o.key} className="flex items-center justify-between gap-3 text-xs">
-                <span className="min-w-0 truncate text-foreground-muted">
-                  <span className="font-medium text-foreground">{o.projectName}</span>
-                  <span className="text-foreground-faint"> · {o.label}</span>
-                </span>
-                <span className="shrink-0 tabular-nums">
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(o.realizedUsd * sharePct)}</span>
-                  <span className="ml-1.5 text-[10px] text-foreground-faint">de {usd(o.realizedUsd)}</span>
-                </span>
+              <li key={o.key} className="space-y-1">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="min-w-0 truncate text-foreground-muted">
+                    <span className="font-medium text-foreground">{o.projectName}</span>
+                    <span className="text-foreground-faint"> · {o.label}</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {o.sopaShare == null ? (
+                      <span className="text-warning">divisão não lida</span>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(o.realizedUsd * o.sopaShare)}</span>
+                        <span className="ml-1.5 text-[10px] text-foreground-faint">de {usd(o.realizedUsd)} distribuídos</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+                {/* Where the whole fee goes — both halves, not just ours. */}
+                {o.recipients.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pl-0.5">
+                    {o.recipients.map((r) => (
+                      <span
+                        key={r.address}
+                        title={r.address}
+                        className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${
+                          r.label === "SOPA" ? "bg-accent-bg text-accent" : "bg-surface-elevated text-foreground-faint"
+                        }`}
+                      >
+                        {r.label} {Math.round(r.share * 100)}%
+                      </span>
+                    ))}
+                  </div>
+                )}
               </li>
             ))}
             <li className="flex items-center justify-between gap-3 border-t border-border pt-1.5 text-xs">
@@ -217,6 +251,12 @@ export function SopaRevenuePanel({
               <span className="shrink-0 font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{usd(shareTotal)}</span>
             </li>
           </ul>
+          {unreadable > 0 && (
+            <p className="mt-2 text-[11px] text-warning">
+              {unreadable === 1 ? "1 split não teve" : `${unreadable} splits não tiveram`} a divisão lida on-chain e{" "}
+              {unreadable === 1 ? "ficou" : "ficaram"} fora do subtotal — melhor faltar do que chutar.
+            </p>
+          )}
         </div>
       )}
 
