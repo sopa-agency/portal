@@ -35,6 +35,8 @@ import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryBriefingButton } from "@/components/treasury-briefing";
 import { buildTreasuryBriefing } from "@/lib/treasury-briefing";
 import { getSplitConfig } from "@/lib/splits";
+import { VaultStaking } from "@/components/vault-staking";
+import { getCommunityVaults } from "@/lib/community-vaults";
 
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
@@ -182,6 +184,7 @@ treasury: {
   const streamStatus = poolAddress ? await getStreamStatus(poolAddress).catch(() => null) : null;
   const stakePosition = isSopa ? await getStakePosition(SOPA_SAFE).catch(() => null) : null;
   const allocation = isSopa ? await getAllocation(project.slug) : null;
+  const communityVaults = isSopa ? await getCommunityVaults().catch(() => []) : [];
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
   // both halves are surfaced so the page shows the whole fee, not just our cut.
@@ -411,6 +414,7 @@ treasury: {
               ]}
             />
           }
+          apoiar={communityVaults.length > 0 ? <VaultStaking vaults={communityVaults} /> : undefined}
           plan={
             <FinancialPlan
               liveStakedUsd={stakePosition?.valueUsd ?? 0}
