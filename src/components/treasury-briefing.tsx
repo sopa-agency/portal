@@ -3,7 +3,24 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Info, X } from "lucide-react";
-import type { Briefing } from "@/lib/treasury-briefing";
+import { briefingRuns, type Briefing } from "@/lib/treasury-briefing";
+
+/** Renders a briefing paragraph, lifting the numbers out of the prose. */
+function Prose({ text }: { text: string }) {
+  return (
+    <>
+      {briefingRuns(text).map((run, i) =>
+        run.num ? (
+          <span key={i} className="font-semibold tabular-nums text-accent">
+            {run.text}
+          </span>
+        ) : (
+          <span key={i}>{run.text}</span>
+        ),
+      )}
+    </>
+  );
+}
 
 // Info button in the page header → the treasury state in plain prose, built
 // server-side from the same live numbers the cards render.
@@ -54,7 +71,9 @@ export function TreasuryBriefingButton({ briefing }: { briefing: Briefing }) {
               <header className="flex items-start gap-4 border-b border-border p-5">
                 <div className="min-w-0 flex-1">
                   <h2 className="text-base font-semibold tracking-tight text-foreground">Como estamos</h2>
-                  <p className="mt-1 text-sm text-foreground-muted">{briefing.headline}</p>
+                  <p className="mt-1 text-sm text-foreground-muted">
+                    <Prose text={briefing.headline} />
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -81,7 +100,7 @@ export function TreasuryBriefingButton({ briefing }: { briefing: Briefing }) {
                               : "text-sm leading-relaxed text-foreground-muted"
                           }
                         >
-                          {p}
+                          <Prose text={p} />
                         </p>
                       ))}
                     </div>

@@ -108,15 +108,17 @@ export function TreasuryAllocation({
       {/* The pot as a vessel: one cylinder, filled bottom-up. Deliberately FLAT —
           no 3D ellipses or perspective, which would distort the very proportions
           the chart exists to show. Segment heights stay linear in the percentage. */}
-      <div className="flex flex-wrap items-stretch gap-5">
+      {/* items-center keeps the tube optically centered against the legend block
+          instead of towering past its last row. */}
+      <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-5 sm:justify-start">
         <figure className="m-0 flex shrink-0 flex-col items-center">
-          <figcaption className="mb-1.5 text-center">
+          <figcaption className="mb-2 text-center">
             <div className="text-[10px] uppercase tracking-widest text-foreground-faint">Caixa da SOPA</div>
-            <div className="font-mono text-sm font-semibold tabular-nums text-foreground">{usd(totalUsd)}</div>
+            <div className="font-mono text-lg font-bold tabular-nums text-foreground">{usd(totalUsd)}</div>
           </figcaption>
           <div
-            className="flex w-[86px] flex-col-reverse gap-[2px] overflow-hidden rounded-[43px] border border-border bg-surface-elevated p-[3px]"
-            style={{ height: 250 }}
+            className="flex w-[72px] flex-col-reverse gap-[2px] overflow-hidden rounded-[36px] border border-border bg-surface-elevated p-[3px]"
+            style={{ height: 224 }}
             role="img"
             aria-label={BUCKETS.map((b) => `${b.label} ${cur[b.key]}%`).join(", ") + (free > 0 ? `, sem destino ${free}%` : "")}
           >
@@ -127,8 +129,8 @@ export function TreasuryAllocation({
                 <div
                   key={b.key}
                   className={`flex min-h-0 items-center justify-center transition-[height] duration-200 ${
-                    idx === 0 ? "rounded-b-[40px]" : ""
-                  } ${free <= 0 && idx === BUCKETS.length - 1 ? "rounded-t-[40px]" : ""}`}
+                    idx === 0 ? "rounded-b-[33px]" : ""
+                  } ${free <= 0 && idx === BUCKETS.length - 1 ? "rounded-t-[33px]" : ""}`}
                   style={{ height: `${pct}%`, backgroundColor: b.color }}
                   title={`${b.label} · ${pct}% · ${usd((totalUsd * pct) / 100)}`}
                 >
@@ -139,7 +141,7 @@ export function TreasuryAllocation({
             })}
             {free > 0 && (
               <div
-                className="flex min-h-0 items-center justify-center rounded-t-[40px] bg-foreground/[0.07]"
+                className="flex min-h-0 items-center justify-center rounded-t-[33px] bg-foreground/[0.07]"
                 style={{ height: `${free}%` }}
                 title={`Sem destino · ${free}%`}
               >
@@ -147,13 +149,13 @@ export function TreasuryAllocation({
               </div>
             )}
           </div>
-          <div className={`mt-1.5 text-[10px] tabular-nums ${sum > 100 ? "text-danger" : "text-foreground-faint"}`}>
+          <div className={`mt-2 text-[10px] tabular-nums ${sum > 100 ? "text-danger" : "text-foreground-faint"}`}>
             {sum}% destinado
           </div>
         </figure>
 
         {/* Legend — identity is never color-alone: swatch + icon + name + value. */}
-        <ul className="min-w-[240px] flex-1 space-y-2.5">
+        <ul className="min-w-[260px] flex-1 divide-y divide-border">
           {BUCKETS.map((b) => {
             const pct = cur[b.key];
             const value = (totalUsd * pct) / 100;
@@ -161,7 +163,7 @@ export function TreasuryAllocation({
             const covered = need == null ? null : value >= need;
             const Icon = b.icon;
             return (
-              <li key={b.key}>
+              <li key={b.key} className="py-3 first:pt-0 last:pb-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: b.color }} />
                   <Icon className="h-3.5 w-3.5 shrink-0 text-foreground-faint" />
