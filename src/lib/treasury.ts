@@ -81,10 +81,21 @@ export async function getPrices(): Promise<{ hive: number; hbd: number; eth: num
 // covers ~all of it; the leftover memecoin dust is negligible. Prices come from
 // live CoinGecko (ETH) and $1 for USDC — always current, verifiable on-chain.
 
-type EvmChain = { key: string; rpc: string; usdc: string };
+// ERC-4626 vaults the treasury parks USDC in. Without these, staking looks like
+// the money left the treasury: the balance drops and the total is simply wrong.
+// `maxWithdraw(owner)` gives the redeemable USDC (principal + accrued yield).
+type Erc4626Vault = { address: string; symbol: string; decimals: number };
+
+type EvmChain = { key: string; rpc: string; usdc: string; vaults?: Erc4626Vault[] };
 const EVM_CHAINS: EvmChain[] = [
   { key: "ethereum", rpc: "https://ethereum-rpc.publicnode.com", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
-  { key: "base", rpc: "https://mainnet.base.org", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+  {
+    key: "base",
+    rpc: "https://mainnet.base.org",
+    usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    // Moonwell Flagship USDC (MetaMorpho) — where the SOPA Safe stakes.
+    vaults: [{ address: "0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca", symbol: "USDC (staked)", decimals: 6 }],
+  },
   { key: "optimism", rpc: "https://mainnet.optimism.io", usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" },
   { key: "arbitrum", rpc: "https://arb1.arbitrum.io/rpc", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
 ];
@@ -102,18 +113,29 @@ async function rpcCall<T>(rpc: string, method: string, params: unknown[]): Promi
   return json.result;
 }
 
-/** Native ETH + native USDC held by `address` on one chain, USD-valued live. */
+/** Native ETH + native USDC + staked USDC held by `address` on one chain. */
 async function fetchChainBalances(address: string, chain: EvmChain, ethPrice: number): Promise<EvmToken[]> {
   const padded = address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
-  const [ethHex, usdcHex] = await Promise.all([
+  const [ethHex, usdcHex, vaultHexes] = await Promise.all([
     rpcCall<string>(chain.rpc, "eth_getBalance", [address, "latest"]),
     rpcCall<string>(chain.rpc, "eth_call", [{ to: chain.usdc, data: `0x70a08231${padded}` }, "latest"]),
+    Promise.all(
+      // 0xce96cb77 = maxWithdraw(address). A wallet with no position returns 0,
+      // so this is safe to ask of every address we scan.
+      (chain.vaults ?? []).map((v) =>
+        rpcCall<string>(chain.rpc, "eth_call", [{ to: v.address, data: `0xce96cb77${padded}` }, "latest"]).catch(() => "0x0"),
+      ),
+    ),
   ]);
   const tokens: EvmToken[] = [];
   const eth = parseInt(ethHex, 16) / 1e18;
   if (eth > 0) tokens.push({ symbol: "ETH", chain: chain.key, balance: eth, valueUsd: eth * ethPrice });
   const usdc = parseInt(usdcHex || "0x0", 16) / 1e6;
   if (usdc > 0) tokens.push({ symbol: "USDC", chain: chain.key, balance: usdc, valueUsd: usdc });
+  (chain.vaults ?? []).forEach((v, i) => {
+    const assets = parseInt(vaultHexes[i] || "0x0", 16) / 10 ** v.decimals;
+    if (assets > 0) tokens.push({ symbol: v.symbol, chain: chain.key, balance: assets, valueUsd: assets });
+  });
   return tokens;
 }
 
