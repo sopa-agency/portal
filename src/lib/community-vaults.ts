@@ -55,11 +55,41 @@ export type VaultInfo = {
   error?: string;
 };
 
-const VAULT_ABI = [
+// V1 (MetaMorpho) and V2 name the same concept differently. Read whichever the
+// vault answers to, so a V2 vault doesn't read as "not ours" after deploy.
+const V1_ABI = [
   { name: "fee", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint96" }] },
   { name: "feeRecipient", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+] as const;
+
+const V2_ABI = [
+  { name: "performanceFee", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { name: "performanceFeeRecipient", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+] as const;
+
+const TOTAL_ASSETS_ABI = [
   { name: "totalAssets", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
+
+/** Fee + recipient, whichever generation the vault is. */
+async function readFeeSplit(
+  c: ReturnType<typeof client>,
+  address: `0x${string}`,
+): Promise<{ fee: number; recipient: string; version: "v1" | "v2" }> {
+  try {
+    const [fee, recipient] = await Promise.all([
+      c.readContract({ address, abi: V1_ABI, functionName: "fee" }),
+      c.readContract({ address, abi: V1_ABI, functionName: "feeRecipient" }),
+    ]);
+    return { fee: Number(formatUnits(fee as bigint, 18)), recipient: recipient as string, version: "v1" };
+  } catch {
+    const [fee, recipient] = await Promise.all([
+      c.readContract({ address, abi: V2_ABI, functionName: "performanceFee" }),
+      c.readContract({ address, abi: V2_ABI, functionName: "performanceFeeRecipient" }),
+    ]);
+    return { fee: Number(formatUnits(fee as bigint, 18)), recipient: recipient as string, version: "v2" };
+  }
+}
 
 const client = () => createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
 
@@ -95,19 +125,17 @@ export async function getVaultInfo(vault: CommunityVault): Promise<VaultInfo> {
   try {
     const c = client();
     const address = getAddress(vault.address);
-    const [feeRaw, recipient, total, apy] = await Promise.all([
-      c.readContract({ address, abi: VAULT_ABI, functionName: "fee" }),
-      c.readContract({ address, abi: VAULT_ABI, functionName: "feeRecipient" }),
-      c.readContract({ address, abi: VAULT_ABI, functionName: "totalAssets" }),
+    // Fee is WAD in both generations (1e18 = 100%).
+    const [split, total, apy] = await Promise.all([
+      readFeeSplit(c, address),
+      c.readContract({ address, abi: TOTAL_ASSETS_ABI, functionName: "totalAssets" }),
       fetchApy(vault.address),
     ]);
-    // MetaMorpho stores the fee as WAD (1e18 = 100%).
-    const fee = Number(formatUnits(feeRaw as bigint, 18));
     return {
       ...base,
-      fee,
-      feeRecipient: recipient as string,
-      paysSopa: (recipient as string).toLowerCase() === SOPA_SAFE.toLowerCase(),
+      fee: split.fee,
+      feeRecipient: split.recipient,
+      paysSopa: split.recipient.toLowerCase() === SOPA_SAFE.toLowerCase(),
       totalAssets: Number(formatUnits(total as bigint, vault.assetDecimals)),
       apy,
       // The published netApy is already net of the vault fee.
