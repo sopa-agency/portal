@@ -26,6 +26,12 @@
   --danger: #b91c1c;
   --warning: #b45309;
   --success: #15803d;
+  /* Categorical slots for the treasury allocation chart. Each mode gets its own
+     step from the same hues (not an automatic flip) — both runs pass the
+     lightness band, chroma floor, CVD separation and 3:1 contrast checks. */
+  --viz-1: #10a37f;
+  --viz-2: #d97706;
+  --viz-3: #4f46e5;
   --scrollbar-thumb: rgba(0, 0, 0, 0.2);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
 }
@@ -47,6 +53,9 @@
   --danger: #f87171;
   --warning: #fbbf24;
   --success: #4ade80;
+  --viz-1: #10a37f;
+  --viz-2: #d97706;
+  --viz-3: #6366f1;
   --scrollbar-thumb: rgba(255, 255, 255, 0.15);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
 }
@@ -68,6 +77,9 @@
   --color-danger: var(--danger);
   --color-warning: var(--warning);
   --color-success: var(--success);
+  --color-viz-1: var(--viz-1);
+  --color-viz-2: var(--viz-2);
+  --color-viz-3: var(--viz-3);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
