@@ -750,6 +750,8 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
 {
   "hive_snap": "...",
   "hive_snap_pt": "...",
+  "press_release": "...",
+  "press_release_pt": "...",
   "hive_mag_post": "...",
   "hive_mag_post_pt": "...",
   "farcaster": "...",
@@ -785,7 +787,7 @@ Return a single JSON object with this exact shape, and NOTHING else (no prose, n
 
 Rules:
 
-- BILINGUAL — THIS IS MANDATORY. Every artifact must be produced TWICE: once in English (the base field) and once in Brazilian Portuguese (the matching "_pt" field). The base field ("hive_snap", "farcaster", "tweets", "discord", ${includeBinance ? `"binance_square", ` : ""}"email") is ALWAYS written in natural English; the "_pt" field is a faithful, natural Brazilian Portuguese version of that same artifact — same meaning, same links, same image URLs, same length/structure — not a word-for-word transliteration. NEVER leave a "_pt" field empty and NEVER return only one language. If the brief is written in Portuguese, still write the base fields in English and put the Portuguese in the "_pt" fields.
+- BILINGUAL — THIS IS MANDATORY. Every artifact must be produced TWICE: once in English (the base field) and once in Brazilian Portuguese (the matching "_pt" field). The base field ("hive_snap", "press_release", "farcaster", "tweets", "discord", ${includeBinance ? `"binance_square", ` : ""}"email") is ALWAYS written in natural English; the "_pt" field is a faithful, natural Brazilian Portuguese version of that same artifact — same meaning, same links, same image URLs, same length/structure — not a word-for-word transliteration. NEVER leave a "_pt" field empty and NEVER return only one language. If the brief is written in Portuguese, still write the base fields in English and put the Portuguese in the "_pt" fields.
 
 ${
   artifactsHiveAccount
@@ -793,6 +795,8 @@ ${
     : ""
 }- "hive_snap": a single Hive snap (short post) that will be published as a comment under peak.snaps' daily container on ${artifactsCommunity}. Plain text, real line breaks, under 280 characters when possible. Community voice. No hashtags in front — Hive frontends pick those up from json_metadata.
 - "hive_snap_pt": the Brazilian Portuguese version of "hive_snap" — same message, same links/images, same length constraints.
+- "press_release": a short press release (~150-250 words) a journalist or partner could publish or quote with no rewriting. Structure it like a real release: a headline on the first line, then a dateline-style opening paragraph answering who/what/when/where/why, one or two body paragraphs with the detail and context, and a closing "About ${artifactsProject.name}" boilerplate paragraph. Third person, factual, no hype and no emojis. Include a quote attributed to the ${artifactsProject.name} team only if the brief supports one — never invent a named person who is not in the brief.
+- "press_release_pt": the Brazilian Portuguese version of "press_release" — same structure, headline, facts and links.
 - "hive_mag_post": a long-form Hive blog post (magazine style, ~300-600 words) ready to publish to ${artifactsCommunity} as @${artifactsHiveAccount}. Markdown with headings, paragraphs, and embedded images. Expand the core idea into a real read — context, the take, why it matters. Editorial, community-to-community, no corporate marketing-speak. This IS the publishable post body — no internal-brief sections (Goal / Audience / Window / Channels / Success metric / Risks). ALWAYS WRITE THIS IN ENGLISH — Hive's audience is international — even if the brief, caption, or images are in Portuguese.
 - "hive_mag_post_pt": a faithful Brazilian Portuguese translation of "hive_mag_post" — same structure, same headings, the SAME embedded image URLs in the same places. This is stored in the post's json_metadata as the pt translation. Translate naturally, don't transliterate.
 - "farcaster": a single Farcaster cast for the /${artifactsFarcasterChannel} channel as @${artifactsHiveAccount}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine.
@@ -863,6 +867,15 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
     await upsertNamedDocument(campaignId, "Hive snap (PT)", parsed.hive_snap_pt);
     saved.push("Hive snap (PT)");
   } else missing.push("Hive snap (PT)");
+
+  if (parsed.press_release) {
+    await upsertNamedDocument(campaignId, "Press release", parsed.press_release);
+    saved.push("Press release");
+  } else missing.push("Press release");
+  if (parsed.press_release_pt) {
+    await upsertNamedDocument(campaignId, "Press release (PT)", parsed.press_release_pt);
+    saved.push("Press release (PT)");
+  } else missing.push("Press release (PT)");
 
   if (parsed.hive_mag_post) {
     await upsertNamedDocument(campaignId, "Hive mag post", parsed.hive_mag_post);
@@ -1544,6 +1557,8 @@ EMAIL (this is the critical part — make it visual + clickable):
 type ParsedArtifacts = {
   hive_snap: string;
   hive_snap_pt: string;
+  press_release: string;
+  press_release_pt: string;
   hive_mag_post: string;
   hive_mag_post_pt: string;
   farcaster: string;
@@ -1581,6 +1596,8 @@ function extractArtifactsJson(raw: string): ParsedArtifacts | null {
 
     const hive_snap = pickString(obj.hive_snap) ?? pickString(obj.hive) ?? pickString(obj.snap) ?? "";
     const hive_snap_pt = pickString(obj.hive_snap_pt) ?? pickString(obj.hive_snap_ptbr) ?? pickString(obj.snap_pt) ?? "";
+    const press_release = pickString(obj.press_release) ?? pickString(obj.press) ?? pickString(obj.pressrelease) ?? "";
+    const press_release_pt = pickString(obj.press_release_pt) ?? pickString(obj.press_pt) ?? "";
     const hive_mag_post = pickString(obj.hive_mag_post) ?? pickString(obj.hive_blog) ?? pickString(obj.mag_post) ?? "";
     const hive_mag_post_pt = pickString(obj.hive_mag_post_pt) ?? pickString(obj.hive_mag_post_ptbr) ?? pickString(obj.mag_post_pt) ?? "";
     const farcaster = pickString(obj.farcaster) ?? pickString(obj.cast) ?? "";
@@ -1597,7 +1614,7 @@ function extractArtifactsJson(raw: string): ParsedArtifacts | null {
     const instagram_carousel_pt = pickString(obj.instagram_carousel_pt) ?? pickString(obj.instagram_pt) ?? pickString(obj.carousel_pt) ?? "";
     const email = obj.email && typeof obj.email === "object" ? obj.email : null;
     const email_pt = obj.email_pt && typeof obj.email_pt === "object" ? obj.email_pt : null;
-    const result = { hive_snap, hive_snap_pt, hive_mag_post, hive_mag_post_pt, farcaster, farcaster_pt, tweets, tweets_pt, discord, discord_pt, binance_square, binance_square_pt, instagram_carousel, instagram_carousel_pt, email, email_pt };
+    const result = { hive_snap, hive_snap_pt, press_release, press_release_pt, hive_mag_post, hive_mag_post_pt, farcaster, farcaster_pt, tweets, tweets_pt, discord, discord_pt, binance_square, binance_square_pt, instagram_carousel, instagram_carousel_pt, email, email_pt };
 
     // Prefer the candidate that actually carries the expected fields — a nested
     // blob (e.g. an email section) can parse cleanly but have none of them.
