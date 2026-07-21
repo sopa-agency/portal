@@ -26,6 +26,9 @@ import {
   fetchTopSkatehivePosts,
   formatPostsForPrompt,
 } from "@/lib/skatehive-content";
+import { cookies } from "next/headers";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { verifySession } from "@/lib/team-access";
 
 const AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 4 * 60_000);
 const ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".openclaw", ".env");
@@ -1990,6 +1993,150 @@ ${kind === "tweets"
     });
     revalidatePath(`/campaign-creator/${doc.campaignId}`);
     return { ok: true, content };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Add ANOTHER Farcaster cast to a campaign, on top of the one the brief already
+ * produced. Unlike `upsertNamedDocument` (which overwrites by name), this always
+ * creates a new numbered document — "Farcaster cast 2", "3", … — so the casts
+ * accumulate and can each be scheduled on its own.
+ *
+ * The existing casts are fed to the model so a new one takes a different angle
+ * instead of paraphrasing what's already there.
+ */
+export async function addCampaignCast(
+  campaignId: string,
+  instruction?: string,
+): Promise<{ ok: true; documentId: string; name: string; content: string } | { ok: false; error: string }> {
+  try {
+    const project = await getActiveProject();
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: {
+        id: true,
+        name: true,
+        projectSlug: true,
+        documents: { select: { name: true, content: true, isMain: true } },
+      },
+    });
+    if (!campaign) return { ok: false, error: "Campaign not found." };
+    if (campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
+
+    const brief = (campaign.documents.find((d) => d.isMain)?.content ?? "").trim();
+    if (!brief) return { ok: false, error: "No brief found — generate or write the brief first." };
+
+    // Every existing cast (English ones; the "(PT)" siblings are translations).
+    const existingCasts = campaign.documents.filter(
+      (d) => !d.isMain && classifyDocumentKindByName(d.name) === "farcaster" && !/\(pt\)/i.test(d.name),
+    );
+
+    // Next free "Farcaster cast N" — count from the docs we already have so
+    // deleting one never collides with a surviving name.
+    const taken = new Set(campaign.documents.map((d) => d.name.toLowerCase()));
+    let n = existingCasts.length + 1;
+    let name = `Farcaster cast ${n}`;
+    while (taken.has(name.toLowerCase())) name = `Farcaster cast ${++n}`;
+
+    const voiceHint = project.campaignArtifacts?.voiceHint?.trim();
+    const persona = campaignPersona(project);
+    const templateRules = buildTemplateArtifactRules(undefined, project);
+    const alreadyWritten = existingCasts
+      .map((d, i) => `Cast ${i + 1}:\n${d.content.trim()}`)
+      .filter((s) => s.length > 8)
+      .join("\n\n");
+
+    const prompt = `You are ${persona}.${voiceHint ? `\n\nVoice: ${voiceHint}` : ""}
+
+Campaign: "${campaign.name}"
+
+Brief:
+${brief}
+${templateRules}
+
+Task: Write ONE additional Farcaster cast for the /${project.farcaster.channel} channel as @${project.hive.account}. Under 320 characters. Plain text. One short hook + the link. Emojis are fine. Write it in English.${
+      alreadyWritten
+        ? `\n\nThese casts already exist for this campaign — your cast MUST take a genuinely different angle (another detail, benefit, question, or point of view). Do not paraphrase them or reuse their hook:\n\n${alreadyWritten}`
+        : ""
+    }${instruction?.trim() ? `\n\nApply this direction: ${instruction.trim()}` : ""}
+
+Return ONLY the cast text. No preamble, no labels, no code fences.`;
+
+    await ensureLocalGatewayToken();
+    let raw: string;
+    try {
+      raw = await callOpenClaw(prompt, project.agent.id, { timeoutMs: AI_TIMEOUT_MS, project });
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "AI gateway failed." };
+    }
+    const content = stripCodeFence(raw).trim();
+    if (!content) return { ok: false, error: "AI returned empty content. Try again." };
+
+    const doc = await prisma.campaignDocument.create({
+      data: { campaignId, name, isMain: false, content },
+    });
+    revalidatePath(`/campaign-creator/${campaignId}`);
+    return { ok: true, documentId: doc.id, name, content };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** kind → the network key `publishLabChannel` dispatches on. */
+const SCHEDULABLE_NETWORK: Partial<Record<CampaignDocumentKind, string>> = {
+  hive: "hive",
+  farcaster: "farcaster",
+  discord: "discord",
+  binance: "binance",
+  hive_mag: "hive_mag",
+  email: "email",
+};
+
+/**
+ * Queue one artifact to publish later. Writes a LabScheduledPost, which the
+ * scheduler's publishDueLabPosts picks up at `scheduledFor`. Deliberately does
+ * NOT go through the lab's own action: scheduling a campaign artifact shouldn't
+ * require the Lab feature flag to be on for the project.
+ */
+export async function scheduleCampaignArtifact(
+  documentId: string,
+  whenISO: string,
+): Promise<{ ok: true; scheduledFor: string } | { ok: false; error: string }> {
+  try {
+    const project = await getActiveProject();
+    const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
+    if (!session) return { ok: false, error: "Não autorizado." };
+
+    const doc = await prisma.campaignDocument.findUnique({
+      where: { id: documentId },
+      select: { id: true, name: true, content: true, campaign: { select: { projectSlug: true } } },
+    });
+    if (!doc) return { ok: false, error: "Documento não encontrado." };
+    if (doc.campaign.projectSlug !== project.slug) return { ok: false, error: "Acesso negado." };
+
+    const network = SCHEDULABLE_NETWORK[classifyDocumentKindByName(doc.name)];
+    if (!network) return { ok: false, error: "Esse tipo de artefato não pode ser agendado." };
+
+    const text = doc.content.trim();
+    if (!text) return { ok: false, error: "O documento está vazio." };
+
+    const when = new Date(whenISO);
+    if (Number.isNaN(when.getTime())) return { ok: false, error: "Data inválida." };
+    if (when.getTime() <= Date.now()) return { ok: false, error: "Escolha um horário no futuro." };
+
+    await prisma.labScheduledPost.create({
+      data: {
+        projectSlug: project.slug,
+        network,
+        text,
+        scheduledFor: when,
+        createdBy: session.username,
+      },
+    });
+    revalidatePath(`/campaign-creator`);
+    return { ok: true, scheduledFor: when.toISOString() };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

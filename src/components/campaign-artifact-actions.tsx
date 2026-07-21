@@ -7,6 +7,7 @@ import {
   ClipboardCopy,
   ExternalLink,
   Loader2,
+  CalendarClock,
   Mail,
   MessageSquare,
   RefreshCw,
@@ -18,6 +19,7 @@ import {
   getNewsletterBlastInfo,
   publishCampaignDocToParagraph,
   remixCampaignArtifact,
+  scheduleCampaignArtifact,
   sendCampaignArtifact,
   sendCampaignEmail,
   sendCampaignEmailBlast,
@@ -85,6 +87,29 @@ export function CampaignArtifactActions({
   const [paragraphOpen, setParagraphOpen] = useState(false);
   const [paragraphDone, setParagraphDone] = useState<{ url: string; published: boolean; emailed: boolean } | null>(null);
   const [discordChannel, setDiscordChannel] = useState<string | null>(null); // per-send channel override
+
+  // --- schedule (queues a LabScheduledPost the scheduler publishes later) ---
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [scheduleStatus, setScheduleStatus] = useState<
+    null | { ok: true; when: string } | { ok: false; error: string }
+  >(null);
+  const [schedulePending, startSchedule] = useTransition();
+  const canSchedule = supportsAutoSend || isMag || isEmail;
+
+  const handleSchedule = () => {
+    if (!scheduleAt) return;
+    setScheduleStatus(null);
+    startSchedule(async () => {
+      // datetime-local has no timezone — it is local wall time by definition.
+      const res = await scheduleCampaignArtifact(documentId, new Date(scheduleAt).toISOString());
+      if (res.ok) {
+        setScheduleStatus({ ok: true, when: res.scheduledFor });
+        setScheduleOpen(false);
+        setScheduleAt("");
+      } else setScheduleStatus({ ok: false, error: res.error });
+    });
+  };
 
   // Publish the mag post (invoked from the confirmation dialog).
   const confirmMagPublish = () => {
@@ -219,6 +244,19 @@ export function CampaignArtifactActions({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
+
+        {/* Schedule this artifact on its own — each cast can go out at its own time. */}
+        {canSchedule && (
+          <button
+            type="button"
+            onClick={() => { setScheduleOpen((v) => !v); setScheduleStatus(null); }}
+            aria-expanded={scheduleOpen}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground"
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            Agendar
+          </button>
+        )}
 
         {/* Discord: pick the channel for this send (defaults to the project's). */}
         {kind === "discord" && (
@@ -549,6 +587,48 @@ export function CampaignArtifactActions({
       )}
 
       {/* Remix panel */}
+      {scheduleOpen && (
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-elevated p-3">
+          <label className="text-[11px] text-foreground-subtle" htmlFor={`sched-${documentId}`}>
+            Publicar automaticamente em:
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id={`sched-${documentId}`}
+              type="datetime-local"
+              value={scheduleAt}
+              onChange={(e) => setScheduleAt(e.target.value)}
+              className="rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-border-strong"
+            />
+            <button
+              type="button"
+              onClick={handleSchedule}
+              disabled={schedulePending || !scheduleAt}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {schedulePending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
+              {schedulePending ? "Agendando…" : "Confirmar"}
+            </button>
+          </div>
+          <p className="text-[11px] text-foreground-faint">
+            Entra na fila do agendador e publica sozinho no horário. Cada artefato tem o seu — dá pra escalonar os casts.
+          </p>
+          {scheduleStatus && !scheduleStatus.ok && (
+            <p className="text-[11px] text-danger">{scheduleStatus.error}</p>
+          )}
+        </div>
+      )}
+
+      {scheduleStatus?.ok && !scheduleOpen && (
+        <p className="text-[11px] text-success">
+          Agendado para{" "}
+          {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(
+            new Date(scheduleStatus.when),
+          )}
+          .
+        </p>
+      )}
+
       {remixOpen && (
         <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-elevated p-3">
           <label className="text-[11px] text-foreground-subtle">
