@@ -9,6 +9,7 @@ import {
   Mail,
   MessageCircleMore,
   MessageSquare,
+  Loader2,
   Plus,
   Send,
   Star,
@@ -16,7 +17,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createDocument, deleteDocument } from "@/app/actions/campaigns";
+import { addCampaignCast, createDocument, deleteDocument } from "@/app/actions/campaigns";
 import { CampaignArtifactActions } from "@/components/campaign-artifact-actions";
 import { CampaignCarouselEditor } from "@/components/campaign-carousel-editor";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
@@ -97,6 +98,22 @@ export function CampaignFolderShell({
     });
   };
 
+  // Each click adds ANOTHER cast (never overwrites) so they can be scheduled
+  // separately. The action feeds the existing casts to the model so the new one
+  // takes a different angle.
+  const [castPending, startCast] = useTransition();
+  const [castError, setCastError] = useState<string | null>(null);
+  const handleAddCast = () => {
+    setCastError(null);
+    startCast(async () => {
+      const res = await addCampaignCast(campaignId);
+      if (res.ok) {
+        setSelectedId(res.documentId);
+        router.refresh();
+      } else setCastError(res.error);
+    });
+  };
+
   const handleDelete = (doc: CampaignDocument) => {
     if (doc.isMain) return;
     if (!window.confirm(`Delete "${doc.name}"?`)) return;
@@ -131,6 +148,19 @@ export function CampaignFolderShell({
             <Plus className="h-3 w-3" />
             New
           </button>
+        </div>
+        <div className="px-2">
+          <button
+            type="button"
+            onClick={handleAddCast}
+            disabled={castPending}
+            title="Gera mais um Farcaster cast a partir do briefing, com outro ângulo"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+          >
+            {castPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+            {castPending ? "Gerando cast…" : "Novo cast"}
+          </button>
+          {castError && <p className="mt-1 text-[10px] text-danger">{castError}</p>}
         </div>
         <ul className="space-y-1">
           {enriched.map((doc) => {
