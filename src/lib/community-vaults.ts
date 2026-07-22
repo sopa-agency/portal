@@ -99,7 +99,7 @@ async function readFeeSplit(
 const RPCS = ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"];
 const client = () => createPublicClient({ chain: base, transport: fallback(RPCS.map((u) => http(u))) });
 
-async function fetchApy(address: string): Promise<number | null> {
+export async function fetchVaultApy(address: string): Promise<number | null> {
   try {
     const res = await fetch("https://blue-api.morpho.org/graphql", {
       method: "POST",
@@ -135,7 +135,7 @@ export async function getVaultInfo(vault: CommunityVault): Promise<VaultInfo> {
     const [split, total, apy] = await Promise.all([
       readFeeSplit(c, address),
       c.readContract({ address, abi: TOTAL_ASSETS_ABI, functionName: "totalAssets" }),
-      fetchApy(vault.address),
+      fetchVaultApy(vault.address),
     ]);
     return {
       ...base,
