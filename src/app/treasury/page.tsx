@@ -37,6 +37,8 @@ import { buildTreasuryBriefing } from "@/lib/treasury-briefing";
 import { getSplitConfig } from "@/lib/splits";
 import { VaultStaking } from "@/components/vault-staking";
 import { getCommunityVaults } from "@/lib/community-vaults";
+import { VaultDepositors } from "@/components/vault-depositors";
+import { getVaultDepositors } from "@/lib/vault-depositors";
 
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
@@ -185,6 +187,9 @@ treasury: {
   const stakePosition = isSopa ? await getStakePosition(SOPA_SAFE).catch(() => null) : null;
   const allocation = isSopa ? await getAllocation(project.slug) : null;
   const communityVaults = isSopa ? await getCommunityVaults().catch(() => []) : [];
+  // Backers of the SOPA-owned vault (the one whose fee funds the payroll).
+  const sopaVault = communityVaults.find((v) => v.paysSopa) ?? null;
+  const vaultDepositors = sopaVault ? await getVaultDepositors(sopaVault.vault.address).catch(() => []) : [];
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
   // both halves are surfaced so the page shows the whole fee, not just our cut.
@@ -414,7 +419,16 @@ treasury: {
               ]}
             />
           }
-          apoiar={communityVaults.length > 0 ? <VaultStaking vaults={communityVaults} /> : undefined}
+          apoiar={
+            communityVaults.length > 0 ? (
+              <div className="space-y-6">
+                <VaultStaking vaults={communityVaults} />
+                {sopaVault && (
+                  <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
+                )}
+              </div>
+            ) : undefined
+          }
           plan={
             <FinancialPlan
               liveStakedUsd={stakePosition?.valueUsd ?? 0}
