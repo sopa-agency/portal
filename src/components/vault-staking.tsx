@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createPublicClient, createWalletClient, custom, http, formatUnits, parseUnits, getAddress, erc20Abi } from "viem";
 import { base } from "viem/chains";
 import { PiggyBank, Loader2, Wallet, ExternalLink, AlertTriangle, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
@@ -39,6 +40,7 @@ async function ensureBase(eth: Eth) {
 
 function VaultCard({ info }: { info: VaultInfo }) {
   const { vault } = info;
+  const router = useRouter();
   const [account, setAccount] = useState<string | null>(null);
   const [walletBal, setWalletBal] = useState<number | null>(null);
   const [position, setPosition] = useState<number | null>(null);
@@ -134,6 +136,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
       }
       setAmount("");
       await refresh(account);
+      router.refresh();
     } catch (e) {
       setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Falhou.");
     } finally {
