@@ -160,13 +160,27 @@ function VaultCard({ info }: { info: VaultInfo }) {
         </div>
       </div>
 
-      {/* Where the yield actually goes — read from the contract, not claimed. */}
+      {/* Where the yield actually goes — read from the contract, not claimed.
+          A failed read must NOT render as "0% fee": that would state a number we
+          never observed. It gets its own state. */}
       <div
         className={`mt-3 rounded-xl border p-3 text-xs ${
-          info.paysSopa ? "border-accent-border bg-accent-bg text-foreground-muted" : "border-warning/30 bg-warning/10 text-warning"
+          info.error
+            ? "border-border bg-surface-elevated text-foreground-muted"
+            : info.paysSopa
+              ? "border-accent-border bg-accent-bg text-foreground-muted"
+              : "border-warning/30 bg-warning/10 text-warning"
         }`}
       >
-        {info.paysSopa ? (
+        {info.error ? (
+          <div className="flex gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Não consegui ler a configuração deste cofre agora (a rede pública engasgou). Recarregue em instantes — prefiro não
+              mostrar número nenhum a mostrar um errado.
+            </span>
+          </div>
+        ) : info.paysSopa ? (
           <>
             <b className="text-foreground">{Math.round(info.fee * 100)}% dos juros</b> deste cofre vão pro tesouro da SOPA e financiam o
             payroll. Os outros {Math.round((1 - info.fee) * 100)}% ficam com você. Seu depósito continua seu — dá pra sacar quando quiser.
