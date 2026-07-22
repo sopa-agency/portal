@@ -6,9 +6,10 @@ import { prisma } from "@/lib/prisma";
 // Who is backing the community vault, and with how much.
 //
 // Holders are discovered from the vault's Deposit events (Blockscout — the
-// public RPC caps eth_getLogs), then each holder's CURRENT position is read
-// straight from the contract with maxWithdraw. Events tell us *who*; only the
-// live call tells us *how much*, since shares appreciate and people withdraw.
+// public RPC caps eth_getLogs), then each holder's CURRENT position is valued
+// as convertToAssets(balanceOf). Events tell us *who*; only the live call tells
+// us *how much*, since shares appreciate and people withdraw. (maxWithdraw reads
+// 0 here — the liquidity is parked in the Moonwell adapter, not idle.)
 
 export type VaultDepositor = {
   address: string;
@@ -27,8 +28,13 @@ const DEAD = new Set([
   "0x000000000000000000000000000000000000dead",
 ]);
 
-const MAX_WITHDRAW_ABI = [
-  { name: "maxWithdraw", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+// A holder's position = value of the shares they hold. NOT maxWithdraw: on a
+// Vault V2 whose liquidity sits in an adapter, maxWithdraw returns 0 (it only
+// counts idle liquidity), which would drop every real depositor from the list.
+// convertToAssets(balanceOf) is the true redeemable value.
+const POSITION_ABI = [
+  { name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  { name: "convertToAssets", type: "function", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] },
 ] as const;
 
 type Log = {
@@ -79,13 +85,21 @@ export async function getVaultDepositors(vault: string): Promise<VaultDepositor[
   for (const address of addresses) {
     let assets = 0;
     try {
-      const raw = await client.readContract({
+      const shares = await client.readContract({
         address: getAddress(vault),
-        abi: MAX_WITHDRAW_ABI,
-        functionName: "maxWithdraw",
+        abi: POSITION_ABI,
+        functionName: "balanceOf",
         args: [getAddress(address)],
       });
-      assets = Number(formatUnits(raw, 6));
+      if (shares > BigInt(0)) {
+        const raw = await client.readContract({
+          address: getAddress(vault),
+          abi: POSITION_ABI,
+          functionName: "convertToAssets",
+          args: [shares],
+        });
+        assets = Number(formatUnits(raw, 6));
+      }
     } catch {
       continue; // skip rather than report a zero we didn't actually read
     }

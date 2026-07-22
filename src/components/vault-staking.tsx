@@ -16,7 +16,11 @@ type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unk
 const VAULT_ABI = [
   { name: "deposit", type: "function", stateMutability: "nonpayable", inputs: [{ name: "assets", type: "uint256" }, { name: "receiver", type: "address" }], outputs: [{ type: "uint256" }] },
   { name: "withdraw", type: "function", stateMutability: "nonpayable", inputs: [{ name: "assets", type: "uint256" }, { name: "receiver", type: "address" }, { name: "owner", type: "address" }], outputs: [{ type: "uint256" }] },
-  { name: "maxWithdraw", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  { name: "redeem", type: "function", stateMutability: "nonpayable", inputs: [{ name: "shares", type: "uint256" }, { name: "receiver", type: "address" }, { name: "owner", type: "address" }], outputs: [{ type: "uint256" }] },
+  { name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  // Position value: convertToAssets(shares). maxWithdraw returns 0 here because
+  // the liquidity sits in the Moonwell adapter, not idle.
+  { name: "convertToAssets", type: "function", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] },
 ] as const;
 
 const pub = () => createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
@@ -44,6 +48,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
   const [account, setAccount] = useState<string | null>(null);
   const [walletBal, setWalletBal] = useState<number | null>(null);
   const [position, setPosition] = useState<number | null>(null);
+  const [shares, setShares] = useState<bigint>(BigInt(0));
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState<"deposit" | "withdraw">("deposit");
   const [busy, setBusy] = useState<string | null>(null);
@@ -54,12 +59,18 @@ function VaultCard({ info }: { info: VaultInfo }) {
     async (who: string) => {
       try {
         const c = pub();
-        const [bal, pos] = await Promise.all([
+        const [bal, shareBal] = await Promise.all([
           c.readContract({ address: getAddress(vault.asset), abi: erc20Abi, functionName: "balanceOf", args: [getAddress(who)] }),
-          c.readContract({ address: getAddress(vault.address), abi: VAULT_ABI, functionName: "maxWithdraw", args: [getAddress(who)] }),
+          c.readContract({ address: getAddress(vault.address), abi: VAULT_ABI, functionName: "balanceOf", args: [getAddress(who)] }),
         ]);
         setWalletBal(Number(formatUnits(bal, vault.assetDecimals)));
-        setPosition(Number(formatUnits(pos, vault.assetDecimals)));
+        setShares(shareBal);
+        // Value the shares. maxWithdraw would read 0 (liquidity is in the adapter).
+        const assets =
+          shareBal > BigInt(0)
+            ? await c.readContract({ address: getAddress(vault.address), abi: VAULT_ABI, functionName: "convertToAssets", args: [shareBal] })
+            : BigInt(0);
+        setPosition(Number(formatUnits(assets, vault.assetDecimals)));
       } catch {
         /* leave as unknown rather than showing a wrong number */
       }
@@ -125,12 +136,23 @@ function VaultCard({ info }: { info: VaultInfo }) {
         setTx(h);
       } else {
         setBusy("Sacando…");
-        const h = await wallet.writeContract({
-          address: vaultAddr,
-          abi: VAULT_ABI,
-          functionName: "withdraw",
-          args: [assets, getAddress(account), getAddress(account)],
-        });
+        // Withdrawing the whole position: redeem ALL shares. withdraw(assets)
+        // rounds shares up and can revert at the exact max; redeem(shares) can't.
+        const full = position != null && value >= position - 1e-6;
+        const h =
+          full && shares > BigInt(0)
+            ? await wallet.writeContract({
+                address: vaultAddr,
+                abi: VAULT_ABI,
+                functionName: "redeem",
+                args: [shares, getAddress(account), getAddress(account)],
+              })
+            : await wallet.writeContract({
+                address: vaultAddr,
+                abi: VAULT_ABI,
+                functionName: "withdraw",
+                args: [assets, getAddress(account), getAddress(account)],
+              });
         await c.waitForTransactionReceipt({ hash: h });
         setTx(h);
       }
