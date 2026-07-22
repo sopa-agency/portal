@@ -1,5 +1,5 @@
 import "server-only";
-import { createPublicClient, http, formatUnits, getAddress } from "viem";
+import { createPublicClient, http, fallback, formatUnits, getAddress } from "viem";
 import { base } from "viem/chains";
 import { prisma } from "@/lib/prisma";
 
@@ -75,7 +75,14 @@ export async function getVaultDepositors(vault: string): Promise<VaultDepositor[
   const addresses = await fetchDepositorAddresses(vault.toLowerCase());
   if (addresses.length === 0) return [];
 
-  const client = createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
+  // Single-RPC reads rate-limit from Vercel's datacenter IPs — every position
+  // read would fail and drop the depositor, blanking the panel. Fall through a few.
+  const client = createPublicClient({
+    chain: base,
+    transport: fallback(
+      ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"].map((u) => http(u)),
+    ),
+  });
   const members = await prisma.payrollMember
     .findMany({ select: { label: true, address: true } })
     .catch(() => [] as { label: string; address: string }[]);
