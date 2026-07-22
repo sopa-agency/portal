@@ -36,8 +36,9 @@ import { TreasuryBriefingButton } from "@/components/treasury-briefing";
 import { buildTreasuryBriefing } from "@/lib/treasury-briefing";
 import { getSplitConfig } from "@/lib/splits";
 import { VaultStaking } from "@/components/vault-staking";
-import { getCommunityVaults } from "@/lib/community-vaults";
+import { getCommunityVaults, fetchVaultApy } from "@/lib/community-vaults";
 import { VaultDepositors } from "@/components/vault-depositors";
+import { VaultFlowView } from "@/components/vault-flow-view";
 import { getVaultDepositors } from "@/lib/vault-depositors";
 
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
@@ -190,6 +191,12 @@ treasury: {
   // Backers of the SOPA-owned vault (the one whose fee funds the payroll).
   const sopaVault = communityVaults.find((v) => v.paysSopa) ?? null;
   const vaultDepositors = sopaVault ? await getVaultDepositors(sopaVault.vault.address).catch(() => []) : [];
+  // Gross yield rate of the pot = the underlying Moonwell APY (the vault deploys
+  // 100% there). The vault's own netApy isn't indexed by Morpho yet; this fills
+  // the flow's $/month until it is.
+  const vaultGrossApy = sopaVault
+    ? (sopaVault.apy ?? (await fetchVaultApy("0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca").catch(() => null)))
+    : null;
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
   // both halves are surfaced so the page shows the whole fee, not just our cut.
@@ -424,7 +431,10 @@ treasury: {
               <div className="space-y-6">
                 <VaultStaking vaults={communityVaults} />
                 {sopaVault && (
-                  <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
+                  <>
+                    <VaultFlowView depositors={vaultDepositors} apy={vaultGrossApy} feeToSopa={sopaVault.fee} />
+                    <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
+                  </>
                 )}
               </div>
             ) : undefined
