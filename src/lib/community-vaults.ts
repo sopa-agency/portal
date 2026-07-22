@@ -37,17 +37,7 @@ export const COMMUNITY_VAULTS: CommunityVault[] = [
     assetSymbol: "USDC",
     assetDecimals: 6,
     chainId: 8453,
-    note: "Cofre da SOPA — o dinheiro é encaminhado pra Moonwell, que cuida do risco.",
-  },
-  {
-    key: "moonwell-usdc",
-    label: "USDC",
-    address: "0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca",
-    asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    assetSymbol: "USDC",
-    assetDecimals: 6,
-    chainId: 8453,
-    note: "Moonwell Flagship USDC — o mesmo cofre onde a SOPA guarda o próprio caixa.",
+    note: "Seu depósito é encaminhado pro cofre da Moonwell, que cuida da gestão de risco. A SOPA só fica com uma parte dos juros.",
   },
   // An ETH (WETH) vault goes here once one is deployed. Vaults are per-asset,
   // so ETH needs its own — and depositors would carry ETH price risk while the
