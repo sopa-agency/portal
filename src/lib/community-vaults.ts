@@ -1,5 +1,5 @@
 import "server-only";
-import { createPublicClient, http, formatUnits, getAddress } from "viem";
+import { createPublicClient, http, fallback, formatUnits, getAddress } from "viem";
 import { base } from "viem/chains";
 import { SOPA_SAFE } from "@/lib/superfluid";
 
@@ -27,7 +27,20 @@ export type CommunityVault = {
 
 export const COMMUNITY_VAULTS: CommunityVault[] = [
   {
-    key: "usdc",
+    key: "sopa-usdc",
+    label: "USDC",
+    // SOPA USDC (Vault V2) — routes deposits into Moonwell Flagship through a
+    // MorphoVaultV1Adapter, so Moonwell keeps curating risk and this vault only
+    // takes its performance fee to the treasury.
+    address: "0x3A36a1cc8Dc914D22b1Fd823695a0f4f737bCbD8",
+    asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    assetSymbol: "USDC",
+    assetDecimals: 6,
+    chainId: 8453,
+    note: "Cofre da SOPA — o dinheiro é encaminhado pra Moonwell, que cuida do risco.",
+  },
+  {
+    key: "moonwell-usdc",
     label: "USDC",
     address: "0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca",
     asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -91,7 +104,10 @@ async function readFeeSplit(
   }
 }
 
-const client = () => createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
+// The public Base RPC rate-limits; a single endpoint made the whole panel blank
+// out intermittently. Fall through a few before giving up.
+const RPCS = ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"];
+const client = () => createPublicClient({ chain: base, transport: fallback(RPCS.map((u) => http(u))) });
 
 async function fetchApy(address: string): Promise<number | null> {
   try {
