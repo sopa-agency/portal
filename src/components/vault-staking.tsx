@@ -327,29 +327,41 @@ function VaultCard({ info }: { info: VaultInfo }) {
       )}
         </div>
 
-        {/* RIGHT — big APY + sparkline (desktop). Sparkline is a decorative
-            flourish, not real history; kept subtle and unlabeled on purpose. */}
-        <div className="hidden flex-col justify-center bg-black/10 p-6 dark:bg-black/20 lg:flex">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground-faint">Rende ao ano</div>
-          <div className="mt-2.5 flex items-baseline gap-2">
-            <span className="font-mono text-5xl font-semibold leading-none tracking-tight text-emerald-600 dark:text-emerald-400">
-              {info.apy != null ? `${(info.apy * 100).toFixed(2)}%` : "—"}
-            </span>
-            {info.apy != null && <span className="text-sm font-medium text-foreground-faint">APY</span>}
+        {/* RIGHT — big APY + sparkline (desktop). The grid row stretches this
+            column to match the left column's height (whatever state it's in —
+            just the Connect button, or the full deposit/withdraw form), so the
+            content is laid out top-to-bottom instead of centered: the APY block
+            anchors to the top and the sparkline grows to fill the rest, so
+            there's no dead space floating under/right of the CTA. Sparkline is
+            a decorative flourish, not real history; kept subtle and unlabeled
+            on purpose. */}
+        <div className="hidden flex-col bg-black/10 p-6 dark:bg-black/20 lg:flex">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground-faint">Rende ao ano</div>
+            <div className="mt-2.5 flex items-baseline gap-2">
+              <span className="font-mono text-5xl font-semibold leading-none tracking-tight text-emerald-600 dark:text-emerald-400">
+                {info.apy != null ? `${(info.apy * 100).toFixed(2)}%` : "—"}
+              </span>
+              {info.apy != null && <span className="text-sm font-medium text-foreground-faint">APY</span>}
+            </div>
+            <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+              <TrendingUp className="h-3.5 w-3.5" />
+              {info.apy != null ? "variável · no cofre da Moonwell" : "aguardando índice da Moonwell · variável"}
+            </div>
           </div>
-          <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-            <TrendingUp className="h-3.5 w-3.5" /> variável · no cofre da Moonwell
+
+          <div className="mt-6 flex flex-1 items-end">
+            <svg width="100%" height="100%" viewBox="0 0 220 90" preserveAspectRatio="none" className="overflow-visible" aria-hidden>
+              <defs>
+                <linearGradient id="vs-spark" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--success)" stopOpacity="0.3" />
+                  <stop offset="100%" stopColor="var(--success)" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path d="M0,66 L22,59 L44,63 L66,47 L88,51 L110,35 L132,41 L154,24 L176,29 L198,14 L220,18 L220,90 L0,90 Z" fill="url(#vs-spark)" />
+              <path d="M0,66 L22,59 L44,63 L66,47 L88,51 L110,35 L132,41 L154,24 L176,29 L198,14 L220,18" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </div>
-          <svg width="100%" height="46" viewBox="0 0 220 46" preserveAspectRatio="none" className="mt-5 overflow-visible" aria-hidden>
-            <defs>
-              <linearGradient id="vs-spark" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--success)" stopOpacity="0.3" />
-                <stop offset="100%" stopColor="var(--success)" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            <path d="M0,34 L22,30 L44,32 L66,24 L88,26 L110,18 L132,21 L154,12 L176,15 L198,7 L220,9 L220,46 L0,46 Z" fill="url(#vs-spark)" />
-            <path d="M0,34 L22,30 L44,32 L66,24 L88,26 L110,18 L132,21 L154,12 L176,15 L198,7 L220,9" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
         </div>
       </div>
     </div>
