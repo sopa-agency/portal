@@ -69,16 +69,21 @@ export function SnapsInbox() {
 
 function SnapCard({ snap, onPatch }: { snap: CurationSnap; onPatch: (p: Partial<CurationSnap>) => void }) {
   const [text, setText] = useState("");
-  const [replied, setReplied] = useState<string | null>(null);
+  const [justReplied, setJustReplied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
   const [genBusy, startGen] = useTransition();
+
+  // Commented state survives refresh/reload: the server reports snap.replied
+  // (our account already has a reply on this post); local state only covers the
+  // reply we just posted before the next refresh confirms it.
+  const replied = justReplied ?? (snap.replied ? snap.replyUrl ?? snap.url : null);
 
   const reply = () =>
     startBusy(async () => {
       setError(null);
       const res = await replyToSnap(snap.author, snap.permlink, text);
-      if (res.ok) { setReplied(res.url); setText(""); }
+      if (res.ok) { setJustReplied(res.url); setText(""); onPatch({ replied: true, replyUrl: res.url }); }
       else setError(res.error);
     });
 

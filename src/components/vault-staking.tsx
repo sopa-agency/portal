@@ -207,8 +207,19 @@ function VaultCard({ info }: { info: VaultInfo }) {
           </div>
         ) : info.paysSopa ? (
           <>
-            <b className="text-foreground">{Math.round(info.fee * 100)}% dos juros</b> deste cofre vão pro tesouro da SOPA e financiam o
-            payroll. Os outros {Math.round((1 - info.fee) * 100)}% ficam com você. Seu depósito continua seu — dá pra sacar quando quiser.
+            {/* 50/50 split bar — where the yield goes, at a glance. */}
+            <div className="mb-2.5 flex h-2 gap-[3px] overflow-hidden rounded-full">
+              <span className="rounded-full bg-accent" style={{ flex: info.fee * 100 }} />
+              <span className="rounded-full bg-foreground/20" style={{ flex: (1 - info.fee) * 100 }} />
+            </div>
+            <div className="mb-2 flex items-center justify-between text-[10px] font-semibold tracking-wide">
+              <span className="text-accent">{Math.round(info.fee * 100)}% → TESOURO SOPA</span>
+              <span className="text-foreground-muted">{Math.round((1 - info.fee) * 100)}% → VOCÊ</span>
+            </div>
+            <span>
+              <b className="text-foreground">{Math.round(info.fee * 100)}% dos juros</b> deste cofre vão pro tesouro da SOPA e financiam o
+              payroll. Os outros {Math.round((1 - info.fee) * 100)}% ficam com você. Seu depósito continua seu — dá pra sacar quando quiser.
+            </span>
           </>
         ) : (
           <div className="flex gap-2">
