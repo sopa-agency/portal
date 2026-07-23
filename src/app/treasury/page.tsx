@@ -39,7 +39,7 @@ import { VaultStaking } from "@/components/vault-staking";
 import { getCommunityVaults, fetchVaultApy } from "@/lib/community-vaults";
 import { VaultDepositors } from "@/components/vault-depositors";
 import { VaultFlowView } from "@/components/vault-flow-view";
-import { getVaultDepositors } from "@/lib/vault-depositors";
+import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
@@ -197,6 +197,8 @@ treasury: {
   const vaultGrossApy = sopaVault
     ? (sopaVault.apy ?? (await fetchVaultApy("0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca").catch(() => null)))
     : null;
+  // SOPA's accumulated performance fee from the vault so far (fee shares → USDC).
+  const sopaVaultEarned = sopaVault ? await getVaultFeeAccrued(sopaVault.vault.address, SOPA_SAFE).catch(() => 0) : 0;
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
   // both halves are surfaced so the page shows the whole fee, not just our cut.
@@ -432,7 +434,7 @@ treasury: {
                 <VaultStaking vaults={communityVaults} />
                 {sopaVault && (
                   <>
-                    <VaultFlowView depositors={vaultDepositors} apy={vaultGrossApy} feeToSopa={sopaVault.fee} />
+                    <VaultFlowView depositors={vaultDepositors} apy={vaultGrossApy} feeToSopa={sopaVault.fee} sopaEarned={sopaVaultEarned} />
                     <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
                   </>
                 )}
