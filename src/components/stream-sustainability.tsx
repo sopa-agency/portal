@@ -1,9 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Gauge, Loader2, ExternalLink, Sprout, AlertTriangle, CheckCircle2, Zap } from "lucide-react";
-import { proposeHarvest } from "@/app/actions/staking";
-import { proposeAutoWrap } from "@/app/actions/superfluid";
+import { Gauge, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
 
@@ -15,31 +12,12 @@ export function StreamSustainability({
   burnMonthly,
   bufferUsdcx,
   runwayDays,
-  canEdit,
-  harvestableUsd = null,
 }: {
   yieldMonthly: number | null;
   burnMonthly: number;
   bufferUsdcx: number;
   runwayDays: number | null;
-  canEdit: boolean;
-  /** Yield accrued in the vault right now (value − net deposited). */
-  harvestableUsd?: number | null;
 }) {
-  // Prefill with what's actually harvestable now; fall back to ~1 month of yield.
-  const suggested =
-    harvestableUsd != null && harvestableUsd > 0
-      ? harvestableUsd.toFixed(harvestableUsd < 1 ? 4 : 2)
-      : yieldMonthly && yieldMonthly > 0
-        ? yieldMonthly.toFixed(2)
-        : "";
-  const [amount, setAmount] = useState(suggested);
-  const [pending, start] = useTransition();
-  const [res, setRes] = useState<{ ok: true; url: string } | { ok: false; error: string } | null>(null);
-  const [allowance, setAllowance] = useState("500");
-  const [awPending, startAw] = useTransition();
-  const [awRes, setAwRes] = useState<{ ok: true; url: string } | { ok: false; error: string } | null>(null);
-
   const streaming = burnMonthly > 0;
   const sustainable = yieldMonthly != null && streaming && yieldMonthly >= burnMonthly;
   const coverage = streaming && yieldMonthly != null ? yieldMonthly / burnMonthly : null;
@@ -48,18 +26,6 @@ export function StreamSustainability({
   const CAP = 90;
   const rw = runwayDays == null ? CAP : Math.min(runwayDays, CAP);
   const runwayColor = runwayDays == null ? "var(--success)" : runwayDays < 14 ? "var(--danger)" : runwayDays < 45 ? "var(--warning)" : "var(--success)";
-
-  const harvest = () =>
-    start(async () => {
-      setRes(null);
-      setRes(await proposeHarvest(amount));
-    });
-
-  const enableAutoWrap = () =>
-    startAw(async () => {
-      setAwRes(null);
-      setAwRes(await proposeAutoWrap(allowance));
-    });
 
   const verdict = !streaming
     ? { tone: "muted", icon: Gauge, text: "Pagamento parado — ligue a torneira nos Controles pra começar a pagar." }
@@ -119,92 +85,9 @@ export function StreamSustainability({
         </div>
       </div>
 
-      {/* Guided actions */}
-      {canEdit && (
-        <>
-        <div className="border-t border-border pt-4">
-          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <Sprout className="h-3.5 w-3.5 text-success" /> Colher rendimento → reserva
-          </div>
-          <p className="mb-2 text-[11px] text-foreground-subtle">
-            Colher rendimento reforça a reserva sem tocar no principal — é o que mantém o pagamento de pé.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              placeholder="USDC"
-              className="w-28 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm tabular-nums text-foreground focus:border-border-strong focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={harvest}
-              disabled={pending || !amount}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent/20 px-3 py-2 text-xs font-semibold text-accent hover:bg-lime-400/30 disabled:opacity-50"
-            >
-              {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sprout className="h-3.5 w-3.5" />}
-              Colher rendimento
-            </button>
-            {harvestableUsd != null ? (
-              <span className="text-[11px] text-foreground-faint">
-                rendido até agora: <b className="text-success">{usd(harvestableUsd)}</b>
-                {harvestableUsd <= 0 && " — ainda não rendeu o suficiente pra colher"}
-              </span>
-            ) : suggested ? (
-              <span className="text-[11px] text-foreground-faint">sugerido: {usd(Number(suggested))} (≈ 1 mês de rendimento)</span>
-            ) : null}
-          </div>
-          {res && !res.ok && <p className="mt-2 text-[11px] text-danger">{res.error}</p>}
-          {res && res.ok && (
-            <p className="mt-2 text-[11px] text-foreground-muted">
-              Proposta na fila.{" "}
-              <a href={res.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
-                Abrir no Safe <ExternalLink className="h-3 w-3" />
-              </a>
-            </p>
-          )}
-        </div>
-
-        {/* Automatic: Auto-Wrap keeps the buffer topped up without clicking */}
-        <div className="mt-4 border-t border-border pt-4">
-          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <Zap className="h-3.5 w-3.5 text-accent" /> Ligar piloto automático
-          </div>
-          <p className="mb-2 text-[11px] text-foreground-subtle">
-            O piloto automático repõe a reserva sozinho quando ela baixa (repõe até ~7 dias, dispara com ~2) — o pagamento nunca para. Você aprova um limite de gasto.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={allowance}
-              onChange={(e) => setAllowance(e.target.value)}
-              inputMode="decimal"
-              placeholder="limite USDC"
-              className="w-32 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm tabular-nums text-foreground focus:border-border-strong focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={enableAutoWrap}
-              disabled={awPending || !allowance}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50"
-            >
-              {awPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-              Ligar piloto automático
-            </button>
-            <span className="text-[11px] text-foreground-faint">limite = teto que o piloto pode usar</span>
-          </div>
-          {awRes && !awRes.ok && <p className="mt-2 text-[11px] text-danger">{awRes.error}</p>}
-          {awRes && awRes.ok && (
-            <p className="mt-2 text-[11px] text-foreground-muted">
-              Proposta na fila.{" "}
-              <a href={awRes.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
-                Abrir no Safe <ExternalLink className="h-3 w-3" />
-              </a>
-            </p>
-          )}
-        </div>
-        </>
-      )}
+      <p className="text-[11px] text-foreground-faint">
+        Pra ajustar a vazão, colher rendimento ou ligar o piloto automático, vá em <b>Controles → Ligar o pagamento</b>.
+      </p>
     </section>
   );
 }

@@ -16,6 +16,10 @@ export type CurationSnap = {
   created: string;
   /** Boost pacing state, if this snap is/was boosted. */
   boost: { budget: number; released: number; status: string } | null;
+  /** True if the portal's Hive account has already replied to this post. */
+  replied?: boolean;
+  /** Link to that existing reply, when known. */
+  replyUrl?: string | null;
 };
 
 export type BoostLevel = "light" | "medium" | "strong";
