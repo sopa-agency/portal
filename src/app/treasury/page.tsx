@@ -350,6 +350,20 @@ treasury: {
       .sort((a, b) => a.nonce - b.nonce)
       .map((q) => ({ nonce: q.nonce, action: q.action, confirmations: q.confirmations, required: q.required })),
     allocationSaved: allocation?.saved ?? true,
+    vault: sopaVault
+      ? (() => {
+          const backers = vaultDepositors.filter((d) => !d.isDeadDeposit && d.assets > 0);
+          return {
+            depositedUsd: backers.reduce((s, d) => s + d.assets, 0),
+            backers: backers.length,
+            // A depositor with a resolved label is a known payroll member.
+            teamBackers: backers.filter((d) => d.label != null).length,
+            sopaEarnedUsd: sopaVaultEarned,
+            apy: vaultGrossApy,
+            feeToSopa: sopaVault.fee,
+          };
+        })()
+      : undefined,
   });
 
   return (

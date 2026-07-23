@@ -31,6 +31,21 @@ export type BriefingInput = {
   /** Unexecuted Safe transactions, oldest nonce first. */
   queued: { nonce: number; action: string; confirmations: number; required: number }[];
   allocationSaved: boolean;
+  /** The community "support" vault (Morpho), when one is deployed for SOPA. */
+  vault?: {
+    /** Total deposited by backers (excludes the burned dead deposit). */
+    depositedUsd: number;
+    /** How many wallets are backing it. */
+    backers: number;
+    /** How many of those backers are team members (vs outsiders). */
+    teamBackers: number;
+    /** SOPA's accumulated performance fee from the vault so far. */
+    sopaEarnedUsd: number;
+    /** Gross yield rate of the pot (fraction), or null if unknown. */
+    apy: number | null;
+    /** Share of the yield taken as the SOPA fee, 0–1. */
+    feeToSopa: number;
+  };
 };
 
 export type BriefingSection = { title: string; paragraphs: string[] };
@@ -171,6 +186,32 @@ export function buildTreasuryBriefing(i: BriefingInput): Briefing {
     );
   }
   sections.push({ title: "Pagamentos", paragraphs: pag });
+
+  // ---- 4b. Cofre de apoio (community vault) ----
+  if (i.vault) {
+    const v = i.vault;
+    const cofre: string[] = [];
+    if (v.depositedUsd <= 0 || v.backers === 0) {
+      cofre.push(
+        "O cofre de apoio está pronto e configurado, mas ninguém depositou ainda — o rendimento pro payroll só começa quando entrar dinheiro.",
+      );
+    } else {
+      const monthlyToSopa = v.apy != null ? (v.depositedUsd * v.apy) / 12 * v.feeToSopa : null;
+      cofre.push(
+        `O cofre de apoio tem ${usd(v.depositedUsd)} de ${plural(v.backers, "pessoa", "pessoas")}. ` +
+          `Ele empresta pra Moonwell${v.apy != null ? ` a ${pct(v.apy)} ao ano` : ""}, e ${pct(v.feeToSopa)} do juro vira receita da SOPA pro payroll` +
+          (monthlyToSopa != null ? ` — cerca de ${usd(monthlyToSopa)} por mês no ritmo atual.` : "."),
+      );
+      cofre.push(`Já rendeu ${usd(v.sopaEarnedUsd)} pra SOPA até agora. Quem depositou saca quando quiser — só o rendimento é compartilhado.`);
+      // Honest scale check: is this real community backing or the team testing?
+      if (v.teamBackers >= v.backers) {
+        cofre.push(
+          "Por enquanto só o próprio time depositou — ainda é um teste, não apoio de fora. Pra virar receita relevante, precisa de bastante capital parado ali (dezenas de milhares geram dezenas de dólares por mês).",
+        );
+      }
+    }
+    sections.push({ title: "Cofre de apoio", paragraphs: cofre });
+  }
 
   // ---- 5. Precisa de atenção ----
   const atencao: string[] = [];
