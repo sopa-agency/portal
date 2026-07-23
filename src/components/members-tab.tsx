@@ -13,6 +13,30 @@ const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits
 const fmtTiny = (n: number) => (n === 0 ? "$0" : n < 0.01 ? `$${n.toFixed(6)}` : usd(n));
 const pct = (n: number) => `${n >= 9.95 ? Math.round(n) : n.toFixed(1)}%`;
 const initials = (s: string) => s.replace(/^@/, "").slice(0, 2).toUpperCase();
+
+/** Hive PFP for a member handle, falling back to colored initials if it 404s. */
+function MemberAvatar({ handle, color, size = 32 }: { handle: string; color: string; size?: number }) {
+  const [ok, setOk] = useState(true);
+  const user = handle.replace(/^@/, "");
+  return (
+    <span
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-bold"
+      style={{ height: size, width: size, backgroundColor: `${color}22`, color, border: `1px solid ${color}66` }}
+    >
+      {initials(handle)}
+      {ok && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`https://images.hive.blog/u/${user}/avatar`}
+          alt=""
+          aria-hidden
+          onError={() => setOk(false)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
+    </span>
+  );
+}
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 const PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#06b6d4", "#ec4899", "#8b5cf6", "#84cc16", "#f97316", "#14b8a6", "#e11d48"];
@@ -77,12 +101,8 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
           const color = PALETTE[i % PALETTE.length];
           return (
             <li key={m.address} className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated px-3 py-2.5">
-              <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
-                style={{ backgroundColor: `${color}22`, color, border: `1px solid ${color}66` }}
-              >
-                {initials(m.label)}
-              </span>
+              <MemberAvatar handle={m.label} color={color} />
+
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-foreground">{m.label}</div>
                 <div className="font-mono text-[11px] text-foreground-faint">{shortAddr(m.address)}</div>

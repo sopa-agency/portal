@@ -17,7 +17,7 @@ const pct = (n: number) => `${n >= 9.95 ? Math.round(n) : n.toFixed(1)}%`;
 const short = (a: string) => `${a.slice(0, 5)}…${a.slice(-3)}`;
 const initials = (s: string) => s.replace(/^@|^0x/i, "").slice(0, 2).toUpperCase();
 
-type Recipient = { key: string; label: string; yieldShare: number; earned: number; color: string; isSopa: boolean };
+type Recipient = { key: string; label: string; handle: string | null; yieldShare: number; earned: number; color: string; isSopa: boolean };
 
 export function VaultFlowView({
   depositors,
@@ -51,10 +51,12 @@ export function VaultFlowView({
   // rest in proportion to their deposit. Shares sum to 1. `earned` is the real
   // amount realized so far (SOPA = its fee shares; each backer = position − principal).
   const recipients: Recipient[] = [
-    { key: "sopa", label: "Tesouro SOPA", yieldShare: feeToSopa, earned: sopaEarned, color: "var(--accent)", isSopa: true },
+    { key: "sopa", label: "Tesouro SOPA", handle: null, yieldShare: feeToSopa, earned: sopaEarned, color: "var(--accent)", isSopa: true },
     ...backers.map((d, i) => ({
       key: d.address,
       label: d.label ?? short(d.address),
+      // A member (label present) has a Hive PFP; an unknown wallet keeps initials.
+      handle: d.label,
       yieldShare: (1 - feeToSopa) * (d.assets / totalDeposited),
       earned: d.earned,
       color: PALETTE[i % PALETTE.length],
@@ -133,10 +135,28 @@ export function VaultFlowView({
             const amt = yieldMonthly != null ? yieldMonthly * r.yieldShare : null;
             return (
               <g key={`n${r.key}`}>
+                <defs>
+                  <clipPath id={`vfv-clip-${i}`}>
+                    <circle cx={dstX} cy={y} r={15} />
+                  </clipPath>
+                </defs>
+                {/* Initials sit underneath as the fallback; an avatar/logo covers them when it loads. */}
                 <circle cx={dstX} cy={y} r={16} fill={r.color} fillOpacity={r.isSopa ? 0.2 : 0.15} stroke={r.color} strokeWidth={r.isSopa ? 2 : 1.5} />
                 <text x={dstX} y={y + 4} textAnchor="middle" style={{ fontSize: 10, fontWeight: 700, fill: r.color }}>
                   {r.isSopa ? "◆" : initials(r.label)}
                 </text>
+                {(r.isSopa || r.handle) && (
+                  <image
+                    href={r.isSopa ? "/projects/sopa/logo.png" : `https://images.hive.blog/u/${r.handle!.replace(/^@/, "")}/avatar`}
+                    x={dstX - 15}
+                    y={y - 15}
+                    height={30}
+                    width={30}
+                    clipPath={`url(#vfv-clip-${i})`}
+                    preserveAspectRatio="xMidYMid slice"
+                  />
+                )}
+                <circle cx={dstX} cy={y} r={16} fill="none" stroke={r.color} strokeWidth={r.isSopa ? 2 : 1.5} />
                 <text x={dstX + 24} y={y - 8} className="fill-[var(--foreground)]" style={{ fontSize: 12, fontWeight: r.isSopa ? 700 : 600 }}>
                   {r.label}
                 </text>

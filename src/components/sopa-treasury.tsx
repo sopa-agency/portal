@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Image from "next/image";
 import { Wallet, Activity, PiggyBank } from "lucide-react";
 import type { TreasuryGroup } from "@/lib/treasury";
 import type { OrgRevenue } from "@/lib/org-revenue";
@@ -94,7 +95,16 @@ export function SopaTreasury({
 
       {/* Hero: quanto temos · está saudável? · quanto tempo dura */}
       <section className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
-        <div className="rounded-2xl border border-border bg-gradient-to-br from-accent-bg to-transparent p-5">
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-accent-bg to-transparent p-5">
+          {/* SOPA mark, watermark-style in the hero corner. */}
+          <Image
+            src="/projects/sopa/logo.png"
+            alt=""
+            aria-hidden
+            width={96}
+            height={96}
+            className="pointer-events-none absolute -right-3 -top-2 h-24 w-24 opacity-15"
+          />
           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-accent">
             <Wallet className="h-3.5 w-3.5" /> Tesouro · {projLabel}
           </div>
