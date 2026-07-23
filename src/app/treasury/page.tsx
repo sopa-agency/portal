@@ -439,14 +439,15 @@ treasury: {
           apoiar={
             communityVaults.length > 0 ? (
               <div className="space-y-6">
-                {/* Deposit card + yield flow sit side by side on desktop. */}
-                <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-                  <VaultStaking vaults={communityVaults} />
-                  {sopaVault && (
+                {/* The yield flow is a wide horizontal diagram — it reads best at
+                    full width, so everything stacks rather than sitting half-width. */}
+                <VaultStaking vaults={communityVaults} />
+                {sopaVault && (
+                  <>
                     <VaultFlowView depositors={vaultDepositors} apy={vaultGrossApy} feeToSopa={sopaVault.fee} sopaEarned={sopaVaultEarned} />
-                  )}
-                </div>
-                {sopaVault && <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />}
+                    <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
+                  </>
+                )}
               </div>
             ) : undefined
           }
