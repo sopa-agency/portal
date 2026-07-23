@@ -426,8 +426,6 @@ treasury: {
                     burnMonthly={streamStatus?.monthlyUsd ?? 0}
                     bufferUsdcx={streamStatus?.safeUsdcxUsd ?? 0}
                     runwayDays={streamStatus?.runwayDays ?? null}
-                    canEdit={!!session}
-                    harvestableUsd={stakePosition?.harvestableUsd ?? null}
                   />
                 ) : null
               }
@@ -446,7 +444,22 @@ treasury: {
                   : []),
                 ...(!poolAddress && session ? [{ title: "Criar a pool de pagamento", node: <CreatePoolButton /> }] : []),
                 { title: "Definir o time e as fatias", node: <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} /> },
-                ...(poolAddress ? [{ title: "Ligar o pagamento", node: <StreamActions canEdit={!!session} /> }] : []),
+                ...(poolAddress
+                  ? [
+                      {
+                        title: "Ligar o pagamento",
+                        node: (
+                          <StreamActions
+                            canEdit={!!session}
+                            yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
+                            bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
+                            harvestableUsd={stakePosition?.harvestableUsd ?? null}
+                            currentFlowMonthly={streamStatus?.monthlyUsd ?? 0}
+                          />
+                        ),
+                      },
+                    ]
+                  : []),
               ]}
             />
           }

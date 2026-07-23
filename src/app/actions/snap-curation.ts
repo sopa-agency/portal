@@ -23,6 +23,79 @@ async function gate() {
 }
 
 const castHashOf = (author: string, permlink: string) => `hive:${author}/${permlink}`;
+const postHashOf = (author: string, permlink: string) => `${author}/${permlink}`;
+
+/**
+ * Direct replies to a single post. Used on the write path to guarantee we never
+ * post a second comment on a post our account already replied to.
+ */
+async function findAccountReply(
+  account: string,
+  author: string,
+  permlink: string,
+): Promise<{ author: string; permlink: string } | null> {
+  try {
+    const res = await fetch("https://api.hive.blog", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "condenser_api.get_content_replies",
+        params: [author, permlink],
+        id: 1,
+      }),
+      cache: "no-store",
+    });
+    const replies = ((await res.json()) as { result?: Array<{ author: string; permlink: string }> }).result ?? [];
+    return replies.find((r) => r.author === account) ?? null;
+  } catch {
+    // On RPC failure, don't block posting — the caller decides. (List detection
+    // is best-effort; the write guard treats a failure as "unknown".)
+    return null;
+  }
+}
+
+/**
+ * Which of the given target posts our account has already replied to. One RPC
+ * call: the account's recent comments carry parent_author/parent_permlink, so
+ * we can mark a whole inbox page as "already commented" without 40 lookups.
+ * Returns a map of "author/permlink" → our reply URL.
+ */
+async function repliedTargets(
+  account: string,
+  targets: { author: string; permlink: string }[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!account || targets.length === 0) return out;
+  try {
+    const res = await fetch("https://api.hive.blog", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "bridge.get_account_posts",
+        params: { sort: "comments", account, limit: 100 },
+        id: 1,
+      }),
+      cache: "no-store",
+    });
+    const comments =
+      ((await res.json()) as {
+        result?: Array<{ author: string; permlink: string; parent_author?: string; parent_permlink?: string }>;
+      }).result ?? [];
+    const wanted = new Set(targets.map((t) => postHashOf(t.author, t.permlink)));
+    for (const c of comments) {
+      if (!c.parent_author || !c.parent_permlink) continue;
+      const parentHash = postHashOf(c.parent_author, c.parent_permlink);
+      if (wanted.has(parentHash) && !out.has(parentHash)) {
+        out.set(parentHash, `https://peakd.com/@${c.author}/${c.permlink}`);
+      }
+    }
+  } catch {
+    // best-effort — an empty map just means the UI won't pre-mark cards.
+  }
+  return out;
+}
 
 /** Recent SkateHive snaps for the curation inbox, with any boost status. */
 export async function listSnapsForCuration(force = false): Promise<
@@ -50,9 +123,11 @@ export async function listSnapsForCuration(force = false): Promise<
     .slice(0, 40);
 
   const hashes = snaps.map((s) => castHashOf(s.author, s.permlink));
-  const targets = await prisma.trailBoostTarget
-    .findMany({ where: { castHash: { in: hashes } } })
-    .catch(() => []);
+  const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT");
+  const [targets, replied] = await Promise.all([
+    prisma.trailBoostTarget.findMany({ where: { castHash: { in: hashes } } }).catch(() => []),
+    account ? repliedTargets(account, snaps.map((s) => ({ author: s.author, permlink: s.permlink }))) : Promise.resolve(new Map<string, string>()),
+  ]);
   const byHash = new Map(targets.map((t) => [t.castHash, t]));
 
   return {
@@ -60,6 +135,7 @@ export async function listSnapsForCuration(force = false): Promise<
     project: g.project.name,
     snaps: snaps.map((s) => {
       const t = byHash.get(castHashOf(s.author, s.permlink));
+      const replyUrl = replied.get(postHashOf(s.author, s.permlink)) ?? null;
       return {
         id: `${s.author}/${s.permlink}`,
         author: s.author,
@@ -71,6 +147,8 @@ export async function listSnapsForCuration(force = false): Promise<
         thumbnail: s.url, // IPFS video URL → first frame as reference
         created: s.created,
         boost: t ? { budget: t.budget, released: t.released, status: t.status } : null,
+        replied: !!replyUrl,
+        replyUrl,
       };
     }),
   };
@@ -101,7 +179,11 @@ export async function listBlogPostsForCuration(): Promise<
 
   const frontend = g.project.hive.frontend;
   const hashes = raw.map((p) => castHashOf(p.author, p.permlink));
-  const targets = await prisma.trailBoostTarget.findMany({ where: { castHash: { in: hashes } } }).catch(() => []);
+  const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT");
+  const [targets, replied] = await Promise.all([
+    prisma.trailBoostTarget.findMany({ where: { castHash: { in: hashes } } }).catch(() => []),
+    account ? repliedTargets(account, raw.map((p) => ({ author: p.author, permlink: p.permlink }))) : Promise.resolve(new Map<string, string>()),
+  ]);
   const byHash = new Map(targets.map((t) => [t.castHash, t]));
 
   const posts: CurationSnap[] = raw.map((p) => {
@@ -112,6 +194,7 @@ export async function listBlogPostsForCuration(): Promise<
       meta = {};
     }
     const t = byHash.get(castHashOf(p.author, p.permlink));
+    const replyUrl = replied.get(postHashOf(p.author, p.permlink)) ?? null;
     return {
       id: `${p.author}/${p.permlink}`,
       author: p.author,
@@ -123,6 +206,8 @@ export async function listBlogPostsForCuration(): Promise<
       thumbnail: meta.image?.[0] ?? "",
       created: p.created ?? "",
       boost: t ? { budget: t.budget, released: t.released, status: t.status } : null,
+      replied: !!replyUrl,
+      replyUrl,
     };
   });
   return { ok: true, posts, project: g.project.name, canParagraph: true };
@@ -268,6 +353,13 @@ export async function replyToSnap(
   const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT");
   const key = brandEnv(g.project, "HIVE_POSTING_KEY");
   if (!account || !key) return { ok: false, error: "Hive não conectado neste portal (falta posting key)." };
+
+  // Definitive duplicate guard — never post a second comment on a post this
+  // account already replied to (stale UI, double-click, or two operators).
+  const existing = await findAccountReply(account, author, permlink);
+  if (existing) {
+    return { ok: false, error: `@${account} já comentou neste post.`, url: `https://peakd.com/@${existing.author}/${existing.permlink}` } as never;
+  }
 
   const childPermlink = `re-${permlink}-${Date.now().toString(36)}`.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 255);
   try {
