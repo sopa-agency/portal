@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createWalletClient, custom, getAddress } from "viem";
 import { base } from "viem/chains";
 import { Plug, Loader2, CheckCircle2, ExternalLink } from "lucide-react";
@@ -15,10 +15,44 @@ const ABI = [
 
 type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 
-export function ConnectPoolButton({ pool, forwarder }: { pool: string; forwarder: string }) {
+export function ConnectPoolButton({
+  pool,
+  forwarder,
+  connectedAddresses = [],
+}: {
+  pool: string;
+  forwarder: string;
+  /** Addresses already connected to the pool (lowercased) — hide the prompt for them. */
+  connectedAddresses?: string[];
+}) {
   const [status, setStatus] = useState<"idle" | "working" | "done" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
   const [tx, setTx] = useState<string | null>(null);
+  // Silently read the already-authorized wallet (eth_accounts, no prompt). If it
+  // is already a connected member, this whole card is noise — hide it.
+  const [selfConnected, setSelfConnected] = useState(false);
+
+  useEffect(() => {
+    const connected = new Set(connectedAddresses.map((a) => a.toLowerCase()));
+    if (connected.size === 0) return;
+    const eth = (window as unknown as { ethereum?: Eth }).ethereum;
+    if (!eth) return;
+    let cancelled = false;
+    eth
+      .request({ method: "eth_accounts" })
+      .then((accs) => {
+        if (cancelled) return;
+        const mine = (accs as string[])?.[0]?.toLowerCase();
+        if (mine && connected.has(mine)) setSelfConnected(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [connectedAddresses]);
+
+  // Already connected (this session or a prior one) → nothing to prompt.
+  if (selfConnected && status !== "done") return null;
 
   async function connect() {
     setStatus("working");

@@ -417,7 +417,15 @@ treasury: {
                   />
                 ) : null
               }
-              connect={poolAddress ? <ConnectPoolButton pool={poolAddress} forwarder={SUPERFLUID.gdaForwarder} /> : null}
+              connect={
+                poolAddress ? (
+                  <ConnectPoolButton
+                    pool={poolAddress}
+                    forwarder={SUPERFLUID.gdaForwarder}
+                    connectedAddresses={(streamStatus?.members ?? []).filter((m) => m.connected).map((m) => m.address.toLowerCase())}
+                  />
+                ) : null
+              }
               steps={[
                 ...(stakePosition
                   ? [{ title: "Guardar dinheiro rendendo", node: <StakingPanel position={stakePosition} canEdit={!!session} /> }]
@@ -431,13 +439,14 @@ treasury: {
           apoiar={
             communityVaults.length > 0 ? (
               <div className="space-y-6">
-                <VaultStaking vaults={communityVaults} />
-                {sopaVault && (
-                  <>
+                {/* Deposit card + yield flow sit side by side on desktop. */}
+                <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+                  <VaultStaking vaults={communityVaults} />
+                  {sopaVault && (
                     <VaultFlowView depositors={vaultDepositors} apy={vaultGrossApy} feeToSopa={sopaVault.fee} sopaEarned={sopaVaultEarned} />
-                    <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
-                  </>
-                )}
+                  )}
+                </div>
+                {sopaVault && <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />}
               </div>
             ) : undefined
           }
