@@ -73,18 +73,23 @@ export function BlogInbox() {
 
 function BlogCard({ post, canParagraph, onPatch }: { post: CurationSnap; canParagraph: boolean; onPatch: (p: Partial<CurationSnap>) => void }) {
   const [text, setText] = useState("");
-  const [replied, setReplied] = useState<string | null>(null);
+  const [justReplied, setJustReplied] = useState<string | null>(null);
   const [paraDialog, setParaDialog] = useState(false);
   const [paraDone, setParaDone] = useState<{ url: string; published: boolean; emailed: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
   const [genBusy, startGen] = useTransition();
 
+  // Commented state survives refresh/reload: the server reports post.replied
+  // (our account already has a reply on this post); local state only covers the
+  // reply we just posted before the next refresh confirms it.
+  const replied = justReplied ?? (post.replied ? post.replyUrl ?? post.url : null);
+
   const reply = () =>
     startBusy(async () => {
       setError(null);
       const res = await replyToSnap(post.author, post.permlink, text);
-      if (res.ok) { setReplied(res.url); setText(""); }
+      if (res.ok) { setJustReplied(res.url); setText(""); onPatch({ replied: true, replyUrl: res.url }); }
       else setError(res.error);
     });
 

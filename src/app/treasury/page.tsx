@@ -38,6 +38,7 @@ import { getSplitConfig } from "@/lib/splits";
 import { VaultStaking } from "@/components/vault-staking";
 import { getCommunityVaults, fetchVaultApy } from "@/lib/community-vaults";
 import { VaultDepositors } from "@/components/vault-depositors";
+import { VaultSupportSummary } from "@/components/vault-support-summary";
 import { VaultFlowView } from "@/components/vault-flow-view";
 import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 
@@ -466,6 +467,15 @@ treasury: {
           apoiar={
             communityVaults.length > 0 ? (
               <div className="space-y-6">
+                {sopaVault && (
+                  <VaultSupportSummary
+                    depositedUsd={vaultDepositors.filter((d) => !d.isDeadDeposit).reduce((s, d) => s + d.assets, 0)}
+                    apy={sopaVault.apy}
+                    liveYieldUsd={sopaVaultEarned + vaultDepositors.reduce((s, d) => s + d.earned, 0)}
+                    sopaEarnedUsd={sopaVaultEarned}
+                    feeToSopa={sopaVault.fee}
+                  />
+                )}
                 {/* The yield flow is a wide horizontal diagram — it reads best at
                     full width, so everything stacks rather than sitting half-width. */}
                 <VaultStaking vaults={communityVaults} />

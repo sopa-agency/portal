@@ -358,7 +358,7 @@ export async function replyToSnap(
   // account already replied to (stale UI, double-click, or two operators).
   const existing = await findAccountReply(account, author, permlink);
   if (existing) {
-    return { ok: false, error: `@${account} já comentou neste post.`, url: `https://peakd.com/@${existing.author}/${existing.permlink}` } as never;
+    return { ok: false, error: `@${account} já comentou neste post.` };
   }
 
   const childPermlink = `re-${permlink}-${Date.now().toString(36)}`.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 255);
