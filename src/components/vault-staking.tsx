@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPublicClient, createWalletClient, custom, http, formatUnits, parseUnits, getAddress, erc20Abi } from "viem";
 import { base } from "viem/chains";
-import { PiggyBank, Loader2, Wallet, ExternalLink, AlertTriangle, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { PiggyBank, Loader2, Wallet, ExternalLink, AlertTriangle, ArrowDownToLine, ArrowUpFromLine, TrendingUp } from "lucide-react";
 import type { VaultInfo } from "@/lib/community-vaults";
 
 // Community staking UI. Everything is the depositor's own wallet talking to a
@@ -169,27 +169,26 @@ function VaultCard({ info }: { info: VaultInfo }) {
   const max = mode === "deposit" ? walletBal : position;
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
-            <PiggyBank className="h-4 w-4 text-accent" /> Cofre {vault.label}
-          </h3>
-          {vault.note && <p className="mt-0.5 text-xs text-foreground-subtle">{vault.note}</p>}
-        </div>
-        <div className="text-right">
-          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Rende ao ano</div>
-          <div className="font-mono text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-            {info.apy != null ? `${(info.apy * 100).toFixed(2)}%` : "—"}
-          </div>
-        </div>
+    <div className="overflow-hidden rounded-2xl border border-accent-border bg-surface">
+      <div className="grid lg:grid-cols-[1.4fr_1fr]">
+        {/* LEFT — brand, split, balances, action */}
+        <div className="p-6 lg:border-r lg:border-border">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-accent-border bg-accent-bg text-accent">
+          <PiggyBank className="h-5 w-5" />
+        </span>
+        <h3 className="text-lg font-bold text-foreground">Cofre {vault.label}</h3>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-1 text-xs font-medium text-foreground-muted">
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#6E86FF" }} /> Moonwell
+        </span>
       </div>
+      {vault.note && <p className="mt-4 text-sm leading-relaxed text-foreground-muted">{vault.note}</p>}
 
       {/* Where the yield actually goes — read from the contract, not claimed.
           A failed read must NOT render as "0% fee": that would state a number we
           never observed. It gets its own state. */}
       <div
-        className={`mt-3 rounded-xl border p-3 text-xs ${
+        className={`mt-5 rounded-xl border p-4 text-xs ${
           info.error
             ? "border-border bg-surface-elevated text-foreground-muted"
             : info.paysSopa
@@ -234,7 +233,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-4 text-xs text-foreground-muted">
+      <div className="mt-5 flex flex-wrap gap-4 text-xs text-foreground-muted">
         <span>
           No cofre: <b className="font-mono tabular-nums text-foreground">{fmt(info.totalAssets, 0)}</b> {vault.assetSymbol}
         </span>
@@ -326,6 +325,33 @@ function VaultCard({ info }: { info: VaultInfo }) {
           Ver transação <ExternalLink className="h-3 w-3" />
         </a>
       )}
+        </div>
+
+        {/* RIGHT — big APY + sparkline (desktop). Sparkline is a decorative
+            flourish, not real history; kept subtle and unlabeled on purpose. */}
+        <div className="hidden flex-col justify-center bg-black/10 p-6 dark:bg-black/20 lg:flex">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground-faint">Rende ao ano</div>
+          <div className="mt-2.5 flex items-baseline gap-2">
+            <span className="font-mono text-5xl font-semibold leading-none tracking-tight text-emerald-600 dark:text-emerald-400">
+              {info.apy != null ? `${(info.apy * 100).toFixed(2)}%` : "—"}
+            </span>
+            {info.apy != null && <span className="text-sm font-medium text-foreground-faint">APY</span>}
+          </div>
+          <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+            <TrendingUp className="h-3.5 w-3.5" /> variável · no cofre da Moonwell
+          </div>
+          <svg width="100%" height="46" viewBox="0 0 220 46" preserveAspectRatio="none" className="mt-5 overflow-visible" aria-hidden>
+            <defs>
+              <linearGradient id="vs-spark" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--success)" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="var(--success)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <path d="M0,34 L22,30 L44,32 L66,24 L88,26 L110,18 L132,21 L154,12 L176,15 L198,7 L220,9 L220,46 L0,46 Z" fill="url(#vs-spark)" />
+            <path d="M0,34 L22,30 L44,32 L66,24 L88,26 L110,18 L132,21 L154,12 L176,15 L198,7 L220,9" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+      </div>
     </div>
   );
 }
@@ -336,14 +362,8 @@ export function VaultStaking({ vaults }: { vaults: VaultInfo[] }) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-base font-semibold tracking-tight text-foreground">Apoiar o payroll</h2>
-        <p className="mt-0.5 max-w-2xl text-xs text-foreground-subtle">
-          Deposite num cofre e continue rendendo. Uma parte dos juros vai pro tesouro da SOPA e paga o time — o principal segue seu, e
-          você saca quando quiser. Não é doação: é o rendimento que é compartilhado, não o depósito.
-        </p>
-      </div>
-
+      {/* The "Apoiar o payroll" heading + stats now live in VaultSupportSummary,
+          rendered above this on the page — no duplicate header here. */}
       {!anyPaysSopa && (
         <div className="flex gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
