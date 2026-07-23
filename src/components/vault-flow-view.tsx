@@ -64,106 +64,150 @@ export function VaultFlowView({
     })),
   ];
 
-  const W = 640;
-  const rowH = 66;
-  const H = Math.max(recipients.length * rowH + 24, 150);
-  const srcX = 128;
+  // Ribbon geometry — thick gradient bands fanning out from the vault node.
+  const W = 960;
+  const srcX = 150;
+  const srcR = 56;
+  const srcEdgeX = srcX + srcR - 2;
+  const dstX = 690; // ribbon end
+  const nodeX = 712; // endpoint node center
+  const rowGap = 108;
+  const H = Math.max(recipients.length * rowGap + 44, 260);
   const srcY = H / 2;
-  const dstX = W - 168;
+  const yAt = (i: number) => srcY - ((recipients.length - 1) / 2) * rowGap + i * rowGap;
+  const ribbonPath = (y: number) => {
+    const cp1 = srcEdgeX + 0.44 * (dstX - srcEdgeX);
+    const cp2 = srcEdgeX + 0.56 * (dstX - srcEdgeX);
+    return `M${srcEdgeX},${srcY} C${cp1},${srcY} ${cp2},${y} ${dstX},${y}`;
+  };
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-surface p-5">
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">Fluxo do rendimento</h2>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" />
+    <section className="overflow-hidden rounded-2xl border border-border bg-surface p-5 sm:p-7">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">Fluxo do rendimento</h2>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-foreground-muted">
+            O que o cofre rende na Moonwell se divide: {pct(feeToSopa * 100)} pro tesouro da SOPA e o resto volta pra quem depositou.
+          </p>
+        </div>
+        <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-success">
+          <span className="vfv-pulse h-[7px] w-[7px] rounded-full bg-success" />
           rendendo ao vivo
         </span>
       </div>
-      <p className="mb-2 text-xs text-foreground-subtle">
-        O que o cofre rende na Moonwell se divide: {pct(feeToSopa * 100)} pro tesouro da SOPA e o resto volta pra quem depositou.
-      </p>
 
       {/* Realized so far — the accumulated total, said out loud above the flow. */}
-      <div className="mb-3 inline-flex items-baseline gap-2 rounded-xl bg-surface-elevated px-3.5 py-2">
-        <span className="text-[10px] uppercase tracking-wider text-foreground-faint">Rendido até agora</span>
-        <span className="font-mono text-sm font-semibold tabular-nums text-foreground">{acc(earnedTotal)}</span>
-        <span className="text-[11px] text-foreground-faint">· {acc(sopaEarned)} pra SOPA</span>
+      <div className="mt-4 inline-flex items-center gap-3 rounded-xl border border-success/20 bg-success/[0.06] px-4 py-2.5">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">Rendido até agora</span>
+        <span className="font-mono text-lg font-semibold tabular-nums text-success">{acc(earnedTotal)}</span>
+        <span className="h-4 w-px bg-border" />
+        <span className="font-mono text-xs text-foreground-muted">{acc(sopaEarned)} <span className="text-foreground-faint">pra SOPA</span></span>
       </div>
 
-      <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 480, height: H }} role="img" aria-label="Fluxo do rendimento do cofre">
-          {/* Connectors + flowing particles, one per recipient */}
+      <div className="mt-5 overflow-x-auto">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 600 }} role="img" aria-label="Fluxo do rendimento do cofre">
+          <defs>
+            <linearGradient id="vfv-gold" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.5" />
+            </linearGradient>
+            <linearGradient id="vfv-green" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="var(--success)" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="var(--success)" stopOpacity="0.5" />
+            </linearGradient>
+          </defs>
+
+          {/* Ribbons: width ∝ yield share; SOPA gold, depositors green. */}
           {recipients.map((r, i) => {
-            const y = 24 + i * rowH + (rowH - 24) / 2;
-            const width = 1.5 + r.yieldShare * 11;
-            const cx = (srcX + dstX) / 2;
-            const d = `M ${srcX} ${srcY} C ${cx} ${srcY}, ${cx} ${y}, ${dstX} ${y}`;
-            const stroke = r.isSopa ? "var(--accent)" : r.color;
+            const y = yAt(i);
+            const d = ribbonPath(y);
+            const width = Math.max(5, r.yieldShare * 46);
+            const grad = r.isSopa ? "url(#vfv-gold)" : "url(#vfv-green)";
+            const stroke = r.isSopa ? "var(--accent)" : "var(--success)";
+            const dim = r.yieldShare < 0.06;
             return (
               <g key={r.key}>
-                <path d={d} fill="none" stroke={stroke} strokeOpacity={0.26} strokeWidth={width} strokeLinecap="round" />
+                <path d={d} fill="none" stroke={grad} strokeWidth={width} strokeLinecap="round" opacity={dim ? 0.55 : 1} />
                 <path
                   className="vfv-flow"
                   d={d}
                   fill="none"
                   stroke={stroke}
-                  strokeWidth={width}
+                  strokeWidth={Math.min(width, 6)}
                   strokeLinecap="round"
-                  strokeDasharray="2 26"
-                  style={{ animationDelay: `${(i % 5) * -0.4}s` }}
+                  strokeDasharray="0.5 15"
+                  strokeOpacity={dim ? 0.5 : 0.9}
+                  style={{ animationDelay: `${(i % 4) * -0.5}s` }}
                 />
               </g>
             );
           })}
 
-          {/* Source: the vault / yield engine */}
-          <g>
-            <circle cx={srcX} cy={srcY} r={38} className="fill-[var(--accent-bg)]" stroke="var(--accent)" strokeWidth={2} />
-            <text x={srcX} y={srcY - 8} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 10, fontWeight: 700 }}>COFRE</text>
-            <text x={srcX} y={srcY + 6} textAnchor="middle" className="fill-[var(--foreground)]" style={{ fontSize: 12, fontWeight: 700 }}>
-              {usd(totalDeposited)}
-            </text>
-            <text x={srcX} y={srcY + 19} textAnchor="middle" className="fill-[var(--foreground-faint)]" style={{ fontSize: 9 }}>
-              {yieldMonthly != null ? `${usd(yieldMonthly)}/mês` : "rende…"}
-            </text>
-          </g>
-
-          {/* Recipients */}
+          {/* % chip on each ribbon */}
           {recipients.map((r, i) => {
-            const y = 24 + i * rowH + (rowH - 24) / 2;
+            const y = yAt(i);
+            const cx = srcEdgeX + 0.5 * (dstX - srcEdgeX);
+            const cy = srcY + (y - srcY) * 0.56;
+            const stroke = r.isSopa ? "var(--accent)" : "var(--success)";
+            const label = pct(r.yieldShare * 100);
+            const w = label.length * 8 + 16;
+            return (
+              <g key={`c${r.key}`}>
+                <rect x={cx - w / 2} y={cy - 12} width={w} height={24} rx={12} className="fill-[var(--surface)]" stroke={stroke} strokeOpacity={0.4} />
+                <text x={cx} y={cy + 4} textAnchor="middle" style={{ fontSize: 12, fontWeight: 700, fill: stroke, fontFamily: "var(--font-mono)" }}>
+                  {label}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Source node — the vault */}
+          <circle cx={srcX} cy={srcY} r={srcR} className="fill-[var(--surface-elevated)]" stroke="var(--accent)" strokeWidth={2} />
+          <circle cx={srcX} cy={srcY} r={srcR} fill="none" stroke="var(--accent)" strokeWidth={8} strokeOpacity={0.12} />
+          <text x={srcX} y={srcY - 20} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5 }}>COFRE</text>
+          <text x={srcX} y={srcY + 6} textAnchor="middle" className="fill-[var(--foreground)]" style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+            {usd(totalDeposited)}
+          </text>
+          <text x={srcX} y={srcY + 26} textAnchor="middle" className="fill-[var(--foreground-faint)]" style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}>
+            {yieldMonthly != null ? `${usd(yieldMonthly)}/mês` : "rende…"}
+          </text>
+
+          {/* Endpoint nodes with avatars + labels */}
+          {recipients.map((r, i) => {
+            const y = yAt(i);
             const amt = yieldMonthly != null ? yieldMonthly * r.yieldShare : null;
+            const stroke = r.isSopa ? "var(--accent)" : "var(--success)";
+            const acColor = r.isSopa ? "var(--accent)" : "var(--success)";
             return (
               <g key={`n${r.key}`}>
                 <defs>
                   <clipPath id={`vfv-clip-${i}`}>
-                    <circle cx={dstX} cy={y} r={15} />
+                    <circle cx={nodeX} cy={y} r={22} />
                   </clipPath>
                 </defs>
-                {/* Initials sit underneath as the fallback; an avatar/logo covers them when it loads. */}
-                <circle cx={dstX} cy={y} r={16} fill={r.color} fillOpacity={r.isSopa ? 0.2 : 0.15} stroke={r.color} strokeWidth={r.isSopa ? 2 : 1.5} />
-                <text x={dstX} y={y + 4} textAnchor="middle" style={{ fontSize: 10, fontWeight: 700, fill: r.color }}>
-                  {r.isSopa ? "◆" : initials(r.label)}
+                <circle cx={nodeX} cy={y} r={24} className="fill-[var(--surface-elevated)]" stroke={stroke} strokeWidth={2} />
+                <text x={nodeX} y={y + 5} textAnchor="middle" style={{ fontSize: 12, fontWeight: 700, fill: stroke }}>
+                  {r.isSopa ? "" : initials(r.label)}
                 </text>
                 {(r.isSopa || r.handle) && (
                   <image
                     href={r.isSopa ? "/projects/sopa/logo.png" : `https://images.hive.blog/u/${r.handle!.replace(/^@/, "")}/avatar`}
-                    x={dstX - 15}
-                    y={y - 15}
-                    height={30}
-                    width={30}
+                    x={nodeX - 22}
+                    y={y - 22}
+                    height={44}
+                    width={44}
                     clipPath={`url(#vfv-clip-${i})`}
                     preserveAspectRatio="xMidYMid slice"
                   />
                 )}
-                <circle cx={dstX} cy={y} r={16} fill="none" stroke={r.color} strokeWidth={r.isSopa ? 2 : 1.5} />
-                <text x={dstX + 24} y={y - 8} className="fill-[var(--foreground)]" style={{ fontSize: 12, fontWeight: r.isSopa ? 700 : 600 }}>
+                <circle cx={nodeX} cy={y} r={24} fill="none" stroke={stroke} strokeWidth={2} />
+                <text x={nodeX + 34} y={y - 8} className="fill-[var(--foreground)]" style={{ fontSize: 16, fontWeight: 700 }}>
                   {r.label}
                 </text>
-                <text x={dstX + 24} y={y + 5} className="fill-[var(--foreground-faint)]" style={{ fontSize: 11 }}>
+                <text x={nodeX + 34} y={y + 11} className="fill-[var(--foreground-muted)]" style={{ fontSize: 13 }}>
                   {pct(r.yieldShare * 100)} do rendimento{amt != null ? ` · ${usd(amt)}/mês` : ""}
                 </text>
-                <text x={dstX + 24} y={y + 18} style={{ fontSize: 11, fontWeight: 600, fill: r.color }}>
+                <text x={nodeX + 34} y={y + 29} style={{ fontSize: 13, fontWeight: 600, fill: acColor, fontFamily: "var(--font-mono)" }}>
                   acumulado {acc(r.earned)}
                 </text>
               </g>
@@ -185,9 +229,11 @@ export function VaultFlowView({
       )}
 
       <style>{`
-        .vfv-flow { animation: vfv-dash 1.4s linear infinite; }
-        @keyframes vfv-dash { to { stroke-dashoffset: -28; } }
-        @media (prefers-reduced-motion: reduce) { .vfv-flow { animation: none; opacity: 0.6; } }
+        .vfv-flow { animation: vfv-dash 3s linear infinite; }
+        @keyframes vfv-dash { to { stroke-dashoffset: -160; } }
+        .vfv-pulse { animation: vfv-pulse 1.6s ease-in-out infinite; }
+        @keyframes vfv-pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.82); } }
+        @media (prefers-reduced-motion: reduce) { .vfv-flow, .vfv-pulse { animation: none; } }
       `}</style>
     </section>
   );
