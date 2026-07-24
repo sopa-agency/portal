@@ -164,7 +164,7 @@ export function buildTreasuryBriefing(i: BriefingInput): Briefing {
     );
     if (i.streamMonthlyUsd < 5) {
       pag.push(
-        "Isso é um valor de teste, não um salário. O encanamento todo funciona — pool, pesos, distribuição — mas na prática ninguém está sendo remunerado por ele ainda.",
+        "Cada pessoa conectada à pool já recebe a sua parte direto na carteira, em tempo real — mas nesse ritmo dá centavos por pessoa. É um teste de vazão, não um salário; pra remunerar de verdade é preciso subir a torneira, com mais capital ou receita pra sustentar.",
       );
     }
     if (i.monthlyYieldUsd != null && i.monthlyYieldUsd > 0) {
