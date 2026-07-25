@@ -1059,3 +1059,23 @@ model HomepageConfig {
   @@unique([projectSlug, version])
   @@index([projectSlug, status])
 }
+
+// Briefs submitted from the PUBLIC SOPA site's contact form (site-sopa, separate
+// repo). Written by /api/sopa/brief, which is open to the internet — treat every
+// field as untrusted input. Created via targeted SQL (db:push drifts on this DB):
+// scripts/create-sopa-brief-table.cjs
+model SopaBrief {
+  id        String   @id @default(cuid())
+  name      String
+  contact   String // email or @handle — how they want to be reached
+  /** what the project is — multi-select on the form */
+  types     String[]
+  budget    String?
+  deadline  String?
+  message   String   @db.Text
+  /** true once someone on the team has picked it up */
+  handled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
