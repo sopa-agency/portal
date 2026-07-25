@@ -28,6 +28,9 @@ const PUBLIC_PATHS = [
   "/api/homepage",
   // Server-to-server, gated by NEWSLETTER_API_SECRET inside the route.
   "/api/newsletter/preference",
+  // Public read-only feed consumed by the static SOPA site at build time.
+  // Tenant-independent (queries Prisma directly) — must not be session-gated.
+  "/api/sopa/site-data",
 ];
 
 // Hosts that serve the PUBLIC brand homepage instead of a portal — the apex
