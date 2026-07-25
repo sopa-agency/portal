@@ -29,5 +29,9 @@ export default async function PortfolioPage() {
   }
   roster.sort((a, b) => a.username.localeCompare(b.username));
 
-  return <SopaPortfolio initial={cards} roster={roster} />;
+  // Only expose the "publicar site" button when the deploy hook is configured;
+  // the URL itself is a server secret and never crosses to the client.
+  const canPublish = Boolean(process.env.SOPA_SITE_DEPLOY_HOOK_URL);
+
+  return <SopaPortfolio initial={cards} roster={roster} canPublish={canPublish} />;
 }

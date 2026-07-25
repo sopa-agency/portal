@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import { Plus, X, Trash2, Loader2, ImagePlus, UserPlus } from "lucide-react";
+import { Plus, X, Trash2, Loader2, ImagePlus, UserPlus, Rocket } from "lucide-react";
+import { toast } from "sonner";
 import {
   type BoardCard,
   type TeamMember,
@@ -9,14 +10,33 @@ import {
   updateCard,
   deleteCard,
 } from "@/app/actions/sopa-boards";
+import { publishSite } from "@/app/actions/sopa-site";
+import { Toaster } from "@/components/studio/ui/sonner";
 import type { Person } from "@/components/sopa-org-chart";
 import { uploadSopaLogo } from "@/lib/sopa-logo-upload";
 
-export function SopaPortfolio({ initial, roster }: { initial: BoardCard[]; roster: Person[] }) {
+export function SopaPortfolio({
+  initial,
+  roster,
+  canPublish = false,
+}: {
+  initial: BoardCard[];
+  roster: Person[];
+  canPublish?: boolean;
+}) {
   const [cards, setCards] = useState<BoardCard[]>(initial);
   const [editing, setEditing] = useState<BoardCard | "new" | null>(null);
   const [pending, startTransition] = useTransition();
+  const [publishing, startPublish] = useTransition();
   const rosterMap = useMemo(() => new Map(roster.map((p) => [p.username.toLowerCase(), p])), [roster]);
+
+  function handlePublish() {
+    startPublish(async () => {
+      const res = await publishSite();
+      if (res.ok) toast.success("Deploy do site acionado.");
+      else toast.error(res.error);
+    });
+  }
 
   function handleSave(
     id: string | null,
@@ -64,6 +84,17 @@ export function SopaPortfolio({ initial, roster }: { initial: BoardCard[]; roste
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> salvando…
             </span>
           )}
+          {canPublish && (
+            <button
+              type="button"
+              onClick={handlePublish}
+              disabled={publishing}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm font-semibold text-foreground hover:border-border-strong disabled:opacity-50"
+            >
+              {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
+              publicar site →
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setEditing("new")}
@@ -73,6 +104,7 @@ export function SopaPortfolio({ initial, roster }: { initial: BoardCard[]; roste
           </button>
         </div>
       </div>
+      <Toaster />
 
       {cards.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border p-12 text-center">
