@@ -34,6 +34,8 @@ import { resolveDiscordUser, sendTeamMessage, sendTeamTasksEmail, updateTeamMemb
 import { FirePriority, DeadlineChip } from "@/components/card-indicators";
 import { setMemberRole, removeMember, getMemberTasks, getMemberSkills, setMemberSkills, getWeeklyMvp, type MemberTask, type WeeklyMvp } from "@/app/actions/team-admin";
 import { SkillRadar } from "@/components/skill-radar";
+import { toast } from "sonner";
+import { Toaster } from "@/components/studio/ui/sonner";
 import { setContactPublic } from "@/app/actions/team-admin";
 import { SKILL_CATEGORIES, describeContribution } from "@/lib/skills";
 import { EMPTY_PROFILE, TERRITORIES, formatRoles, parseRoles, type MemberProfile } from "@/lib/member-profile";
@@ -597,11 +599,21 @@ function PublicToggle({ username, label, initial }: { username: string; label: s
   async function toggle() {
     if (saving) return;
     const next = !on;
-    setOn(next);
+    setOn(next); // otimista — revertido abaixo se o save não confirmar
     setSaving(true);
-    const r = await setContactPublic(username, label, next);
-    setSaving(false);
-    if (!r.ok) setOn(!next);
+    try {
+      const r = await setContactPublic(username, label, next);
+      if (!r.ok) {
+        setOn(!next);
+        toast.error(r.error);
+      }
+    } catch {
+      // Sem isto o spinner ficava preso pra sempre e a UI mentia sobre o estado.
+      setOn(!next);
+      toast.error("Não deu pra mudar a visibilidade. Tenta de novo.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -1156,6 +1168,7 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
       className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
+      <Toaster />
       <div
         className="mx-auto flex h-[100dvh] w-full max-w-6xl flex-col bg-surface-elevated shadow-2xl"
         onClick={(event) => event.stopPropagation()}
