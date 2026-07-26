@@ -171,6 +171,12 @@ export type ProjectConfig = {
    */
   portfolio?: boolean;
   /**
+   * When true, the Briefs nav item + /briefs route are enabled — the triage
+   * queue for briefs sent through the public SOPA site's contact form
+   * (SOPA-only). Absent = nav hidden + 404.
+   */
+  briefs?: boolean;
+  /**
    * When true, the Reuniões nav item + /reunioes route are enabled — a weekly
    * meetings calendar (SOPA-only). Absent = nav hidden + 404.
    */

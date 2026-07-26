@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate, type LucideIcon } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate, Inbox, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 type NavItem = {
@@ -22,6 +22,7 @@ type NavItem = {
   requiresAbout?: boolean;
   requiresOrgChart?: boolean;
   requiresPortfolio?: boolean;
+  requiresBriefs?: boolean;
   requiresMeetings?: boolean;
   requiresFarcasterTrail?: boolean;
 };
@@ -47,6 +48,7 @@ const NAV: NavItem[] = [
   { href: "/treasury", label: "Treasury", icon: Landmark, group: "Operação" },
   { href: "/org-chart", label: "Org Chart", icon: Workflow, group: "Operação", requiresOrgChart: true },
   { href: "/portfolio", label: "Portfolio", icon: Briefcase, group: "Operação", requiresPortfolio: true },
+  { href: "/briefs", label: "Briefs", icon: Inbox, group: "Operação", requiresBriefs: true },
   { href: "/reunioes", label: "Reuniões", icon: CalendarDays, group: "Operação", requiresMeetings: true },
   { href: "/about", label: "About", icon: Presentation, group: "Operação", requiresAbout: true },
   { href: "/team", label: "Team", icon: UsersRound, group: "Operação" },
@@ -84,13 +86,14 @@ type AppSidebarProps = {
   aboutEnabled?: boolean;
   orgChartEnabled?: boolean;
   portfolioEnabled?: boolean;
+  briefsEnabled?: boolean;
   meetingsEnabled?: boolean;
   labEnabled?: boolean;
   zineEnabled?: boolean;
   farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, briefsEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -135,6 +138,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if ("requiresAbout" in item && item.requiresAbout && !aboutEnabled) return false;
     if ("requiresOrgChart" in item && item.requiresOrgChart && !orgChartEnabled) return false;
     if ("requiresPortfolio" in item && item.requiresPortfolio && !portfolioEnabled) return false;
+    if ("requiresBriefs" in item && item.requiresBriefs && !briefsEnabled) return false;
     if ("requiresMeetings" in item && item.requiresMeetings && !meetingsEnabled) return false;
     if ("requiresFarcasterTrail" in item && item.requiresFarcasterTrail && !farcasterTrailEnabled) return false;
     return true;
