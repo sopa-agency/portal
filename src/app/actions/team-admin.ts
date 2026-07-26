@@ -9,6 +9,7 @@ import type { AggregatedItem } from "@/lib/github-project";
 import { loadCardMeta } from "@/lib/card-meta";
 import { compareByPriority } from "@/lib/kanban-priority";
 import { sanitizeSkills } from "@/lib/skills";
+import { EMPTY_PROFILE, sanitizeProfile, type MemberProfile } from "@/lib/member-profile";
 
 export type ManagedMember = { username: string; role: Role; global: boolean; lastLoginAt: string | null };
 
@@ -307,18 +308,69 @@ export async function setGlobalAdmin(username: string, on: boolean): Promise<{ o
   return { ok: true };
 }
 
+// ── Contatos públicos ───────────────────────────────────────────────────────
+
+/**
+ * Opt-in de um contato pra aparecer no site público (site-sopa).
+ *
+ * Diferente de editar o valor do contato — que qualquer membro do portal pode
+ * fazer, porque é dado operacional compartilhado — expor publicamente é decisão
+ * de privacidade: só a própria pessoa ou um admin.
+ *
+ * A flag vale por PESSOA, não por portal: a mesma conta de Instagram é a mesma
+ * em todos os portais, então o update alcança todas as linhas de username+label.
+ */
+export async function setContactPublic(
+  username: string,
+  label: string,
+  isPublic: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await viewerGate();
+  if (!g.ok) return g;
+  const target = username.toLowerCase().trim();
+  if (g.who.username !== target && g.who.role !== "admin") {
+    return { ok: false, error: "Só a própria pessoa ou um admin pode publicar um contato." };
+  }
+  try {
+    await prisma.teamMemberContact.updateMany({
+      where: { username: target, label },
+      data: { public: isPublic },
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Falha ao atualizar a visibilidade." };
+  }
+}
+
 // ── Member skills (radar chart) ──────────────────────────────────────────────
 
-/** Skills (0–100 per category) + bio for a member. Any logged-in member can read. */
+/** Skills (0–100 per category) + bio + public profile. Any logged-in member reads. */
 export async function getMemberSkills(
   username: string,
-): Promise<{ ok: true; skills: Record<string, number>; bio: string; canEdit: boolean } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; skills: Record<string, number>; bio: string; profile: MemberProfile; canEdit: boolean }
+  | { ok: false; error: string }
+> {
   const g = await viewerGate();
   if (!g.ok) return g;
   const target = username.toLowerCase().trim();
   const row = await prisma.memberSkills.findUnique({ where: { username: target } }).catch(() => null);
   const canEdit = g.who.username === target || g.who.role === "admin";
-  return { ok: true, skills: (row?.skills as Record<string, number>) ?? {}, bio: row?.bio ?? "", canEdit };
+  return {
+    ok: true,
+    skills: (row?.skills as Record<string, number>) ?? {},
+    bio: row?.bio ?? "",
+    profile: row
+      ? {
+          roles: row.roles,
+          territory: row.territory,
+          location: row.location,
+          languages: row.languages,
+          since: row.since,
+        }
+      : EMPTY_PROFILE,
+    canEdit,
+  };
 }
 
 /** Save a member's skills + bio — allowed for the member themselves or an admin. */
@@ -326,6 +378,7 @@ export async function setMemberSkills(
   username: string,
   skills: Record<string, number>,
   bio?: string,
+  profile?: Partial<MemberProfile>,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await viewerGate();
   if (!g.ok) return g;
@@ -335,11 +388,12 @@ export async function setMemberSkills(
   }
   const clean = sanitizeSkills(skills);
   const cleanBio = (bio ?? "").trim().slice(0, 600);
+  const p = sanitizeProfile(profile ?? {});
   try {
     await prisma.memberSkills.upsert({
       where: { username: target },
-      create: { username: target, skills: clean, bio: cleanBio, updatedBy: g.who.username },
-      update: { skills: clean, bio: cleanBio, updatedBy: g.who.username },
+      create: { username: target, skills: clean, bio: cleanBio, ...p, updatedBy: g.who.username },
+      update: { skills: clean, bio: cleanBio, ...p, updatedBy: g.who.username },
     });
     return { ok: true };
   } catch (err) {

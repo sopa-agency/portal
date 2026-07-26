@@ -354,6 +354,9 @@ model TeamMemberContact {
   username    String
   label       String
   value       String
+  /** opt-in explícito pra sair no site público. Default false: e-mail, telefone
+   *  e carteira NUNCA vazam por omissão. */
+  public      Boolean  @default(false)
   updatedBy   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -527,6 +530,15 @@ model MemberSkills {
   username  String   @id
   skills    Json     @default("{}")
   bio       String?  @db.Text
+  // ── Perfil público, consumido pelo site da SOPA via /api/sopa/site-data ──
+  /** como a pessoa se apresenta: ["dev", "web3", "criativo"] */
+  roles     String[] @default([])
+  /** agrupamento editorial do diretório — ver TERRITORIES em lib/member-profile */
+  territory String?
+  location  String?
+  languages String?
+  /** ano em que entrou no coletivo */
+  since     Int?
   updatedBy String?
   updatedAt DateTime @updatedAt
 }

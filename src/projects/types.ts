@@ -51,6 +51,8 @@ export type TeamContact = {
   label: string;
   value: string;
   url?: string;
+  /** opt-in explícito pra aparecer no site público. Ausente = privado. */
+  public?: boolean;
 };
 
 export type ProjectConfig = {

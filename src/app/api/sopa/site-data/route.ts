@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { resolveCrossPortalContacts } from "@/lib/team-messaging";
 import { sopa } from "@/projects";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +45,7 @@ export async function GET() {
   try {
     const usernames = sopa.allowlist;
 
-    const [portfolioRows, capabilityRows, skillRows, castRows] = await Promise.all([
+    const [portfolioRows, capabilityRows, skillRows, contactRows, castRows] = await Promise.all([
       prisma.sopaBoard.findMany({
         where: { board: "portfolio" },
         select: { id: true, title: true, body: true, meta: true, order: true, createdAt: true },
@@ -57,7 +58,16 @@ export async function GET() {
       }),
       prisma.memberSkills.findMany({
         where: { username: { in: usernames } },
-        select: { username: true, bio: true, skills: true },
+        select: {
+          username: true, bio: true, skills: true,
+          roles: true, territory: true, location: true, languages: true, since: true,
+        },
+      }),
+      // SÓ os contatos com opt-in explícito. O default da coluna é false, então
+      // e-mail, telefone e carteira nunca saem daqui por omissão.
+      prisma.teamMemberContact.findMany({
+        where: { username: { in: usernames }, public: true },
+        select: { projectSlug: true, username: true, label: true, value: true, public: true, updatedAt: true },
       }),
       prisma.farcasterTrailCast.findMany({
         select: {
@@ -75,12 +85,22 @@ export async function GET() {
     ]);
 
     const skillsByUser = new Map(skillRows.map((r) => [r.username, r]));
+    // Mesma pessoa pode ter o contato cadastrado em vários portais — reusa a
+    // regra do portal (portal atual ganha, depois a escrita mais recente).
+    const contactsByUser = resolveCrossPortalContacts(contactRows, sopa.slug);
+
     const people = usernames.map((username) => {
       const row = skillsByUser.get(username);
       return {
         username,
         bio: row?.bio ?? null,
         skills: asObject(row?.skills),
+        roles: row?.roles ?? [],
+        territory: row?.territory ?? null,
+        location: row?.location ?? null,
+        languages: row?.languages ?? null,
+        since: row?.since ?? null,
+        links: (contactsByUser.get(username) ?? []).map((c) => ({ label: c.label, value: c.value })),
         avatarUrl: `https://images.hive.blog/u/${username}/avatar`,
       };
     });

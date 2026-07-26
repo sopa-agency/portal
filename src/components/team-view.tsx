@@ -34,7 +34,9 @@ import { resolveDiscordUser, sendTeamMessage, sendTeamTasksEmail, updateTeamMemb
 import { FirePriority, DeadlineChip } from "@/components/card-indicators";
 import { setMemberRole, removeMember, getMemberTasks, getMemberSkills, setMemberSkills, getWeeklyMvp, type MemberTask, type WeeklyMvp } from "@/app/actions/team-admin";
 import { SkillRadar } from "@/components/skill-radar";
+import { setContactPublic } from "@/app/actions/team-admin";
 import { SKILL_CATEGORIES, describeContribution } from "@/lib/skills";
+import { EMPTY_PROFILE, TERRITORIES, formatRoles, parseRoles, type MemberProfile } from "@/lib/member-profile";
 import { CardDialogHost } from "@/components/card-dialog-host";
 import type { AggregatedItem } from "@/lib/github-project";
 import { CONTACT_PLATFORMS, type ContactPlatform } from "@/lib/contact-platforms";
@@ -581,6 +583,44 @@ const PLATFORM_PLACEHOLDER: Record<string, string> = {
   Website: "https://…",
 };
 
+/**
+ * Opt-in de um contato pra sair no site público. Fechado por padrão: e-mail,
+ * telefone e carteira ficam privados a menos que a pessoa diga o contrário.
+ * O erro reverte o estado local — nada de mostrar "público" se o save falhou.
+ */
+function PublicToggle({ username, label, initial }: { username: string; label: string; initial: boolean }) {
+  const [on, setOn] = useState(initial);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setOn(initial); }, [initial]);
+
+  async function toggle() {
+    if (saving) return;
+    const next = !on;
+    setOn(next);
+    setSaving(true);
+    const r = await setContactPublic(username, label, next);
+    setSaving(false);
+    if (!r.ok) setOn(!next);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={saving}
+      title={on ? "Público — aparece no site" : "Privado — só no portal"}
+      aria-label={on ? `${label}: público` : `${label}: privado`}
+      aria-pressed={on}
+      className={`shrink-0 rounded-md p-1.5 transition-colors disabled:opacity-50 ${
+        on ? "text-accent hover:bg-accent-bg" : "text-foreground-faint hover:bg-foreground/5 hover:text-foreground"
+      }`}
+    >
+      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : on ? <Globe className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
 function ContactsEditor({
   member,
   editing,
@@ -785,11 +825,19 @@ function MemberTasks({ githubLogin, tasks, err, selectedIds, onToggle, important
   );
 }
 
+const FIELD =
+  "w-full rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-sm text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none";
+
 function MemberSkillsPanel({ username }: { username: string }) {
   const [values, setValues] = useState<Record<string, number> | null>(null);
   const [saved, setSaved] = useState<Record<string, number>>({}); // last persisted (for cancel)
   const [bio, setBio] = useState("");
   const [savedBio, setSavedBio] = useState("");
+  const [pub, setPub] = useState<MemberProfile>(EMPTY_PROFILE);
+  const [savedPub, setSavedPub] = useState<MemberProfile>(EMPTY_PROFILE);
+  // texto cru do input de roles — só vira lista no save, pra não brigar com o
+  // separador enquanto a pessoa digita
+  const [rolesText, setRolesText] = useState("");
   const [canEdit, setCanEdit] = useState(false);
   const [editing, setEditing] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -797,11 +845,21 @@ function MemberSkillsPanel({ username }: { username: string }) {
 
   useEffect(() => {
     let live = true;
-    getMemberSkills(username).then((r) => {
-      if (!live) return;
-      if (r.ok) { setValues(r.skills); setSaved(r.skills); setBio(r.bio); setSavedBio(r.bio); setCanEdit(r.canEdit); }
-      else setValues({});
-    });
+    getMemberSkills(username)
+      .then((r) => {
+        if (!live) return;
+        if (r.ok) {
+          // `profile` é opcional na defesa: uma action antiga (bundle stale em
+          // dev) não devolve o campo, e travar em "Carregando…" seria pior.
+          const prof = r.profile ?? EMPTY_PROFILE;
+          setValues(r.skills); setSaved(r.skills);
+          setBio(r.bio); setSavedBio(r.bio);
+          setPub(prof); setSavedPub(prof);
+          setRolesText(formatRoles(prof.roles ?? []));
+          setCanEdit(r.canEdit);
+        } else setValues({});
+      })
+      .catch(() => { if (live) setValues({}); });
     return () => { live = false; };
   }, [username]);
 
@@ -817,14 +875,21 @@ function MemberSkillsPanel({ username }: { username: string }) {
   async function save() {
     if (!values || saving) return;
     setSaving(true);
-    const r = await setMemberSkills(username, values, bio);
+    const next: MemberProfile = { ...pub, roles: parseRoles(rolesText) };
+    const r = await setMemberSkills(username, values, bio, next);
     setSaving(false);
-    if (r.ok) { setSaved(values); setSavedBio(bio); setDirty(false); setEditing(false); }
+    if (r.ok) {
+      setSaved(values); setSavedBio(bio);
+      setPub(next); setSavedPub(next); setRolesText(formatRoles(next.roles));
+      setDirty(false); setEditing(false);
+    }
   }
 
   function cancel() {
     setValues(saved);
     setBio(savedBio);
+    setPub(savedPub);
+    setRolesText(formatRoles(savedPub.roles));
     setDirty(false);
     setEditing(false);
   }
@@ -849,6 +914,20 @@ function MemberSkillsPanel({ username }: { username: string }) {
 
       {!editing ? (
         <div className="flex w-full max-w-md flex-col items-center gap-3">
+          {pub.roles.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {pub.roles.map((r) => (
+                <span key={r} className="rounded-full bg-accent-bg px-2.5 py-0.5 text-xs text-accent">{r}</span>
+              ))}
+            </div>
+          )}
+          {(pub.territory || pub.location || pub.since) && (
+            <p className="text-xs text-foreground-faint">
+              {[pub.territory, pub.location, pub.since ? `desde ${pub.since}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
           {bio.trim() ? (
             <p className="whitespace-pre-wrap text-center text-sm text-foreground-muted">{bio}</p>
           ) : canEdit ? (
@@ -876,6 +955,72 @@ function MemberSkillsPanel({ username }: { username: string }) {
               placeholder="Uma linha sobre o membro, foco, etc."
               className="w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
             />
+          </div>
+
+          {/* Perfil público — sai no site da SOPA junto com a bio e os skills. */}
+          <div className="rounded-xl border border-border bg-surface p-3">
+            <p className="mb-2 text-[10px] uppercase tracking-wider text-foreground-faint">
+              Perfil público <span className="normal-case tracking-normal text-foreground-subtle">— aparece no site</span>
+            </p>
+            <div className="space-y-2.5">
+              <div>
+                <label className="mb-1 block text-[11px] text-foreground-muted">Como você se apresenta</label>
+                <input
+                  value={rolesText}
+                  onChange={(e) => { setRolesText(e.target.value); setDirty(true); }}
+                  placeholder="dev · web3 · criativo"
+                  className={FIELD}
+                />
+                <p className="mt-1 text-[10px] text-foreground-faint">Separe com · ou vírgula. Até 6.</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-foreground-muted">Território</label>
+                <select
+                  value={pub.territory ?? ""}
+                  onChange={(e) => { setPub((p) => ({ ...p, territory: e.target.value || null })); setDirty(true); }}
+                  className={FIELD}
+                >
+                  <option value="">— nenhum —</option>
+                  {TERRITORIES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-[11px] text-foreground-muted">Base</label>
+                  <input
+                    value={pub.location ?? ""}
+                    onChange={(e) => { setPub((p) => ({ ...p, location: e.target.value || null })); setDirty(true); }}
+                    placeholder="São Paulo"
+                    className={FIELD}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] text-foreground-muted">Idiomas</label>
+                  <input
+                    value={pub.languages ?? ""}
+                    onChange={(e) => { setPub((p) => ({ ...p, languages: e.target.value || null })); setDirty(true); }}
+                    placeholder="PT · EN"
+                    className={FIELD}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-foreground-muted">No coletivo desde</label>
+                <input
+                  type="number"
+                  min={1990}
+                  max={new Date().getFullYear()}
+                  value={pub.since ?? ""}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    setPub((p) => ({ ...p, since: Number.isInteger(n) && n > 0 ? n : null }));
+                    setDirty(true);
+                  }}
+                  placeholder="2021"
+                  className={FIELD}
+                />
+              </div>
+            </div>
           </div>
           {SKILL_CATEGORIES.map((c) => {
             const v = values![c.key] ?? 0;
@@ -981,13 +1126,15 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
   // value, unset ones flagged `missing` so the whole setup is visible at a glance.
   const byLabel = new Map(current.contacts.map((c) => [c.label, c]));
   const known = new Set<string>(["Hive", ...CONTACT_PLATFORMS]);
-  const contacts: { label: string; value: string; url?: string; missing?: boolean }[] = [
+  const contacts: { label: string; value: string; url?: string; missing?: boolean; public?: boolean }[] = [
     { label: "Hive", value: `@${current.username}`, url: current.profileUrl },
     ...CONTACT_PLATFORMS.map((label) => {
       const c = byLabel.get(label);
-      return c ? { label, value: c.value, url: c.url } : { label, value: "", missing: true };
+      return c ? { label, value: c.value, url: c.url, public: c.public } : { label, value: "", missing: true };
     }),
-    ...current.contacts.filter((c) => !known.has(c.label)).map((c) => ({ label: c.label, value: c.value, url: c.url })),
+    ...current.contacts
+      .filter((c) => !known.has(c.label))
+      .map((c) => ({ label: c.label, value: c.value, url: c.url, public: c.public })),
   ];
 
   const [tab, setTab] = useState<"skills" | "contacts" | "tasks" | "danger">("tasks");
@@ -1177,6 +1324,7 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
                 ) : (
                   <div className={rowClass}>{content}</div>
                 )}
+                {editable && <PublicToggle username={current.username} label={contact.label} initial={!!contact.public} />}
                 {editable && (
                   <button
                     type="button"
