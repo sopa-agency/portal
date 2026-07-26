@@ -153,3 +153,5 @@ brain file server and presence relay; they bridge Vercel → local OpenClaw gate
   tokens, never hardcode `zinc`/`black`/`white`. Full rules in `AGENTS.md`.
 - **Read the Next.js docs in `node_modules`** before writing framework code;
   this version diverges from common training-data assumptions.
+
+.
