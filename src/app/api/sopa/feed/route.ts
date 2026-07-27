@@ -32,11 +32,13 @@ export type FeedKind = "snap" | "blog" | "cast";
 export type FeedMedia = { type: "image" | "video" | "embed"; url: string };
 
 /**
- * O formato do post, que mudaria o peso visual na timeline. Derivado em vez de
- * guardado: no Farcaster tudo é cast; no Hive, o permlink de snap é `snap-…`
- * (convenção do SkateHive) e o resto é blog long-form.
+ * O formato do post muda o peso visual na timeline. Vem GRAVADO da captura, que
+ * é onde dá pra ver o pai do post: snap do SkateHive é comentário no container
+ * do @peak.snaps, e o permlink dele é um UUID — derivar do permlink classificava
+ * snap como blog. O fallback cobre as linhas antigas, ainda sem kind.
  */
-function kindOf(hash: string, platform: string): FeedKind {
+function kindOf(stored: string | null, hash: string, platform: string): FeedKind {
+  if (stored === "snap" || stored === "blog" || stored === "cast") return stored;
   if (platform === "farcaster") return "cast";
   return /\/snap-/.test(hash) ? "snap" : "blog";
 }
@@ -106,7 +108,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       take: limit + 1,
       select: {
         hash: true, platform: true, authorSlug: true, authorHandle: true,
-        text: true, url: true, postedAt: true, mediaJson: true,
+        text: true, url: true, postedAt: true, mediaJson: true, kind: true,
       },
     });
 
@@ -115,7 +117,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const items = page.map((r) => ({
       id: r.hash,
-      kind: kindOf(r.hash, r.platform),
+      kind: kindOf(r.kind, r.hash, r.platform),
       platform: r.platform === "hive" ? ("hive" as const) : ("farcaster" as const),
       author: r.authorSlug,
       handle: r.authorHandle ?? r.authorSlug,

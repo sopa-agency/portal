@@ -468,6 +468,12 @@ model FarcasterTrailCast {
   mediaJson    String?
   /** Moderação do feed público: escondido não sai no site (a linha continua). */
   hidden       Boolean  @default(false)
+  /** snap | blog | cast — gravado na captura, onde dá pra ver o pai do post.
+   *  Derivar do permlink não funciona: snap de membro tem UUID, e quem denuncia
+   *  é o parent_author (peak.snaps). */
+  kind         String?
+  /** comunidade do Hive: hive-124838 = Snaps, hive-173115 = SkateHive */
+  community    String?
   postedAt     DateTime
   detectedAt   DateTime @default(now())
 

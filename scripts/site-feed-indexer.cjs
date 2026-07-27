@@ -137,24 +137,25 @@ function dedupe(list) {
  * Grava (ou completa) uma linha. Só INSERT/UPDATE da própria linha — nunca
  * enfileira ação de engajamento, que é o ponto deste script existir.
  */
-async function record({ hash, platform, authorSlug, authorHandle, authorFid, text, url, postedAt, media, embeds }) {
+async function record({ hash, platform, authorSlug, authorHandle, authorFid, text, url, postedAt, media, embeds, kind, community }) {
   const existing = await prisma.farcasterTrailCast.findUnique({ where: { hash } }).catch(() => null);
   if (existing) {
-    // Linha antiga (capturada pelo trail, ou por uma versão do extrator que
-    // achava menos mídia). Só ENRIQUECE: grava quando a extração atual encontra
-    // mais itens que o guardado — nunca reduz o que já está lá.
+    // Linha antiga (capturada pelo trail, ou por uma versão anterior deste
+    // script). Só ENRIQUECE — nunca reduz o que já está lá.
     const guardado = existing.mediaJson ? JSON.parse(existing.mediaJson).length : 0;
-    if (media.length > guardado) {
-      if (!DRY) await prisma.farcasterTrailCast.update({ where: { hash }, data: { mediaJson: JSON.stringify(media) } });
-      return "media";
-    }
-    return null;
+    const patch = {};
+    if (media.length > guardado) patch.mediaJson = JSON.stringify(media);
+    if (!existing.kind && kind) patch.kind = kind;
+    if (!existing.community && community) patch.community = community;
+    if (Object.keys(patch).length === 0) return null;
+    if (!DRY) await prisma.farcasterTrailCast.update({ where: { hash }, data: patch });
+    return patch.kind ? "kind" : "media";
   }
   if (DRY) return "new";
   await prisma.farcasterTrailCast.create({
     data: {
       hash, platform, authorSlug, authorHandle, authorFid: authorFid ?? null,
-      text: text || "", url: url ?? null, postedAt,
+      text: text || "", url: url ?? null, postedAt, kind: kind ?? null, community: community ?? null,
       mediaJson: media.length ? JSON.stringify(media) : null,
       embedsJson: embeds ? JSON.stringify(embeds).slice(0, 8000) : null,
     },
@@ -190,7 +191,7 @@ async function resolveAccounts() {
 // ── um ciclo ───────────────────────────────────────────────────────────────
 async function tick() {
   const accounts = await resolveAccounts();
-  let novos = 0, midia = 0;
+  let novos = 0, midia = 0, classificados = 0;
 
   for (const acc of accounts) {
     // Hive: posts de blog + snaps (comentários no container). Snaps são a maior
@@ -208,12 +209,16 @@ async function tick() {
         platform: "hive",
         authorSlug: acc.username,
         authorHandle: post.author,
+        // Snap não tem título de verdade — o da Hive é "RE: Snaps Container //
+        // <data>", ruído puro. O conteúdo do snap é o corpo.
         text: isSnap ? (post.body || "").slice(0, 500) : post.title || (post.body || "").slice(0, 200),
         url: `https://peakd.com/@${post.author}/${post.permlink}`,
         postedAt: new Date((post.created || "") + "Z"),
         media: mediaFromMarkdown(post.body),
+        kind: isSnap ? "snap" : "blog",
+        community: post.category || null,
       });
-      if (r === "new") novos++; else if (r === "media") midia++;
+      if (r === "new") novos++; else if (r === "media") midia++; else if (r === "kind") classificados++;
     }
 
     // Farcaster: handle → fid → casts do usuário.
@@ -238,15 +243,16 @@ async function tick() {
             postedAt: new Date(c.timestamp),
             media: mediaFromEmbeds(c.embeds),
             embeds: c.embeds,
+            kind: "cast",
           });
-          if (res === "new") novos++; else if (res === "media") midia++;
+          if (res === "new") novos++; else if (res === "media") midia++; else if (res === "kind") classificados++;
         }
       }
     }
   }
 
   console.log(
-    `[feed] ${accounts.length} contas · ${novos} post(s) novo(s) · ${midia} com mídia completada${DRY ? " (dry run)" : ""}`,
+    `[feed] ${accounts.length} contas · ${novos} novo(s) · ${midia} com mídia completada · ${classificados} classificado(s)${DRY ? " (dry run)" : ""}`,
   );
 }
 
