@@ -78,11 +78,30 @@ function normHandle(v) {
 const IMG_RE = /https?:\/\/[^\s)"'<>]+\.(?:png|jpe?g|gif|webp|avif)(?:\?[^\s)"'<>]*)?/gi;
 const VID_RE = /https?:\/\/[^\s)"'<>]+\.(?:mp4|webm|mov|m3u8)(?:\?[^\s)"'<>]*)?/gi;
 
-/** Mídia do markdown do Hive (snaps são quase só imagem/vídeo). */
+const IFRAME_RE = /<iframe[^>]+src=["']([^"']+)["']/gi;
+// Gateways que servem o arquivo direto (video/mp4, CORS aberto) — dá pra tocar
+// em <video> nativo, sem o peso de um iframe por post na timeline.
+const DIRECT_VIDEO_HOSTS = /(^|\.)(ipfs\.skatehive\.app|gateway\.pinata\.cloud|ipfs\.io)$/i;
+
+/**
+ * Mídia do markdown do Hive. Além de imagem e vídeo por extensão, os posts de
+ * skate embutem clipe via <iframe> — que é COMO SE ESCREVE no Hive, não como o
+ * site precisa consumir. Separo em dois tipos porque não se renderizam igual:
+ *   video → arquivo direto, toca em <video>
+ *   embed → player de terceiro (skatehype, odysee, 3speak, youtube), precisa iframe
+ */
 function mediaFromMarkdown(body) {
+  const src = String(body || "");
   const out = [];
-  for (const m of String(body || "").matchAll(IMG_RE)) out.push({ type: "image", url: m[0] });
-  for (const m of String(body || "").matchAll(VID_RE)) out.push({ type: "video", url: m[0] });
+  for (const m of src.matchAll(IMG_RE)) out.push({ type: "image", url: m[0] });
+  for (const m of src.matchAll(VID_RE)) out.push({ type: "video", url: m[0] });
+  for (const m of src.matchAll(IFRAME_RE)) {
+    const url = m[1];
+    let host = "";
+    try { host = new URL(url).host; } catch { continue; }
+    const direto = DIRECT_VIDEO_HOSTS.test(host) || /\/ipfs\//.test(url);
+    out.push({ type: direto ? "video" : "embed", url });
+  }
   return dedupe(out);
 }
 
@@ -112,9 +131,11 @@ function dedupe(list) {
 async function record({ hash, platform, authorSlug, authorHandle, authorFid, text, url, postedAt, media, embeds }) {
   const existing = await prisma.farcasterTrailCast.findUnique({ where: { hash } }).catch(() => null);
   if (existing) {
-    // Linha antiga (capturada pelo trail antes destas colunas existirem):
-    // completa a mídia sem tocar em mais nada.
-    if (!existing.mediaJson && media.length) {
+    // Linha antiga (capturada pelo trail, ou por uma versão do extrator que
+    // achava menos mídia). Só ENRIQUECE: grava quando a extração atual encontra
+    // mais itens que o guardado — nunca reduz o que já está lá.
+    const guardado = existing.mediaJson ? JSON.parse(existing.mediaJson).length : 0;
+    if (media.length > guardado) {
       if (!DRY) await prisma.farcasterTrailCast.update({ where: { hash }, data: { mediaJson: JSON.stringify(media) } });
       return "media";
     }
