@@ -34,6 +34,8 @@ const PUBLIC_PATHS = [
   // Contact form on the public SOPA site posts here (validated + honeypotted
   // inside the route). Static site, so there is no session to gate on.
   "/api/sopa/brief",
+  // Timeline coletiva do site público — buscada em runtime, paginada.
+  "/api/sopa/feed",
 ];
 
 // Hosts that serve the PUBLIC brand homepage instead of a portal — the apex
