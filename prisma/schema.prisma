@@ -463,6 +463,11 @@ model FarcasterTrailCast {
   text         String
   url          String? // link to the post
   embedsJson   String? // raw embeds for context
+  /** Mídia normalizada pro feed do site: [{type:"image"|"video", url}] — do
+   *  Farcaster vem dos embeds, do Hive é extraída do markdown. */
+  mediaJson    String?
+  /** Moderação do feed público: escondido não sai no site (a linha continua). */
+  hidden       Boolean  @default(false)
   postedAt     DateTime
   detectedAt   DateTime @default(now())
 
