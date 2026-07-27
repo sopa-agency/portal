@@ -105,6 +105,15 @@ function mediaFromMarkdown(body) {
   return dedupe(out);
 }
 
+/**
+ * Quote-cast: cita o post de outra pessoa em vez de publicar algo próprio.
+ * Não tem parent_hash (então o filtro de resposta não pega) — o que denuncia é
+ * um embed do tipo cast. No feed do estúdio isso é re-share, não produção.
+ */
+function isQuote(cast) {
+  return (cast.embeds || []).some((e) => e && (e.cast_id || e.cast));
+}
+
 /** Mídia dos embeds do Farcaster. */
 function mediaFromEmbeds(embeds) {
   const out = [];
@@ -216,6 +225,7 @@ async function tick() {
         for (const c of (r.ok && r.json.casts) || []) {
           if (!c || !c.hash) continue;
           if (c.parent_hash) continue; // só originais — resposta não é post
+          if (isQuote(c)) continue;    // nem re-share do post de outra pessoa
           const handle = (c.author && c.author.username) || acc.farcaster;
           const res = await record({
             hash: c.hash,
