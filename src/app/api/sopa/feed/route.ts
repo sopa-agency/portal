@@ -29,7 +29,14 @@ export async function OPTIONS(): Promise<NextResponse> {
 const MAX_LIMIT = 40;
 
 export type FeedKind = "snap" | "blog" | "cast";
-export type FeedMedia = { type: "image" | "video" | "embed"; url: string };
+export type FeedMedia = {
+  type: "image" | "video" | "embed" | "link";
+  url: string;
+  /** só em `link`: preview de Open Graph resolvido na captura */
+  title?: string | null;
+  description?: string | null;
+  image?: string | null;
+};
 
 /**
  * O formato do post muda o peso visual na timeline. Vem GRAVADO da captura, que
@@ -62,6 +69,7 @@ function permalink(hash: string, platform: string, stored: string | null): strin
 function displayText(raw: string): string {
   return raw
     .replace(/<[^>]+>/g, " ")                       // tags (iframe, div, center…)
+    .replace(/<[^>]*$/, " ")                        // tag truncada pelo corte na captura
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")           // imagem markdown
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")         // link markdown → só o rótulo
     .replace(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|mp4|webm)\S*/gi, " ") // URL de mídia solta
