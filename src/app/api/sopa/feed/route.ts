@@ -52,6 +52,22 @@ function permalink(hash: string, platform: string, stored: string | null): strin
   return m ? `https://skatehive.app/post/${m[1]}/${m[2]}` : stored;
 }
 
+/**
+ * O texto vai pra tela, então sai daqui limpo. O corpo do Hive é markdown com
+ * HTML embutido — sem isto, um post cujo título está vazio cai no corpo e a
+ * timeline exibe `<iframe src=...>` cru.
+ */
+function displayText(raw: string): string {
+  return raw
+    .replace(/<[^>]+>/g, " ")                       // tags (iframe, div, center…)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")           // imagem markdown
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")         // link markdown → só o rótulo
+    .replace(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|mp4|webm)\S*/gi, " ") // URL de mídia solta
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function parseMedia(raw: string | null): FeedMedia[] {
   if (!raw) return [];
   try {
@@ -103,7 +119,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       platform: r.platform === "hive" ? ("hive" as const) : ("farcaster" as const),
       author: r.authorSlug,
       handle: r.authorHandle ?? r.authorSlug,
-      text: r.text,
+      text: displayText(r.text),
       url: permalink(r.hash, r.platform, r.url),
       postedAt: r.postedAt.toISOString(),
       media: parseMedia(r.mediaJson),
