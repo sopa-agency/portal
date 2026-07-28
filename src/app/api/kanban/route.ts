@@ -148,7 +148,7 @@ export async function GET() {
     messageOptions: getTeamMessageOptions(project, username, { contacts }),
   }));
 
-  return NextResponse.json({ ...result, assignable, teamMembers, projectSlug: project.slug, canManage: who.global, bounties });
+  return NextResponse.json({ ...result, assignable, teamMembers, projectSlug: project.slug, canManage: who.global, bounties, repos: project.repos ?? [] });
 }
 
 // ---------------------------------------------------------------------------
