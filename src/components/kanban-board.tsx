@@ -119,6 +119,7 @@ function CardBody({
   onOpenMember?: (member: TeamMember) => void;
 }) {
   const MAX_AVATARS = 3;
+  const repo = repoOf(item.url);
   const owner = item.owner?.toLowerCase();
   // Owner first so they're always shown (and bigger/highlighted).
   const ordered = owner
@@ -154,6 +155,19 @@ function CardBody({
         <TypeIcon type={item.type} />
         {item.number != null && (
           <span className="font-mono tabular-nums text-[11px] text-foreground-subtle">#{item.number}</span>
+        )}
+        {repo && (
+          <span
+            className="inline-flex max-w-[9rem] items-center gap-1 truncate rounded-full border border-border/70 px-1.5 py-0.5 text-[9.5px] font-medium text-foreground-faint"
+            title={repo}
+          >
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: `hsl(${repoHue(repo)} 65% 55%)` }}
+              aria-hidden="true"
+            />
+            {shortRepo(repo)}
+          </span>
         )}
         <StateBadge item={item} />
         {bounty && <BountyBadge bounty={bounty} />}
@@ -642,6 +656,7 @@ function ColumnView({
   onDelete,
   onAddDraft,
   issueRepo,
+  repos,
   onOpen,
   memberForLogin,
   onOpenMember,
@@ -651,9 +666,11 @@ function ColumnView({
   bountyByKey?: Map<string, BountyDTO>;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
-  onAddDraft: (columnName: string, title: string, kind: "draft" | "issue") => void;
+  onAddDraft: (columnName: string, title: string, kind: "draft" | "issue", repo?: string) => void;
   /** owner/name of the board's primary repo — enables the "Issue" kind. */
   issueRepo?: string | null;
+  /** All repos the new issue can target (owner/name); when >1, a picker appears. */
+  repos?: string[];
   onOpen: (item: KanbanItem) => void;
   memberForLogin?: (login: string) => TeamMember | null;
   onOpenMember?: (member: TeamMember) => void;
@@ -663,6 +680,9 @@ function ColumnView({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<"draft" | "issue">("draft");
+  // Which repo a new "issue" lands in — defaults to the board's primary repo.
+  const repoOptions = repos && repos.length ? repos : issueRepo ? [issueRepo] : [];
+  const [repo, setRepo] = useState<string>(issueRepo ?? "");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -671,7 +691,7 @@ function ColumnView({
 
   function submit() {
     const t = draft.trim();
-    if (t) onAddDraft(column.name, t, kind);
+    if (t) onAddDraft(column.name, t, kind, kind === "issue" ? repo || issueRepo || undefined : undefined);
     setDraft("");
     setAdding(false);
   }
@@ -730,20 +750,36 @@ function ColumnView({
             />
             <div className="mt-1.5 flex items-center justify-between gap-1.5">
               {issueRepo ? (
-                <div className="flex gap-0.5 rounded-md bg-surface p-0.5">
-                  {(["draft", "issue"] as const).map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setKind(k)}
-                      title={k === "issue" ? `Creates a real issue in ${issueRepo}` : "Board-only draft card"}
-                      className={`rounded px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide transition-colors ${
-                        kind === k ? "bg-surface-elevated text-accent shadow-sm" : "text-foreground-faint hover:text-foreground"
-                      }`}
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <div className="flex gap-0.5 rounded-md bg-surface p-0.5">
+                    {(["draft", "issue"] as const).map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => setKind(k)}
+                        title={k === "issue" ? `Cria uma issue real em ${repo || issueRepo}` : "Board-only draft card"}
+                        className={`rounded px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide transition-colors ${
+                          kind === k ? "bg-surface-elevated text-accent shadow-sm" : "text-foreground-faint hover:text-foreground"
+                        }`}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                  {kind === "issue" && repoOptions.length > 1 && (
+                    <select
+                      value={repo || issueRepo || ""}
+                      onChange={(e) => setRepo(e.target.value)}
+                      title="Repositório de destino da issue"
+                      className="min-w-0 max-w-[10rem] truncate rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10.5px] text-foreground-muted outline-none focus:ring-1 focus:ring-accent-border"
                     >
-                      {k}
-                    </button>
-                  ))}
+                      {repoOptions.map((r) => (
+                        <option key={r} value={r}>
+                          {shortRepo(r)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               ) : (
                 <span />
@@ -909,6 +945,18 @@ function CardNotes({ projectSlug, cardKey, label = "Comentários" }: { projectSl
 function repoOf(url?: string): string | undefined {
   const m = url?.match(/github\.com\/([^/]+\/[^/]+)\//);
   return m?.[1];
+}
+
+/** Short repo label for chips/badges — drops the owner ("SkateHive/skatehive3.0" → "skatehive3.0"). */
+function shortRepo(full: string): string {
+  return full.split("/")[1] ?? full;
+}
+
+/** Deterministic hue per repo, so its filter chip + card badge read as the same color. */
+function repoHue(full: string): number {
+  let h = 0;
+  for (let i = 0; i < full.length; i++) h = (h * 31 + full.charCodeAt(i)) % 360;
+  return h;
 }
 
 // ---------------------------------------------------------------------------
@@ -2202,6 +2250,8 @@ type Board = Extract<KanbanResult, { ok: true }> & {
   canManage?: boolean;
   /** Bounties reserved on this project's tasks (open/proposed/paid). */
   bounties?: BountyDTO[];
+  /** Repos configured for this project (owner/name) — feeds the repo filter + issue-target picker. */
+  repos?: string[];
 };
 
 export function KanbanBoard() {
@@ -2216,6 +2266,7 @@ export function KanbanBoard() {
   const { confirm, confirmUI } = useConfirm();
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase); empty = all
+  const [repoFilter, setRepoFilter] = useState<string[]>([]); // repo full names (lowercase); empty = all
   const [showDone, setShowDone] = useState(false); // hide completed columns by default
 
   const sensors = useSensors(
@@ -2425,14 +2476,20 @@ export function KanbanBoard() {
   }, [board]);
 
   // --- card actions ---
-  async function onAddDraft(columnName: string, title: string, kind: "draft" | "issue" = "draft") {
+  async function onAddDraft(
+    columnName: string,
+    title: string,
+    kind: "draft" | "issue" = "draft",
+    repo?: string,
+  ) {
     if (!board) return;
     const col = board.columns.find((c) => c.name === columnName);
+    const targetRepo = repo ?? primaryRepo;
     setBusy(true);
     try {
       const r =
-        kind === "issue" && primaryRepo
-          ? await mutate({ action: "createIssue", projectId: board.projectId, repo: primaryRepo, newTitle: title })
+        kind === "issue" && targetRepo
+          ? await mutate({ action: "createIssue", projectId: board.projectId, repo: targetRepo, newTitle: title })
           : await mutate({ action: "addDraft", projectId: board.projectId, title });
       if (!r.ok || !r.itemId) throw new Error(r.error || "Falha ao adicionar card");
       if (board.statusFieldId && col?.optionId) {
@@ -2620,6 +2677,18 @@ export function KanbanBoard() {
     const k = login.toLowerCase();
     setPersonFilter((prev) => (prev.includes(k) ? prev.filter((p) => p !== k) : [...prev, k]));
   };
+  // Repos to filter/categorize by: the project's configured repos ∪ every repo a
+  // card actually points at (the GitHub Project can hold items from any repo).
+  const repos = (() => {
+    const set = new Set<string>();
+    for (const r of board.repos ?? []) set.add(r);
+    for (const c of columns) for (const it of c.items) { const r = repoOf(it.url); if (r) set.add(r); }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  })();
+  const toggleRepo = (repo: string) => {
+    const k = repo.toLowerCase();
+    setRepoFilter((prev) => (prev.includes(k) ? prev.filter((p) => p !== k) : [...prev, k]));
+  };
   // Filtered view (real board data stays intact for drag/drop, which is by id).
   const isDone = (name: string) => /done|conclu|complete|finaliz/i.test(name);
   const doneCount = columns.filter((c) => isDone(c.name)).reduce((n, c) => n + c.items.length, 0);
@@ -2627,7 +2696,12 @@ export function KanbanBoard() {
   const personMatched = personFilter.length === 0
     ? columns
     : columns.map((c) => ({ ...c, items: c.items.filter((it) => it.assignees.some((a) => personFilter.includes(a.login.toLowerCase()))) }));
-  const displayColumns = personMatched.filter((c) => showDone || !isDone(c.name));
+  // Repo filter drops cards whose repo isn't selected; drafts (no repo) fall out
+  // while a repo is active, since they aren't attributable to one.
+  const repoMatched = repoFilter.length === 0
+    ? personMatched
+    : personMatched.map((c) => ({ ...c, items: c.items.filter((it) => { const r = repoOf(it.url)?.toLowerCase(); return r ? repoFilter.includes(r) : false; }) }));
+  const displayColumns = repoMatched.filter((c) => showDone || !isDone(c.name));
   const teamMemberByUsername = new Map((board.teamMembers ?? []).map((m) => [m.username.toLowerCase(), m]));
   const memberForLogin = (login: string): TeamMember | null => {
     const matched = board.assignable?.find((m) => m.login.toLowerCase() === login.toLowerCase());
@@ -2710,6 +2784,45 @@ export function KanbanBoard() {
         </div>
       )}
 
+      {/* Filter by repo — only worth showing once the board spans more than one */}
+      {repos.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-foreground-faint">Repo</span>
+          <button
+            type="button"
+            onClick={() => setRepoFilter([])}
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${repoFilter.length === 0 ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
+          >
+            Todos
+          </button>
+          {repos.map((r) => {
+            const on = repoFilter.includes(r.toLowerCase());
+            return (
+              <button
+                key={r}
+                type="button"
+                onClick={() => toggleRepo(r)}
+                title={r}
+                aria-pressed={on}
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${on ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
+              >
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: `hsl(${repoHue(r)} 65% 55%)` }}
+                  aria-hidden="true"
+                />
+                {shortRepo(r)}
+              </button>
+            );
+          })}
+          {repoFilter.length > 0 && (
+            <span className="text-[10px] text-foreground-faint">
+              {displayColumns.reduce((n, c) => n + c.items.length, 0)} cartões
+            </span>
+          )}
+        </div>
+      )}
+
       {toast && (
         <div
           className={`rounded-md border px-3 py-2 text-xs ${
@@ -2742,6 +2855,7 @@ export function KanbanBoard() {
                 onDelete={onDelete}
                 onAddDraft={onAddDraft}
                 issueRepo={primaryRepo}
+                repos={repos}
                 onOpen={setDetailItem}
                 memberForLogin={memberForLogin}
                 onOpenMember={setSelectedMember}
