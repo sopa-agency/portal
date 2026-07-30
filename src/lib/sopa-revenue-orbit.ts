@@ -30,6 +30,8 @@ export type OrbitFlow = {
   splitBalanceUsd: number;
   /** splitBalanceUsd × sopaShare — SOPA's cut waiting for the next distribute(). */
   pendingToSopaUsd: number;
+  /** Share is a DECLARED off-chain number (not a 0xSplits read) — shown for the map. */
+  declared?: boolean;
 };
 
 export type OrbitProject = {
@@ -65,13 +67,25 @@ const DECLARED_INFLOWS: DeclaredInflow[] = [
     // Morpheus "Gnars" builder subnet — opened 2026-07-29. Rewards split 80% SOPA
     // / 20% Gnars off-chain (Gnars destination still TBD). Not a 0xSplits contract
     // — the id is a bytes32 subnet, so the share can't be read on-chain; shown as
-    // a wired flow at the agreed 80% until a real split is deployed & allocated.
+    // a declared flow at the agreed 80% until a real split is deployed & allocated.
     project: "Gnars",
     logoUrl: null,
     label: "MOR Builder Staking",
     address: "0xf129111951997d1c386be9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d",
     chain: "base",
     sopaShare: 0.8,
+  },
+  {
+    // SwapPro cross-chain (THORChain affiliate) — LIVE. Multi-affiliate memo
+    // `keep/thor1ujdj…:24/6` pays the KeepKey THORName 24 bps + SOPA 6 bps → SOPA
+    // gets 6/30 = 20% of the 0.30% fee. It's on THORChain (THORName, not EVM), so
+    // there's no 0xSplits to read — declared at 20%. Realized $ = a Midgard follow-up.
+    project: "swaps.pro",
+    logoUrl: null,
+    label: "THORChain affiliate (cross-chain)",
+    address: "thor1ujdj4360n835r49yzuvvsyu80hv28k9frlqeuh",
+    chain: "thorchain",
+    sopaShare: 0.2,
   },
 ];
 
@@ -132,6 +146,7 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
       realizedToSopaUsd: 0,
       splitBalanceUsd: 0,
       pendingToSopaUsd: 0,
+      declared: true,
     };
     const existing = projects.find((p) => p.name.toLowerCase() === d.project.toLowerCase());
     if (existing) {

@@ -72,9 +72,10 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-foreground">Revenue flowing to SOPA</h2>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-foreground-muted">
-            Every registered split where SOPA is a recipient, flowing into the treasury. A split appears as soon as it&apos;s
-            wired — <b>realized</b> is what already reached the Safe, <b>pending</b> is what&apos;s sitting in the split awaiting
-            the next distribute. Thickness ∝ that amount; the $ is on the label.
+            Every project&apos;s revenue wired to the SOPA treasury, flowing in. On-chain splits show <b>realized</b> (already
+            reached the Safe) and <b>pending</b> (sitting in the split awaiting distribute), with the share read from the
+            contract. <b>◇ declared</b> flows are off-chain agreements — a THORChain affiliate, a builder subnet — shown at their
+            agreed share to complete the map. Thickness ∝ the amount; the $ is on the label.
           </p>
         </div>
         <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-accent-border bg-accent-bg px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-accent">
@@ -107,7 +108,7 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
                   `${r.projectName} · ${r.label}  (${pct(r.sopaShare * 100)} to SOPA)`,
                   `realized: ${usd(r.grossUsd)} distributed → ${usd(r.realizedToSopaUsd)} to SOPA`,
                   `pending:  ${usd(r.splitBalanceUsd)} in split → ${usd(r.pendingToSopaUsd)} to SOPA`,
-                  `${r.method ? (r.method === "auction" ? "auction" : "swap") : "no revenue event yet"} · ${r.address}`,
+                  `${r.declared ? "declared off-chain — share not read from a contract" : r.method ? (r.method === "auction" ? "auction" : "swap") : "no revenue event yet"} · ${r.address}`,
                 ].join("\n")}</title>
                 <path d={d} fill="none" stroke={r.color} strokeOpacity={baseOp} strokeWidth={width} strokeLinecap="round" strokeDasharray={wired ? "6 8" : undefined} />
                 {!wired && (
@@ -148,7 +149,7 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
           {/* Project source nodes (left) with logo/initials + name + split + share. */}
           {rows.map((r, i) => {
             const y = yAt(i);
-            const tag = r.method ? (r.method === "auction" ? "🔨 auction" : "💧 swap") : r.state === "pending" ? "⏳ pending" : "○ wired";
+            const tag = r.declared ? "◇ declared" : r.method ? (r.method === "auction" ? "🔨 auction" : "💧 swap") : r.state === "pending" ? "⏳ pending" : "○ wired";
             return (
               <g key={`n${r.key}`}>
                 <defs>
@@ -192,7 +193,8 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
 
       <p className="mt-1 text-[11px] text-foreground-faint">
         Splits appear as soon as they&apos;re wired to SOPA (share read from the contract). Solid = realized (distributed);
-        dashed = pending in the split; faint = wired, $0 so far. Hover a ribbon for the full breakdown.
+        dashed = pending in the split; faint = wired/declared, $0 measured so far. <b>◇ declared</b> = off-chain agreement, not
+        yet on-chain. Hover a ribbon for the full breakdown.
       </p>
 
       <style>{`
