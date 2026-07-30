@@ -24,8 +24,9 @@ export function StreamSustainability({
 
   // Runway meter: cap the visual at 90 days; ticks at 14d (danger) / 45d (ok).
   const CAP = 90;
-  const rw = runwayDays == null ? CAP : Math.min(runwayDays, CAP);
-  const runwayColor = runwayDays == null ? "var(--success)" : runwayDays < 14 ? "var(--danger)" : runwayDays < 45 ? "var(--warning)" : "var(--success)";
+  const rw = runwayDays == null ? 0 : Math.min(runwayDays, CAP);
+  // null = sem stream ativo → régua neutra/vazia (nunca verde cheia, que leria "∞ ok").
+  const runwayColor = runwayDays == null ? "var(--border)" : runwayDays < 14 ? "var(--danger)" : runwayDays < 45 ? "var(--warning)" : "var(--success)";
 
   const verdict = !streaming
     ? { tone: "muted", icon: Gauge, text: "Pagamento parado — ligue a torneira nos Controles pra começar a pagar." }
@@ -66,16 +67,22 @@ export function StreamSustainability({
         </p>
       </div>
 
-      {/* Runway meter (a régua) */}
+      {/* Runway meter (a régua). runwayDays == null = sem stream ativo: barra vazia
+          e neutra + "—", nunca a barra verde cheia (que leria como "runway infinito"). */}
       <div className="mb-4">
         <div className="mb-1 flex items-center justify-between text-xs">
           <span className="text-foreground-muted">Reserva dura</span>
-          <span className="font-semibold tabular-nums" style={{ color: runwayColor }}>
-            {runwayDays == null ? "∞" : `${Math.floor(runwayDays)}d`} · na reserva {usd(bufferUsdcx)}
+          <span
+            className={`font-semibold tabular-nums ${runwayDays == null ? "text-foreground-faint" : ""}`}
+            style={runwayDays == null ? undefined : { color: runwayColor }}
+          >
+            {runwayDays == null ? "—" : `${Math.floor(runwayDays)}d`} · na reserva {usd(bufferUsdcx)}
           </span>
         </div>
         <div className="relative h-3 rounded-full bg-border">
-          <div className="h-full rounded-full transition-all" style={{ width: `${(rw / CAP) * 100}%`, backgroundColor: runwayColor }} />
+          {runwayDays != null && (
+            <div className="h-full rounded-full transition-all" style={{ width: `${(rw / CAP) * 100}%`, backgroundColor: runwayColor }} />
+          )}
           {/* threshold ticks */}
           <div className="absolute top-0 h-3 w-px bg-danger/60" style={{ left: `${(14 / CAP) * 100}%` }} title="14 dias" />
           <div className="absolute top-0 h-3 w-px bg-warning/60" style={{ left: `${(45 / CAP) * 100}%` }} title="45 dias" />

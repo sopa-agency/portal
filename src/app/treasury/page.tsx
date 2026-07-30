@@ -171,35 +171,44 @@ treasury: {
     // SOPA agency revenue: client jobs (manual).
     isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
   ]);
-  const payrollRes = isSopa ? await listPayrollMembers().catch(() => null) : null;
+  // SOPA data used to be a long serial waterfall of awaits. Now two parallel waves:
+  // wave 1 = everything with no cross-dependency; wave 2 = reads that need a wave-1
+  // result (the pool address, and the SOPA-owned vault).
+  const [payrollRes, rosterRaw, poolAddress, stakePosition, allocation, communityVaults] = await Promise.all([
+    isSopa ? listPayrollMembers().catch(() => null) : Promise.resolve(null),
+    isSopa ? getTeamRoster(project).catch(() => []) : Promise.resolve([]),
+    isSopa ? (SOPA_POOL_ADDRESS ? Promise.resolve(SOPA_POOL_ADDRESS) : findSopaPool().catch(() => null)) : Promise.resolve(null),
+    isSopa ? getStakePosition(SOPA_SAFE).catch(() => null) : Promise.resolve(null),
+    isSopa ? getAllocation(project.slug).catch(() => null) : Promise.resolve(null),
+    isSopa ? getCommunityVaults().catch(() => []) : Promise.resolve([]),
+  ]);
+
+  const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
+  const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
   // Team roster → payroll member picker (auto-detect an EVM wallet in contacts).
   const roster: PayrollRosterOption[] = isSopa
-    ? (await getTeamRoster(project).catch(() => [])).map((m) => ({
+    ? rosterRaw.map((m) => ({
         username: m.username,
         avatarUrl: m.avatarUrl,
         address: m.contacts.find((c) => /^0x[a-fA-F0-9]{40}$/.test(c.value.trim()))?.value.trim(),
       }))
     : [];
-
-  const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
-  const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
-  // Pool address: hardcoded constant, else auto-discovered by admin = SOPA Safe.
-  const poolAddress = isSopa ? SOPA_POOL_ADDRESS ?? (await findSopaPool().catch(() => null)) : null;
-  const streamStatus = poolAddress ? await getStreamStatus(poolAddress).catch(() => null) : null;
-  const stakePosition = isSopa ? await getStakePosition(SOPA_SAFE).catch(() => null) : null;
-  const allocation = isSopa ? await getAllocation(project.slug) : null;
-  const communityVaults = isSopa ? await getCommunityVaults().catch(() => []) : [];
   // Backers of the SOPA-owned vault (the one whose fee funds the payroll).
   const sopaVault = communityVaults.find((v) => v.paysSopa) ?? null;
-  const vaultDepositors = sopaVault ? await getVaultDepositors(sopaVault.vault.address).catch(() => []) : [];
-  // Gross yield rate of the pot = the underlying Moonwell APY (the vault deploys
-  // 100% there). The vault's own netApy isn't indexed by Morpho yet; this fills
-  // the flow's $/month until it is.
-  const vaultGrossApy = sopaVault
-    ? (sopaVault.apy ?? (await fetchVaultApy("0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca").catch(() => null)))
-    : null;
-  // SOPA's accumulated performance fee from the vault so far (fee shares → USDC).
-  const sopaVaultEarned = sopaVault ? await getVaultFeeAccrued(sopaVault.vault.address, SOPA_SAFE).catch(() => 0) : 0;
+
+  // Wave 2 — depends on wave 1 (poolAddress, sopaVault); parallel with each other.
+  // vaultGrossApy = the underlying Moonwell APY (the vault deploys 100% there); the
+  // vault's own netApy isn't indexed by Morpho yet, so this fills the flow's $/month.
+  const [streamStatus, vaultDepositors, vaultGrossApy, sopaVaultEarned] = await Promise.all([
+    poolAddress ? getStreamStatus(poolAddress).catch(() => null) : Promise.resolve(null),
+    sopaVault ? getVaultDepositors(sopaVault.vault.address).catch(() => []) : Promise.resolve([]),
+    sopaVault
+      ? sopaVault.apy != null
+        ? Promise.resolve(sopaVault.apy)
+        : fetchVaultApy("0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca").catch(() => null)
+      : Promise.resolve(null),
+    sopaVault ? getVaultFeeAccrued(sopaVault.vault.address, SOPA_SAFE).catch(() => 0) : Promise.resolve(0),
+  ]);
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
   // both halves are surfaced so the page shows the whole fee, not just our cut.

@@ -215,9 +215,9 @@ export function MembersTab({
             <Stat
               label="Reserva dura"
               hint="Quanto tempo o pagamento continua com a reserva atual, sem repor nada."
-              value={runwayDays == null ? "∞" : `${Math.floor(runwayDays)}`}
+              value={runwayDays == null ? "—" : `${Math.floor(runwayDays)}`}
               sub={runwayDays == null ? undefined : " dias"}
-              tone={runwayDays != null && runwayDays < 14 ? "text-danger" : runwayDays != null && runwayDays < 45 ? "text-warning" : "text-success"}
+              tone={runwayDays == null ? "text-foreground-muted" : runwayDays < 14 ? "text-danger" : runwayDays < 45 ? "text-warning" : "text-success"}
             />
             <Stat label="Na reserva" hint="O dinheiro já convertido, pronto pra pingar no time." value={usd(bufferUsd)} />
             <Stat label="Recebendo ao vivo" value={`${connectedCount}`} sub={`/${activeCount}`} tone={connectedCount === activeCount && activeCount > 0 ? "text-success" : "text-warning"} />
