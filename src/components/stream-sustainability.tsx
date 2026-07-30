@@ -1,8 +1,7 @@
 "use client";
 
 import { Gauge, AlertTriangle, CheckCircle2 } from "lucide-react";
-
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
+import { usd } from "@/lib/format";
 
 // The sustainability "ruler": is the yield covering the stream, and how much
 // runway does the USDCx buffer give? Plus the guided action — harvest yield

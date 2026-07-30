@@ -4,8 +4,8 @@ import { useState, useTransition } from "react";
 import { PiggyBank, Loader2, ExternalLink, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { proposeStake, proposeUnstake } from "@/app/actions/staking";
 import type { StakePosition } from "@/lib/staking";
+import { usd } from "@/lib/format";
 
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
 const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 
 // "Superstaking" — the Morpho position that funds the payroll stream. Read the

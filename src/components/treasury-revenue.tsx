@@ -1,8 +1,8 @@
 import { DollarSign } from "lucide-react";
 import type { OrgRevenue, OrgRevenueStream } from "@/lib/org-revenue";
 import { Sparkline, RevenueChart } from "@/components/revenue-charts";
+import { usd } from "@/lib/format";
 
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
 const signedUsd = (n: number) => `${n >= 0 ? "+" : "−"}${usd(Math.abs(n))}`;
 
 const KIND_LABEL: Record<OrgRevenueStream["kind"], string> = {

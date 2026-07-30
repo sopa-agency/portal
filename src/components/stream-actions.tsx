@@ -4,10 +4,9 @@ import { useState, useTransition } from "react";
 import { Loader2, ExternalLink, Sprout, Droplets, Zap, Square, RefreshCw, ChevronDown } from "lucide-react";
 import { proposeSetUnits, proposeWrap, proposeSetFlow, proposeAutoWrap } from "@/app/actions/superfluid";
 import { proposeHarvest } from "@/app/actions/staking";
+import { usd } from "@/lib/format";
 
 type Result = { ok: true; url: string } | { ok: false; error: string } | null;
-
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : n < 1 ? 4 : 2 })}`;
 
 function Feedback({ r }: { r: Result }) {
   if (!r) return null;

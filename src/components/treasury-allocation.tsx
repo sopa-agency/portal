@@ -3,8 +3,7 @@
 import { useState, useTransition } from "react";
 import { Layers, Loader2, Check, X, SlidersHorizontal, PiggyBank, Users2, Cog, Wallet } from "lucide-react";
 import { setAllocation, type Allocation, type StoredAllocation } from "@/app/actions/allocation";
-
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
+import { usd } from "@/lib/format";
 
 // "Pra que é cada parte do dinheiro" — the treasury is ONE staked pot; these are
 // earmarks on top of it. Each bucket shows what it holds (its share of the pot)

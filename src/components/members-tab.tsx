@@ -2,16 +2,14 @@
 
 import { useState, type ReactNode } from "react";
 import { Radio, Users2, Wallet } from "lucide-react";
+import { usd, usdTiny, pct } from "@/lib/format";
+import { chartColorAt } from "@/lib/chart-colors";
 
 // Membros tab shell (from the Claude Design redesign): two sub-views —
 // "Painel · ao vivo" (what's happening, for anyone) and "Controles · admin"
 // (what you can do, step by step). Copy is deliberately plain-Portuguese:
 // reserva = stream buffer, cofre = staking, pesos = units, torneira = flow.
 
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
-// Streams accrue in tiny increments — show enough decimals for them to be visible.
-const fmtTiny = (n: number) => (n === 0 ? "$0" : n < 0.01 ? `$${n.toFixed(6)}` : usd(n));
-const pct = (n: number) => `${n >= 9.95 ? Math.round(n) : n.toFixed(1)}%`;
 const initials = (s: string) => s.replace(/^@/, "").slice(0, 2).toUpperCase();
 
 /** Hive PFP for a member handle, falling back to colored initials if it 404s. */
@@ -38,8 +36,6 @@ function MemberAvatar({ handle, color, size = 32 }: { handle: string; color: str
   );
 }
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
-
-const PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#06b6d4", "#ec4899", "#8b5cf6", "#84cc16", "#f97316", "#14b8a6", "#e11d48"];
 
 export type MemberRow = {
   label: string;
@@ -98,7 +94,7 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
       <ul className="space-y-2">
         {active.map((m, i) => {
           const share = total > 0 ? (m.units / total) * 100 : 0;
-          const color = PALETTE[i % PALETTE.length];
+          const color = chartColorAt(i);
           return (
             <li key={m.address} className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated px-3 py-2.5">
               <MemberAvatar handle={m.label} color={color} />
@@ -125,9 +121,9 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
               </div>
               <div className="w-24 shrink-0 border-l border-border pl-2 text-right">
                 <div className="text-[10px] uppercase tracking-wider text-foreground-faint">acumulado</div>
-                <div className="text-sm font-semibold tabular-nums text-success">{fmtTiny(m.receivedUsd ?? 0)}</div>
+                <div className="text-sm font-semibold tabular-nums text-success">{usdTiny(m.receivedUsd ?? 0)}</div>
                 <div className="text-[10px] tabular-nums text-foreground-faint">
-                  {(m.claimedUsd ?? 0) > 0 ? `${fmtTiny(m.claimedUsd ?? 0)} sacado` : "nada sacado"}
+                  {(m.claimedUsd ?? 0) > 0 ? `${usdTiny(m.claimedUsd ?? 0)} sacado` : "nada sacado"}
                 </div>
               </div>
             </li>

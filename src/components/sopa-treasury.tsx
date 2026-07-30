@@ -10,9 +10,8 @@ import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryViews } from "@/components/treasury-views";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { Section } from "@/components/section-heading";
+import { usdWhole as usd, usd as usd2 } from "@/lib/format";
 
-const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-const usd2 = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n < 100 ? 2 : 0 });
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 // SOPA treasury dashboard: ONE project selector at the top that filters both

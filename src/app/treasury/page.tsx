@@ -50,9 +50,7 @@ import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
-
-const usd = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+import { usdWhole as usd } from "@/lib/format";
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
