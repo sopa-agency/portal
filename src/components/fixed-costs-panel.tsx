@@ -72,10 +72,11 @@ function months(treasuryUsd: number, burnUsd: number): number | null {
 }
 const fmtMonths = (m: number | null) => (m === null ? "∞" : m >= 10 ? Math.round(m).toString() : m.toFixed(1));
 
-/** Runway → semantic color band: <6mo danger, <12 warning, else success. */
+/** Runway → semantic color band: <3mo danger, <12 warning, else success
+    (reconciled with the treasury hero's band so one metric never uses two). */
 function runwayTone(m: number | null): { text: string; bar: string; ring: string } {
   if (m === null) return { text: "text-success", bar: "bg-success", ring: "border-success/30 bg-success/10" };
-  if (m < 6) return { text: "text-danger", bar: "bg-danger", ring: "border-danger/30 bg-danger/10" };
+  if (m < 3) return { text: "text-danger", bar: "bg-danger", ring: "border-danger/30 bg-danger/10" };
   if (m < 12) return { text: "text-warning", bar: "bg-warning", ring: "border-warning/30 bg-warning/10" };
   return { text: "text-success", bar: "bg-success", ring: "border-success/30 bg-success/10" };
 }

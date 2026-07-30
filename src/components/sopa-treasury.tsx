@@ -78,6 +78,7 @@ export function SopaTreasury({
                 key={t.slug}
                 type="button"
                 onClick={() => setView(t.slug)}
+                aria-pressed={view === t.slug}
                 className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors ${
                   view === t.slug
                     ? "border-accent-border bg-accent-bg text-accent"

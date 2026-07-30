@@ -51,6 +51,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { usdWhole as usd } from "@/lib/format";
+import { ChevronRight } from "lucide-react";
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
@@ -272,6 +273,9 @@ treasury: {
 
   const treasuryContent = isSopa ? (
     <div className="space-y-8">
+      {/* Ordem: quanto temos (hero + saldos + receita) → pra que é (earmarks) →
+          o que sai (custos + runway) → atividade do multisig (recolhida, ops). */}
+      {overviewAndRevenue}
       {allocation && (
         <TreasuryAllocation
           initial={allocation}
@@ -287,9 +291,6 @@ treasury: {
             .reduce((s, c) => s + c.monthlyUsd, 0)}
         />
       )}
-      {overviewAndRevenue}
-      <MultisigBudgets budgets={budgets} />
-      <SafeActivity safes={safes} />
       <div className="border-t border-border pt-8">
         <FixedCostsPanel
           groups={costGroups}
@@ -298,6 +299,19 @@ treasury: {
           canEdit={!!session}
         />
       </div>
+      {(budgets.length > 0 || safes.length > 0) && (
+        <details className="group border-t border-border pt-8">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
+            <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+            Atividade do multisig
+            <span className="text-xs font-normal text-foreground-faint">orçamentos de bounty · fila de propostas</span>
+          </summary>
+          <div className="mt-6 space-y-8">
+            <MultisigBudgets budgets={budgets} />
+            <SafeActivity safes={safes} />
+          </div>
+        </details>
+      )}
     </div>
   ) : (
     <div className="space-y-8">
