@@ -6,6 +6,7 @@ const skatehive: ProjectConfig = {
   switcher: { rank: 10 },
   magazine: true,
   homepage: true,
+  crossPostQueue: true,
   lab: true,
   zineStudio: true,
   name: "SkateHive",

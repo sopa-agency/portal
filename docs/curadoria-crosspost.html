@@ -1,0 +1,486 @@
+<title>Curadoria de cross-post — como funciona</title>
+<style>
+  /* ---- tokens: SkateHive's own palette, so the doc reads as part of the product ---- */
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --raised: #f4f4f3;
+    --fg: #0a0a0a;
+    --fg-muted: #525252;
+    --fg-subtle: #737373;
+    --fg-faint: #a3a3a3;
+    --line: #e5e5e4;
+    --line-strong: #d4d4d3;
+    --accent: #5b9c00;
+    --accent-ink: #4a7f00;
+    --accent-bg: rgba(91, 156, 0, 0.09);
+    --accent-line: rgba(91, 156, 0, 0.32);
+    --wait: #b45309;
+    --wait-bg: rgba(180, 83, 9, 0.09);
+    --ok: #047857;
+    --ok-bg: rgba(4, 120, 87, 0.09);
+    --bad: #b91c1c;
+    --bad-bg: rgba(185, 28, 28, 0.08);
+    --app-bg: rgba(120, 113, 108, 0.09);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -16px rgba(0, 0, 0, 0.18);
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #09090b;
+      --surface: #18181b;
+      --raised: #1f1f23;
+      --fg: #f4f4f5;
+      --fg-muted: #a1a1aa;
+      --fg-subtle: #8a8a93;
+      --fg-faint: #52525b;
+      --line: #27272a;
+      --line-strong: #3f3f46;
+      --accent: #a3e635;
+      --accent-ink: #bef264;
+      --accent-bg: rgba(163, 230, 53, 0.11);
+      --accent-line: rgba(163, 230, 53, 0.3);
+      --wait: #fbbf24;
+      --wait-bg: rgba(251, 191, 36, 0.11);
+      --ok: #34d399;
+      --ok-bg: rgba(52, 211, 153, 0.11);
+      --bad: #f87171;
+      --bad-bg: rgba(248, 113, 113, 0.11);
+      --app-bg: rgba(161, 161, 170, 0.09);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -16px rgba(0, 0, 0, 0.8);
+    }
+  }
+  /* the viewer's toggle must win over the OS preference, in both directions */
+  :root[data-theme="light"] {
+    --bg: #fafaf9; --surface: #ffffff; --raised: #f4f4f3;
+    --fg: #0a0a0a; --fg-muted: #525252; --fg-subtle: #737373; --fg-faint: #a3a3a3;
+    --line: #e5e5e4; --line-strong: #d4d4d3;
+    --accent: #5b9c00; --accent-ink: #4a7f00;
+    --accent-bg: rgba(91,156,0,.09); --accent-line: rgba(91,156,0,.32);
+    --wait: #b45309; --wait-bg: rgba(180,83,9,.09);
+    --ok: #047857; --ok-bg: rgba(4,120,87,.09);
+    --bad: #b91c1c; --bad-bg: rgba(185,28,28,.08);
+    --app-bg: rgba(120,113,108,.09);
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -16px rgba(0,0,0,.18);
+  }
+  :root[data-theme="dark"] {
+    --bg: #09090b; --surface: #18181b; --raised: #1f1f23;
+    --fg: #f4f4f5; --fg-muted: #a1a1aa; --fg-subtle: #8a8a93; --fg-faint: #52525b;
+    --line: #27272a; --line-strong: #3f3f46;
+    --accent: #a3e635; --accent-ink: #bef264;
+    --accent-bg: rgba(163,230,53,.11); --accent-line: rgba(163,230,53,.3);
+    --wait: #fbbf24; --wait-bg: rgba(251,191,36,.11);
+    --ok: #34d399; --ok-bg: rgba(52,211,153,.11);
+    --bad: #f87171; --bad-bg: rgba(248,113,113,.11);
+    --app-bg: rgba(161,161,170,.09);
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 76rem;
+    margin: 0 auto;
+    padding: 4rem 1.5rem 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 4.5rem;
+  }
+  .measure { max-width: 42rem; }
+
+  /* ---- type ---- */
+  h1, h2, h3, .eyebrow, .lbl, code, .chip, .pill { font-family: var(--mono); }
+  h1 {
+    font-size: clamp(1.9rem, 4.5vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: clamp(1.15rem, 2.2vw, 1.45rem);
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 0.95rem;
+    letter-spacing: -0.01em;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+  p { text-wrap: pretty; }
+  .lede { font-size: 1.1rem; color: var(--fg-muted); }
+  .eyebrow {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--accent-ink);
+    font-weight: 700;
+  }
+  .lbl {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+    color: var(--fg-subtle);
+    font-weight: 700;
+  }
+  code {
+    font-size: 0.86em;
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.08em 0.36em;
+    white-space: nowrap;
+  }
+  strong { font-weight: 650; color: var(--fg); }
+  a { color: var(--accent-ink); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+
+  section { display: flex; flex-direction: column; gap: 1.5rem; }
+  .stack { display: flex; flex-direction: column; gap: 0.9rem; }
+  .head { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  header.hero {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    padding-bottom: 2.5rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-subtle);
+  }
+  .chip {
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.7rem;
+    color: var(--fg-muted);
+    background: var(--surface);
+  }
+  .chip.on { border-color: var(--accent-line); color: var(--accent-ink); background: var(--accent-bg); }
+
+  /* ---- before / after ---- */
+  .split { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 46rem) { .split { grid-template-columns: 1fr 1fr; } }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.15rem 1.25rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .card p { font-size: 0.92rem; color: var(--fg-muted); margin: 0; }
+  .card.now { border-color: var(--accent-line); }
+
+  /* ---- swimlane: who owns what ---- */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .flow-head {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 0.4rem;
+  }
+  .flow-head span { display: flex; flex-direction: column; gap: 0.2rem; }
+  .flow-head .sub { font-family: var(--sans); font-size: 0.78rem; letter-spacing: 0; text-transform: none; color: var(--fg-faint); font-weight: 400; }
+  .step {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding: 0.45rem 0;
+  }
+  .step > .slot { min-height: 1px; }
+  .box {
+    border-radius: 9px;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--line);
+    background: var(--app-bg);
+    display: flex;
+    gap: 0.65rem;
+    align-items: flex-start;
+  }
+  .box.portal { background: var(--accent-bg); border-color: var(--accent-line); }
+  .box .n {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--fg-subtle);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    min-width: 1.5rem;
+    text-align: center;
+    padding: 0.05rem 0;
+    font-variant-numeric: tabular-nums;
+    flex: none;
+  }
+  .box.portal .n { color: var(--accent-ink); border-color: var(--accent-line); }
+  .box .t { font-size: 0.88rem; line-height: 1.45; }
+  .box .t b { font-weight: 650; }
+  .box .t em { font-style: normal; color: var(--fg-subtle); display: block; font-size: 0.8rem; margin-top: 0.15rem; }
+  @media (max-width: 45.99rem) {
+    .flow-head { grid-template-columns: 1fr; gap: 0.2rem; }
+    .flow-head span:last-child { display: none; }
+    .step { grid-template-columns: 1fr; }
+    .step > .slot:empty { display: none; }
+  }
+
+  /* ---- state chain ---- */
+  .states { display: flex; flex-direction: column; gap: 1.1rem; }
+  .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .pill {
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+  .pill.wait { color: var(--wait); background: var(--wait-bg); border-color: color-mix(in srgb, var(--wait) 35%, transparent); }
+  .pill.go { color: var(--accent-ink); background: var(--accent-bg); border-color: var(--accent-line); }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+  .pill.bad { color: var(--bad); background: var(--bad-bg); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+  .arrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--fg-faint);
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.1;
+  }
+  .arrow b { font-weight: 400; color: var(--fg-subtle); font-size: 0.68rem; }
+
+  /* ---- table ---- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; min-width: 34rem; }
+  th, td { text-align: left; padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th { font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.11em; color: var(--fg-subtle); background: var(--raised); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono { font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
+
+  /* ---- decision list ---- */
+  .decisions { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 52rem) { .decisions { grid-template-columns: 1fr 1fr; } }
+  .dec { display: flex; flex-direction: column; gap: 0.45rem; padding: 1.1rem 1.2rem; border: 1px solid var(--line); border-left: 3px solid var(--accent-line); border-radius: 8px; background: var(--surface); }
+  .dec p { margin: 0; font-size: 0.89rem; color: var(--fg-muted); }
+  .dec .why { color: var(--fg); }
+
+  /* ---- todo ---- */
+  ul.todo { list-style: none; display: flex; flex-direction: column; gap: 0.7rem; }
+  ul.todo li { display: flex; gap: 0.7rem; align-items: flex-start; font-size: 0.93rem; }
+  ul.todo .mark { font-family: var(--mono); font-size: 0.72rem; font-weight: 700; border-radius: 4px; padding: 0.12rem 0.4rem; flex: none; margin-top: 0.15rem; }
+  .mark.you { background: var(--wait-bg); color: var(--wait); border: 1px solid color-mix(in srgb, var(--wait) 32%, transparent); }
+  .mark.done { background: var(--ok-bg); color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 32%, transparent); }
+
+  .note { border-left: 3px solid var(--line-strong); padding-left: 1rem; color: var(--fg-muted); font-size: 0.92rem; }
+  footer { border-top: 1px solid var(--line); padding-top: 1.5rem; font-size: 0.82rem; color: var(--fg-faint); font-family: var(--mono); }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <span class="eyebrow">Portal SkateHive · Post Suggestions</span>
+    <h1>Curadoria de cross-post<br>para o Instagram</h1>
+    <p class="lede measure">Quando alguém da comunidade marca “cross-post” num snap, o post não sai mais na hora. Ele entra numa fila, e o time de redes sociais decide o que vai pro Instagram da marca — corrigindo a legenda antes.</p>
+    <div class="meta">
+      <span class="chip on">só Instagram</span>
+      <span class="chip">só portal skatehive</span>
+      <span class="chip">inerte até ligar</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="head measure">
+      <span class="eyebrow">O que muda</span>
+      <h2>O @skatehive deixa de ser um mural aberto</h2>
+    </div>
+    <div class="split">
+      <div class="card">
+        <span class="lbl">Antes</span>
+        <p>A pessoa marcava cross-post e o snap ia direto pro Instagram. Sem revisão, sem edição — a legenda era a que ela escreveu pro Hive, que quase nunca é a legenda certa pro Instagram.</p>
+      </div>
+      <div class="card now">
+        <span class="lbl">Agora</span>
+        <p>O pedido entra numa fila. Alguém do time abre, vê o vídeo, reescreve a legenda, marca colaboradores, e escolhe: publica agora, agenda pra depois, ou recusa com um motivo — que chega pra pessoa.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head measure">
+      <span class="eyebrow">A arquitetura</span>
+      <h2>Dois sistemas, uma linha entre eles</h2>
+      <p class="measure" style="color:var(--fg-muted)">Essa é a parte que vale entender pra explicar depois. O trabalho está partido entre dois repositórios, e a divisão não foi arbitrária: <strong>decisão fica no portal, capacidade fica onde as credenciais estão.</strong></p>
+    </div>
+
+    <div class="flow">
+      <div class="flow-head">
+        <span><span class="lbl">App skatehive3.0</span><span class="sub">onde o usuário está</span></span>
+        <span><span class="lbl">Portal</span><span class="sub">onde o time decide</span></span>
+      </div>
+
+      <div class="step">
+        <div class="slot"><div class="box"><span class="n">1</span><span class="t"><b>Marca cross-post num snap</b><em>Nada é publicado. Vira uma linha na fila, com status “aguardando revisão”.</em></span></div></div>
+        <div class="slot"></div>
+      </div>
+      <div class="step">
+        <div class="slot"></div>
+        <div class="slot"><div class="box portal"><span class="n">2</span><span class="t"><b>Curador abre a fila</b><em>Vê a mídia, o autor, e a legenda que veio do Hive.</em></span></div></div>
+      </div>
+      <div class="step">
+        <div class="slot"></div>
+        <div class="slot"><div class="box portal"><span class="n">3</span><span class="t"><b>Corrige a legenda</b><em>Contador de 2200 caracteres, colaboradores até 3. Dá pra salvar e decidir depois.</em></span></div></div>
+      </div>
+      <div class="step">
+        <div class="slot"></div>
+        <div class="slot"><div class="box portal"><span class="n">4</span><span class="t"><b>Aprova, agenda ou recusa</b><em>Aprovar é instantâneo — só reserva a linha e enfileira o post.</em></span></div></div>
+      </div>
+      <div class="step">
+        <div class="slot"></div>
+        <div class="slot"><div class="box portal"><span class="n">5</span><span class="t"><b>O portal publica</b><em>Converte o vídeo pro formato que o Instagram aceita, publica, e tenta de novo se falhar.</em></span></div></div>
+      </div>
+      <div class="step">
+        <div class="slot"><div class="box"><span class="n">6</span><span class="t"><b>O autor recebe o aviso</b><em>O portal escreve o desfecho de volta na fila e insere a notificação.</em></span></div></div>
+        <div class="slot"></div>
+      </div>
+    </div>
+
+    <div class="note measure">
+      <p><strong>Por que o Farcaster ficou de fora.</strong> O cross-post de Farcaster publica na conta pessoal do usuário, e a chave que assina por ele mora no app. O portal não tem — e não deveria ter — a chave de um usuário qualquer da comunidade. Instagram é diferente: é a conta da marca, e o portal já publicava nela.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="head measure">
+      <span class="eyebrow">A fila</span>
+      <h2>Os estados por onde um pedido passa</h2>
+      <p class="measure" style="color:var(--fg-muted)">Enquanto o pedido está vivo em qualquer um dos estados do meio, a pessoa não consegue pedir o mesmo snap de novo. Quando ele é recusado ou falha, a vaga libera.</p>
+    </div>
+    <div class="states">
+      <div class="chain">
+        <span class="pill wait">aguardando revisão</span>
+        <span class="arrow">→<b>aprovar</b></span>
+        <span class="pill go">aprovado</span>
+        <span class="arrow">→<b>worker publica</b></span>
+        <span class="pill ok">publicado</span>
+      </div>
+      <div class="chain">
+        <span class="lbl" style="min-width:9.5rem">saídas alternativas</span>
+        <span class="pill wait">aguardando revisão</span>
+        <span class="arrow">→<b>curador recusa</b></span>
+        <span class="pill bad">recusado</span>
+        <span class="arrow" style="padding:0 .4rem">·</span>
+        <span class="pill go">aprovado</span>
+        <span class="arrow">→<b>desistiu de tentar</b></span>
+        <span class="pill bad">falhou</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head measure">
+      <span class="eyebrow">O outro lado</span>
+      <h2>O que o autor do snap recebe</h2>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Quando</th><th>Notificação</th><th>Leva link</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>O curador recusa</td><td class="mono">crosspost_rejected</td><td>não — leva o motivo escrito</td></tr>
+          <tr><td>Aprovado com data futura</td><td class="mono">crosspost_scheduled</td><td>não — leva a data</td></tr>
+          <tr><td>O post entra no ar</td><td class="mono">crosspost_published</td><td>sim, o post no Instagram</td></tr>
+          <tr><td>Falhou de vez</td><td class="mono">crosspost_failed</td><td>não — avisa que dá pra pedir de novo</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note measure">Num “publicar agora” não existe aviso de aprovação: o post sai em minutos e o aviso de publicado chega logo, já com o link. Dois avisos em sequência pela mesma ação é como se ensina alguém a silenciar notificação.</p>
+  </section>
+
+  <section>
+    <div class="head measure">
+      <span class="eyebrow">Sob o capô</span>
+      <h2>Cinco decisões que parecem detalhe e não são</h2>
+      <p class="measure" style="color:var(--fg-muted)">Se alguém perguntar “por que isso é mais complicado do que parece”, é isto aqui.</p>
+    </div>
+    <div class="decisions">
+      <div class="dec">
+        <h3>Dois curadores, um post</h3>
+        <p class="why">Se duas pessoas aprovarem o mesmo pedido ao mesmo tempo, o post sairia duas vezes no Instagram.</p>
+        <p>A reserva da linha é uma operação atômica no banco: só uma das duas ganha, a outra recebe “alguém chegou antes” e a lista recarrega.</p>
+      </div>
+      <div class="dec">
+        <h3>Uma senha estreita, não a chave mestra</h3>
+        <p class="why">A chave que o portal já tinha pro banco do app enxerga tudo — inclusive as chaves de publicação de todos os usuários.</p>
+        <p>A curadoria usa um usuário separado, que só consegue ler a fila, editar a fila, e inserir notificação. Se o portal for comprometido, o estrago para aí.</p>
+      </div>
+      <div class="dec">
+        <h3>Avisar não pode republicar</h3>
+        <p class="why">O aviso de “publicado” roda logo depois do post já estar no ar. Se ele desse erro, o sistema entendia como falha na publicação e postava de novo.</p>
+        <p>Essa parte foi construída pra nunca lançar erro, em duas camadas. Perder um aviso é ruim; postar duas vezes na conta da marca é muito pior.</p>
+      </div>
+      <div class="dec">
+        <h3>Aprovar em lote não pode matar post bom</h3>
+        <p class="why">O Instagram limita quantos posts entram por dia. Aprovar vinte de uma vez estoura o teto, e o sistema desistia em duas horas — antes do limite reabrir.</p>
+        <p>Limite de cota agora tem tratamento próprio: tenta de hora em hora por um dia inteiro, sem gastar as tentativas reservadas pra erro de verdade.</p>
+      </div>
+      <div class="dec">
+        <h3>Um faxineiro rodando</h3>
+        <p class="why">Se um aviso se perder, ou alguém apagar o post depois de aprovado, o pedido ficaria travado pra sempre e o autor nunca mais pediria aquele snap.</p>
+        <p>A cada dez minutos uma rotina compara os dois lados e conserta: escreve o desfecho que faltou, ou devolve o pedido pra fila de revisão.</p>
+      </div>
+      <div class="dec">
+        <h3>O vídeo precisa ser convertido</h3>
+        <p class="why">Vídeo que veio do Hive quase nunca está no formato que o Instagram aceita. Mandar cru significa recusa, ou o Instagram re-comprimindo do jeito dele.</p>
+        <p>Por isso o Instagram passou a publicar pelo portal e não pelo app: o portal já tinha essa conversão pronta, rodando na máquina do escritório.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head measure">
+      <span class="eyebrow">Situação</span>
+      <h2>O que falta para ligar</h2>
+      <p class="measure" style="color:var(--fg-muted)">O código está pronto e commitado numa branch. Ele nunca rodou contra dados reais — a fila está vazia e a conexão não foi configurada. Nada disso está ligado em produção.</p>
+    </div>
+    <ul class="todo measure">
+      <li><span class="mark done">feito</span><span>A tela, a publicação, o agendamento, os quatro avisos e as proteções acima.</span></li>
+      <li><span class="mark done">feito</span><span>Um script de conferência que valida a conexão e as permissões antes de qualquer coisa entrar no ar.</span></li>
+      <li><span class="mark you">falta</span><span>Criar o usuário estreito no banco do app e configurar a conexão — inclusive na máquina que publica, não só no servidor.</span></li>
+      <li><span class="mark you">falta</span><span>Cadastrar os quatro tipos de notificação no app, senão o aviso chega em inglês.</span></li>
+      <li><span class="mark you">falta</span><span>Um aviso no momento do clique, no app: “foi pra curadoria, a gente te avisa”. Sem ele, a pessoa clica e acha que quebrou.</span></li>
+      <li><span class="mark you">falta</span><span>Ligar a fila para um handle só primeiro, e testar recusa → foto → vídeo, nessa ordem.</span></li>
+    </ul>
+  </section>
+
+  <footer>
+    branch feat/crosspost-instagram-curation · 5 commits · sem push
+  </footer>
+
+</div>

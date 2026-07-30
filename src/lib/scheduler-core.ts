@@ -23,6 +23,16 @@ import { publishInstagramPost, type IgUserTag } from "@/lib/instagram-publish";
 import { publishFacebookPost, facebookCrosspostEnabled } from "@/lib/facebook-publish";
 import { publishLabChannel } from "@/lib/lab-publish";
 import { ensureInstagramMedia } from "@/lib/transcode-ig";
+import {
+  crossPostConfig,
+  deliverNotice,
+  listApprovedQueueIds,
+  markQueueFailed,
+  markQueuePublished,
+  releaseClaim,
+} from "@/lib/crosspost-queue";
+import { pendingNotices, type NoticeKind, type NoticePayload } from "@/lib/crosspost-notices";
+import { MAC_LEASE_GRACE_MS } from "@/lib/scheduler-lease";
 import { getProject } from "@/projects/index";
 
 const MAX_PER_TICK = 5;
@@ -36,12 +46,36 @@ function isPermanentIgError(msg: string): boolean {
     msg,
   );
 }
+
+// Meta caps content publishing per rolling 24h window. Hitting it means nothing
+// is wrong with the post — it just has to wait its turn, which matters most when
+// a curator approves a batch of cross-posts at once. The normal backoff
+// (5,10,20,40,60,60 min) burns all six attempts in about two hours and kills
+// perfectly good posts long before the window reopens, so rate limits get their
+// own lane: retry hourly, and don't spend an attempt doing it.
+const IG_RATE_LIMIT_RETRY_MS = 60 * 60_000;
+const IG_RATE_LIMIT_GIVE_UP_MS = 26 * 60 * 60_000; // one full window, plus slack
+function isIgRateLimit(msg: string): boolean {
+  return /rate limit|request limit|limit reached|too many|maximum number of|\(#(4|17|613)\)/i.test(
+    msg,
+  );
+}
+
 /** DB update after a failed IG publish: retry (reschedule + backoff) or fail. */
 function igFailureUpdate(
   attempts: number,
   error: string,
   now: number,
+  /** When the post was queued — bounds how long a rate-limited post keeps waiting. */
+  queuedAtMs?: number,
 ): { status: string; error: string; attempts: number; scheduledFor?: Date } {
+  if (
+    isIgRateLimit(error) &&
+    (queuedAtMs === undefined || now - queuedAtMs < IG_RATE_LIMIT_GIVE_UP_MS)
+  ) {
+    // attempts deliberately unchanged: waiting out a quota isn't a failed try.
+    return { status: "scheduled", error, attempts, scheduledFor: new Date(now + IG_RATE_LIMIT_RETRY_MS) };
+  }
   const next = attempts + 1;
   if (next >= MAX_IG_ATTEMPTS || isPermanentIgError(error)) {
     return { status: "failed", error, attempts: next };
@@ -276,16 +310,39 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
             mediaUrls,
           }).catch(() => {});
         }
+        // Came from the cross-post queue → tell the app, so the author sees it
+        // published. The post is ALREADY live at this point, so this is strictly
+        // best-effort: the .catch() keeps a write-back failure from reaching the
+        // outer catch, which would reschedule an published post and post it to
+        // Instagram twice. markQueuePublished also guards itself; this is the
+        // second layer, so a future edit there can't reintroduce that.
+        if (post.crossPostQueueId) {
+          await markQueuePublished(post.crossPostQueueId, {
+            igMediaId: result.igMediaId,
+            permalink: result.permalink ?? null,
+          }).catch(() => {});
+        }
         results.push({ id: post.id, projectSlug: post.projectSlug, ok: true, igMediaId: result.igMediaId });
       } else {
-        const upd = igFailureUpdate(post.attempts ?? 0, result.error, now);
+        const upd = igFailureUpdate(post.attempts ?? 0, result.error, now, post.createdAt?.getTime());
         await prisma.instagramPost.update({ where: { id: post.id }, data: upd });
+        // Only report back once we've actually given up — a transient failure
+        // is about to be retried, and marking it `failed` would free the slot
+        // for a duplicate request while our retry is still pending.
+        if (post.crossPostQueueId && upd.status === "failed") {
+          await markQueueFailed(post.crossPostQueueId, result.error).catch(() => {});
+        }
         results.push({ id: post.id, projectSlug: post.projectSlug, ok: false, error: result.error, retrying: upd.status === "scheduled" });
       }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      const upd = igFailureUpdate(post.attempts ?? 0, error, now);
+      const upd = igFailureUpdate(post.attempts ?? 0, error, now, post.createdAt?.getTime());
       await prisma.instagramPost.update({ where: { id: post.id }, data: upd });
+      if (post.crossPostQueueId && upd.status === "failed") {
+        // Inside the catch already — an throw here would escape publishDueIgPosts
+        // and abort the whole tick, stranding every other due post.
+        await markQueueFailed(post.crossPostQueueId, error).catch(() => {});
+      }
       results.push({ id: post.id, projectSlug: post.projectSlug, ok: false, error, retrying: upd.status === "scheduled" });
     }
   }
@@ -370,11 +427,82 @@ export type TickResult = {
 /** Publish everything currently due (tweets + Instagram + Lab cross-network).
  *  Idempotent/safe to run concurrently — each lane uses an atomic claim or
  *  clears its schedule on success. */
+// ---------------------------------------------------------------------------
+// Cross-post reconciliation
+//
+// The write-back after publishing is best-effort by design (it must never throw
+// and re-publish a live post), so it CAN be lost — a dropped connection, a host
+// without the userbase credentials. A curator can also delete the InstagramPost
+// from Post Creator. Either way the queue row is stranded in `approved`, holding
+// its slot in the app's partial unique index, and the author can never ask for
+// that snap again.
+//
+// This is the janitor. Every write it makes is idempotent: markQueuePublished /
+// markQueueFailed are guarded on `status = 'approved'`, so re-running one on an
+// already-settled row updates nothing and — because the notification INSERT
+// lives inside that same transaction — sends nothing twice.
+// ---------------------------------------------------------------------------
+
+const RECONCILE_EVERY_MS = 10 * 60_000;
+// Old enough that a normal approve→publish has had every chance to finish, so
+// we never race a healthy post that's mid-flight.
+const RECONCILE_MIN_AGE_MS = 30 * 60_000;
+let lastReconcileAt = 0;
+
+async function reconcileCrossPosts(now: number): Promise<number> {
+  if (now - lastReconcileAt < RECONCILE_EVERY_MS) return 0;
+  lastReconcileAt = now;
+
+  // Notices the portal claimed but never got confirmed by the app. Without this
+  // retry, a network blip mid-insert means an author is simply never told —
+  // which is the failure PostgREST's lack of transactions would otherwise force
+  // us to accept. Delivery is idempotent: the claim was already taken, so this
+  // can only ever produce the one notification that was owed.
+  const owed = await pendingNotices();
+  for (const n of owed) {
+    await deliverNotice(n.queueId, n.kind as NoticeKind, n.payload as unknown as NoticePayload);
+  }
+
+  const ids = await listApprovedQueueIds(RECONCILE_MIN_AGE_MS);
+  if (ids.length === 0) return owed.length;
+
+  const posts = await prisma.instagramPost.findMany({
+    where: { crossPostQueueId: { in: ids } },
+    select: { crossPostQueueId: true, status: true, igMediaId: true, permalink: true, error: true },
+  });
+  const byQueueId = new Map(posts.map((p) => [p.crossPostQueueId, p]));
+
+  let repaired = owed.length;
+  for (const id of ids) {
+    const post = byQueueId.get(id);
+
+    // The post is gone — deleted after approval. Put the request back in the
+    // review queue rather than leaving the author blocked on a ghost.
+    if (!post) {
+      await releaseClaim(id);
+      repaired++;
+      continue;
+    }
+
+    if (post.status === "published" && post.igMediaId) {
+      await markQueuePublished(id, { igMediaId: post.igMediaId, permalink: post.permalink });
+      repaired++;
+    } else if (post.status === "failed") {
+      await markQueueFailed(id, post.error ?? "Publicação falhou no portal.");
+      repaired++;
+    }
+    // scheduled / publishing → legitimately still on its way. Leave it.
+  }
+  return repaired;
+}
+
 export async function runScheduledPublish(now: number): Promise<TickResult> {
   const [tweetDue, igResults, labResults] = await Promise.all([
     findDueItems(now),
     publishDueIgPosts(now),
     publishDueLabPosts(now),
+    // Never let the janitor break a tick — publishing is what matters here.
+    reconcileCrossPosts(now).catch(() => 0),
   ]);
 
   const due = tweetDue.slice(0, MAX_PER_TICK);
@@ -401,16 +529,20 @@ export async function runScheduledPublish(now: number): Promise<TickResult> {
 // Mac heartbeat lease — lets the Vercel fallback know whether the Mac is alive.
 // ---------------------------------------------------------------------------
 
-export const MAC_LEASE_GRACE_MS = 6 * 60 * 1000; // 6 minutes
 
 /** Refresh the Mac's heartbeat. Called by the Mac worker's tick (source=mac)
  *  ONLY on a successful tick — so if the local portal/Neon is unreachable the
  *  lease goes stale and the Vercel fallback correctly takes over. */
 export async function touchMacLease(now: number): Promise<void> {
+  // Report whether THIS host can write cross-post results back. The curation UI
+  // runs on Vercel and can't read the Mac's environment, so the publisher has to
+  // say so itself — otherwise missing userbase credentials here only show
+  // up after a post is already live and its author was never told.
+  const crossPostReady = crossPostConfig().db ? new Date(now) : undefined;
   await prisma.schedulerLease.upsert({
     where: { id: "singleton" },
-    create: { id: "singleton", lastMacTickAt: new Date(now) },
-    update: { lastMacTickAt: new Date(now) },
+    create: { id: "singleton", lastMacTickAt: new Date(now), crossPostReadyAt: crossPostReady },
+    update: { lastMacTickAt: new Date(now), ...(crossPostReady ? { crossPostReadyAt: crossPostReady } : {}) },
   });
 }
 

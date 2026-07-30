@@ -1,28 +1,34 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Sparkles, GitBranch, CalendarDays } from "lucide-react";
+import { Sparkles, GitBranch, CalendarDays, Users } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
 
+type TabKey = "community" | "repo" | "crosspost" | "calendar";
+
 // Tab switch for the consolidated Post Suggestions page: community-driven
-// drafts vs commit-driven drafts (the former Repo to Social route).
+// drafts, commit-driven drafts (the former Repo to Social route), and the
+// cross-post queue members submit from the main app.
 export function PostSuggestionTabs({
   initial,
   community,
   repo,
+  crosspost,
   calendar,
 }: {
-  initial: "community" | "repo" | "calendar";
+  initial: TabKey;
   community: ReactNode;
   repo: ReactNode;
+  crosspost?: ReactNode;
   calendar?: ReactNode;
 }) {
   // Shareable: active tab in ?tab=.
   const [rawTab, setTab] = useUrlTab("tab", initial);
-  const tab = (["community", "repo", "calendar"].includes(rawTab) ? rawTab : initial) as "community" | "repo" | "calendar";
+  const tab = (["community", "repo", "crosspost", "calendar"].includes(rawTab) ? rawTab : initial) as TabKey;
   const tabs = [
     { key: "community" as const, label: "Community", icon: Sparkles },
     { key: "repo" as const, label: "Repo to Social", icon: GitBranch },
+    ...(crosspost ? [{ key: "crosspost" as const, label: "Cross-post", icon: Users }] : []),
     ...(calendar ? [{ key: "calendar" as const, label: "Calendar", icon: CalendarDays }] : []),
   ];
   return (
@@ -48,6 +54,7 @@ export function PostSuggestionTabs({
       {/* Panes stay mounted so switching tabs doesn't drop in-flight runs/edits. */}
       <div className={tab === "community" ? "" : "hidden"}>{community}</div>
       <div className={tab === "repo" ? "" : "hidden"}>{repo}</div>
+      {crosspost && <div className={tab === "crosspost" ? "" : "hidden"}>{crosspost}</div>}
       {calendar && <div className={tab === "calendar" ? "" : "hidden"}>{calendar}</div>}
     </div>
   );

@@ -197,6 +197,15 @@ export type ProjectConfig = {
    * /api/homepage/current for skatehive3.0's /home route. Absent = nav hidden + 404.
    */
   homepage?: boolean;
+
+  /**
+   * When true, the Cross-post tab on /marketing-suggestions is enabled — the
+   * curation queue for posts community members ask to have re-published on the
+   * brand's Instagram / their own Farcaster. The queue itself lives in the main
+   * app's Supabase (`userbase_crosspost_queue`), so this only makes sense for
+   * projects whose app writes to it. Absent = tab hidden.
+   */
+  crossPostQueue?: boolean;
   /**
    * Treasury wallets shown on /treasury — the SAME wallets/sources the
    * project's native app shows (skatehive.app/dao, gnars.com/treasury).

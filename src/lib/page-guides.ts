@@ -90,6 +90,10 @@ export const PAGE_GUIDES: Record<string, PageGuide> = {
         heading: "Review and publish",
         body: "Each suggestion can be edited, discarded, published now (Hive, Farcaster, X intent, Binance Square) or scheduled. The config panel controls cadence, sources, and the standing prompt that shapes the voice.",
       },
+      {
+        heading: "Cross-post queue",
+        body: "The Cross-post tab is the Instagram curation queue: when a community member marks \"cross-post\" on a snap, nothing goes out until someone approves it here. Fix the caption (2200 chars) and the collaborators, then publish now or pick a time — scheduled ones show up on the Calendar tab. Rejecting asks for a note, which reaches the author as a notification in their own language. Publishing runs through the portal's own pipeline, so the video is transcoded to an Instagram-safe MP4 first and retried on transient failures.",
+      },
     ],
   },
   "/campaign-creator": {
