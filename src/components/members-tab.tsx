@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Radio, Users2, Wallet } from "lucide-react";
 import { usd, usdTiny, pct } from "@/lib/format";
 import { chartColorAt } from "@/lib/chart-colors";
+import { ReadFailed } from "@/components/data-state";
 
 // Membros tab shell (from the Claude Design redesign): two sub-views —
 // "Painel · ao vivo" (what's happening, for anyone) and "Controles · admin"
@@ -141,6 +142,7 @@ export function MembersTab({
   streaming,
   runwayDays,
   bufferUsd,
+  streamFailed,
   flow,
   sustainability,
   connect,
@@ -152,6 +154,8 @@ export function MembersTab({
   streaming: boolean;
   runwayDays: number | null;
   bufferUsd: number;
+  /** True when the pool exists but the stream read failed (subgraph/RPC didn't answer). */
+  streamFailed?: boolean;
   /** The animated flow view. */
   flow: ReactNode;
   /** The sustainability gauge. */
@@ -192,6 +196,11 @@ export function MembersTab({
 
       {tab === "painel" ? (
         <div className="space-y-5">
+          {streamFailed && (
+            <ReadFailed>
+              Não consegui ler o estado do stream agora (a rede pública engasgou). Os números abaixo podem estar defasados — recarregue em instantes.
+            </ReadFailed>
+          )}
           {/* The payroll rails are fully wired, but the rate can be so small that
               the panel reads as a production payroll when it is really a dry run.
               Say so out loud instead of letting the bars imply otherwise. */}

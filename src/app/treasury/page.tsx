@@ -417,6 +417,7 @@ treasury: {
               streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
               runwayDays={streamStatus?.runwayDays ?? null}
               bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
+              streamFailed={!!poolAddress && !streamStatus}
               flow={
                 <>
                   <StreamFlowView
@@ -430,6 +431,7 @@ treasury: {
               sustainability={
                 poolAddress ? (
                   <StreamSustainability
+                    failed={!streamStatus}
                     yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
                     burnMonthly={streamStatus?.monthlyUsd ?? 0}
                     bufferUsdcx={streamStatus?.safeUsdcxUsd ?? 0}

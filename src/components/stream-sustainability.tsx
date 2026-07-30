@@ -2,6 +2,7 @@
 
 import { Gauge, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { usd } from "@/lib/format";
+import { ReadFailed } from "@/components/data-state";
 
 // The sustainability "ruler": is the yield covering the stream, and how much
 // runway does the USDCx buffer give? Plus the guided action — harvest yield
@@ -11,12 +12,26 @@ export function StreamSustainability({
   burnMonthly,
   bufferUsdcx,
   runwayDays,
+  failed = false,
 }: {
   yieldMonthly: number | null;
   burnMonthly: number;
   bufferUsdcx: number;
   runwayDays: number | null;
+  /** Pool exists but the stream read failed → show a read-failed state, not "parado". */
+  failed?: boolean;
 }) {
+  if (failed) {
+    return (
+      <section className="rounded-2xl border border-border bg-surface p-5">
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+          <Gauge className="h-4 w-4 text-accent" /> Isso é sustentável?
+        </h2>
+        <ReadFailed>Não consegui ler o estado do stream agora (a rede pública engasgou). Recarregue em instantes.</ReadFailed>
+      </section>
+    );
+  }
+
   const streaming = burnMonthly > 0;
   const sustainable = yieldMonthly != null && streaming && yieldMonthly >= burnMonthly;
   const coverage = streaming && yieldMonthly != null ? yieldMonthly / burnMonthly : null;

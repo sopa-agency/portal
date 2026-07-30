@@ -5,6 +5,7 @@ import { PiggyBank, Loader2, ExternalLink, ArrowDownToLine, ArrowUpFromLine } fr
 import { proposeStake, proposeUnstake } from "@/app/actions/staking";
 import type { StakePosition } from "@/lib/staking";
 import { usd } from "@/lib/format";
+import { ReadFailed } from "@/components/data-state";
 
 const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 
@@ -37,24 +38,30 @@ export function StakingPanel({ position, canEdit }: { position: StakePosition; c
         <span className="font-mono text-[11px] text-foreground-faint">Moonwell Flagship USDC</span>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Guardado</div>
-          <div className="text-sm font-semibold tabular-nums text-foreground">{usd(position.valueUsd)}</div>
-        </div>
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Rendimento ao ano</div>
-          <div className="text-sm font-semibold tabular-nums text-success">
-            {position.apy != null ? pct(position.apy) : "—"}
+      {position.failed ? (
+        <ReadFailed>
+          Não consegui ler o cofre agora (a rede pública engasgou). Recarregue em instantes — prefiro não mostrar número nenhum a mostrar um errado.
+        </ReadFailed>
+      ) : (
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Guardado</div>
+            <div className="text-sm font-semibold tabular-nums text-foreground">{usd(position.valueUsd)}</div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Rendimento ao ano</div>
+            <div className="text-sm font-semibold tabular-nums text-success">
+              {position.apy != null ? pct(position.apy) : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Rende por mês</div>
+            <div className="text-sm font-semibold tabular-nums text-foreground">
+              {position.monthlyYieldUsd != null ? usd(position.monthlyYieldUsd) : "—"}
+            </div>
           </div>
         </div>
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Rende por mês</div>
-          <div className="text-sm font-semibold tabular-nums text-foreground">
-            {position.monthlyYieldUsd != null ? usd(position.monthlyYieldUsd) : "—"}
-          </div>
-        </div>
-      </div>
+      )}
       <p className="mt-2 text-[11px] text-foreground-subtle">
         O cofre guarda o dinheiro do time rendendo juros. Esse rendimento é o teto do que dá pra pagar sem comer o principal.
       </p>

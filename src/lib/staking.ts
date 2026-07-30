@@ -23,6 +23,10 @@ export type StakePosition = {
   netDepositedUsd: number | null;
   /** Yield accrued so far = current value − net deposited. Null if unknown. */
   harvestableUsd: number | null;
+  /** True when the read failed — the numbers above are NOT observed. Consumers
+      must show a "não consegui ler" state, never a $0 that looks like an empty
+      position (a genuine empty position returns valueUsd:0 WITHOUT this flag). */
+  failed?: boolean;
 };
 
 /**
@@ -116,6 +120,8 @@ export async function getStakePosition(safe: string): Promise<StakePosition> {
       harvestableUsd: harvestable,
     };
   } catch {
-    return { valueUsd: 0, apy: null, monthlyYieldUsd: null, netDepositedUsd: null, harvestableUsd: null };
+    // Read failed — flag it. Returning a bare $0 here would be indistinguishable
+    // from a real empty position, exactly the "wrong number" this page refuses.
+    return { valueUsd: 0, apy: null, monthlyYieldUsd: null, netDepositedUsd: null, harvestableUsd: null, failed: true };
   }
 }
