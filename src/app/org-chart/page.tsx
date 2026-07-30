@@ -1,14 +1,19 @@
 import { notFound } from "next/navigation";
 import { getActiveProject, getAllProjects } from "@/projects";
 import { listBoard } from "@/app/actions/sopa-boards";
-import { SopaOrgChart, type Person } from "@/components/sopa-org-chart";
+import { type Person } from "@/components/sopa-org-chart";
+import { OrgChartViews } from "@/components/org-chart-views";
+import { getSopaRevenueOrbit } from "@/lib/sopa-revenue-orbit";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrgChartPage() {
   const project = await getActiveProject();
   if (!project.orgChart || project.slug !== "sopa") notFound();
-  const cards = await listBoard("orgchart");
+  const [cards, orbit] = await Promise.all([
+    listBoard("orgchart"),
+    getSopaRevenueOrbit().catch(() => ({ totalToSopaUsd: 0, grossTotalUsd: 0, projects: [] })),
+  ]);
 
   // Roster = everyone across every project's team (allowlist), deduped. Hive
   // avatars + profile links come for free from the username.
@@ -28,5 +33,5 @@ export default async function OrgChartPage() {
   }
   roster.sort((a, b) => a.username.localeCompare(b.username));
 
-  return <SopaOrgChart initial={cards} roster={roster} />;
+  return <OrgChartViews cards={cards} roster={roster} orbit={orbit} />;
 }
