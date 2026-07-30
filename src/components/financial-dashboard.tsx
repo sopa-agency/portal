@@ -122,13 +122,13 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
             <Bars series={visibleSeries} />
           </div>
           <div className="grid min-w-[220px] flex-1 grid-cols-2 gap-2.5 self-start">
-            <Box label="Entrada" value={usd(incomingUsd)} tone="text-emerald-600 dark:text-emerald-400" />
+            <Box label="Entrada" value={usd(incomingUsd)} tone="text-success" />
             <Box label="Saída" value={usd(outgoingUsd)} tone="text-foreground" />
             <div className="col-span-2">
               <Box
                 label="Líquido no período"
                 value={usd(netUsd)}
-                tone={netUsd >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-danger"}
+                tone={netUsd >= 0 ? "text-success" : "text-danger"}
                 sub={netPhrase}
               />
             </div>
@@ -154,7 +154,7 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
                 </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-border">
-                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(onchainShare, onchainIncomingUsd > 0 ? 4 : 0)}%` }} />
+                <div className="h-full rounded-full bg-success" style={{ width: `${Math.max(onchainShare, onchainIncomingUsd > 0 ? 4 : 0)}%` }} />
               </div>
             </div>
             <div>

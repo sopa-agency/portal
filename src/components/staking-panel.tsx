@@ -29,10 +29,10 @@ export function StakingPanel({ position, canEdit }: { position: StakePosition; c
     });
 
   return (
-    <section className="rounded-2xl border border-emerald-500/40 bg-surface p-5">
+    <section className="rounded-2xl border border-success/40 bg-surface p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-          <PiggyBank className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> O cofre
+          <PiggyBank className="h-4 w-4 text-success" /> O cofre
         </h2>
         <span className="font-mono text-[11px] text-foreground-faint">Moonwell Flagship USDC</span>
       </div>
@@ -44,7 +44,7 @@ export function StakingPanel({ position, canEdit }: { position: StakePosition; c
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Rendimento ao ano</div>
-          <div className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+          <div className="text-sm font-semibold tabular-nums text-success">
             {position.apy != null ? pct(position.apy) : "—"}
           </div>
         </div>
