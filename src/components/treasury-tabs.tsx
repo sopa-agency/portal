@@ -1,14 +1,15 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Wallet, ScrollText, Users2, PiggyBank, type LucideIcon } from "lucide-react";
+import { Wallet, ScrollText, Users2, PiggyBank, Receipt, type LucideIcon } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
 
-// Top-level tabs on the SOPA treasury page: the live treasury (balances,
-// revenue, costs), the payroll stream members, community staking, and the plan.
-export function TreasuryTabs({ treasury, members, apoiar, plan }: { treasury: ReactNode; members?: ReactNode; apoiar?: ReactNode; plan: ReactNode }) {
+// Top-level tabs on the SOPA treasury page: the live treasury (balances +
+// revenue), fixed costs, the payroll stream members, community staking, the plan.
+export function TreasuryTabs({ treasury, costs, members, apoiar, plan }: { treasury: ReactNode; costs?: ReactNode; members?: ReactNode; apoiar?: ReactNode; plan: ReactNode }) {
   const tabs: { id: string; label: string; icon: LucideIcon; node: ReactNode }[] = [
     { id: "tesouro", label: "Tesouro", icon: Wallet, node: treasury },
+    ...(costs ? [{ id: "custos", label: "Custos", icon: Receipt, node: costs }] : []),
     ...(members ? [{ id: "membros", label: "Membros", icon: Users2, node: members }] : []),
     ...(apoiar ? [{ id: "apoiar", label: "Apoiar", icon: PiggyBank, node: apoiar }] : []),
     { id: "plano", label: "Plano financeiro", icon: ScrollText, node: plan },

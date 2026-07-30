@@ -7,6 +7,7 @@ import { TreasuryRefresh } from "@/components/treasury-refresh";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
+import { CostsTab } from "@/components/costs-tab";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue } from "@/lib/org-revenue";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
@@ -291,14 +292,6 @@ treasury: {
             .reduce((s, c) => s + c.monthlyUsd, 0)}
         />
       )}
-      <div className="border-t border-border pt-8">
-        <FixedCostsPanel
-          groups={costGroups}
-          initialCosts={initialCosts}
-          usdBrl={costScope.usdBrl}
-          canEdit={!!session}
-        />
-      </div>
       {(budgets.length > 0 || safes.length > 0) && (
         <details className="group border-t border-border pt-8">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
@@ -411,6 +404,14 @@ treasury: {
       {isSopa ? (
         <TreasuryTabs
           treasury={treasuryContent}
+          costs={
+            <CostsTab
+              groups={costGroups}
+              initialCosts={initialCosts}
+              usdBrl={costScope.usdBrl}
+              canEdit={!!session}
+            />
+          }
           members={
             <MembersTab
               canEdit={!!session}
