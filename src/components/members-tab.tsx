@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Radio, Users2, Wallet } from "lucide-react";
-import { usd, usdTiny, pct } from "@/lib/format";
+import { usd, usdTiny, pct, daysTone, toneText } from "@/lib/format";
 import { chartColorAt } from "@/lib/chart-colors";
 import { ReadFailed } from "@/components/data-state";
 
@@ -222,7 +222,7 @@ export function MembersTab({
               hint="Quanto tempo o pagamento continua com a reserva atual, sem repor nada."
               value={runwayDays == null ? "—" : `${Math.floor(runwayDays)}`}
               sub={runwayDays == null ? undefined : " dias"}
-              tone={runwayDays == null ? "text-foreground-muted" : runwayDays < 14 ? "text-danger" : runwayDays < 45 ? "text-warning" : "text-success"}
+              tone={toneText[daysTone(runwayDays)]}
             />
             <Stat label="Na reserva" hint="O dinheiro já convertido, pronto pra pingar no time." value={usd(bufferUsd)} />
             <Stat label="Recebendo ao vivo" value={`${connectedCount}`} sub={`/${activeCount}`} tone={connectedCount === activeCount && activeCount > 0 ? "text-success" : "text-warning"} />
