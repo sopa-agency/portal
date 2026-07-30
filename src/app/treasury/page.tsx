@@ -14,7 +14,7 @@ import { listSopaJobs } from "@/app/actions/sopa-jobs";
 import { PayrollPanel, type PayrollRosterOption } from "@/components/payroll-panel";
 import { listPayrollMembers } from "@/app/actions/payroll";
 import { getTeamRoster } from "@/lib/team-roster";
-import { StreamStatus } from "@/components/stream-status";
+import { NotConfigured } from "@/components/data-state";
 import { CreatePoolButton } from "@/components/create-pool-button";
 import { StreamActions } from "@/components/stream-actions";
 import { StreamFlowView } from "@/components/stream-flow-view";
@@ -439,7 +439,13 @@ treasury: {
                     streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
                     monthlyUsd={streamStatus?.monthlyUsd ?? null}
                   />
-                  {!poolAddress && <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />}
+                  {!poolAddress && (
+                    <NotConfigured>
+                      <b className="font-semibold text-foreground">Pool de pagamento ainda não criada.</b> Crie e assine no Safe
+                      (Controles → criar a pool). Depois disso o status ao vivo aparece aqui: taxa mensal, reserva, runway e quem
+                      está conectado.
+                    </NotConfigured>
+                  )}
                 </>
               }
               sustainability={
