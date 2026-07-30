@@ -2,7 +2,7 @@
 
 import type { SopaRevenueOrbit } from "@/lib/sopa-revenue-orbit";
 
-// "Receita" view of the org-chart: every project's swap-split / auction revenue
+// "Revenue" view of the org-chart: every project's swap-split / auction revenue
 // flowing INTO the SOPA treasury (the sun). Same animated SVG+CSS particle
 // technique as the payroll/vault flow views — no deps. Each ribbon is one split
 // where SOPA is a recipient; its width ∝ what lands in the SOPA Safe, its color
@@ -27,10 +27,10 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
   if (rows.length === 0) {
     return (
       <section className="rounded-2xl border border-dashed border-border bg-surface p-8 text-center">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">Receita pra SOPA</h2>
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">Revenue to SOPA</h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-foreground-muted">
-          Ainda não há split/swap com receita realizada apontando pro tesouro da SOPA. Assim que um projeto gerar
-          (ex.: a taxa de um swap split cair no Safe), o fluxo aparece aqui.
+          No split/swap with realized revenue points to the SOPA treasury yet. As soon as a project generates some (e.g. a swap
+          split&apos;s fee lands in the Safe), the flow shows up here.
         </p>
       </section>
     );
@@ -61,10 +61,10 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
     <section className="overflow-hidden rounded-2xl border border-border bg-surface p-5 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">Receita fluindo pra SOPA</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">Revenue flowing to SOPA</h2>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-foreground-muted">
-            Cada projeto e seus swap splits gerando pro tesouro da SOPA. A espessura é a fatia que <b>chega no Safe</b> (bruto ×
-            a parte da SOPA, lida do próprio split); o valor cheio está no rótulo.
+            Each project and its swap splits generating for the SOPA treasury. The thickness is the share that <b>lands in the
+            Safe</b> (gross × SOPA&apos;s cut, read from the split itself); the full amount is on the label.
           </p>
         </div>
         <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-accent-border bg-accent-bg px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-accent">
@@ -75,16 +75,16 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
 
       {/* Total realized into SOPA — said out loud above the flow. */}
       <div className="mt-4 inline-flex flex-wrap items-center gap-3 rounded-xl border border-accent-border bg-accent-bg/60 px-4 py-2.5">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">Entrou na SOPA</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">Into SOPA</span>
         <span className="font-mono text-lg font-semibold tabular-nums text-accent">{usd(orbit.totalToSopaUsd)}</span>
         <span className="h-4 w-px bg-border" />
         <span className="font-mono text-xs text-foreground-muted">
-          de {usd(orbit.grossTotalUsd)} <span className="text-foreground-faint">distribuídos</span>
+          of {usd(orbit.grossTotalUsd)} <span className="text-foreground-faint">distributed</span>
         </span>
       </div>
 
       <div className="mt-5 overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 640 }} role="img" aria-label="Receita dos projetos fluindo pro tesouro da SOPA">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 640 }} role="img" aria-label="Project revenue flowing into the SOPA treasury">
           {/* Ribbons: width ∝ $ into SOPA; color = project. */}
           {rows.map((r, i) => {
             const y = yAt(i);
@@ -93,7 +93,7 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
             const dim = r.toSopaUsd / maxToSopa < 0.08;
             return (
               <g key={r.key}>
-                <title>{`${r.projectName} · ${r.label}\n${usd(r.grossUsd)} distribuído → ${usd(r.toSopaUsd)} pra SOPA (${pct(r.sopaShare * 100)}) · ${r.method === "auction" ? "leilão" : "swap"}\n${r.address}`}</title>
+                <title>{`${r.projectName} · ${r.label}\n${usd(r.grossUsd)} distributed → ${usd(r.toSopaUsd)} to SOPA (${pct(r.sopaShare * 100)}) · ${r.method === "auction" ? "auction" : "swap"}\n${r.address}`}</title>
                 <path d={d} fill="none" stroke={r.color} strokeOpacity={dim ? 0.28 : 0.45} strokeWidth={width} strokeLinecap="round" />
                 <path
                   className="oro-flow"
@@ -149,10 +149,10 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
                   {r.projectName}
                 </text>
                 <text x={nodeX + nodeR + 12} y={y + 11} className="fill-[var(--foreground-muted)]" style={{ fontSize: 12 }}>
-                  {r.label} · {pct(r.sopaShare * 100)} pra SOPA
+                  {r.label} · {pct(r.sopaShare * 100)} to SOPA
                 </text>
                 <text x={nodeX + nodeR + 12} y={y + 28} style={{ fontSize: 11, fill: "var(--foreground-faint)", fontFamily: "var(--font-mono)" }}>
-                  {r.method === "auction" ? "🔨 leilão" : "💧 swap"} · {short(r.address)}
+                  {r.method === "auction" ? "🔨 auction" : "💧 swap"} · {short(r.address)}
                 </text>
               </g>
             );
@@ -161,7 +161,7 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
           {/* SOPA sun (right) */}
           <circle cx={sopaX} cy={sopaY} r={sopaR} className="fill-[var(--surface-elevated)]" stroke="var(--accent)" strokeWidth={2} />
           <circle cx={sopaX} cy={sopaY} r={sopaR} fill="none" stroke="var(--accent)" strokeWidth={10} strokeOpacity={0.12} />
-          <text x={sopaX} y={sopaY - 22} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5 }}>TESOURO</text>
+          <text x={sopaX} y={sopaY - 22} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5 }}>TREASURY</text>
           <text x={sopaX} y={sopaY + 4} textAnchor="middle" className="fill-[var(--foreground)]" style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--font-mono)" }}>
             {usd(orbit.totalToSopaUsd)}
           </text>
@@ -172,8 +172,8 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
       </div>
 
       <p className="mt-1 text-[11px] text-foreground-faint">
-        Só entram splits/swaps onde a SOPA é recipient de verdade (fatia lida do contrato). Passe o mouse num filete pra ver o
-        bruto, o método e o endereço.
+        Only splits/swaps where SOPA is a real recipient show up (the share is read from the contract). Hover a ribbon to see the
+        gross, the method and the address.
       </p>
 
       <style>{`

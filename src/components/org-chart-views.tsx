@@ -19,13 +19,13 @@ export function OrgChartViews({
   roster: Person[];
   orbit: SopaRevenueOrbit;
 }) {
-  const [view, setView] = useUrlTab("view", "estrutura");
-  const active = view === "receita" ? "receita" : "estrutura";
+  const [view, setView] = useUrlTab("view", "structure");
+  const active = view === "revenue" ? "revenue" : "structure";
 
   return (
     <div className="space-y-6">
       <div className="flex w-fit gap-1 rounded-xl border border-border bg-surface p-1">
-        {([["estrutura", "Estrutura", Network], ["receita", "Receita", TrendingUp]] as const).map(([id, label, Icon]) => (
+        {([["structure", "Structure", Network], ["revenue", "Revenue", TrendingUp]] as const).map(([id, label, Icon]) => (
           <button
             key={id}
             type="button"
@@ -41,7 +41,7 @@ export function OrgChartViews({
         ))}
       </div>
 
-      {active === "estrutura" ? <SopaOrgChart initial={cards} roster={roster} /> : <OrgRevenueOrbit orbit={orbit} />}
+      {active === "structure" ? <SopaOrgChart initial={cards} roster={roster} /> : <OrgRevenueOrbit orbit={orbit} />}
     </div>
   );
 }
