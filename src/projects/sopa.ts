@@ -31,6 +31,7 @@ const sopa: ProjectConfig = {
     accentBorderLight: "rgba(180, 83, 9, 0.3)",
     accentBorderDark: "rgba(251, 191, 36, 0.35)",
     logo: "/projects/sopa/logo.png",
+    favicon: "/projects/sopa/logo.svg", // crisp SVG mark for the browser tab
   },
   // Placeholders — every publishing route is hidden on this portal.
   hive: {
