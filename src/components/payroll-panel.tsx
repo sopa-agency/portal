@@ -175,6 +175,7 @@ function MemberForm({
     <div className="space-y-2 rounded-lg border border-accent-border bg-accent-bg/40 p-2.5">
       {roster && roster.length > 0 && (
         <select
+          aria-label="Escolher um membro já cadastrado no time"
           value=""
           onChange={(e) => {
             const r = roster.find((x) => x.username === e.target.value);
@@ -194,6 +195,7 @@ function MemberForm({
         <input
           value={d.label}
           onChange={(e) => setD({ ...d, label: e.target.value })}
+          aria-label="Nome ou handle do membro"
           placeholder="Nome / handle"
           className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -201,6 +203,7 @@ function MemberForm({
           value={d.units}
           onChange={(e) => setD({ ...d, units: e.target.value })}
           inputMode="numeric"
+          aria-label="Peso do membro (units)"
           placeholder="peso (units)"
           className="w-28 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs tabular-nums text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -208,6 +211,7 @@ function MemberForm({
       <input
         value={d.address}
         onChange={(e) => setD({ ...d, address: e.target.value })}
+        aria-label="Carteira EVM do membro (Base)"
         placeholder="0x… carteira EVM (Base)"
         spellCheck={false}
         className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 font-mono text-[11px] text-foreground focus:border-border-strong focus:outline-none"

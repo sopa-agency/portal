@@ -88,6 +88,7 @@ export function StakingPanel({ position, canEdit }: { position: StakePosition; c
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               inputMode="decimal"
+              aria-label={mode === "stake" ? "Valor a guardar em USDC" : "Valor a retirar em USDC"}
               placeholder="USDC"
               className="w-32 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm tabular-nums text-foreground focus:border-border-strong focus:outline-none"
             />

@@ -55,6 +55,7 @@ function JobForm({
         <input
           value={d.client}
           onChange={(e) => setD({ ...d, client: e.target.value })}
+          aria-label="Cliente ou job"
           placeholder="Cliente / job (ex: Venice bot)"
           className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -62,6 +63,7 @@ function JobForm({
           value={d.amountUsd}
           onChange={(e) => setD({ ...d, amountUsd: e.target.value })}
           inputMode="decimal"
+          aria-label="Valor recebido em USD"
           placeholder="USD"
           className="w-24 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs tabular-nums text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -69,11 +71,13 @@ function JobForm({
       <div className="flex flex-wrap gap-2">
         <input
           type="date"
+          aria-label="Data do job"
           value={d.occurredOn}
           onChange={(e) => setD({ ...d, occurredOn: e.target.value })}
           className="rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
         <select
+          aria-label="Situação do pagamento"
           value={d.status}
           onChange={(e) => setD({ ...d, status: e.target.value as JobStatus })}
           className="rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
@@ -85,6 +89,7 @@ function JobForm({
       <input
         value={d.description}
         onChange={(e) => setD({ ...d, description: e.target.value })}
+        aria-label="Descrição ou escopo (opcional)"
         placeholder="Descrição / escopo (opcional)"
         className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
       />
