@@ -386,7 +386,7 @@ export function VaultStaking({ vaults }: { vaults: VaultInfo[] }) {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4">
         {vaults.map((v) => (
           <VaultCard key={v.vault.key} info={v} />
         ))}
