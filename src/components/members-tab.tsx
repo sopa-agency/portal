@@ -145,6 +145,7 @@ export function MembersTab({
   streamFailed,
   flow,
   sustainability,
+  withdraw,
   connect,
   steps,
 }: {
@@ -160,6 +161,8 @@ export function MembersTab({
   flow: ReactNode;
   /** The sustainability gauge. */
   sustainability: ReactNode;
+  /** Self-service unwrap: USDCx → USDC into the member's own wallet. */
+  withdraw?: ReactNode;
   /** The connect-your-wallet action. */
   connect: ReactNode;
   /** Ordered admin steps: [title, node][] — rendered as numbered cards. */
@@ -228,6 +231,7 @@ export function MembersTab({
             <Stat label="Recebendo ao vivo" value={`${connectedCount}`} sub={`/${activeCount}`} tone={connectedCount === activeCount && activeCount > 0 ? "text-success" : "text-warning"} />
           </div>
 
+          {withdraw}
           {sustainability}
           <WhoGetsWhat members={members} monthlyUsd={monthlyUsd} connectSlot={connect} />
         </div>

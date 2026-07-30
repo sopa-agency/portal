@@ -23,6 +23,7 @@ import { StreamSustainability } from "@/components/stream-sustainability";
 import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE, SUPERFLUID } from "@/lib/superfluid";
 import { ConnectPoolButton } from "@/components/connect-pool-button";
 import { MembersTab } from "@/components/members-tab";
+import { WithdrawUsdcx } from "@/components/withdraw-usdcx";
 import { BrandTreasury } from "@/components/brand-treasury";
 import { TreasuryAllocation } from "@/components/treasury-allocation";
 import { getAllocation } from "@/app/actions/allocation";
@@ -460,6 +461,7 @@ treasury: {
                   />
                 ) : null
               }
+              withdraw={<WithdrawUsdcx />}
               connect={
                 poolAddress ? (
                   <ConnectPoolButton
