@@ -1,6 +1,7 @@
 import "server-only";
 import { getOrgRevenue } from "@/lib/org-revenue";
 import { getSplitConfig } from "@/lib/splits";
+import { getMorBuilderReward } from "@/lib/mor-builder";
 import { SOPA_SAFE } from "@/lib/superfluid";
 
 // Revenue wiring INTO the SOPA treasury, for the org-chart "Revenue" view: EVERY
@@ -32,6 +33,9 @@ export type OrbitFlow = {
   pendingToSopaUsd: number;
   /** Share is a DECLARED off-chain number (not a 0xSplits read) — shown for the map. */
   declared?: boolean;
+  /** Declared flows only: an ESTIMATED $ into SOPA (e.g. MOR builder reward × share),
+   *  priced off-chain. Kept OUT of realized/pending totals — those stay provable. */
+  estimatedToSopaUsd?: number;
 };
 
 export type OrbitProject = {
@@ -45,6 +49,8 @@ export type OrbitProject = {
 export type SopaRevenueOrbit = {
   totalRealizedToSopaUsd: number;
   totalPendingToSopaUsd: number;
+  /** Sum of declared flows' estimated $ (MOR reward etc.) — off-chain estimate. */
+  totalEstimatedToSopaUsd: number;
   grossTotalUsd: number;
   projects: OrbitProject[];
 };
@@ -60,6 +66,8 @@ type DeclaredInflow = {
   address: string;
   chain: string | null;
   sopaShare: number;
+  /** When set, read this Morpheus builder pool's current MOR reward and estimate SOPA's cut in $. */
+  morPoolId?: string;
 };
 
 const DECLARED_INFLOWS: DeclaredInflow[] = [
@@ -74,6 +82,7 @@ const DECLARED_INFLOWS: DeclaredInflow[] = [
     address: "0xf129111951997d1c386be9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d",
     chain: "base",
     sopaShare: 0.8,
+    morPoolId: "0xf129111951997d1c386be9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d",
   },
   {
     // SwapPro cross-chain (THORChain affiliate) — LIVE. Multi-affiliate memo
@@ -90,7 +99,7 @@ const DECLARED_INFLOWS: DeclaredInflow[] = [
 ];
 
 export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
-  const empty: SopaRevenueOrbit = { totalRealizedToSopaUsd: 0, totalPendingToSopaUsd: 0, grossTotalUsd: 0, projects: [] };
+  const empty: SopaRevenueOrbit = { totalRealizedToSopaUsd: 0, totalPendingToSopaUsd: 0, totalEstimatedToSopaUsd: 0, grossTotalUsd: 0, projects: [] };
   const rev = await getOrgRevenue().catch(() => null);
   if (!rev) return empty;
 
@@ -135,6 +144,13 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
   // Merge in declared (not-yet-on-chain) inflows as wired flows at $0 — attach to
   // the matching project when it already has a split, else stand it up on its own.
   for (const d of DECLARED_INFLOWS) {
+    // For a MOR builder pool, read the current on-chain reward and estimate SOPA's
+    // cut (reverts → 0 while the pool is fresh, so this stays $0 until it accrues).
+    let estimatedToSopaUsd: number | undefined;
+    if (d.morPoolId) {
+      const r = await getMorBuilderReward(d.morPoolId).catch(() => null);
+      if (r && r.rewardUsd > 0) estimatedToSopaUsd = r.rewardUsd * d.sopaShare;
+    }
     const flow: OrbitFlow = {
       key: `declared:${d.address}`,
       label: d.label,
@@ -147,6 +163,7 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
       splitBalanceUsd: 0,
       pendingToSopaUsd: 0,
       declared: true,
+      estimatedToSopaUsd,
     };
     const existing = projects.find((p) => p.name.toLowerCase() === d.project.toLowerCase());
     if (existing) {
@@ -161,6 +178,7 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
   return {
     totalRealizedToSopaUsd: projects.reduce((a, p) => a + p.realizedToSopaUsd, 0),
     totalPendingToSopaUsd: projects.reduce((a, p) => a + p.pendingToSopaUsd, 0),
+    totalEstimatedToSopaUsd: projects.reduce((a, p) => a + p.flows.reduce((x, f) => x + (f.estimatedToSopaUsd ?? 0), 0), 0),
     grossTotalUsd: projects.reduce((a, p) => a + p.flows.reduce((x, f) => x + f.grossUsd, 0), 0),
     projects,
   };

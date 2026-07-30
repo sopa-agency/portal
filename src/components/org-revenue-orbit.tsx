@@ -26,7 +26,7 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
   const rows = orbit.projects.flatMap((p, pi) =>
     p.flows.map((f) => {
       const state = f.realizedToSopaUsd > 0 ? "realized" : f.pendingToSopaUsd > 0 ? "pending" : "wired";
-      const active = f.realizedToSopaUsd > 0 ? f.realizedToSopaUsd : f.pendingToSopaUsd;
+      const active = f.realizedToSopaUsd > 0 ? f.realizedToSopaUsd : f.pendingToSopaUsd > 0 ? f.pendingToSopaUsd : f.estimatedToSopaUsd ?? 0;
       return { ...f, projectName: p.name, logoUrl: p.logoUrl, color: PALETTE[pi % PALETTE.length], state, active };
     }),
   );
@@ -91,6 +91,13 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
         <span className="h-4 w-px bg-border" />
         <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">Pending in splits</span>
         <span className="font-mono text-sm font-semibold tabular-nums text-warning">{usd(orbit.totalPendingToSopaUsd)}</span>
+        {orbit.totalEstimatedToSopaUsd > 0 && (
+          <>
+            <span className="h-4 w-px bg-border" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">Estimated (declared)</span>
+            <span className="font-mono text-sm font-semibold tabular-nums text-foreground-muted">~{usd(orbit.totalEstimatedToSopaUsd)}</span>
+          </>
+        )}
       </div>
 
       <div className="mt-5 overflow-x-auto">
@@ -108,7 +115,7 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
                   `${r.projectName} · ${r.label}  (${pct(r.sopaShare * 100)} to SOPA)`,
                   `realized: ${usd(r.grossUsd)} distributed → ${usd(r.realizedToSopaUsd)} to SOPA`,
                   `pending:  ${usd(r.splitBalanceUsd)} in split → ${usd(r.pendingToSopaUsd)} to SOPA`,
-                  `${r.declared ? "declared off-chain — share not read from a contract" : r.method ? (r.method === "auction" ? "auction" : "swap") : "no revenue event yet"} · ${r.address}`,
+                  `${r.declared ? `declared off-chain${(r.estimatedToSopaUsd ?? 0) > 0 ? ` — ~${usd(r.estimatedToSopaUsd ?? 0)} est. to SOPA` : " — share not read from a contract"}` : r.method ? (r.method === "auction" ? "auction" : "swap") : "no revenue event yet"} · ${r.address}`,
                 ].join("\n")}</title>
                 <path d={d} fill="none" stroke={r.color} strokeOpacity={baseOp} strokeWidth={width} strokeLinecap="round" strokeDasharray={wired ? "6 8" : undefined} />
                 {!wired && (
@@ -133,7 +140,8 @@ export function OrgRevenueOrbit({ orbit }: { orbit: SopaRevenueOrbit }) {
             const y = yAt(i);
             const cx = srcEdgeX + 0.5 * (sopaEdgeX - srcEdgeX);
             const cy = y + (sopaY - y) * 0.5;
-            const label = r.state === "wired" ? pct(r.sopaShare * 100) : usd(r.active);
+            const est = r.estimatedToSopaUsd ?? 0;
+            const label = r.declared && est > 0 ? `~${usd(est)}` : r.state === "wired" ? pct(r.sopaShare * 100) : usd(r.active);
             const ink = r.state === "realized" ? "var(--foreground)" : r.state === "pending" ? "var(--warning)" : "var(--foreground-faint)";
             const w = label.length * 8 + 16;
             return (
