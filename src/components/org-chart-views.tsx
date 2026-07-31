@@ -5,19 +5,21 @@ import { useUrlTab } from "@/lib/use-url-tab";
 import { SopaOrgChart, type Person } from "@/components/sopa-org-chart";
 import { OrgRevenueOrbit } from "@/components/org-revenue-orbit";
 import type { BoardCard } from "@/app/actions/sopa-boards";
-import type { SopaRevenueOrbit } from "@/lib/sopa-revenue-orbit";
+import type { SopaRevenueOrbit, SopaSupport } from "@/lib/sopa-revenue-orbit";
 
 // Two views of the org-chart, toggled (and URL-persisted): the org STRUCTURE
-// (who's who, tiers, teams — SopaOrgChart) and the money view — every project's
-// swap-split / auction revenue flowing INTO the SOPA treasury (OrgRevenueOrbit).
+// (who's who, tiers, teams — SopaOrgChart) and the money view — revenue flowing
+// INTO the SOPA treasury on one side, community backers on the other (OrgRevenueOrbit).
 export function OrgChartViews({
   cards,
   roster,
   orbit,
+  support,
 }: {
   cards: BoardCard[];
   roster: Person[];
   orbit: SopaRevenueOrbit;
+  support: SopaSupport;
 }) {
   const [view, setView] = useUrlTab("view", "structure");
   const active = view === "revenue" ? "revenue" : "structure";
@@ -41,7 +43,7 @@ export function OrgChartViews({
         ))}
       </div>
 
-      {active === "structure" ? <SopaOrgChart initial={cards} roster={roster} /> : <OrgRevenueOrbit orbit={orbit} />}
+      {active === "structure" ? <SopaOrgChart initial={cards} roster={roster} /> : <OrgRevenueOrbit orbit={orbit} support={support} />}
     </div>
   );
 }

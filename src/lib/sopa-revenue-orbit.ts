@@ -2,6 +2,8 @@ import "server-only";
 import { getOrgRevenue } from "@/lib/org-revenue";
 import { getSplitConfig } from "@/lib/splits";
 import { getMorBuilderReward } from "@/lib/mor-builder";
+import { getCommunityVaults } from "@/lib/community-vaults";
+import { getVaultDepositors } from "@/lib/vault-depositors";
 import { SOPA_SAFE } from "@/lib/superfluid";
 
 // Revenue wiring INTO the SOPA treasury, for the org-chart "Revenue" view: EVERY
@@ -181,5 +183,61 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
     totalEstimatedToSopaUsd: projects.reduce((a, p) => a + p.flows.reduce((x, f) => x + (f.estimatedToSopaUsd ?? 0), 0), 0),
     grossTotalUsd: projects.reduce((a, p) => a + p.flows.reduce((x, f) => x + f.grossUsd, 0), 0),
     projects,
+  };
+}
+
+// The OTHER side of the orbit: people BACKING the SOPA treasury by staking into
+// the community support vault ("Apoiar"). Their deposits earn Moonwell yield and
+// a share of that yield (feeToSopa) flows to the SOPA Safe — so each backer is a
+// support inflow, mirroring the revenue inflows.
+
+const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+export type OrbitSupporter = {
+  key: string;
+  /** Member name (Hive username) when known, else a shortened address. */
+  label: string;
+  address: string;
+  /** Hive PFP when the backer is a known member; null → initials fallback. */
+  avatarUrl: string | null;
+  /** Redeemable USDC in the vault right now (principal + yield). */
+  amountUsd: number;
+  /** Yield earned so far. */
+  earnedUsd: number;
+};
+
+export type SopaSupport = {
+  vaultAddress: string | null;
+  totalDepositedUsd: number;
+  /** Share of vault yield routed to the SOPA Safe (0–1). */
+  feeToSopa: number;
+  supporters: OrbitSupporter[];
+};
+
+export async function getSopaSupporters(): Promise<SopaSupport> {
+  const empty: SopaSupport = { vaultAddress: null, totalDepositedUsd: 0, feeToSopa: 0, supporters: [] };
+  const vaults = await getCommunityVaults().catch(() => []);
+  const sopaVault = vaults.find((v) => v.paysSopa) ?? null;
+  if (!sopaVault) return empty;
+
+  const depositors = await getVaultDepositors(sopaVault.vault.address).catch(() => []);
+  const backers = depositors
+    .filter((d) => !d.isDeadDeposit && d.assets > 0)
+    .sort((a, b) => b.assets - a.assets);
+
+  const supporters: OrbitSupporter[] = backers.map((d) => ({
+    key: d.address,
+    label: d.label ?? shortAddr(d.address),
+    address: d.address,
+    avatarUrl: d.label ? `https://images.hive.blog/u/${d.label}/avatar` : null,
+    amountUsd: d.assets,
+    earnedUsd: d.earned,
+  }));
+
+  return {
+    vaultAddress: sopaVault.vault.address,
+    totalDepositedUsd: backers.reduce((s, d) => s + d.assets, 0),
+    feeToSopa: sopaVault.fee,
+    supporters,
   };
 }
