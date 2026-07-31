@@ -32,6 +32,8 @@ import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
+import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
+import { getPipelineStatus } from "@/lib/mor-pipeline";
 import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
 import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryBriefingButton } from "@/components/treasury-briefing";
@@ -253,6 +255,8 @@ treasury: {
 
   // SOPA: one project selector filters balances + revenue together. Brand
   // portals show their single treasury + their own revenue directly.
+  const pipelineStatus = isSopa ? await getPipelineStatus().catch(() => null) : null;
+
   const overviewAndRevenue = isSopa ? (
     <SopaTreasury
       groups={groups}
@@ -278,6 +282,7 @@ treasury: {
       {/* Ordem: quanto temos (hero + saldos + receita) → pra que é (earmarks) →
           o que sai (custos + runway) → atividade do multisig (recolhida, ops). */}
       {overviewAndRevenue}
+      {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
       {allocation && (
         <TreasuryAllocation
           initial={allocation}
