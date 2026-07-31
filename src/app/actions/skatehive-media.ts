@@ -25,9 +25,11 @@ export type SkatehiveVideo = {
   permlink: string;
   /** Hive accounts that upvoted this post — used by the auto-boost-on-vote rule. */
   voters: string[];
+  /** Photo/GIF snaps are curatable too — only the editor needs video-only. */
+  kind: "video" | "image";
 };
 
-type CacheEntry = { videos: SkatehiveVideo[]; cursor: SnapCursor | null; expires: number };
+type CacheEntry = { videos: SkatehiveVideo[]; images: SkatehiveVideo[]; cursor: SnapCursor | null; expires: number };
 let cache: CacheEntry | null = null;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -55,6 +57,37 @@ function extractIpfsVideoUrls(body: string): string[] {
   // raw ipfs mp4/webm links (rarer)
   const rawRe = /https?:\/\/[^\s"'<>)]*\/ipfs\/[^\s"'<>)]+\.(?:mp4|mov|webm)(?:\?[^\s"'<>)]*)?/gi;
   while ((m = rawRe.exec(body))) out.add(m[0]);
+  return [...out];
+}
+
+/**
+ * Photo/GIF URLs from a post. Markdown `![](…)`, `<img src>` and
+ * `json_metadata.image` are images by construction — no extension sniffing
+ * needed (skatehive uploads IPFS images with no extension at all). Bare links
+ * still need the extension test, and mp4/webm are rejected everywhere because
+ * some clients wrap a clip in an `<img>`-shaped embed.
+ */
+function extractImageUrls(post: HivePost): string[] {
+  const out = new Set<string>();
+  const push = (u?: string) => {
+    if (!u || !/^https?:\/\//i.test(u)) return;
+    if (/\.(mp4|mov|webm|m3u8)(\?|#|$)/i.test(u)) return;
+    out.add(u);
+  };
+  const body = post.body ?? "";
+  let m: RegExpExecArray | null;
+  const mdRe = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g;
+  while ((m = mdRe.exec(body))) push(m[1]);
+  const imgRe = /<img[^>]+src=["'](https?:\/\/[^"']+)["']/gi;
+  while ((m = imgRe.exec(body))) push(m[1]);
+  const bareRe = /https?:\/\/[^\s"'<>)\]]+\.(?:png|jpe?g|gif|webp)(?:\?[^\s"'<>)\]]*)?/gi;
+  while ((m = bareRe.exec(body))) push(m[0]);
+  try {
+    const meta = JSON.parse(post.json_metadata ?? "{}") as { image?: unknown };
+    if (Array.isArray(meta.image)) for (const u of meta.image) if (typeof u === "string") push(u);
+  } catch {
+    // no metadata images
+  }
   return [...out];
 }
 
@@ -86,8 +119,15 @@ function isSkatehiveTagged(post: HivePost): boolean {
   }
 }
 
-function toVideos(post: HivePost, source: "snap" | "magazine"): SkatehiveVideo[] {
-  const urls = extractIpfsVideoUrls(post.body ?? "");
+/**
+ * Media entries for one post. With `images`, a post that carries no clip falls
+ * back to its photos/GIFs — a post is never both, so a snap can't show up twice
+ * in the curation grid.
+ */
+function toMedia(post: HivePost, source: "snap" | "magazine", opts?: { images?: boolean }): SkatehiveVideo[] {
+  const videoUrls = extractIpfsVideoUrls(post.body ?? "");
+  const kind: "video" | "image" = videoUrls.length > 0 ? "video" : "image";
+  const urls = videoUrls.length > 0 ? videoUrls : opts?.images ? extractImageUrls(post) : [];
   if (urls.length === 0) return [];
   const votes = post.net_votes || post.active_votes?.length || 0;
   const voters = Array.isArray(post.active_votes)
@@ -120,23 +160,36 @@ function toVideos(post: HivePost, source: "snap" | "magazine"): SkatehiveVideo[]
     created: post.created ?? "",
     permlink: post.permlink,
     voters,
+    kind,
   }));
 }
 
 export type SnapCursor = { permlink: string; date: string };
 
+/**
+ * `images: true` also returns photo/GIF snaps (curation inbox). The video
+ * editor leaves it off — it can only composite real video files.
+ */
 export async function listSkatehiveVideos(
   cursor?: SnapCursor | null,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; images?: boolean },
 ): Promise<
   | { ok: true; videos: SkatehiveVideo[]; cursor: SnapCursor | null }
   | { ok: false; error: string }
 > {
   const firstPage = !cursor;
+  // Clips and photos are held (and capped) apart, so merging has to re-sort —
+  // otherwise callers get every clip before every photo instead of the
+  // by-votes order this function promises.
+  const merge = (m: { videos: SkatehiveVideo[]; images: SkatehiveVideo[] }) =>
+    opts?.images
+      ? [...m.videos, ...m.images].sort((a, b) => b.votes - a.votes || b.payout - a.payout)
+      : m.videos;
+
   // The "Atualizar" button passes force to bypass the 10-min in-memory cache so
   // a freshly-posted snap shows up immediately (cache is for the initial load).
   if (firstPage && !opts?.force && cache && Date.now() < cache.expires)
-    return { ok: true, videos: cache.videos, cursor: cache.cursor };
+    return { ok: true, videos: merge(cache), cursor: cache.cursor };
   try {
     // --- magazine: trending + fresh community posts (first page only) ------
     const [trending, created] = await Promise.all(firstPage ? [
@@ -184,20 +237,22 @@ export async function listSkatehiveVideos(
     );
     const snapPosts = replyBatches.flat().filter(isSkatehiveTagged);
 
-    const videos = [
-      ...magPosts.flatMap((p) => toVideos(p, "magazine")),
-      ...snapPosts.flatMap((p) => toVideos(p, "snap")),
-    ]
-      .sort((a, b) => b.votes - a.votes || b.payout - a.payout)
-      .slice(0, 80);
+    const media = [
+      ...magPosts.flatMap((p) => toMedia(p, "magazine")),
+      ...snapPosts.flatMap((p) => toMedia(p, "snap", { images: true })),
+    ].sort((a, b) => b.votes - a.votes || b.payout - a.payout);
+    // Capped per kind: photo snaps must not push clips out of the editor's
+    // picker, and clips must not bury the photos in the curation grid.
+    const videos = media.filter((m) => m.kind === "video").slice(0, 80);
+    const images = media.filter((m) => m.kind === "image").slice(0, 80);
 
     const last = freshContainers[freshContainers.length - 1];
     const nextCursor: SnapCursor | null = last
       ? { permlink: last.permlink, date: last.created ?? new Date().toISOString() }
       : null;
 
-    if (firstPage) cache = { videos, cursor: nextCursor, expires: Date.now() + CACHE_TTL_MS };
-    return { ok: true, videos, cursor: nextCursor };
+    if (firstPage) cache = { videos, images, cursor: nextCursor, expires: Date.now() + CACHE_TTL_MS };
+    return { ok: true, videos: merge({ videos, images }), cursor: nextCursor };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -272,8 +327,8 @@ export async function listCreatorVideos(
       : commentsRaw;
 
     const videos = [
-      ...posts.flatMap((p) => toVideos(p, "magazine")),
-      ...comments.flatMap((p) => toVideos(p, "snap")),
+      ...posts.flatMap((p) => toMedia(p, "magazine")),
+      ...comments.flatMap((p) => toMedia(p, "snap")),
     ].sort((a, b) => b.votes - a.votes || (a.created < b.created ? 1 : -1));
 
     // More pages remain while either sort returned a full page.
