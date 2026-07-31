@@ -38,6 +38,10 @@ export type OrbitFlow = {
   /** Declared flows only: an ESTIMATED $ into SOPA (e.g. MOR builder reward × share),
    *  priced off-chain. Kept OUT of realized/pending totals — those stay provable. */
   estimatedToSopaUsd?: number;
+  /** When this split ALSO routes a portion OUT to another treasury (the MOR
+   *  pipeline sends the Gnars DAO its 18%), the branch leaving SOPA — drawn as a
+   *  small outflow so the map reads honestly. Estimated $ priced off-chain. */
+  splitOut?: { label: string; toAddress: string; share: number; estimatedUsd?: number };
 };
 
 export type OrbitProject = {
@@ -70,21 +74,26 @@ type DeclaredInflow = {
   sopaShare: number;
   /** When set, read this Morpheus builder pool's current MOR reward and estimate SOPA's cut in $. */
   morPoolId?: string;
+  /** A portion of the SAME reward that routes out to another treasury (Gnars DAO
+   *  gets 18% of the MOR pipeline as USDC). */
+  splitOut?: { label: string; toAddress: string; share: number };
 };
 
 const DECLARED_INFLOWS: DeclaredInflow[] = [
   {
-    // Morpheus "Gnars" builder subnet — opened 2026-07-29. Rewards split 80% SOPA
-    // / 20% Gnars off-chain (Gnars destination still TBD). Not a 0xSplits contract
-    // — the id is a bytes32 subnet, so the share can't be read on-chain; shown as
-    // a declared flow at the agreed 80% until a real split is deployed & allocated.
+    // Morpheus "Gnars" builder subnet → the deployed MOR→USDC pipeline (0xSplits +
+    // swappers on Base). Of each MOR reward: SOPA nets 82% (10% MOR at the top
+    // split + 80% of the 90% swapped to USDC downstream); the Gnars DAO gets 18%
+    // (20% of the 90%) as USDC. The subnet id is a bytes32 (not a readable
+    // 0xSplits), so the shares are declared; $ is estimated from the live reward.
     project: "Gnars",
     logoUrl: null,
-    label: "MOR Builder Staking",
+    label: "MOR → USDC pipeline",
     address: "0xf129111951997d1c386be9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d",
     chain: "base",
-    sopaShare: 0.8,
+    sopaShare: 0.82,
     morPoolId: "0xf129111951997d1c386be9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d",
+    splitOut: { label: "Gnars DAO", toAddress: "0x72ad986ebac0246d2b3c565ab2a1ce3a14ce6f88", share: 0.18 },
   },
   {
     // SwapPro cross-chain (THORChain affiliate) — LIVE. Multi-affiliate memo
@@ -148,11 +157,15 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
   for (const d of DECLARED_INFLOWS) {
     // For a MOR builder pool, read the current on-chain reward and estimate SOPA's
     // cut (reverts → 0 while the pool is fresh, so this stays $0 until it accrues).
-    let estimatedToSopaUsd: number | undefined;
+    let rewardUsd = 0;
     if (d.morPoolId) {
       const r = await getMorBuilderReward(d.morPoolId).catch(() => null);
-      if (r && r.rewardUsd > 0) estimatedToSopaUsd = r.rewardUsd * d.sopaShare;
+      rewardUsd = r?.rewardUsd ?? 0;
     }
+    const estimatedToSopaUsd = rewardUsd > 0 ? rewardUsd * d.sopaShare : undefined;
+    const splitOut = d.splitOut
+      ? { ...d.splitOut, estimatedUsd: rewardUsd > 0 ? rewardUsd * d.splitOut.share : undefined }
+      : undefined;
     const flow: OrbitFlow = {
       key: `declared:${d.address}`,
       label: d.label,
@@ -166,6 +179,7 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
       pendingToSopaUsd: 0,
       declared: true,
       estimatedToSopaUsd,
+      splitOut,
     };
     const existing = projects.find((p) => p.name.toLowerCase() === d.project.toLowerCase());
     if (existing) {

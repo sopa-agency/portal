@@ -228,6 +228,9 @@ export function OrgRevenueOrbit({ orbit, support }: { orbit: SopaRevenueOrbit; s
           {revRows.map((r, i) => {
             const y = yAt(i, revRows.length);
             const tag = r.declared ? "◇ declared" : r.method ? (r.method === "auction" ? "🔨 auction" : "💧 swap") : r.state === "pending" ? "⏳ pending" : "○ wired";
+            const so = r.splitOut;
+            const outX = 44;
+            const outR = 13;
             return (
               <g key={`revn-${r.key}`}>
                 <defs>
@@ -235,6 +238,17 @@ export function OrgRevenueOrbit({ orbit, support }: { orbit: SopaRevenueOrbit; s
                     <circle cx={leftNodeX} cy={y} r={nodeR - 2} />
                   </clipPath>
                 </defs>
+                {so && (
+                  <g>
+                    <title>{`↘ ${pct(so.share * 100)} of the pipeline routes out to ${so.label}${so.estimatedUsd ? ` — ~${usd(so.estimatedUsd)}` : ""}\n${so.toAddress}`}</title>
+                    <path d={`M${leftNodeX - nodeR},${y} L${outX + outR},${y}`} fill="none" stroke="#f59e0b" strokeWidth={4} strokeOpacity={0.45} strokeLinecap="round" />
+                    <path className="oro-flow" d={`M${leftNodeX - nodeR},${y} L${outX + outR},${y}`} fill="none" stroke="#f59e0b" strokeWidth={3} strokeLinecap="round" strokeDasharray="0.5 15" strokeOpacity={0.85} />
+                    <circle cx={outX} cy={y} r={outR} className="fill-[var(--surface-elevated)]" stroke="#f59e0b" strokeWidth={2} />
+                    <text x={outX} y={y + 4} textAnchor="middle" style={{ fontSize: 12, fontWeight: 700, fill: "#f59e0b" }}>◇</text>
+                    <text x={outX} y={y + outR + 13} textAnchor="middle" className="fill-[var(--foreground-muted)]" style={{ fontSize: 10, fontWeight: 700 }}>{so.label}</text>
+                    <text x={outX} y={y + outR + 25} textAnchor="middle" style={{ fontSize: 9.5, fill: "#f59e0b", fontFamily: "var(--font-mono)" }}>↘{pct(so.share * 100)}{so.estimatedUsd ? ` ~${usd(so.estimatedUsd)}` : ""}</text>
+                  </g>
+                )}
                 <circle cx={leftNodeX} cy={y} r={nodeR} className="fill-[var(--surface-elevated)]" stroke={r.color} strokeWidth={2} />
                 {r.logoUrl ? (
                   <image href={r.logoUrl} x={leftNodeX - (nodeR - 2)} y={y - (nodeR - 2)} height={(nodeR - 2) * 2} width={(nodeR - 2) * 2} clipPath={`url(#oro-clip-rev-${i})`} preserveAspectRatio="xMidYMid slice" />
@@ -290,6 +304,7 @@ export function OrgRevenueOrbit({ orbit, support }: { orbit: SopaRevenueOrbit; s
 
       <p className="mt-1 text-[11px] text-foreground-faint">
         <b>Left</b> = revenue: solid = realized, dashed = pending, faint = wired, <b>◇ declared</b> = off-chain agreement.{" "}
+        <b className="text-warning">Amber</b> = a portion routing back out (the Gnars DAO&apos;s 18% of the MOR → USDC pipeline).{" "}
         <b>Right</b> = community backers staking the Apoiar vault (width ∝ amount deposited). Hover any ribbon for the breakdown.
       </p>
 
