@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate, Inbox, type LucideIcon } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate, Inbox, Menu, X, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 type NavItem = {
@@ -99,6 +99,8 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
   const [pending, startTransition] = useTransition();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
+  // On mobile the sidebar is an off-canvas drawer; on lg+ it's the static column.
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Close the workspace switcher on outside click.
   useEffect(() => {
@@ -111,6 +113,21 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [switcherOpen]);
+
+  // While the drawer is open: close on Escape and lock body scroll behind it.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [mobileOpen]);
 
   // Switch portals by swapping the leftmost host label — works across prod
   // (admin/skatehive/gnars.reelflip.com, legacy slug.portal.skatehive.app),
@@ -155,8 +172,52 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
   };
 
   return (
-    <aside className="w-full border-b border-border bg-surface lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-64 lg:flex-col lg:border-b-0 lg:border-r">
-      <div className="relative px-3 py-4" ref={switcherRef}>
+    <>
+      {/* Mobile top bar — hamburger + brand. The static column takes over at lg. */}
+      <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-surface px-3 py-2.5 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open menu"
+          aria-expanded={mobileOpen}
+          aria-controls="app-sidebar"
+          className="rounded-lg p-2 text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        <Link href="/" className="flex min-w-0 items-center gap-2">
+          <Image src={projectLogo} alt={projectName} width={28} height={28} className="shrink-0 rounded-md" />
+          <span className="min-w-0 truncate text-base font-bold tracking-tight text-accent">{projectName}</span>
+        </Link>
+      </div>
+
+      {/* Backdrop behind the open drawer (mobile only). */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        id="app-sidebar"
+        className={`fixed inset-y-0 left-0 z-50 flex h-full w-[85%] max-w-xs flex-col overflow-y-auto border-r border-border bg-surface transition-transform duration-300 ease-out ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-64 lg:max-w-none lg:translate-x-0 lg:overflow-visible lg:transition-none`}
+      >
+        {/* Close affordance — mobile only (lg uses the always-open column). */}
+        <div className="flex justify-end px-3 pt-3 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            aria-label="Close menu"
+            className="rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      <div className="relative px-3 py-4 pt-0 lg:pt-4" ref={switcherRef}>
         {switchProjects.length > 1 ? (
           <>
             <button
@@ -211,7 +272,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
             )}
           </>
         ) : (
-          <Link href="/" className="flex items-center gap-3 px-2 py-2">
+          <Link href="/" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-2 py-2">
             <Image src={projectLogo} alt={projectName} width={36} height={36} className="shrink-0 rounded-md" priority />
             <div className="min-w-0">
               <p className="text-lg font-bold tracking-tight text-accent">
@@ -252,6 +313,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                   <Link
                     href={href}
                     aria-current={active ? "page" : undefined}
+                    onClick={() => setMobileOpen(false)}
                     className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
                       active
                         ? "bg-accent-bg text-accent"
@@ -289,6 +351,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           </button>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
