@@ -96,6 +96,12 @@ export function OrgRevenueOrbit({ orbit, support }: { orbit: SopaRevenueOrbit; s
 
   const backersTotal = support?.totalDepositedUsd ?? 0;
   const backersCount = allSup.length;
+  const totalEarned = support?.totalEarnedUsd ?? 0;
+  const sopaEarned = support?.sopaEarnedUsd ?? 0;
+  // Total accruing to SOPA across every source: revenue splits already
+  // distributed + the declared/estimated share (MOR builder) + the vault-yield
+  // fee accrued to the Safe. Pending (still in the splits) stays a sub-line.
+  const sunTotal = orbit.totalRealizedToSopaUsd + orbit.totalEstimatedToSopaUsd + sopaEarned;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-surface p-5 sm:p-7">
@@ -134,6 +140,15 @@ export function OrgRevenueOrbit({ orbit, support }: { orbit: SopaRevenueOrbit; s
             <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">Community backing</span>
             <span className="font-mono text-sm font-semibold tabular-nums" style={{ color: SUPPORT_PALETTE[0] }}>
               {usd(backersTotal)} · {backersCount}
+            </span>
+          </>
+        )}
+        {totalEarned > 0 && (
+          <>
+            <span className="h-4 w-px bg-border" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">Vault yield</span>
+            <span className="font-mono text-sm font-semibold tabular-nums" style={{ color: SUPPORT_PALETTE[2] }}>
+              {usd(totalEarned)} · {usd(sopaEarned)} → SOPA
             </span>
           </>
         )}
@@ -266,7 +281,7 @@ export function OrgRevenueOrbit({ orbit, support }: { orbit: SopaRevenueOrbit; s
           <circle cx={sunX} cy={sunY} r={sunR} className="fill-[var(--surface-elevated)]" stroke="var(--accent)" strokeWidth={2} />
           <circle cx={sunX} cy={sunY} r={sunR} fill="none" stroke="var(--accent)" strokeWidth={10} strokeOpacity={0.12} />
           <text x={sunX} y={sunY - 22} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5 }}>TREASURY</text>
-          <text x={sunX} y={sunY + 3} textAnchor="middle" className="fill-[var(--foreground)]" style={{ fontSize: 21, fontWeight: 700, fontFamily: "var(--font-mono)" }}>{usd(orbit.totalRealizedToSopaUsd)}</text>
+          <text x={sunX} y={sunY + 3} textAnchor="middle" className="fill-[var(--foreground)]" style={{ fontSize: 21, fontWeight: 700, fontFamily: "var(--font-mono)" }}>{usd(sunTotal)}</text>
           <text x={sunX} y={sunY + 22} textAnchor="middle" className="fill-[var(--foreground-faint)]" style={{ fontSize: 10, fontFamily: "var(--font-mono)" }}>
             {backersTotal > 0 ? `+ ${usd(backersTotal)} backing` : orbit.totalPendingToSopaUsd > 0 ? `+ ${usd(orbit.totalPendingToSopaUsd)} pending` : "SOPA"}
           </text>

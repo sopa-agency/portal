@@ -13,7 +13,7 @@ export default async function OrgChartPage() {
   const [cards, orbit, support] = await Promise.all([
     listBoard("orgchart"),
     getSopaRevenueOrbit().catch(() => ({ totalRealizedToSopaUsd: 0, totalPendingToSopaUsd: 0, totalEstimatedToSopaUsd: 0, grossTotalUsd: 0, projects: [] })),
-    getSopaSupporters().catch(() => ({ vaultAddress: null, totalDepositedUsd: 0, feeToSopa: 0, supporters: [] })),
+    getSopaSupporters().catch(() => ({ vaultAddress: null, totalDepositedUsd: 0, totalEarnedUsd: 0, sopaEarnedUsd: 0, feeToSopa: 0, supporters: [] })),
   ]);
 
   // Roster = everyone across every project's team (allowlist), deduped. Hive

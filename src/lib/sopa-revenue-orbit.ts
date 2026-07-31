@@ -3,7 +3,7 @@ import { getOrgRevenue } from "@/lib/org-revenue";
 import { getSplitConfig } from "@/lib/splits";
 import { getMorBuilderReward } from "@/lib/mor-builder";
 import { getCommunityVaults } from "@/lib/community-vaults";
-import { getVaultDepositors } from "@/lib/vault-depositors";
+import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 import { SOPA_SAFE } from "@/lib/superfluid";
 
 // Revenue wiring INTO the SOPA treasury, for the org-chart "Revenue" view: EVERY
@@ -209,18 +209,25 @@ export type OrbitSupporter = {
 export type SopaSupport = {
   vaultAddress: string | null;
   totalDepositedUsd: number;
+  /** Total yield the vault has generated so far = backers' gain + SOPA's fee. */
+  totalEarnedUsd: number;
+  /** SOPA's cut of that yield (the vault fee accrued to the Safe) — real income. */
+  sopaEarnedUsd: number;
   /** Share of vault yield routed to the SOPA Safe (0–1). */
   feeToSopa: number;
   supporters: OrbitSupporter[];
 };
 
 export async function getSopaSupporters(): Promise<SopaSupport> {
-  const empty: SopaSupport = { vaultAddress: null, totalDepositedUsd: 0, feeToSopa: 0, supporters: [] };
+  const empty: SopaSupport = { vaultAddress: null, totalDepositedUsd: 0, totalEarnedUsd: 0, sopaEarnedUsd: 0, feeToSopa: 0, supporters: [] };
   const vaults = await getCommunityVaults().catch(() => []);
   const sopaVault = vaults.find((v) => v.paysSopa) ?? null;
   if (!sopaVault) return empty;
 
-  const depositors = await getVaultDepositors(sopaVault.vault.address).catch(() => []);
+  const [depositors, sopaEarnedUsd] = await Promise.all([
+    getVaultDepositors(sopaVault.vault.address).catch(() => []),
+    getVaultFeeAccrued(sopaVault.vault.address, SOPA_SAFE).catch(() => 0),
+  ]);
   const backers = depositors
     .filter((d) => !d.isDeadDeposit && d.assets > 0)
     .sort((a, b) => b.assets - a.assets);
@@ -234,9 +241,15 @@ export async function getSopaSupporters(): Promise<SopaSupport> {
     earnedUsd: d.earned,
   }));
 
+  // Total vault yield = every depositor's gain (incl. the dead deposit) + SOPA's
+  // fee cut — matches the Apoiar tab's "live yield" so the numbers agree.
+  const totalEarnedUsd = sopaEarnedUsd + depositors.reduce((s, d) => s + d.earned, 0);
+
   return {
     vaultAddress: sopaVault.vault.address,
     totalDepositedUsd: backers.reduce((s, d) => s + d.assets, 0),
+    totalEarnedUsd,
+    sopaEarnedUsd,
     feeToSopa: sopaVault.fee,
     supporters,
   };
