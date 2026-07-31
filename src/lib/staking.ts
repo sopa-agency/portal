@@ -1,4 +1,5 @@
 import "server-only";
+import { baseEthCall } from "@/lib/base-rpc";
 
 // Morpho staking (the "Superstaking" bucket). Principal sits in a MetaMorpho
 // ERC-4626 vault on Base earning yield; the Safe owns the shares. Read-only
@@ -67,16 +68,9 @@ async function fetchNetDeposited(safe: string): Promise<number | null> {
   }
 }
 
-async function ethCall(to: string, data: string): Promise<string> {
-  const res = await fetch(MORPHO.rpc, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", method: "eth_call", params: [{ to, data }, "latest"], id: 1 }),
-    next: { revalidate: 60, tags: ["stake"] },
-  });
-  const json = (await res.json()) as { result?: string };
-  return json.result ?? "0x";
-}
+// eth_call with provider failover — the public Base RPC 429s under the treasury
+// page's burst of reads, which used to blank the staking position.
+const ethCall = (to: string, data: string) => baseEthCall(to, data, { revalidate: 60, tags: ["stake"] });
 
 async function fetchApy(): Promise<number | null> {
   try {
