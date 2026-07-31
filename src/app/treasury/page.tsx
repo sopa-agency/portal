@@ -33,6 +33,7 @@ import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
 import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
+import { SopaStakePanel } from "@/components/sopa-stake-panel";
 import { getPipelineStatus } from "@/lib/mor-pipeline";
 import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
 import { FinancialDashboard } from "@/components/financial-dashboard";
@@ -283,6 +284,7 @@ treasury: {
           o que sai (custos + runway) → atividade do multisig (recolhida, ops). */}
       {overviewAndRevenue}
       {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
+      <SopaStakePanel />
       {allocation && (
         <TreasuryAllocation
           initial={allocation}
