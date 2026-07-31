@@ -30,7 +30,11 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 
-const AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 4 * 60_000);
+// Match the agent-worker's own budget (it defaults to 285s) — we were passing a
+// shorter 240s, cutting long generations (the full artifact set) off 45s early.
+// Stays under the queue/serverless ceiling (callViaQueue caps polling at ~290s;
+// the route pins maxDuration=300).
+const AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 285_000);
 const ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".openclaw", ".env");
 
 // Project-aware persona for campaign prompts. Defaults to the original
