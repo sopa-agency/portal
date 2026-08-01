@@ -8,7 +8,7 @@
 // less) run natively here via the injected wallet. Reads refresh after each step.
 
 import { useState } from "react";
-import { createWalletClient, createPublicClient, custom, http, getAddress } from "viem";
+import { createPublicClient, http, getAddress, encodeFunctionData } from "viem";
 import { base } from "viem/chains";
 import { Loader2, ExternalLink, CheckCircle2, AlertTriangle, Plug } from "lucide-react";
 import {
@@ -59,9 +59,13 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
     setErr(null);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum!;
-      const wallet = createWalletClient({ account: getAddress(account), chain: base, transport: custom(eth) });
+      const from = getAddress(account);
+      // Send a raw eth_sendTransaction ({from,to,data}) and let the wallet fill
+      // gas/fees/nonce — most compatible with injected wallets (viem's writeContract
+      // adds fields some wallet RPCs reject, esp. for a 7702-delegated EOA).
       for (const c of calls) {
-        const hash = await wallet.writeContract({ address: getAddress(c.address), abi: c.abi as never, functionName: c.fn as never, args: c.args as never });
+        const data = encodeFunctionData({ abi: c.abi, functionName: c.fn, args: c.args } as Parameters<typeof encodeFunctionData>[0]);
+        const hash = (await eth.request({ method: "eth_sendTransaction", params: [{ from, to: getAddress(c.address), data }] })) as `0x${string}`;
         await pub.waitForTransactionReceipt({ hash });
       }
       await refresh();

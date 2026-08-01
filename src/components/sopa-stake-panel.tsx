@@ -6,7 +6,7 @@
 // on Base. Principal is the wallet's; withdraw after the subnet's 7-day lock.
 
 import { useState, useCallback } from "react";
-import { createWalletClient, createPublicClient, custom, http, getAddress, parseUnits, formatUnits, type Address } from "viem";
+import { createPublicClient, http, getAddress, parseUnits, formatUnits, encodeFunctionData, type Address } from "viem";
 import { base } from "viem/chains";
 import { Loader2, Plug } from "lucide-react";
 import { PIPELINE, TOKENS } from "@/lib/mor-pipeline";
@@ -69,9 +69,13 @@ export function SopaStakePanel() {
     }
   }
 
-  function wallet() {
+  // Raw eth_sendTransaction ({from,to,data}) — the wallet fills gas/fees/nonce.
+  // Most compatible with injected wallets (viem's writeContract adds fields some
+  // wallet RPCs reject).
+  async function send(to: Address, data: `0x${string}`) {
     const eth = (window as unknown as { ethereum?: Eth }).ethereum!;
-    return createWalletClient({ account: getAddress(account!), chain: base, transport: custom(eth) });
+    const hash = (await eth.request({ method: "eth_sendTransaction", params: [{ from: getAddress(account!), to, data }] })) as `0x${string}`;
+    await pub.waitForTransactionReceipt({ hash });
   }
 
   async function stake() {
@@ -81,14 +85,11 @@ export function SopaStakePanel() {
     if (amt <= BigInt(0)) return;
     setBusy("stake"); setErr(null);
     try {
-      const w = wallet();
       const allowance = await pub.readContract({ address: MOR, abi: erc20, functionName: "allowance", args: [getAddress(account), PIPELINE.builders] });
       if (allowance < amt) {
-        const h = await w.writeContract({ address: MOR, abi: erc20, functionName: "approve", args: [PIPELINE.builders, amt] });
-        await pub.waitForTransactionReceipt({ hash: h });
+        await send(MOR, encodeFunctionData({ abi: erc20, functionName: "approve", args: [PIPELINE.builders, amt] }));
       }
-      const h2 = await w.writeContract({ address: PIPELINE.builders, abi: buildersStake, functionName: "deposit", args: [PIPELINE.subnetId, amt] });
-      await pub.waitForTransactionReceipt({ hash: h2 });
+      await send(PIPELINE.builders, encodeFunctionData({ abi: buildersStake, functionName: "deposit", args: [PIPELINE.subnetId, amt] }));
       setAmount(""); await read(account);
     } catch (e) {
       setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Stake failed.");
@@ -99,9 +100,7 @@ export function SopaStakePanel() {
     if (!account || staked <= 0) return;
     setBusy("withdraw"); setErr(null);
     try {
-      const w = wallet();
-      const h = await w.writeContract({ address: PIPELINE.builders, abi: buildersStake, functionName: "withdraw", args: [PIPELINE.subnetId, parseUnits(String(staked), 18)] });
-      await pub.waitForTransactionReceipt({ hash: h });
+      await send(PIPELINE.builders, encodeFunctionData({ abi: buildersStake, functionName: "withdraw", args: [PIPELINE.subnetId, parseUnits(String(staked), 18)] }));
       await read(account);
     } catch (e) {
       setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Withdraw failed (7-day lock?).");
