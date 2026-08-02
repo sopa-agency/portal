@@ -18,7 +18,7 @@ import {
 
 type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 const pub = createPublicClient({ chain: base, transport: http("https://base-rpc.publicnode.com") });
-const splitsUrl = (addr: string) => `https://app.splits.org/accounts/${addr}/?chainId=8453`;
+const splitsUrl = (addr: string) => `https://explorer.splits.org/accounts/${addr}/?chainId=8453`;
 const mor = (n: number) => `${n.toLocaleString("en-US", { maximumFractionDigits: n >= 1 ? 3 : 6 })} MOR`;
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
