@@ -54,7 +54,8 @@ const splitTuple = { type: "tuple", components: [
 
 export const pipelineAbis = {
   builders: [{ type: "function", name: "claim", stateMutability: "nonpayable", inputs: [{ name: "builderPoolId", type: "bytes32" }, { name: "receiver", type: "address" }], outputs: [] },
-    { type: "function", name: "getCurrentSubnetRewards", stateMutability: "view", inputs: [{ name: "subnetId", type: "bytes32" }], outputs: [{ type: "uint256" }] }] as const,
+    { type: "function", name: "getCurrentSubnetRewards", stateMutability: "view", inputs: [{ name: "subnetId", type: "bytes32" }], outputs: [{ type: "uint256" }] },
+    { type: "function", name: "usersData", stateMutability: "view", inputs: [{ name: "user", type: "address" }, { name: "subnetId", type: "bytes32" }], outputs: [{ type: "uint128" }, { type: "uint128" }, { name: "deposited", type: "uint256" }, { type: "uint256" }] }] as const,
   split: [{ type: "function", name: "distribute", stateMutability: "nonpayable", inputs: [{ name: "_split", ...splitTuple }, { name: "_token", type: "address" }, { name: "_distributor", type: "address" }], outputs: [] }] as const,
   warehouse: [{ type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "_owner", type: "address" }, { name: "_token", type: "address" }], outputs: [] },
     { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "id", type: "uint256" }], outputs: [{ type: "uint256" }] }] as const,
@@ -93,6 +94,10 @@ export type PipelineStatus = {
   sopaWarehouseMor: number;
   /** SOPA's pending USDC Warehouse credit (its 80% downstream). */
   sopaWarehouseUsdc: number;
+  /** MOR SOPA has already collected, sitting idle in its wallet. */
+  sopaWalletMor: number;
+  /** MOR SOPA has staked into the Gnars subnet (compounding its cut back in). */
+  sopaStakedMor: number;
 };
 
 export async function getPipelineStatus(): Promise<PipelineStatus> {
@@ -100,7 +105,7 @@ export async function getPipelineStatus(): Promise<PipelineStatus> {
   const r = (address: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[]) =>
     client.readContract({ address, abi: abi as never, functionName, args: args as never }) as Promise<bigint>;
 
-  const [reward, topMor, whAMor, aMor, bWeth, downUsdc, whGnarsUsdc, gnarsUsdc, whSopaMor, whSopaUsdc] = await Promise.all([
+  const [reward, topMor, whAMor, aMor, bWeth, downUsdc, whGnarsUsdc, gnarsUsdc, whSopaMor, whSopaUsdc, sopaWallet] = await Promise.all([
     r(PIPELINE.builders, pipelineAbis.builders, "getCurrentSubnetRewards", [PIPELINE.subnetId]).catch(() => BigInt(0)),
     r(mor.address, pipelineAbis.erc20, "balanceOf", [PIPELINE.topSplit]),
     r(PIPELINE.warehouse, pipelineAbis.warehouse, "balanceOf", [PIPELINE.swapperA, warehouseId(mor.address)]),
@@ -111,7 +116,14 @@ export async function getPipelineStatus(): Promise<PipelineStatus> {
     r(usdc.address, pipelineAbis.erc20, "balanceOf", [PIPELINE.gnarsTreasury]),
     r(PIPELINE.warehouse, pipelineAbis.warehouse, "balanceOf", [PIPELINE.sopa, warehouseId(mor.address)]),
     r(PIPELINE.warehouse, pipelineAbis.warehouse, "balanceOf", [PIPELINE.sopa, warehouseId(usdc.address)]),
+    r(mor.address, pipelineAbis.erc20, "balanceOf", [PIPELINE.sopa]),
   ]);
+
+  // usersData returns a tuple; deposited (SOPA's staked MOR) is index [2].
+  const sopaStaked = await client
+    .readContract({ address: PIPELINE.builders, abi: pipelineAbis.builders as never, functionName: "usersData", args: [PIPELINE.sopa, PIPELINE.subnetId] as never })
+    .then((u) => (u as readonly bigint[])[2])
+    .catch(() => BigInt(0));
 
   const n = (v: bigint, d: number) => Number(formatUnits(clean(v), d));
   return {
@@ -125,5 +137,7 @@ export async function getPipelineStatus(): Promise<PipelineStatus> {
     gnarsUsdc: n(gnarsUsdc, 6),
     sopaWarehouseMor: n(whSopaMor, 18),
     sopaWarehouseUsdc: n(whSopaUsdc, 6),
+    sopaWalletMor: n(sopaWallet, 18),
+    sopaStakedMor: n(sopaStaked, 18),
   };
 }

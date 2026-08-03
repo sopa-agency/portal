@@ -387,6 +387,16 @@ treasury: {
           };
         })()
       : undefined,
+    // SOPA's MOR position (Morpheus/Gnars subnet) — only when the pipeline read
+    // succeeded (SOPA-only). Same live numbers the pipeline + stake panels show.
+    mor: pipelineStatus
+      ? {
+          stakedMor: pipelineStatus.sopaStakedMor,
+          walletMor: pipelineStatus.sopaWalletMor,
+          pendingMor: pipelineStatus.sopaWarehouseMor,
+          subnetPendingMor: pipelineStatus.subnetRewardMor,
+        }
+      : undefined,
   });
 
   return (

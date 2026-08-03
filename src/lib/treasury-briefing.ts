@@ -46,6 +46,17 @@ export type BriefingInput = {
     /** Share of the yield taken as the SOPA fee, 0–1. */
     feeToSopa: number;
   };
+  /** SOPA's MOR position from the Gnars subnet pipeline (Morpheus). */
+  mor?: {
+    /** MOR staked into the Gnars subnet (compounding SOPA's cut back in). */
+    stakedMor: number;
+    /** MOR already collected, sitting idle in SOPA's wallet. */
+    walletMor: number;
+    /** MOR credited to SOPA but not yet withdrawn (Splits warehouse). */
+    pendingMor: number;
+    /** Whole-subnet reward still to be claimed by the pipeline (context). */
+    subnetPendingMor: number;
+  };
 };
 
 export type BriefingSection = { title: string; paragraphs: string[] };
@@ -61,6 +72,10 @@ const usd = (n: number) =>
   mark(n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < 100 ? 2 : 0 }));
 
 const pct = (n: number) => mark(`${Math.round(n * 100)}%`);
+
+/** MOR amounts stay in MOR units — no reliable price feed, and the honest read
+ * is "how much MOR", not a shaky USD conversion of pennies. */
+const mor = (n: number) => mark(`${n.toLocaleString("en-US", { maximumFractionDigits: n > 0 && n < 1 ? 4 : 3 })} MOR`);
 
 /** Split a paragraph into plain/emphasized runs for rendering. */
 export function briefingRuns(text: string): { text: string; num: boolean }[] {
@@ -211,6 +226,44 @@ export function buildTreasuryBriefing(i: BriefingInput): Briefing {
       }
     }
     sections.push({ title: "Cofre de apoio", paragraphs: cofre });
+  }
+
+  // ---- 4c. MOR (stake na subnet + rewards do pipeline) ----
+  if (i.mor) {
+    const m = i.mor;
+    const hasAny = m.stakedMor > 0 || m.walletMor > 0 || m.pendingMor > 0;
+    const linha: string[] = [];
+    if (!hasAny) {
+      linha.push("A SOPA ainda não tem MOR staqueado nem colhido — a fatia de MOR do pipeline (10% no topo) ainda não rodou.");
+    } else {
+      if (m.stakedMor > 0) {
+        linha.push(
+          `A SOPA tem ${mor(m.stakedMor)} staqueados na subnet da Gnars (Morpheus, na Base) — reinvestindo de volta o corte que recebe do pipeline. ` +
+            `O principal continua dela, sacável depois do lock de 7 dias.`,
+        );
+      } else {
+        linha.push("A SOPA não tem MOR staqueado na subnet no momento — o que recebe do pipeline está parado, não reinvestido.");
+      }
+      // Rewards colhidos (na carteira) vs por colher (no warehouse).
+      if (m.walletMor > 0) {
+        linha.push(`Já colheu ${mor(m.walletMor)}, mas estão parados na carteira, sem render nem staquear.`);
+      }
+      linha.push(
+        m.pendingMor > 0
+          ? `Tem ${mor(m.pendingMor)} de reward creditados esperando saque (withdraw do warehouse dos Splits).`
+          : "Nada de reward esperando saque agora — o último corte já foi colhido.",
+      );
+      if (m.subnetPendingMor > 0.001) {
+        linha.push(
+          `A subnet tem ${mor(m.subnetPendingMor)} acumulados pra reivindicar no pipeline; desse total a SOPA leva 10% (o resto vira USDC pra Gnars e SOPA lá embaixo).`,
+        );
+      }
+      // Honest scale check — these are fractions of MOR, not real income yet.
+      if (m.stakedMor + m.walletMor + m.pendingMor < 100) {
+        linha.push("São quantias pequenas (fração de MOR) — semente/teste do fluxo, ainda não receita relevante.");
+      }
+    }
+    sections.push({ title: "MOR (stake na subnet)", paragraphs: linha });
   }
 
   // ---- 5. Precisa de atenção ----
