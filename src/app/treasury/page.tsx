@@ -283,8 +283,19 @@ treasury: {
       {/* Ordem: quanto temos (hero + saldos + receita) → pra que é (earmarks) →
           o que sai (custos + runway) → atividade do multisig (recolhida, ops). */}
       {overviewAndRevenue}
-      {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
-      <SopaStakePanel />
+      {/* Operações MOR (pipeline + stake) — ferramentas de owner, recolhidas num
+          collapsible pra Tesouro ficar uma visão limpa de "quanto temos". */}
+      <details className="group border-t border-border pt-8">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
+          <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+          Operações MOR
+          <span className="text-xs font-normal text-foreground-faint">pipeline MOR→USDC · stake na subnet · só a haxixe.eth roda o fluxo</span>
+        </summary>
+        <div className="mt-6 space-y-8">
+          {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
+          <SopaStakePanel />
+        </div>
+      </details>
       {allocation && (
         <TreasuryAllocation
           initial={allocation}
@@ -402,12 +413,12 @@ treasury: {
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Treasury"
-        title={groups.length > 1 ? "Treasuries overview" : `${project.name} treasury`}
+        eyebrow="Tesouraria"
+        title={groups.length > 1 ? "Visão das tesourarias" : `Tesouraria ${project.name}`}
         description={
           groups.length > 1
-            ? `The ${project.name} Safe plus every portal treasury it operates — same wallets and sources as the native apps.`
-            : "The same wallets and data sources the native app shows — live balances across chains."
+            ? `O Safe da ${project.name} + todas as tesourarias dos portais que ela opera — as mesmas carteiras e fontes dos apps nativos.`
+            : "As mesmas carteiras e fontes que o app nativo mostra — saldos ao vivo em várias redes."
         }
         status={usd(combined)}
         actions={
