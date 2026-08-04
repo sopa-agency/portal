@@ -40,6 +40,24 @@ export const PAGE_GUIDES: Record<string, PageGuide> = {
       },
     ],
   },
+  "/tiktok": {
+    title: "TikTok",
+    tagline: "Review queue for TikTok videos — upload, approve, schedule, publish.",
+    sections: [
+      {
+        heading: "The queue",
+        body: "Upload a video and write the caption, then it sits as a draft until someone on the team approves it. Approval is the gate: the scheduler only publishes rows a teammate signed off on, and editing a draft clears its approval so nothing changes after the fact.",
+      },
+      {
+        heading: "Publishing settings",
+        body: "Visibility, comments, duet, and stitch come from the connected account's current settings — if the account blocks duet, the toggle is off and locked. Paid partnership and AI-generated content have their own switches, as TikTok requires the disclosure to be declared at publish time.",
+      },
+      {
+        heading: "Before it works",
+        body: "The brand connects its own TikTok account through OAuth (button on the page), and until TikTok audits the app every post publishes as private — the page says so. Setup walkthrough lives in docs/tiktok-setup.md.",
+      },
+    ],
+  },
   "/post-creator": {
     title: "Post Creator",
     tagline: "Compose, schedule, and publish Instagram posts — single image, carousel, or Reel.",

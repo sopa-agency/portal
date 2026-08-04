@@ -101,6 +101,7 @@ export default async function RootLayout({
       { href: "/", label: "Home", on: true },
       { href: "/post-creator", label: "Post Creator", on: !!project.postCreator },
       { href: "/lab", label: "Lab", on: !!project.lab },
+      { href: "/tiktok", label: "TikTok", on: !!project.tiktok },
       { href: "/zine", label: "Zine Studio", on: !!project.zineStudio },
       { href: "/marketing-suggestions", label: "Post Suggestions", on: true },
       { href: "/campaign-creator", label: "Campaign Creator", on: true },
@@ -158,6 +159,7 @@ export default async function RootLayout({
                 labEnabled={!!project.lab}
                 zineEnabled={!!project.zineStudio}
                 meetingsEnabled={!!project.meetings}
+                tiktokEnabled={!!project.tiktok}
                 farcasterTrailEnabled={isTrailParticipant(project.slug)}
               />
               <ThemeToggle />

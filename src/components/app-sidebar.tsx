@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Newspaper, LayoutTemplate, Inbox, Menu, X, type LucideIcon } from "lucide-react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Music2, Newspaper, LayoutTemplate, Inbox, Menu, X, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 
 type NavItem = {
@@ -25,6 +25,7 @@ type NavItem = {
   requiresBriefs?: boolean;
   requiresMeetings?: boolean;
   requiresFarcasterTrail?: boolean;
+  requiresTikTok?: boolean;
 };
 
 // Grouped by what you're doing: Home on top, Settings pinned at the bottom.
@@ -34,6 +35,7 @@ const NAV: NavItem[] = [
   { href: "/post-creator", label: "Post Creator", icon: SquarePen, group: "Criação", requiresPostCreator: true },
   { href: "/zine", label: "Zine Studio", icon: BookOpenText, group: "Criação", requiresZine: true },
   { href: "/lab", label: "Lab", icon: FlaskConical, group: "Criação", requiresLab: true },
+  { href: "/tiktok", label: "TikTok", icon: Music2, group: "Criação", requiresTikTok: true },
   { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone, group: "Criação" },
   { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles, group: "Criação" },
 
@@ -88,12 +90,13 @@ type AppSidebarProps = {
   portfolioEnabled?: boolean;
   briefsEnabled?: boolean;
   meetingsEnabled?: boolean;
+  tiktokEnabled?: boolean;
   labEnabled?: boolean;
   zineEnabled?: boolean;
   farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, briefsEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, briefsEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -158,6 +161,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
     if ("requiresBriefs" in item && item.requiresBriefs && !briefsEnabled) return false;
     if ("requiresMeetings" in item && item.requiresMeetings && !meetingsEnabled) return false;
     if ("requiresFarcasterTrail" in item && item.requiresFarcasterTrail && !farcasterTrailEnabled) return false;
+    if ("requiresTikTok" in item && item.requiresTikTok && !tiktokEnabled) return false;
     return true;
   });
 
