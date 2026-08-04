@@ -22,6 +22,7 @@ import {
 import { publishInstagramPost, type IgUserTag } from "@/lib/instagram-publish";
 import { publishFacebookPost, facebookCrosspostEnabled } from "@/lib/facebook-publish";
 import { publishLabChannel } from "@/lib/lab-publish";
+import { publishTikTokVideo, type TikTokPrivacy } from "@/lib/tiktok";
 import { ensureInstagramMedia } from "@/lib/transcode-ig";
 import {
   crossPostConfig,
@@ -407,6 +408,107 @@ async function publishDueLabPosts(now: number): Promise<LabResult[]> {
 }
 
 // ---------------------------------------------------------------------------
+// TikTok scheduled-post publishing
+//
+// Capped low: publishTikTokVideo streams the whole file through this process
+// (FILE_UPLOAD — PULL_FROM_URL would need a TikTok-verified domain, which the
+// Pinata gateway isn't), so each one is heavy. Only rows a teammate approved
+// (`reviewed`) are picked up — the human gate is the point of the queue.
+// ---------------------------------------------------------------------------
+
+const TIKTOK_MAX_PER_TICK = 1;
+
+type TikTokTickResult = {
+  id: string;
+  projectSlug: string;
+  ok: boolean;
+  publishId?: string;
+  error?: string;
+};
+
+async function publishDueTikTokPosts(now: number): Promise<TikTokTickResult[]> {
+  const staleThreshold = new Date(now - STALE_PUBLISHING_MS);
+  const candidates = await prisma.tikTokPost.findMany({
+    where: {
+      reviewed: true,
+      OR: [
+        { status: "scheduled", scheduledFor: { lte: new Date(now) } },
+        { status: "publishing", updatedAt: { lte: staleThreshold } },
+      ],
+    },
+    orderBy: { scheduledFor: "asc" },
+    take: TIKTOK_MAX_PER_TICK * 3,
+  });
+
+  const results: TikTokTickResult[] = [];
+  for (const post of candidates) {
+    if (results.length >= TIKTOK_MAX_PER_TICK) break;
+
+    const claim = await prisma.tikTokPost.updateMany({
+      where: { id: post.id, status: { in: ["scheduled", "publishing"] } },
+      data: { status: "publishing" },
+    });
+    if (claim.count === 0) continue; // another tick got it
+
+    const project = getProject(post.projectSlug);
+
+    if (!post.videoUrl) {
+      await prisma.tikTokPost.update({
+        where: { id: post.id },
+        data: { status: "failed", error: "No video on this post." },
+      });
+      results.push({ id: post.id, projectSlug: post.projectSlug, ok: false, error: "No video" });
+      continue;
+    }
+
+    try {
+      const r = await publishTikTokVideo(project, {
+        caption: post.caption,
+        videoUrl: normalizeMediaUrl(post.videoUrl),
+        privacy: post.privacy as TikTokPrivacy,
+        disableComment: post.disableComment,
+        disableDuet: post.disableDuet,
+        disableStitch: post.disableStitch,
+        brandContent: post.brandContent,
+        brandOrganic: post.brandOrganic,
+        isAigc: post.isAigc,
+        coverTimeMs: post.coverTimeMs ?? undefined,
+      });
+
+      await prisma.tikTokPost.update({
+        where: { id: post.id },
+        data: r.ok
+          ? {
+              status: "published",
+              publishId: r.data.publishId,
+              publishedAt: new Date(now),
+              scheduledFor: null,
+              error: null,
+              attempts: 0,
+            }
+          : { status: "failed", error: r.error, attempts: { increment: 1 } },
+      });
+      results.push({
+        id: post.id,
+        projectSlug: post.projectSlug,
+        ok: r.ok,
+        publishId: r.ok ? r.data.publishId : undefined,
+        error: r.ok ? undefined : r.error,
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      await prisma.tikTokPost.update({
+        where: { id: post.id },
+        data: { status: "failed", error, attempts: { increment: 1 } },
+      });
+      results.push({ id: post.id, projectSlug: post.projectSlug, ok: false, error });
+    }
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Public orchestration
 // ---------------------------------------------------------------------------
 
@@ -422,6 +524,7 @@ export type TickResult = {
   }>;
   instagram: IgResult[];
   lab?: LabResult[];
+  tiktok?: TikTokTickResult[];
 };
 
 /** Publish everything currently due (tweets + Instagram + Lab cross-network).
@@ -497,10 +600,22 @@ async function reconcileCrossPosts(now: number): Promise<number> {
 }
 
 export async function runScheduledPublish(now: number): Promise<TickResult> {
-  const [tweetDue, igResults, labResults] = await Promise.all([
+  const [tweetDue, igResults, labResults, tiktokResults] = await Promise.all([
     findDueItems(now),
     publishDueIgPosts(now),
     publishDueLabPosts(now),
+    // Isolated: the TikTok lane is the newest and its table may not exist yet on
+    // an environment that hasn't run create-tiktok-tables.cjs. A rejection here
+    // would take the WHOLE tick down with it — including Instagram — so it
+    // degrades to an empty result instead.
+    publishDueTikTokPosts(now).catch((err) => [
+      {
+        id: "-",
+        projectSlug: "-",
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      } satisfies TikTokTickResult,
+    ]),
     // Never let the janitor break a tick — publishing is what matters here.
     reconcileCrossPosts(now).catch(() => 0),
   ]);
@@ -522,7 +637,13 @@ export async function runScheduledPublish(now: number): Promise<TickResult> {
     }
   }
 
-  return { checkedAt: new Date(now).toISOString(), processed, instagram: igResults, lab: labResults };
+  return {
+    checkedAt: new Date(now).toISOString(),
+    processed,
+    instagram: igResults,
+    lab: labResults,
+    tiktok: tiktokResults,
+  };
 }
 
 // ---------------------------------------------------------------------------

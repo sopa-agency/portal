@@ -163,6 +163,14 @@ export type ProjectConfig = {
    */
   zineStudio?: boolean;
   /**
+   * When true, the TikTok nav item + /tiktok route are enabled — a review queue
+   * for TikTok videos (draft → approve → schedule → publish). Unlike Instagram,
+   * the credentials are NOT env-only: the brand connects its account through
+   * OAuth and the tokens live in TikTokAccount, because TikTok's access token
+   * lasts 24h and its refresh token rotates. Absent = nav hidden + 404.
+   */
+  tiktok?: boolean;
+  /**
    * When true, the Org Chart nav item + /org-chart route are enabled — an
    * editable flowchart (SOPA-only). Absent = nav hidden + 404.
    */
