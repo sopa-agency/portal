@@ -46,7 +46,11 @@ export function PageHeader({ eyebrow, title, description, status, actions, compa
           <div className="max-w-2xl text-sm text-foreground-muted">{description}</div>
         )}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && (
+        // A compact header sits in the same band as the app's fixed top-right
+        // buttons (page guide + theme), so its actions need room to clear them.
+        <div className={`flex shrink-0 items-center gap-2 ${compact ? "mr-20" : ""}`}>{actions}</div>
+      )}
     </header>
   );
 }

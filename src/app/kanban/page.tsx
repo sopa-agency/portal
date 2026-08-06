@@ -52,12 +52,8 @@ export default async function KanbanPage() {
     <div className="flex flex-col gap-4 lg:h-[calc(100dvh-4rem)]">
       {/* Compact: the board needs the vertical space, and the page-guide "i"
           button already carries the explanation this header used to repeat. */}
-      <PageHeader
-        compact
-        title="Kanban"
-        actions={project.repos?.length ? <KanbanRepoPRs prs={prs} /> : undefined}
-      />
-      <KanbanBoard />
+      <PageHeader compact title="Kanban" />
+      <KanbanBoard actions={project.repos?.length ? <KanbanRepoPRs prs={prs} /> : undefined} />
     </div>
   );
 }

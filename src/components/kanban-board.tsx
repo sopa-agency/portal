@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -2317,7 +2317,12 @@ type Board = Extract<KanbanResult, { ok: true }> & {
   repos?: string[];
 };
 
-export function KanbanBoard() {
+/**
+ * @param actions Board-scoped controls rendered into the meta bar (the open-PRs
+ *   dropdown). They live here rather than in the page header so they sit with
+ *   "Abrir no GitHub" instead of colliding with the app's fixed top-right chrome.
+ */
+export function KanbanBoard({ actions }: { actions?: ReactNode }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2852,6 +2857,7 @@ export function KanbanBoard() {
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="Salvando" />}
         </div>
         <div className="flex items-center gap-2">
+          {actions}
           {doneCount > 0 && (
             <button
               type="button"
