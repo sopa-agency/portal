@@ -32,7 +32,7 @@ import type { PortalConnection, ConnectionStatus } from "@/lib/portal-connection
 import type { TeamMessageOption } from "@/lib/team-messaging";
 import { resolveDiscordUser, sendTeamMessage, sendTeamTasksEmail, updateTeamMemberContact } from "@/app/actions/team";
 import { FirePriority, DeadlineChip } from "@/components/card-indicators";
-import { setMemberRole, removeMember, getMemberTasks, getMemberSkills, setMemberSkills, getWeeklyMvp, type MemberTask, type WeeklyMvp } from "@/app/actions/team-admin";
+import { setMemberRole, removeMember, getMemberTasks, getMemberSkills, setMemberSkills, getWeeklyMvp, type MemberTask, type WeeklyMvp, type MvpPeriod, type MvpPeriodKey } from "@/app/actions/team-admin";
 import { SkillRadar } from "@/components/skill-radar";
 import { toast } from "sonner";
 import { Toaster } from "@/components/studio/ui/sonner";
@@ -1499,51 +1499,200 @@ function ConnectionCard({
 
 // ── Main export ────────────────────────────────────────────────────────────
 
-/** "Funcionário da Semana" poster — derived live from GitHub (tasks closed in
- *  the last 7 days, weighted by fire priority). Hidden when nobody qualifies. */
-function WeeklyMvpPoster() {
-  const [winner, setWinner] = useState<WeeklyMvp | null>(null);
+const MVP_TABS: { key: MvpPeriodKey; tab: string; title: string }[] = [
+  { key: "week", tab: "Esta semana", title: "Funcionário da Semana" },
+  { key: "lastWeek", tab: "Semana passada", title: "Funcionário da Semana Passada" },
+  { key: "month", tab: "Este mês", title: "Funcionário do Mês" },
+  { key: "lastMonth", tab: "Mês passado", title: "Funcionário do Mês Passado" },
+];
+
+const mvpName = (e: WeeklyMvp) => e.username ?? e.login;
+const mvpAvatar = (e: WeeklyMvp) =>
+  e.username ? `https://images.hive.blog/u/${e.username}/avatar` : e.avatarUrl;
+/** "tarefas concluídas" — the count is rendered separately so it can be styled. */
+const taskNoun = (n: number) => `tarefa${n !== 1 ? "s" : ""} concluída${n !== 1 ? "s" : ""}`;
+
+/** "02 ago – 08 ago" — the window bounds, so the Sunday→Saturday cut is visible. */
+function fmtRange(since: string, until: string) {
+  const f = (iso: string) =>
+    new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", timeZone: "America/Sao_Paulo" });
+  // `until` is exclusive, so step back a second to name the last day covered.
+  const end = new Date(new Date(until).getTime() - 1000).toISOString();
+  return `${f(since)} – ${f(end)}`;
+}
+
+/** Medal for the podium rows; the winner gets the trophy instead. */
+const MEDALS = ["🥈", "🥉"];
+
+/** MVP panel — winner + mini leaderboard, per period, derived live from GitHub
+ *  (tasks closed in the window, weighted by fire priority). Weeks run Sunday to
+ *  Saturday in team time. Hidden when nobody qualifies in any period. */
+function WeeklyMvpPoster({ projectName }: { projectName: string }) {
+  const [periods, setPeriods] = useState<MvpPeriod[] | null>(null);
+  const [tab, setTab] = useState<MvpPeriodKey>("week");
   useEffect(() => {
     let live = true;
     getWeeklyMvp()
-      .then((r) => { if (live && r.ok) setWinner(r.winner); })
+      .then((r) => { if (live && r.ok) setPeriods(r.periods); })
       .catch(() => {});
     return () => { live = false; };
   }, []);
-  if (!winner) return null;
-  const name = winner.username ?? winner.login;
-  const avatar = winner.username
-    ? `https://images.hive.blog/u/${winner.username}/avatar`
-    : winner.avatarUrl;
+
+  if (!periods || !periods.some((p) => p.winner)) return null;
+
+  const active = periods.find((p) => p.key === tab) ?? periods[0];
+  const meta = MVP_TABS.find((t) => t.key === active.key)!;
+  const winner = active.winner;
+  // The winner has their own block above, so the leaderboard picks up at 2nd.
+  const runnersUp = active.ranking.slice(1, 5);
+  const topPoints = winner?.points ?? 1;
+
   return (
     <section
-      aria-label="Funcionário da semana"
-      className="overflow-hidden rounded-2xl border border-accent-border bg-gradient-to-br from-accent-bg to-surface p-5"
+      aria-label="Destaque da equipe"
+      className="relative overflow-hidden rounded-3xl border border-accent-border bg-surface"
     >
-      <div className="flex items-center gap-4">
-        <span className="text-3xl leading-none">🏆</span>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={avatar}
-          alt={name}
-          className="h-16 w-16 shrink-0 rounded-full border-2 border-accent object-cover"
-        />
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-accent">
-            Funcionário da Semana
-          </p>
-          <p className="truncate text-xl font-bold text-foreground">@{name}</p>
-          <p className="text-xs text-foreground-muted">
-            {winner.done} tarefa{winner.done !== 1 ? "s" : ""} concluída{winner.done !== 1 ? "s" : ""}
-            {winner.points !== winner.done ? ` · ${winner.points} pts 🔥` : ""}
-          </p>
+      {/* Accent wash behind the hero. Built from the theme's own accent-bg, so
+          it reads in light and dark without a second set of colors. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{ background: "radial-gradient(120% 95% at 12% -15%, var(--accent-bg), transparent 62%)" }}
+      />
+
+      <div className="relative p-6 sm:p-8">
+        {/* Header: period switch on the left, provenance on the right — a
+            screenshot of this card should say on its own whose board and when. */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="inline-flex max-w-full overflow-x-auto rounded-full border border-border bg-surface-elevated p-0.5">
+            {MVP_TABS.map((t) => {
+              const on = t.key === active.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTab(t.key)}
+                  aria-pressed={on}
+                  className={`whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${
+                    on
+                      ? "bg-accent text-accent-foreground"
+                      : "text-foreground-muted hover:text-foreground"
+                  }`}
+                >
+                  {t.tab}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-foreground-faint">
+              {projectName}
+            </p>
+            <p className="text-xs tabular-nums text-foreground-subtle">
+              {fmtRange(active.since, active.until)}
+            </p>
+          </div>
         </div>
+
+        {winner ? (
+          <>
+            <div className="mt-7 flex flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:gap-6 sm:text-left">
+              <div className="relative shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={mvpAvatar(winner)}
+                  alt={mvpName(winner)}
+                  className="h-24 w-24 rounded-full object-cover ring-4 ring-accent sm:h-28 sm:w-28"
+                />
+                <span className="absolute -bottom-1 -right-1 flex h-10 w-10 items-center justify-center rounded-full border-4 border-surface bg-accent text-lg">
+                  🏆
+                </span>
+              </div>
+
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent">
+                  {meta.title}
+                </p>
+                <p className="mt-1 truncate text-3xl font-black tracking-tight text-foreground sm:text-4xl">
+                  @{mvpName(winner)}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                  <span className="rounded-full border border-border bg-surface-elevated px-3 py-1 text-xs text-foreground-muted">
+                    <b className="tabular-nums text-foreground">{winner.done}</b> {taskNoun(winner.done)}
+                  </span>
+                  {winner.points !== winner.done && (
+                    <span className="rounded-full border border-accent-border bg-accent-bg px-3 py-1 text-xs text-accent">
+                      <b className="tabular-nums">{winner.points}</b> pts 🔥
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* The actual work — the point of the poster is showing it, not just
+                the count. */}
+            {winner.titles.length > 0 && (
+              <div className="mt-7">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground-faint">
+                  Entregas
+                </p>
+                <ul className="mt-2.5 space-y-1.5">
+                  {winner.titles.map((t, i) => (
+                    <li key={`${t}-${i}`} className="flex items-start gap-2 text-sm text-foreground-muted">
+                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate" title={t}>{t}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {runnersUp.length > 0 && (
+              <div className="mt-7 border-t border-border pt-5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground-faint">
+                  Pódio
+                </p>
+                <ul className="mt-3 space-y-2.5">
+                  {runnersUp.map((e, i) => (
+                    <li key={e.login} className="flex items-center gap-3">
+                      <span className="w-5 shrink-0 text-center text-sm leading-none">
+                        {MEDALS[i] ?? (
+                          <span className="text-[11px] font-semibold tabular-nums text-foreground-faint">
+                            {i + 2}
+                          </span>
+                        )}
+                      </span>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={mvpAvatar(e)}
+                        alt=""
+                        className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-border"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground-muted">
+                        @{mvpName(e)}
+                      </span>
+                      {/* Bar reads against the leader, so the gap is visible at a glance. */}
+                      <span className="hidden h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-foreground/10 sm:block">
+                        <span
+                          className="block h-full rounded-full bg-accent/60"
+                          style={{ width: `${Math.max(6, Math.round((e.points / topPoints) * 100))}%` }}
+                        />
+                      </span>
+                      <span className="w-20 shrink-0 text-right text-[11px] tabular-nums text-foreground-subtle">
+                        {e.done} tarefa{e.done !== 1 ? "s" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="mt-7 text-sm text-foreground-muted">
+            Nenhuma tarefa concluída com responsável neste período.
+          </p>
+        )}
       </div>
-      {winner.titles.length > 0 && (
-        <p className="mt-3 truncate text-[11px] text-foreground-faint" title={winner.titles.join(" · ")}>
-          {winner.titles.join("  ·  ")}
-        </p>
-      )}
     </section>
   );
 }
@@ -1556,7 +1705,7 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
 
   return (
     <div className="space-y-8">
-      <WeeklyMvpPoster />
+      <WeeklyMvpPoster projectName={projectName} />
       <section aria-labelledby="team-heading">
         <div className="mb-4 flex items-baseline gap-3">
           <h2 id="team-heading" className="text-lg font-semibold tracking-tight text-foreground">

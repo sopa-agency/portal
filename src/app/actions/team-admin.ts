@@ -420,17 +420,50 @@ export type WeeklyMvp = {
   titles: string[];
 };
 
-type WeeklyMvpResult =
-  | { ok: true; winner: WeeklyMvp | null; ranking: WeeklyMvp[]; since: string }
+export type MvpPeriodKey = "week" | "lastWeek" | "month" | "lastMonth";
+
+export type MvpPeriod = {
+  key: MvpPeriodKey;
+  /** Window start, inclusive (ISO). */
+  since: string;
+  /** Window end, exclusive (ISO). */
+  until: string;
+  winner: WeeklyMvp | null;
+  ranking: WeeklyMvp[];
+};
+
+type MvpResult =
+  | { ok: true; periods: MvpPeriod[] }
   | { ok: false; error: string };
 
-const _mvpCache = new Map<string, { data: WeeklyMvpResult; expires: number }>();
+const _mvpCache = new Map<string, { data: MvpResult; expires: number }>();
 const MVP_TTL_MS = 30 * 60 * 1000;
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const ghNorm = (s: string) =>
   s.trim().toLowerCase().replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/^@/, "").replace(/\/.*$/, "");
 
-export async function getWeeklyMvp(): Promise<WeeklyMvpResult> {
+// The team works on Brazil time and counts its week Sunday→Saturday, so the
+// boundaries are computed there rather than in the server's UTC — a task closed
+// Saturday evening must not land in the next week. Brazil dropped DST in 2019,
+// so a fixed -03:00 is exact.
+const TEAM_TZ_OFFSET_MS = -3 * 60 * 60 * 1000;
+
+/** Midnight of the Sunday that opens the week containing `at`, in team time. */
+function startOfWeek(at: Date): Date {
+  const local = new Date(at.getTime() + TEAM_TZ_OFFSET_MS);
+  local.setUTCDate(local.getUTCDate() - local.getUTCDay());
+  local.setUTCHours(0, 0, 0, 0);
+  return new Date(local.getTime() - TEAM_TZ_OFFSET_MS);
+}
+
+/** Midnight of the 1st of the month containing `at`, in team time. */
+function startOfMonth(at: Date): Date {
+  const local = new Date(at.getTime() + TEAM_TZ_OFFSET_MS);
+  local.setUTCDate(1);
+  local.setUTCHours(0, 0, 0, 0);
+  return new Date(local.getTime() - TEAM_TZ_OFFSET_MS);
+}
+
+export async function getWeeklyMvp(): Promise<MvpResult> {
   const g = await viewerGate();
   if (!g.ok) return g;
 
@@ -440,8 +473,24 @@ export async function getWeeklyMvp(): Promise<WeeklyMvpResult> {
 
   try {
     const { fetchGitHubProject } = await import("@/lib/github-project");
-    const cutoff = Date.now() - WEEK_MS;
-    const since = new Date(cutoff).toISOString();
+    const now = new Date();
+    const weekStart = startOfWeek(now);
+    const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthStart = startOfMonth(now);
+    // One millisecond before the 1st lands in the previous month, whatever its
+    // length — no 28/30/31 arithmetic.
+    const lastMonthStart = startOfMonth(new Date(monthStart.getTime() - 1));
+
+    const windows: { key: MvpPeriodKey; from: Date; to: Date }[] = [
+      { key: "week", from: weekStart, to: now },
+      { key: "lastWeek", from: lastWeekStart, to: weekStart },
+      { key: "month", from: monthStart, to: now },
+      { key: "lastMonth", from: lastMonthStart, to: monthStart },
+    ];
+    // Deliberately capped at the previous month: enough to survive a month
+    // rollover without the numbers growing forever. Taking the min also covers
+    // the case where the previous week opens before the month it reports on.
+    const cutoff = Math.min(...windows.map((w) => w.from.getTime()));
 
     // GitHub login → portal username (from the team's GitHub contacts).
     const contacts = await prisma.teamMemberContact
@@ -461,7 +510,7 @@ export async function getWeeklyMvp(): Promise<WeeklyMvpResult> {
         : [];
 
     const seen = new Set<string>();
-    type Done = { id: string; assignees: { login: string; avatarUrl: string }[]; title: string };
+    type Done = { id: string; assignees: { login: string; avatarUrl: string }[]; title: string; closedAt: number };
     const completed: Done[] = [];
     for (const p of boards) {
       const key = `${p.githubProject!.org}#${p.githubProject!.number}`;
@@ -471,9 +520,10 @@ export async function getWeeklyMvp(): Promise<WeeklyMvpResult> {
       if (!board || !board.ok) continue;
       for (const col of board.columns) {
         for (const it of col.items) {
-          if (it.state === "closed" && it.closedAt && new Date(it.closedAt).getTime() >= cutoff && it.assignees.length) {
-            completed.push({ id: it.id, assignees: it.assignees, title: it.title });
-          }
+          if (!it.state || it.state !== "closed" || !it.closedAt || !it.assignees.length) continue;
+          const closedAt = new Date(it.closedAt).getTime();
+          if (!Number.isFinite(closedAt) || closedAt < cutoff) continue;
+          completed.push({ id: it.id, assignees: it.assignees, title: it.title, closedAt });
         }
       }
     }
@@ -481,24 +531,30 @@ export async function getWeeklyMvp(): Promise<WeeklyMvpResult> {
     // Fire-priority weights for the completed cards.
     const meta = await loadCardMeta(completed.map((c) => c.id));
 
-    const byLogin = new Map<string, WeeklyMvp>();
-    for (const c of completed) {
-      const weight = 1 + (meta.get(c.id)?.firePriority ?? 0);
-      for (const a of c.assignees) {
-        const login = a.login.toLowerCase();
-        let row = byLogin.get(login);
-        if (!row) {
-          row = { username: loginToUser.get(login) ?? null, login, avatarUrl: a.avatarUrl, done: 0, points: 0, titles: [] };
-          byLogin.set(login, row);
+    // One scan feeds every window — the board fetch is the expensive part, and
+    // the windows overlap (this week is inside this month).
+    const periods: MvpPeriod[] = windows.map(({ key, from, to }) => {
+      const byLogin = new Map<string, WeeklyMvp>();
+      for (const c of completed) {
+        if (c.closedAt < from.getTime() || c.closedAt >= to.getTime()) continue;
+        const weight = 1 + (meta.get(c.id)?.firePriority ?? 0);
+        for (const a of c.assignees) {
+          const login = a.login.toLowerCase();
+          let row = byLogin.get(login);
+          if (!row) {
+            row = { username: loginToUser.get(login) ?? null, login, avatarUrl: a.avatarUrl, done: 0, points: 0, titles: [] };
+            byLogin.set(login, row);
+          }
+          row.done += 1;
+          row.points += weight;
+          if (row.titles.length < 4) row.titles.push(c.title);
         }
-        row.done += 1;
-        row.points += weight;
-        if (row.titles.length < 4) row.titles.push(c.title);
       }
-    }
+      const ranking = [...byLogin.values()].sort((a, b) => b.points - a.points || b.done - a.done);
+      return { key, since: from.toISOString(), until: to.toISOString(), winner: ranking[0] ?? null, ranking };
+    });
 
-    const ranking = [...byLogin.values()].sort((a, b) => b.points - a.points || b.done - a.done);
-    const result: WeeklyMvpResult = { ok: true, winner: ranking[0] ?? null, ranking, since };
+    const result: MvpResult = { ok: true, periods };
     _mvpCache.set(cacheKey, { data: result, expires: Date.now() + MVP_TTL_MS });
     return result;
   } catch (err) {
