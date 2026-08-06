@@ -296,7 +296,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           </button>
         </div>
       <div
-        className={`relative py-4 pt-0 lg:pt-4 ${collapsed ? "px-3 lg:px-2" : "px-3"}`}
+        className={`relative py-3 pt-0 lg:pt-4 ${collapsed ? "px-3 lg:px-2" : "px-3"}`}
         ref={switcherRef}
       >
         {switchProjects.length > 1 ? (
@@ -384,7 +384,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           </Link>
         )}
       </div>
-      <nav className={`pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto ${collapsed ? "px-3 lg:px-2" : "px-3"}`}>
+      <nav className={`pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto ${collapsed ? "px-3 lg:px-2" : "px-3"}`}>
         <ul className="space-y-1">
           {(() => {
             const items: React.ReactNode[] = [];
@@ -400,7 +400,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                     className={collapsed ? "lg:my-2 lg:border-t lg:border-border" : undefined}
                   >
                     <span
-                      className={`block px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint ${
+                      className={`block px-3 pb-0.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint ${
                         collapsed ? "lg:hidden" : ""
                       }`}
                     >
