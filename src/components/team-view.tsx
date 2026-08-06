@@ -1554,6 +1554,36 @@ const MEDALS = ["🥈", "🥉"];
 
 const ROSTER_HIDDEN_KEY = "portal.team.rosterHidden";
 
+/** Animates between a panel's natural height and nothing without measuring it in
+ *  JS: the outer grid transitions its single row from 1fr to 0fr while the inner
+ *  div clips the overflow. `inert` keeps the collapsed panel out of the tab order
+ *  and the accessibility tree — it is still in the DOM, just not reachable. */
+function Collapsible({
+  open,
+  animated,
+  id,
+  children,
+}: {
+  open: boolean;
+  animated: boolean;
+  id?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      id={id}
+      inert={!open}
+      className={`grid ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"} ${
+        animated
+          ? "transition-[grid-template-rows] duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
+          : ""
+      }`}
+    >
+      <div className="overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
 /** MVP panel — winner + mini leaderboard, per period, derived live from GitHub
  *  (tasks closed in the window, weighted by fire priority). Weeks run Sunday to
  *  Saturday in team time. Hidden when nobody qualifies in any period. */
@@ -1736,10 +1766,16 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
   // Hiding the roster is mostly for screenshots, but it sticks — re-hiding it
   // before every print would defeat the purpose.
   const [rosterHidden, setRosterHidden] = useState(false);
+  // The stored preference only lands after mount, so a stored "hidden" would
+  // play the collapse animation on every page load. Transitions stay off until
+  // that first state has painted; after that every change is a real user click.
+  const [animated, setAnimated] = useState(false);
   useEffect(() => {
     try {
       setRosterHidden(localStorage.getItem(ROSTER_HIDDEN_KEY) === "1");
     } catch {}
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setAnimated(true)));
+    return () => cancelAnimationFrame(id);
   }, []);
   const toggleRoster = () =>
     setRosterHidden((v) => {
@@ -1774,28 +1810,39 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
           </button>
         </div>
 
-        {rosterHidden ? (
-          // Nothing identifying while hidden — no faces, no handles. That's the
-          // whole point: the poster above stays screenshot-ready on its own.
+        {/* Both panels stay mounted and collapse into each other, so the section
+            height interpolates instead of jumping. Only the roster carries the
+            id the toggle button points at via aria-controls. */}
+        <Collapsible open={!rosterHidden} animated={animated} id="team-roster">
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+            {members.map((m, i) => (
+              <div
+                key={m.username}
+                className={`transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
+                  rosterHidden ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100"
+                }`}
+                // Cards ripple in on reveal; on hide they all go at once, so the
+                // roster is gone before the container finishes collapsing.
+                style={{ transitionDelay: rosterHidden ? "0ms" : `${Math.min(i * 22, 320)}ms` }}
+              >
+                <MemberCard member={m} onOpen={(mem) => setMemberParam(mem.username)} />
+              </div>
+            ))}
+          </div>
+        </Collapsible>
+
+        {/* Nothing identifying while hidden — no faces, no handles. That's the
+            whole point: the poster above stays screenshot-ready on its own. */}
+        <Collapsible open={rosterHidden} animated={animated}>
           <button
             type="button"
-            id="team-roster"
             onClick={toggleRoster}
             className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border px-6 py-8 text-xs text-foreground-faint transition-colors hover:border-border-strong hover:text-foreground-muted"
           >
             <EyeOff className="h-4 w-4" aria-hidden="true" />
             Equipe oculta · clique para mostrar
           </button>
-        ) : (
-          <div
-            id="team-roster"
-            className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
-          >
-            {members.map((m) => (
-              <MemberCard key={m.username} member={m} onOpen={(mem) => setMemberParam(mem.username)} />
-            ))}
-          </div>
-        )}
+        </Collapsible>
       </section>
 
       {selectedMember && (
