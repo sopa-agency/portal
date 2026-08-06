@@ -10,7 +10,7 @@ export function FirePriority({ value, className = "" }: { value?: number; classN
   if (!n) return null;
   return (
     <span
-      className={`inline-flex items-center gap-px leading-none ${className}`}
+      className={`inline-flex shrink-0 items-center gap-px leading-none ${className}`}
       title={`Prioridade ${n}/5`}
       aria-label={`Prioridade ${n} de 5`}
     >
@@ -33,8 +33,11 @@ export function DeadlineChip({ value, className = "" }: { value?: string; classN
   const rel = diff < 0 ? `${-diff}d atrás` : diff === 0 ? "hoje" : diff === 1 ? "amanhã" : `em ${diff}d`;
   const label = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${tone} ${className}`} title={`Deadline ${value} · ${rel}`}>
-      <CalendarClock className="h-3 w-3" /> {label}
+    <span
+      className={`inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium ${tone} ${className}`}
+      title={`Deadline ${value} · ${rel}`}
+    >
+      <CalendarClock className="h-3 w-3 shrink-0" /> {label}
     </span>
   );
 }

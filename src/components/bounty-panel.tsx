@@ -36,8 +36,8 @@ export function BountyBadge({ bounty }: { bounty: BountyDTO }) {
         ? "border-warning/40 bg-warning/10 text-warning"
         : "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400";
   return (
-    <span className={`flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${tone}`}>
-      <Coins className="h-2.5 w-2.5" /> {fmtNum(bounty.amount)} {bounty.tokenSymbol}
+    <span className={`flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${tone}`}>
+      <Coins className="h-2.5 w-2.5 shrink-0" /> {fmtNum(bounty.amount)} {bounty.tokenSymbol}
     </span>
   );
 }

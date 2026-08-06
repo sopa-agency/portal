@@ -82,17 +82,17 @@ function statusColor(name: string): string {
 function StateBadge({ item }: { item: KanbanItem }) {
   if (item.type === "pr") {
     if (item.merged)
-      return <span className="rounded-full border border-[#a371f7]/30 bg-[#a371f7]/10 px-2 py-0.5 text-[10px] font-medium text-[#a371f7]">merged</span>;
+      return <span className="shrink-0 rounded-full border border-[#a371f7]/30 bg-[#a371f7]/10 px-2 py-0.5 text-[10px] font-medium text-[#a371f7]">merged</span>;
     if (item.state === "closed")
-      return <span className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">closed</span>;
-    return <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">open</span>;
+      return <span className="shrink-0 rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">closed</span>;
+    return <span className="shrink-0 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">open</span>;
   }
   if (item.type === "issue") {
     if (item.state === "closed")
-      return <span className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">closed</span>;
-    return <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">open</span>;
+      return <span className="shrink-0 rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">closed</span>;
+    return <span className="shrink-0 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">open</span>;
   }
-  return <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-foreground-muted">draft</span>;
+  return <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-foreground-muted">draft</span>;
 }
 
 function TypeIcon({ type }: { type: KanbanItem["type"] }) {
@@ -153,14 +153,17 @@ function CardBody({
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      {/* Wraps instead of squeezing: with a bounty, 5 fires and a deadline all
+          present the row used to compress the chips until the date broke one
+          character per line. The card grows a row only when it has to. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
         <TypeIcon type={item.type} />
         {item.number != null && (
-          <span className="font-mono tabular-nums text-[11px] text-foreground-subtle">#{item.number}</span>
+          <span className="shrink-0 font-mono tabular-nums text-[11px] text-foreground-subtle">#{item.number}</span>
         )}
         {repo && (
           <span
-            className="inline-flex max-w-[9rem] items-center gap-1 truncate rounded-full border border-border/70 px-1.5 py-0.5 text-[9.5px] font-medium text-foreground-faint"
+            className="inline-flex max-w-[9rem] shrink-0 items-center gap-1 truncate rounded-full border border-border/70 px-1.5 py-0.5 text-[9.5px] font-medium text-foreground-faint"
             title={repo}
           >
             <span
@@ -176,7 +179,7 @@ function CardBody({
         <FirePriority value={item.firePriority} />
         <DeadlineChip value={item.deadline} />
         {item.assignees.length > 0 && (
-          <div className="ml-auto flex items-center -space-x-1.5">
+          <div className="ml-auto flex shrink-0 items-center -space-x-1.5">
             {visible.map((a) => {
               const member = memberForLogin?.(a.login) ?? null;
               const isOwner = !!owner && a.login.toLowerCase() === owner;
