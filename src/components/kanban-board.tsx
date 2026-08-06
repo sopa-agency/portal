@@ -657,6 +657,7 @@ function ColumnView({
   onAddDraft,
   issueRepo,
   repos,
+  defaultRepo,
   onOpen,
   memberForLogin,
   onOpenMember,
@@ -671,6 +672,8 @@ function ColumnView({
   issueRepo?: string | null;
   /** All repos the new issue can target (owner/name); when >1, a picker appears. */
   repos?: string[];
+  /** Repo the board is currently filtered to, if exactly one — the default target. */
+  defaultRepo?: string | null;
   onOpen: (item: KanbanItem) => void;
   memberForLogin?: (login: string) => TeamMember | null;
   onOpenMember?: (member: TeamMember) => void;
@@ -680,9 +683,12 @@ function ColumnView({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<"draft" | "issue">("draft");
-  // Which repo a new "issue" lands in — defaults to the board's primary repo.
+  // Which repo a new "issue" lands in. An empty pick means "follow the board",
+  // so filtering to a repo and hitting + targets that repo instead of silently
+  // dropping the issue in the primary one; picking from the dropdown overrides.
   const repoOptions = repos && repos.length ? repos : issueRepo ? [issueRepo] : [];
-  const [repo, setRepo] = useState<string>(issueRepo ?? "");
+  const [repoPick, setRepoPick] = useState<string>("");
+  const repo = repoPick || defaultRepo || issueRepo || "";
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -691,8 +697,9 @@ function ColumnView({
 
   function submit() {
     const t = draft.trim();
-    if (t) onAddDraft(column.name, t, kind, kind === "issue" ? repo || issueRepo || undefined : undefined);
+    if (t) onAddDraft(column.name, t, kind, kind === "issue" ? repo || undefined : undefined);
     setDraft("");
+    setRepoPick("");
     setAdding(false);
   }
 
@@ -768,8 +775,8 @@ function ColumnView({
                   </div>
                   {kind === "issue" && repoOptions.length > 1 && (
                     <select
-                      value={repo || issueRepo || ""}
-                      onChange={(e) => setRepo(e.target.value)}
+                      value={repo}
+                      onChange={(e) => setRepoPick(e.target.value)}
                       title="Repositório de destino da issue"
                       className="min-w-0 max-w-[10rem] truncate rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10.5px] text-foreground-muted outline-none focus:ring-1 focus:ring-accent-border"
                     >
@@ -2689,6 +2696,12 @@ export function KanbanBoard() {
     const k = repo.toLowerCase();
     setRepoFilter((prev) => (prev.includes(k) ? prev.filter((p) => p !== k) : [...prev, k]));
   };
+  // Filtering down to a single repo reads as "I'm working in this one" — new
+  // issues follow it. With no filter (or several), fall back to the primary repo.
+  const filteredRepo =
+    repoFilter.length === 1
+      ? repos.find((r) => r.toLowerCase() === repoFilter[0]) ?? null
+      : null;
   // Filtered view (real board data stays intact for drag/drop, which is by id).
   const isDone = (name: string) => /done|conclu|complete|finaliz/i.test(name);
   const doneCount = columns.filter((c) => isDone(c.name)).reduce((n, c) => n + c.items.length, 0);
@@ -2860,6 +2873,7 @@ export function KanbanBoard() {
                 onAddDraft={onAddDraft}
                 issueRepo={primaryRepo}
                 repos={repos}
+                defaultRepo={filteredRepo}
                 onOpen={setDetailItem}
                 memberForLogin={memberForLogin}
                 onOpenMember={setSelectedMember}
