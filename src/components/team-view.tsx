@@ -22,6 +22,8 @@ import {
   ListChecks,
   Star,
   Trash2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ConnectionSetupDialog } from "@/components/connection-setup-dialog";
@@ -231,29 +233,59 @@ function githubAvatarUrl(login: string, size = 64): string {
   return `https://github.com/${encodeURIComponent(login)}.png?size=${size}`;
 }
 
+/** Role chip for a member card, or null for a plain member. */
+function roleBadge(member: TeamMember) {
+  if (member.global) return { label: "G", title: "Admin global — acessa todos os portais", accent: true };
+  if (member.role === "admin") return { label: "A", title: "Admin do portal", accent: true };
+  if (member.role === "viewer") return { label: "V", title: "Viewer (só leitura)", accent: false };
+  return null;
+}
+
 function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: TeamMember) => void }) {
   const ghLogin = githubLoginOf(member);
+  // A broken avatar used to just hide the <img>, collapsing the card and letting
+  // the name ride up into the gap. Initials keep every card the same shape.
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const [ghFailed, setGhFailed] = useState(false);
+  const badge = roleBadge(member);
+
   return (
     <button
       type="button"
       onClick={() => onOpen(member)}
       aria-label={`Open @${member.username} contact card`}
-      className="group flex flex-col items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-border-strong hover:bg-surface-elevated"
+      className="group relative flex flex-col items-center gap-3 rounded-2xl border border-border bg-surface p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-accent-border hover:bg-surface-elevated hover:shadow-lg"
     >
+      {/* Role sits in the corner instead of beside the name — the name line was
+          doing two jobs and truncating badly on long handles. */}
+      {badge && (
+        <span
+          title={badge.title}
+          className={`absolute right-2 top-2 rounded-full px-1.5 text-[8px] font-bold uppercase leading-4 ${
+            badge.accent ? "bg-accent-bg text-accent" : "bg-foreground/10 text-foreground-faint"
+          }`}
+        >
+          {badge.label}
+        </span>
+      )}
+
       <span className="relative">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={member.avatarUrl}
-          alt={`@${member.username}`}
-          width={56}
-          height={56}
-          className="h-14 w-14 rounded-full border border-border object-cover"
-          onError={(e) => {
-            // Fallback: hide the img and let the initials div show via CSS
-            (e.target as HTMLImageElement).style.display = "none";
-          }}
-        />
-        {ghLogin && (
+        {avatarFailed ? (
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-bg text-sm font-bold uppercase text-accent ring-1 ring-border">
+            {member.username.slice(0, 2)}
+          </span>
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={member.avatarUrl}
+            alt={`@${member.username}`}
+            width={56}
+            height={56}
+            className="h-14 w-14 rounded-full object-cover ring-1 ring-border transition-colors group-hover:ring-accent"
+            onError={() => setAvatarFailed(true)}
+          />
+        )}
+        {ghLogin && !ghFailed && (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={githubAvatarUrl(ghLogin)}
@@ -262,21 +294,13 @@ function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: T
             width={22}
             height={22}
             className="absolute -bottom-0.5 -right-0.5 h-[22px] w-[22px] rounded-full border-2 border-surface object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = "none";
-            }}
+            onError={() => setGhFailed(true)}
           />
         )}
       </span>
-      <span className="flex items-center gap-1 text-center text-xs font-medium text-foreground-muted group-hover:text-foreground tabular-nums">
+
+      <span className="w-full truncate text-center text-xs font-medium tabular-nums text-foreground-muted group-hover:text-foreground">
         @{member.username}
-        {member.global ? (
-          <span title="Admin global — acessa todos os portais" className="rounded-full bg-accent-bg px-1 text-[8px] font-bold uppercase text-accent">G</span>
-        ) : member.role === "admin" ? (
-          <span title="Admin do portal" className="rounded-full bg-accent-bg px-1 text-[8px] font-bold uppercase text-accent">A</span>
-        ) : member.role === "viewer" ? (
-          <span title="Viewer (só leitura)" className="rounded-full bg-foreground/10 px-1 text-[8px] font-bold uppercase text-foreground-faint">V</span>
-        ) : null}
       </span>
     </button>
   );
@@ -1524,6 +1548,8 @@ function fmtRange(since: string, until: string) {
 /** Medal for the podium rows; the winner gets the trophy instead. */
 const MEDALS = ["🥈", "🥉"];
 
+const ROSTER_HIDDEN_KEY = "portal.team.rosterHidden";
+
 /** MVP panel — winner + mini leaderboard, per period, derived live from GitHub
  *  (tasks closed in the window, weighted by fire priority). Weeks run Sunday to
  *  Saturday in team time. Hidden when nobody qualifies in any period. */
@@ -1703,23 +1729,69 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
   const [memberParam, setMemberParam] = useUrlTab("member", "");
   const selectedMember = members.find((m) => m.username === memberParam) ?? null;
 
+  // Hiding the roster is mostly for screenshots, but it sticks — re-hiding it
+  // before every print would defeat the purpose.
+  const [rosterHidden, setRosterHidden] = useState(false);
+  useEffect(() => {
+    try {
+      setRosterHidden(localStorage.getItem(ROSTER_HIDDEN_KEY) === "1");
+    } catch {}
+  }, []);
+  const toggleRoster = () =>
+    setRosterHidden((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(ROSTER_HIDDEN_KEY, next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+
   return (
     <div className="space-y-8">
       <WeeklyMvpPoster projectName={projectName} />
       <section aria-labelledby="team-heading">
-        <div className="mb-4 flex items-baseline gap-3">
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 id="team-heading" className="text-lg font-semibold tracking-tight text-foreground">
             Team
           </h2>
           <span className="text-xs tabular-nums text-foreground-faint">
-            {members.length} {members.length === 1 ? "member" : "members"} · {projectName}
+            {members.length} {members.length === 1 ? "membro" : "membros"} · {projectName}
           </span>
+          <button
+            type="button"
+            onClick={toggleRoster}
+            aria-expanded={!rosterHidden}
+            aria-controls="team-roster"
+            title={rosterHidden ? "Mostrar a equipe" : "Ocultar a equipe — útil antes de um print"}
+            className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+          >
+            {rosterHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            {rosterHidden ? "Mostrar" : "Ocultar"}
+          </button>
         </div>
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-          {members.map((m) => (
-            <MemberCard key={m.username} member={m} onOpen={(mem) => setMemberParam(mem.username)} />
-          ))}
-        </div>
+
+        {rosterHidden ? (
+          // Nothing identifying while hidden — no faces, no handles. That's the
+          // whole point: the poster above stays screenshot-ready on its own.
+          <button
+            type="button"
+            id="team-roster"
+            onClick={toggleRoster}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border px-6 py-8 text-xs text-foreground-faint transition-colors hover:border-border-strong hover:text-foreground-muted"
+          >
+            <EyeOff className="h-4 w-4" aria-hidden="true" />
+            Equipe oculta · clique para mostrar
+          </button>
+        ) : (
+          <div
+            id="team-roster"
+            className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
+          >
+            {members.map((m) => (
+              <MemberCard key={m.username} member={m} onOpen={(mem) => setMemberParam(mem.username)} />
+            ))}
+          </div>
+        )}
       </section>
 
       {selectedMember && (
