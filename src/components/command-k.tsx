@@ -52,6 +52,14 @@ export function CommandK({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  // The sidebar's search button opens the palette through this event, so the
+  // shortcut isn't the only way in — nobody discovers ⌘K on their own.
+  useEffect(() => {
+    const onOpenRequest = () => setOpen(true);
+    window.addEventListener("portal:open-command-k", onOpenRequest);
+    return () => window.removeEventListener("portal:open-command-k", onOpenRequest);
+  }, []);
+
   useEffect(() => {
     if (open) {
       try { setRecent(JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]")); } catch {}

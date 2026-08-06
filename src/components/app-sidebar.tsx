@@ -3,9 +3,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
-import { useTransition, useState, useRef, useEffect } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Music2, Newspaper, LayoutTemplate, Inbox, Menu, X, type LucideIcon } from "lucide-react";
+import { useTransition, useState, useRef, useEffect, useCallback } from "react";
+import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Music2, Newspaper, LayoutTemplate, Inbox, Menu, X, PanelLeftClose, PanelLeftOpen, Search, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
+
+const SIDEBAR_COLLAPSED_KEY = "portal.sidebar.collapsed";
+
+/** Opens the ⌘K palette from a click — see CommandK's listener. */
+const COMMAND_K_EVENT = "portal:open-command-k";
 
 type NavItem = {
   href: string;
@@ -104,6 +109,44 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
   const switcherRef = useRef<HTMLDivElement>(null);
   // On mobile the sidebar is an off-canvas drawer; on lg+ it's the static column.
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Collapsed = the lg+ column shrinks to an icon rail. This single <aside> is
+  // BOTH the mobile drawer and the desktop column, so every collapse style is
+  // lg:-prefixed — dropping labels outright would strip them from the drawer too.
+  const [collapsed, setCollapsed] = useState(false);
+  // Gates the width transition: restoring the stored state on load should snap,
+  // not animate, or every page load looks like the sidebar is closing itself.
+  const [hydrated, setHydrated] = useState(false);
+
+  // Restore in an effect rather than during render: reading localStorage while
+  // rendering would disagree with the server HTML and trip hydration.
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1");
+    } catch {}
+    setHydrated(true);
+  }, []);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  // ⌘B / Ctrl+B, the shortcut this control has in most editors and chat apps.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleCollapsed();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [toggleCollapsed]);
 
   // Close the workspace switcher on outside click.
   useEffect(() => {
@@ -208,7 +251,9 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
         id="app-sidebar"
         className={`fixed inset-y-0 left-0 z-50 flex h-full w-[85%] max-w-xs flex-col overflow-y-auto border-r border-border bg-surface transition-transform duration-300 ease-out ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
-        } lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-64 lg:max-w-none lg:translate-x-0 lg:overflow-visible lg:transition-none`}
+        } lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:max-w-none lg:translate-x-0 lg:overflow-visible ${
+          hydrated ? "lg:transition-[width] lg:duration-200" : "lg:transition-none"
+        } ${collapsed ? "lg:w-14" : "lg:w-64"}`}
       >
         {/* Close affordance — mobile only (lg uses the always-open column). */}
         <div className="flex justify-end px-3 pt-3 lg:hidden">
@@ -221,7 +266,39 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
             <X className="h-5 w-5" />
           </button>
         </div>
-      <div className="relative px-3 py-4 pt-0 lg:pt-4" ref={switcherRef}>
+
+        {/* Rail controls, lg+ only — the drawer has its own close button, and a
+            search affordance matters most where ⌘K is discoverable. */}
+        <div
+          className={`hidden pt-3 lg:flex lg:items-center lg:gap-1 ${
+            collapsed ? "lg:flex-col lg:px-2" : "lg:justify-between lg:px-3"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+            aria-expanded={!collapsed}
+            aria-controls="app-sidebar"
+            title={`${collapsed ? "Expandir" : "Recolher"} menu (⌘B)`}
+            className="rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent(COMMAND_K_EVENT))}
+            aria-label="Buscar páginas"
+            title="Buscar (⌘K)"
+            className="rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        </div>
+      <div
+        className={`relative py-4 pt-0 lg:pt-4 ${collapsed ? "px-3 lg:px-2" : "px-3"}`}
+        ref={switcherRef}
+      >
         {switchProjects.length > 1 ? (
           <>
             <button
@@ -230,7 +307,10 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
               aria-haspopup="menu"
               aria-expanded={switcherOpen}
               aria-label="Switch workspace"
-              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-foreground/5"
+              title={collapsed ? projectName : undefined}
+              className={`flex w-full items-center gap-3 rounded-lg py-2 text-left transition-colors hover:bg-foreground/5 ${
+                collapsed ? "px-2 lg:justify-center lg:px-0" : "px-2"
+              }`}
             >
               <Image
                 src={projectLogo}
@@ -240,15 +320,25 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                 className="shrink-0 rounded-md"
                 priority
               />
-              <p className="min-w-0 flex-1 truncate text-lg font-bold tracking-tight text-accent">
+              <p
+                className={`min-w-0 flex-1 truncate text-lg font-bold tracking-tight text-accent ${
+                  collapsed ? "lg:hidden" : ""
+                }`}
+              >
                 {projectName}
               </p>
-              <ChevronsUpDown className="h-4 w-4 shrink-0 text-foreground-faint" />
+              <ChevronsUpDown
+                className={`h-4 w-4 shrink-0 text-foreground-faint ${collapsed ? "lg:hidden" : ""}`}
+              />
             </button>
             {switcherOpen && (
               <div
                 role="menu"
-                className="absolute left-3 right-3 top-[calc(100%-0.5rem)] z-50 overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-lg"
+                // On the rail the sidebar is 3.5rem wide, so the menu can't be
+                // pinned to both edges — it opens to a fixed width instead.
+                className={`absolute top-[calc(100%-0.5rem)] z-50 overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-lg ${
+                  collapsed ? "left-3 right-3 lg:right-auto lg:left-2 lg:w-60" : "left-3 right-3"
+                }`}
               >
                 {switchProjects.map((p) => {
                   const isCurrent = p.slug === currentSlug;
@@ -276,9 +366,14 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
             )}
           </>
         ) : (
-          <Link href="/" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-2 py-2">
+          <Link
+            href="/"
+            onClick={() => setMobileOpen(false)}
+            title={collapsed ? projectName : undefined}
+            className={`flex items-center gap-3 py-2 ${collapsed ? "px-2 lg:justify-center lg:px-0" : "px-2"}`}
+          >
             <Image src={projectLogo} alt={projectName} width={36} height={36} className="shrink-0 rounded-md" priority />
-            <div className="min-w-0">
+            <div className={`min-w-0 ${collapsed ? "lg:hidden" : ""}`}>
               <p className="text-lg font-bold tracking-tight text-accent">
                 {projectName}
               </p>
@@ -289,7 +384,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           </Link>
         )}
       </div>
-      <nav className="px-3 pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+      <nav className={`pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto ${collapsed ? "px-3 lg:px-2" : "px-3"}`}>
         <ul className="space-y-1">
           {(() => {
             const items: React.ReactNode[] = [];
@@ -298,11 +393,19 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
               // Section header when entering a new group.
               if (group && group !== lastGroup) {
                 items.push(
+                  // On the rail the wordmark goes but the grouping shouldn't —
+                  // it degrades to a divider so the sections stay legible.
                   <li
                     key={`group-${group}`}
-                    className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint"
+                    className={collapsed ? "lg:my-2 lg:border-t lg:border-border" : undefined}
                   >
-                    {group}
+                    <span
+                      className={`block px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint ${
+                        collapsed ? "lg:hidden" : ""
+                      }`}
+                    >
+                      {group}
+                    </span>
                   </li>,
                 );
               }
@@ -318,14 +421,17 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                     href={href}
                     aria-current={active ? "page" : undefined}
                     onClick={() => setMobileOpen(false)}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                    title={collapsed ? label : undefined}
+                    className={`flex items-center gap-3 rounded-lg py-2 text-sm transition-colors ${
+                      collapsed ? "px-3 lg:justify-center lg:px-0" : "px-3"
+                    } ${
                       active
                         ? "bg-accent-bg text-accent"
                         : "text-foreground-muted hover:bg-foreground/5 hover:text-foreground"
                     }`}
                   >
-                    <Icon className={`h-4 w-4 ${active ? "text-accent" : ""}`} />
-                    {label}
+                    <Icon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : ""}`} />
+                    <span className={collapsed ? "lg:hidden" : ""}>{label}</span>
                   </Link>
                 </li>,
               );
@@ -334,13 +440,23 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           })()}
         </ul>
       </nav>
-      <div className="mt-auto border-t border-border px-3 py-3">
-        <OnlineAvatars />
-        <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent">
+      <div className={`mt-auto border-t border-border py-3 ${collapsed ? "px-3 lg:px-2" : "px-3"}`}>
+        {/* The presence strip needs horizontal room the rail doesn't have. */}
+        <div className={collapsed ? "lg:hidden" : undefined}>
+          <OnlineAvatars />
+        </div>
+        <div
+          className={`flex items-center gap-3 rounded-lg py-1.5 ${
+            collapsed ? "px-2 lg:flex-col lg:gap-2 lg:px-0" : "px-2"
+          }`}
+        >
+          <div
+            title={collapsed ? `@${username}` : undefined}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent"
+          >
             {username.slice(0, 2)}
           </div>
-          <div className="min-w-0 flex-1">
+          <div className={`min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
             <p className="truncate text-sm font-medium text-foreground">@{username}</p>
             <p className="text-[10px] uppercase tracking-wider text-foreground-faint">connected</p>
           </div>
