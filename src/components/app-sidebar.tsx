@@ -8,6 +8,17 @@ import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, Squa
 import { OnlineAvatars } from "@/components/presence";
 
 const SIDEBAR_COLLAPSED_KEY = "portal.sidebar.collapsed";
+const SIDEBAR_WIDTH_KEY = "portal.sidebar.width";
+
+/** Matches lg:w-64, the width before the column became resizable. */
+const SIDEBAR_WIDTH_DEFAULT = 256;
+/** Narrow enough to be worth it, wide enough that no nav label truncates. */
+const SIDEBAR_WIDTH_MIN = 200;
+/** Past this the sidebar stops being a sidebar. */
+const SIDEBAR_WIDTH_MAX = 440;
+
+const clampWidth = (px: number) =>
+  Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(px)));
 
 /** Opens the ⌘K palette from a click — see CommandK's listener. */
 const COMMAND_K_EVENT = "portal:open-command-k";
@@ -117,14 +128,72 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
   // not animate, or every page load looks like the sidebar is closing itself.
   const [hydrated, setHydrated] = useState(false);
 
+  const [width, setWidth] = useState(SIDEBAR_WIDTH_DEFAULT);
+  const [dragging, setDragging] = useState(false);
+
   // Restore in an effect rather than during render: reading localStorage while
   // rendering would disagree with the server HTML and trip hydration.
   useEffect(() => {
     try {
       setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1");
+      const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+      if (Number.isFinite(stored) && stored > 0) setWidth(clampWidth(stored));
     } catch {}
     setHydrated(true);
   }, []);
+
+  // Drag the right edge to resize. The column is pinned to the viewport's left
+  // edge, so the pointer's x IS the width — no offset math, and it keeps working
+  // if the sidebar's own scroll position changes mid-drag.
+  const startResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(true);
+    const onMove = (ev: PointerEvent) => setWidth(clampWidth(ev.clientX));
+    const onUp = (ev: PointerEvent) => {
+      const final = clampWidth(ev.clientX);
+      setWidth(final);
+      setDragging(false);
+      try {
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(final));
+      } catch {}
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
+
+  // Keyboard resize, so the handle isn't mouse-only.
+  const nudgeWidth = useCallback((delta: number) => {
+    setWidth((w) => {
+      const next = clampWidth(w + delta);
+      try {
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const resetWidth = useCallback(() => {
+    setWidth(SIDEBAR_WIDTH_DEFAULT);
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(SIDEBAR_WIDTH_DEFAULT));
+    } catch {}
+  }, []);
+
+  // While dragging, kill text selection and hold the resize cursor everywhere —
+  // otherwise the pointer picks up labels as it crosses them.
+  useEffect(() => {
+    if (!dragging) return;
+    const prevSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    return () => {
+      document.body.style.userSelect = prevSelect;
+      document.body.style.cursor = prevCursor;
+    };
+  }, [dragging]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((v) => {
@@ -252,8 +321,11 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
         className={`fixed inset-y-0 left-0 z-50 flex h-full w-[85%] max-w-xs flex-col overflow-y-auto border-r border-border bg-surface transition-transform duration-300 ease-out ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:max-w-none lg:translate-x-0 lg:overflow-visible ${
-          hydrated ? "lg:transition-[width] lg:duration-200" : "lg:transition-none"
-        } ${collapsed ? "lg:w-14" : "lg:w-64"}`}
+          hydrated && !dragging ? "lg:transition-[width] lg:duration-200" : "lg:transition-none"
+        } ${collapsed ? "lg:w-14" : "lg:w-[var(--sidebar-w)]"}`}
+        // Width rides a custom property so it only applies at lg — an inline
+        // width would also hit the mobile drawer, which is sized by percentage.
+        style={{ "--sidebar-w": `${width}px` } as React.CSSProperties}
       >
         {/* Close affordance — mobile only (lg uses the always-open column). */}
         <div className="flex justify-end px-3 pt-3 lg:hidden">
@@ -471,6 +543,31 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           </button>
         </div>
       </div>
+
+      {/* Resize handle — lg+ only, and pointless on the collapsed rail. The strip
+          is wider than the visible line so it's easy to grab. */}
+      {!collapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Redimensionar menu"
+          aria-valuenow={width}
+          aria-valuemin={SIDEBAR_WIDTH_MIN}
+          aria-valuemax={SIDEBAR_WIDTH_MAX}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onDoubleClick={resetWidth}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") { e.preventDefault(); nudgeWidth(-16); }
+            else if (e.key === "ArrowRight") { e.preventDefault(); nudgeWidth(16); }
+            else if (e.key === "Home") { e.preventDefault(); resetWidth(); }
+          }}
+          title="Arraste para redimensionar · duplo clique para restaurar"
+          className={`absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none lg:block ${
+            dragging ? "bg-accent" : "bg-transparent hover:bg-accent/40"
+          } focus-visible:bg-accent focus-visible:outline-none`}
+        />
+      )}
       </aside>
     </>
   );
