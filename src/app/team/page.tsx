@@ -28,9 +28,10 @@ export default async function TeamPage() {
   ]);
   const lastSeen = new Map(activity.map((a) => [a.username, a.lastLoginAt.toISOString()]));
 
-  const members = roster.map(({ username, avatarUrl, profileUrl, contacts, global }) => ({
+  const members = roster.map(({ username, avatarUrl, hasAvatar, profileUrl, contacts, global }) => ({
     username,
     avatarUrl,
+    hasAvatar,
     profileUrl,
     contacts,
     global,

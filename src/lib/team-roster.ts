@@ -14,6 +14,12 @@ import type { ProjectConfig, TeamContact } from "@/projects/types";
 export type RosterMember = {
   username: string;
   avatarUrl: string;
+  /**
+   * Whether the Hive account actually set a profile picture. images.hive.blog
+   * answers 200 with a generic silhouette for accounts that never did, so an
+   * <img> can't tell the difference — only the account metadata can.
+   */
+  hasAvatar: boolean;
   profileUrl: string;
   /** First contact labelled "Email" (validated), or null. */
   email: string | null;
@@ -21,6 +27,58 @@ export type RosterMember = {
   /** True for cross-portal admins (GLOBAL_ALLOWLIST) shown in every portal. */
   global: boolean;
 };
+
+const _avatarCache = new Map<string, boolean>();
+let _avatarCacheExpires = 0;
+const AVATAR_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Which of these Hive accounts set a profile picture, batched into one RPC.
+ * On any failure every name comes back `true` — showing the account's real
+ * avatar when we're unsure beats replacing good photos with initials.
+ */
+async function fetchHasAvatar(usernames: string[]): Promise<Map<string, boolean>> {
+  const now = Date.now();
+  if (now > _avatarCacheExpires) {
+    _avatarCache.clear();
+    _avatarCacheExpires = now + AVATAR_TTL_MS;
+  }
+  const missing = usernames.filter((u) => !_avatarCache.has(u));
+  if (missing.length) {
+    try {
+      const res = await fetch(process.env.HIVE_API_URL || "https://api.hive.blog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "condenser_api.get_accounts",
+          params: [missing],
+          id: 1,
+        }),
+        cache: "no-store",
+      });
+      const json = (await res.json()) as {
+        result?: { name: string; posting_json_metadata?: string; json_metadata?: string }[];
+      };
+      // Accounts the node didn't return stay unknown, so default them to true.
+      for (const u of missing) _avatarCache.set(u, true);
+      for (const acc of json.result ?? []) {
+        let image: string | undefined;
+        // Newer clients write posting_json_metadata; older ones json_metadata.
+        for (const key of ["posting_json_metadata", "json_metadata"] as const) {
+          try {
+            const profile = JSON.parse(acc[key] || "{}")?.profile;
+            if (profile?.profile_image) { image = String(profile.profile_image); break; }
+          } catch {}
+        }
+        _avatarCache.set(acc.name, !!image?.trim());
+      }
+    } catch {
+      for (const u of missing) _avatarCache.set(u, true);
+    }
+  }
+  return new Map(usernames.map((u) => [u, _avatarCache.get(u) ?? true]));
+}
 
 export async function getTeamRoster(project: ProjectConfig): Promise<RosterMember[]> {
   // Membership = the portal's allowlist + cross-portal admins (GLOBAL_ALLOWLIST),
@@ -33,12 +91,14 @@ export async function getTeamRoster(project: ProjectConfig): Promise<RosterMembe
   const byUser = resolveCrossPortalContacts(rows, project.slug);
   const frontend = project.hive.frontend ?? "https://peakd.com";
   const globalSet = new Set(globals);
+  const hasAvatar = await fetchHasAvatar(usernames);
   return usernames.map((username) => {
     const contacts = mergeContacts(project.teamContacts?.[username] ?? [], byUser.get(username) ?? []);
     const emailRaw = contacts.find((c) => c.label.toLowerCase() === "email")?.value?.trim();
     return {
       username,
       avatarUrl: `https://images.hive.blog/u/${username}/avatar`,
+      hasAvatar: hasAvatar.get(username) ?? true,
       profileUrl: `${frontend}/@${username}`,
       email: emailRaw && /@/.test(emailRaw) ? emailRaw.toLowerCase() : null,
       contacts,

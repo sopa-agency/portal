@@ -54,6 +54,8 @@ type Role = "admin" | "member" | "viewer";
 export type TeamMember = {
   username: string;
   avatarUrl: string;
+  /** False when the Hive account never set a picture — render initials instead. */
+  hasAvatar?: boolean;
   profileUrl: string;
   contacts: TeamContact[];
   messageOptions: TeamMessageOption[];
@@ -243,10 +245,12 @@ function roleBadge(member: TeamMember) {
 
 function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: TeamMember) => void }) {
   const ghLogin = githubLoginOf(member);
-  // A broken avatar used to just hide the <img>, collapsing the card and letting
-  // the name ride up into the gap. Initials keep every card the same shape.
+  // Two ways to end up without a picture: the URL 404s (handled on error), or
+  // Hive answers 200 with its generic silhouette because the account never set
+  // one (hasAvatar, resolved server-side). Both land on the same initials.
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [ghFailed, setGhFailed] = useState(false);
+  const showInitials = avatarFailed || member.hasAvatar === false;
   const badge = roleBadge(member);
 
   return (
@@ -270,8 +274,8 @@ function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: T
       )}
 
       <span className="relative">
-        {avatarFailed ? (
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-bg text-sm font-bold uppercase text-accent ring-1 ring-border">
+        {showInitials ? (
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-bg text-sm font-bold uppercase text-accent ring-1 ring-border transition-colors group-hover:ring-accent">
             {member.username.slice(0, 2)}
           </span>
         ) : (
