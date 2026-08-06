@@ -177,6 +177,23 @@ body {
   }
 }
 
+/* ── Theme switch: circular reveal ──────────────────────────────────────────
+   The default cross-fade is disabled so the old theme just sits still while the
+   new one is clipped in by the growing circle animated in theme-provider.tsx. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 2;
+}
+
 /* ---------------------------------------------------------------------------
    Studio (vendored from r4topunk/reelflip-studio) — token bridge + brand fonts.
    The studio's shadcn-style UI expects the full shadcn variable set; we map it

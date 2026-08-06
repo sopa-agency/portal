@@ -9,7 +9,10 @@ export function ThemeToggle() {
   return (
     <button
       type="button"
-      onClick={toggle}
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        toggle({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      }}
       aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
       className="fixed right-4 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface text-foreground-muted shadow-sm transition-colors hover:border-border-strong hover:text-foreground"
     >
