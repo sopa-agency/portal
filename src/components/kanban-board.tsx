@@ -1245,6 +1245,8 @@ export function CardDetailDialog({
   bounty,
   onBountyChanged,
   issueRepo,
+  repos,
+  defaultRepo,
   statusCtx,
   onSetAssignees,
   onMutate,
@@ -1261,6 +1263,10 @@ export function CardDetailDialog({
   onBountyChanged: () => void | Promise<void>;
   /** Board's primary repo (owner/name) — enables draft→issue + solve-with-agent. */
   issueRepo?: string | null;
+  /** Every repo a draft can be converted into (owner/name). */
+  repos?: string[];
+  /** Repo the board is filtered to, if exactly one — preselects the convert target. */
+  defaultRepo?: string | null;
   /** Board status field + columns — lets the test loop move the card on approve/reject. */
   statusCtx?: { projectId: string; fieldId: string | null; columns: { name: string; optionId?: string }[] };
   onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
@@ -1303,6 +1309,13 @@ export function CardDetailDialog({
 
   // --- draft→issue convert + solve-with-agent (issues) ---
   const [converting, setConverting] = useState(false);
+  // A draft belongs to no repo, so converting has to pick one. Preselect it only
+  // when the choice is unambiguous — one repo on the board, or one filtered in —
+  // otherwise the user chooses, since converting is what plants the issue for good.
+  const convertOptions = repos?.length ? repos : issueRepo ? [issueRepo] : [];
+  const [convertPick, setConvertPick] = useState<string>("");
+  const convertRepo =
+    convertPick || defaultRepo || (convertOptions.length === 1 ? convertOptions[0] : "");
   const [reopening, setReopening] = useState(false);
   const [solveBusy, setSolveBusy] = useState(false);
   const [solveRes, setSolveRes] = useState<{ prUrl: string | null; result: string } | null>(null);
@@ -1319,9 +1332,9 @@ export function CardDetailDialog({
   }
 
   async function convertToIssue() {
-    if (!issueRepo || converting) return;
+    if (!convertRepo || converting) return;
     setConverting(true); setActionError(null);
-    const r = (await onMutate({ action: "convertDraft", itemId: item.id, repo: issueRepo })) as {
+    const r = (await onMutate({ action: "convertDraft", itemId: item.id, repo: convertRepo })) as {
       ok: boolean; error?: string; url?: string; contentId?: string; number?: number;
     };
     setConverting(false);
@@ -1873,15 +1886,35 @@ export function CardDetailDialog({
             <div className="mt-6 space-y-2 border-t border-border pt-4">
               {actionError && <p className="text-xs text-danger">{actionError}</p>}
               {item.type === "draft" && (
-                <button
-                  type="button"
-                  onClick={convertToIssue}
-                  disabled={converting}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
-                >
-                  {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDot className="h-4 w-4" />}
-                  Converter em issue
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={convertToIssue}
+                    disabled={converting || !convertRepo}
+                    title={convertRepo ? `Cria a issue em ${convertRepo}` : "Escolha o repositório de destino"}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+                  >
+                    {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDot className="h-4 w-4" />}
+                    Converter em issue
+                  </button>
+                  {convertOptions.length > 1 && (
+                    <select
+                      value={convertRepo}
+                      onChange={(e) => setConvertPick(e.target.value)}
+                      title="Repositório de destino da issue"
+                      className={`max-w-[14rem] truncate rounded-lg border bg-surface px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-accent-border ${
+                        convertRepo ? "border-border text-foreground-muted" : "border-warning text-warning"
+                      }`}
+                    >
+                      {!convertRepo && <option value="">Escolha o repo…</option>}
+                      {convertOptions.map((r) => (
+                        <option key={r} value={r}>
+                          {shortRepo(r)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               )}
               {item.type === "issue" && !solveRes && !solveBusy && (
                 <button
@@ -2926,6 +2959,8 @@ export function KanbanBoard() {
           bounty={bountyByKey.get(taskKeyOf(detailItem))}
           onBountyChanged={load}
           issueRepo={primaryRepo}
+          repos={repos}
+          defaultRepo={filteredRepo}
           statusCtx={{
             projectId: board.projectId,
             fieldId: board.statusFieldId,
