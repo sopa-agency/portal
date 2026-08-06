@@ -658,6 +658,7 @@ function ColumnView({
   issueRepo,
   repos,
   defaultRepo,
+  requireRepoPick,
   onOpen,
   memberForLogin,
   onOpenMember,
@@ -674,6 +675,8 @@ function ColumnView({
   repos?: string[];
   /** Repo the board is currently filtered to, if exactly one — the default target. */
   defaultRepo?: string | null;
+  /** Several repos filtered: no sane default exists, so make the user pick one. */
+  requireRepoPick?: boolean;
   onOpen: (item: KanbanItem) => void;
   memberForLogin?: (login: string) => TeamMember | null;
   onOpenMember?: (member: TeamMember) => void;
@@ -688,7 +691,10 @@ function ColumnView({
   // dropping the issue in the primary one; picking from the dropdown overrides.
   const repoOptions = repos && repos.length ? repos : issueRepo ? [issueRepo] : [];
   const [repoPick, setRepoPick] = useState<string>("");
-  const repo = repoPick || defaultRepo || issueRepo || "";
+  // With several repos filtered there is no honest default, so the field stays
+  // empty and blocks submit rather than quietly picking one of them.
+  const repo = repoPick || (requireRepoPick ? "" : defaultRepo || issueRepo || "");
+  const repoMissing = kind === "issue" && repoOptions.length > 1 && !repo;
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -697,7 +703,12 @@ function ColumnView({
 
   function submit() {
     const t = draft.trim();
-    if (t) onAddDraft(column.name, t, kind, kind === "issue" ? repo || undefined : undefined);
+    if (t) {
+      // Nothing picked while several repos are in play — hold the form open
+      // instead of creating the issue somewhere the user didn't ask for.
+      if (repoMissing) return;
+      onAddDraft(column.name, t, kind, kind === "issue" ? repo || undefined : undefined);
+    }
     setDraft("");
     setRepoPick("");
     setAdding(false);
@@ -764,7 +775,13 @@ function ColumnView({
                         key={k}
                         type="button"
                         onClick={() => setKind(k)}
-                        title={k === "issue" ? `Cria uma issue real em ${repo || issueRepo}` : "Board-only draft card"}
+                        title={
+                          k === "issue"
+                            ? repo
+                              ? `Cria uma issue real em ${repo}`
+                              : "Escolha o repositório de destino"
+                            : "Board-only draft card"
+                        }
                         className={`rounded px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide transition-colors ${
                           kind === k ? "bg-surface-elevated text-accent shadow-sm" : "text-foreground-faint hover:text-foreground"
                         }`}
@@ -778,8 +795,11 @@ function ColumnView({
                       value={repo}
                       onChange={(e) => setRepoPick(e.target.value)}
                       title="Repositório de destino da issue"
-                      className="min-w-0 max-w-[10rem] truncate rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10.5px] text-foreground-muted outline-none focus:ring-1 focus:ring-accent-border"
+                      className={`min-w-0 max-w-[10rem] truncate rounded-md border bg-surface px-1.5 py-0.5 text-[10.5px] outline-none focus:ring-1 focus:ring-accent-border ${
+                        repoMissing ? "border-warning text-warning" : "border-border text-foreground-muted"
+                      }`}
                     >
+                      {repoMissing && <option value="">Escolha o repo…</option>}
                       {repoOptions.map((r) => (
                         <option key={r} value={r}>
                           {shortRepo(r)}
@@ -803,7 +823,8 @@ function ColumnView({
               <button
                 type="button"
                 onClick={submit}
-                disabled={!draft.trim()}
+                disabled={!draft.trim() || repoMissing}
+                title={repoMissing ? "Escolha em qual repositório a issue vai" : undefined}
                 className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground disabled:opacity-50"
               >
                 Adicionar
@@ -2696,12 +2717,15 @@ export function KanbanBoard() {
     const k = repo.toLowerCase();
     setRepoFilter((prev) => (prev.includes(k) ? prev.filter((p) => p !== k) : [...prev, k]));
   };
-  // Filtering down to a single repo reads as "I'm working in this one" — new
-  // issues follow it. With no filter (or several), fall back to the primary repo.
-  const filteredRepo =
-    repoFilter.length === 1
-      ? repos.find((r) => r.toLowerCase() === repoFilter[0]) ?? null
-      : null;
+  // The repo filter drives where a new issue lands, so the board never guesses:
+  // one repo filtered is an unambiguous "I'm working here" and becomes the
+  // default; several narrow the picker to those and force an explicit choice;
+  // none offers every repo, defaulting to the primary one.
+  const selectedRepos = repoFilter.length
+    ? repos.filter((r) => repoFilter.includes(r.toLowerCase()))
+    : repos;
+  const filteredRepo = selectedRepos.length === 1 ? selectedRepos[0] : null;
+  const requireRepoPick = selectedRepos.length > 1 && repoFilter.length > 0;
   // Filtered view (real board data stays intact for drag/drop, which is by id).
   const isDone = (name: string) => /done|conclu|complete|finaliz/i.test(name);
   const doneCount = columns.filter((c) => isDone(c.name)).reduce((n, c) => n + c.items.length, 0);
@@ -2872,8 +2896,9 @@ export function KanbanBoard() {
                 onDelete={onDelete}
                 onAddDraft={onAddDraft}
                 issueRepo={primaryRepo}
-                repos={repos}
+                repos={requireRepoPick ? selectedRepos : repos}
                 defaultRepo={filteredRepo}
+                requireRepoPick={requireRepoPick}
                 onOpen={setDetailItem}
                 memberForLogin={memberForLogin}
                 onOpenMember={setSelectedMember}
