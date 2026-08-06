@@ -184,13 +184,25 @@ export const PAGE_GUIDES: Record<string, PageGuide> = {
     sections: [
       {
         heading: "The board",
-        body: "Columns mirror the GitHub Project's Status field. Drag cards between columns to change status, or within a column to reorder — changes save to GitHub instantly. Counts and colors show each column's load at a glance.",
+        body: "Columns mirror the GitHub Project's Status field. Drag cards between columns to change status, or within a column to reorder — changes save to GitHub instantly. Counts and colors show each column's load at a glance. \"Mostrar concluídas\" reveals the Done column, \"PRs\" lists every open pull request across the project's repos, and a \"board parcial\" warning means the Project outgrew what one fetch returns.",
         image: "/guides/kanban.png",
         imageAlt: "Kanban board with status columns",
       },
       {
+        heading: "Filters",
+        body: "The REPO row stays visible because a board can span several repos — each card carries a matching colored badge. Filtering by person hides behind the \"Pessoas\" button to save room; while collapsed it still shows the selected avatars, so an active filter is never invisible. The card count next to them reflects whatever is filtered. Note that drafts belong to no repo, so any REPO filter hides them — switch to \"Todos\" to see them.",
+      },
+      {
         heading: "Cards",
-        body: "Each card is an issue, PR, or draft with labels, state, and assignees. Click a card to open its full content — description, checklists, links — rendered right in the portal. Hover a card for quick actions: open in GitHub, archive, or delete. Use the + on a column header to add a draft card directly into that status.",
+        body: "Each card is an issue, PR, or draft, showing its repo, state, labels, assignees, fire priority (1–5), deadline, and bounty when set; a crown marks the task owner. Click a card to open its full content — description, checklists, links — rendered right in the portal. Hover a card for quick actions: open in GitHub, archive, or delete. Use the + on a column header to add a card to that status, choosing Draft or Issue — and, when the board spans several repos, which repo the issue lands in.",
+      },
+      {
+        heading: "Drafts and issues",
+        body: "A draft lives only inside the GitHub Project: it has no repository, no number, and never appears in any repo's Issues tab. \"Converter em issue\", in the card dialog, is what turns it into a real issue — pick the target repo there, since the board can't infer one. Filtering the board down to a single repo preselects it; otherwise you choose explicitly, so an issue never lands somewhere you didn't ask for.",
+      },
+      {
+        heading: "Agent and QA",
+        body: "\"Resolver com agente → PR\" hands an issue to the project agent, which works it and opens a pull request for review. The AI button drafts or improves a card's description, landing it in the edit box for you to approve — it never saves on its own. The Teste/QA panel tracks review of a finished card and moves it between columns on approve or reject.",
       },
     ],
   },
