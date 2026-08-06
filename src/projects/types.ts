@@ -163,6 +163,14 @@ export type ProjectConfig = {
    */
   zineStudio?: boolean;
   /**
+   * When true, the TikTok nav item + /tiktok route are enabled — a review queue
+   * for TikTok videos (draft → approve → schedule → publish). Unlike Instagram,
+   * the credentials are NOT env-only: the brand connects its account through
+   * OAuth and the tokens live in TikTokAccount, because TikTok's access token
+   * lasts 24h and its refresh token rotates. Absent = nav hidden + 404.
+   */
+  tiktok?: boolean;
+  /**
    * When true, the Org Chart nav item + /org-chart route are enabled — an
    * editable flowchart (SOPA-only). Absent = nav hidden + 404.
    */
@@ -197,6 +205,15 @@ export type ProjectConfig = {
    * /api/homepage/current for skatehive3.0's /home route. Absent = nav hidden + 404.
    */
   homepage?: boolean;
+
+  /**
+   * When true, the Cross-post tab on /marketing-suggestions is enabled — the
+   * curation queue for posts community members ask to have re-published on the
+   * brand's Instagram / their own Farcaster. The queue itself lives in the main
+   * app's Supabase (`userbase_crosspost_queue`), so this only makes sense for
+   * projects whose app writes to it. Absent = tab hidden.
+   */
+  crossPostQueue?: boolean;
   /**
    * Treasury wallets shown on /treasury — the SAME wallets/sources the
    * project's native app shows (skatehive.app/dao, gnars.com/treasury).

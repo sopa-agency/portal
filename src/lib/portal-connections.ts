@@ -181,6 +181,33 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
     }
   }
 
+  // ── TikTok ────────────────────────────────────────────────────────────────
+  // Env only carries the app credentials; the account itself is an OAuth row in
+  // TikTokAccount (24h access token, rotating refresh token), so a live check
+  // needs the DB — verifyTikTokConnection upgrades this row on the Settings page.
+  {
+    if (!project.tiktok) {
+      connections.push({
+        network: "TikTok",
+        status: "na",
+        detail: "TikTok is not enabled for this project.",
+      });
+    } else if (!hasOwn("TIKTOK_CLIENT_KEY") || !hasOwn("TIKTOK_CLIENT_SECRET")) {
+      connections.push({
+        network: "TikTok",
+        status: "missing",
+        detail: "No TikTok app credentials for this brand.",
+        fixHint: `Set ${prefix}_TIKTOK_CLIENT_KEY + ${prefix}_TIKTOK_CLIENT_SECRET`,
+      });
+    } else {
+      connections.push({
+        network: "TikTok",
+        status: "warning",
+        detail: "App credentials set — checking the connected account…",
+      });
+    }
+  }
+
   // ── X / Twitter ───────────────────────────────────────────────────────────
   {
     const xSocial = project.socials.find(
@@ -556,6 +583,55 @@ export async function verifyDiscordConnection(
   } catch {
     return { status: "warning", detail: "Couldn't reach Discord (timed out)." };
   }
+}
+
+// Resolves the TikTok row against the DB: whether an account is actually
+// connected, which handle, whether the audit has landed (unaudited = every post
+// forced private), and how long the refresh token has left. Returns null when
+// TikTok isn't enabled or no account was ever connected.
+export async function verifyTikTokConnection(
+  project: ProjectConfig,
+): Promise<{ status: ConnectionStatus; detail: string; handle?: string } | null> {
+  if (!project.tiktok) return null;
+  const { getTikTokConnection } = await import("@/lib/tiktok");
+  const conn = await getTikTokConnection(project).catch(() => null);
+  if (!conn) return null;
+
+  const handle = conn.username ? `@${conn.username.replace(/^@/, "")}` : undefined;
+
+  if (!conn.connected) {
+    return {
+      status: "missing",
+      detail: "The connection was revoked — reconnect from the TikTok page.",
+      handle,
+    };
+  }
+
+  const refreshDaysLeft = conn.refreshExpiresAt
+    ? Math.floor((conn.refreshExpiresAt.getTime() - Date.now()) / 86_400_000)
+    : null;
+
+  // The refresh token is the thing that actually keeps posting alive; once it
+  // lapses someone has to re-authorize by hand, so warn before it does.
+  if (refreshDaysLeft !== null && refreshDaysLeft <= 0) {
+    return { status: "missing", detail: "The refresh token expired — reconnect.", handle };
+  }
+
+  const expiry = refreshDaysLeft !== null ? ` · reconnect in ${refreshDaysLeft}d` : "";
+
+  if (!conn.audited) {
+    return {
+      status: "warning",
+      detail: `Connected${handle ? ` as ${handle}` : ""}, but the app isn't audited — every post publishes private${expiry}.`,
+      handle,
+    };
+  }
+
+  return {
+    status: refreshDaysLeft !== null && refreshDaysLeft < 14 ? "warning" : "connected",
+    detail: `Posting as ${handle ?? "the connected account"}${expiry}.`,
+    handle,
+  };
 }
 
 // Upgrades the Farcaster row when a signer was connected via Sign In With Neynar

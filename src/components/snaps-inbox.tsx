@@ -97,17 +97,27 @@ function SnapCard({ snap, onPatch }: { snap: CurationSnap; onPatch: (p: Partial<
 
   return (
     <div className="flex flex-col rounded-2xl border border-border bg-surface">
-      {/* Thumbnail — first frame of the snap clip, links to the post */}
+      {/* Thumbnail — first frame of the clip, or the photo/GIF; links to the post */}
       <a href={snap.url} target="_blank" rel="noreferrer" className="group relative block aspect-[4/5] overflow-hidden rounded-t-2xl bg-surface-elevated">
-        <video
-          src={`${snap.thumbnail}#t=0.1`}
-          muted
-          playsInline
-          preload="metadata"
-          className="h-full w-full object-cover"
-        />
+        {snap.kind === "image" ? (
+          // eslint-disable-next-line @next/next/no-img-element -- arbitrary remote IPFS/Hive hosts
+          <img
+            src={snap.thumbnail}
+            alt={`snap de @${snap.author}`}
+            loading="lazy"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <video
+            src={`${snap.thumbnail}#t=0.1`}
+            muted
+            playsInline
+            preload="metadata"
+            className="h-full w-full object-cover"
+          />
+        )}
         <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/20">
-          <Play className="h-7 w-7 text-white/85 drop-shadow" />
+          {snap.kind === "video" && <Play className="h-7 w-7 text-white/85 drop-shadow" />}
         </span>
         <span className="absolute left-1.5 top-1.5 max-w-[80%] truncate rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
           @{snap.author}

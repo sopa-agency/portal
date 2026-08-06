@@ -27,17 +27,17 @@ import { Sparkline, RevenueChart } from "@/components/revenue-charts";
 // Engagement tiers + the roles defined for the agency. Stored on each node so a
 // project rectangle shows its tier of work and who's on each role.
 const TIERS = [
-  { id: "pontual", label: "Pontual", pct: "20%" },
-  { id: "operacao", label: "Operação", pct: "30%" },
-  { id: "motor", label: "Motor", pct: "40%" },
+  { id: "pontual", label: "One-off", pct: "20%" },
+  { id: "operacao", label: "Operation", pct: "30%" },
+  { id: "motor", label: "Engine", pct: "40%" },
 ] as const;
 
 const ROLES = [
   "Dev lead",
   "Marketing lead",
-  "Design / Criação",
-  "Comunidade / Social",
-  "Operações / Financeiro",
+  "Design / Creative",
+  "Community / Social",
+  "Operations / Finance",
   "Business Development",
 ] as const;
 
@@ -53,11 +53,11 @@ function nodeKind(node: { parentId: string | null; title: string }): NodeKind {
 }
 const KIND_STYLE: Record<NodeKind, { wrap: string; title: string; badge: string | null }> = {
   root: { wrap: "border-accent-border bg-accent-bg", title: "text-accent", badge: null },
-  native: { wrap: "border-accent-border bg-surface-elevated", title: "text-accent", badge: "Nativo" },
+  native: { wrap: "border-accent-border bg-surface-elevated", title: "text-accent", badge: "Native" },
   client: {
     wrap: "border-sky-400/40 bg-sky-400/10",
     title: "text-sky-600 dark:text-sky-300",
-    badge: "Cliente",
+    badge: "Client",
   },
 };
 
@@ -68,7 +68,7 @@ const REVENUE_CHAINS = ["base", "ethereum", "optimism", "arbitrum"] as const;
 const REVENUE_KIND_LABEL: Record<RevenueKind, string> = {
   manual: "Manual",
   wallet: "Wallet",
-  contract: "Contrato",
+  contract: "Contract",
   split: "Split",
 };
 // Same key the server (getRevenueBalances) uses to map a balance back to a row.
@@ -350,13 +350,13 @@ function TreeNode({
                   setDraft("");
                 }
               }}
-              placeholder="Nome…"
+              placeholder="Name…"
               className="w-28 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
             />
             <button
               type="button"
               onClick={confirmAdd}
-              aria-label="Adicionar"
+              aria-label="Add"
               className="rounded-md border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20"
             >
               <Check className="h-3.5 w-3.5" />
@@ -367,7 +367,7 @@ function TreeNode({
                 setAdding(false);
                 setDraft("");
               }}
-              aria-label="Cancelar"
+              aria-label="Cancel"
               className="rounded-md border border-border p-1 text-foreground-muted hover:text-danger"
             >
               <X className="h-3.5 w-3.5" />
@@ -378,7 +378,7 @@ function TreeNode({
             type="button"
             disabled={disabled}
             onClick={() => setAdding(true)}
-            aria-label="Adicionar item"
+            aria-label="Add item"
             className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-border text-foreground-faint transition hover:border-accent-border hover:text-accent disabled:opacity-40"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -556,7 +556,7 @@ function CardDialog({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label="Close"
             className="text-foreground-muted hover:text-foreground"
           >
             <X className="h-4 w-4" />
@@ -567,9 +567,9 @@ function CardDialog({
         <div className="mb-4 flex items-center gap-1 border-b border-border">
           {(
             [
-              ["geral", "Geral"],
-              ["time", "Time"],
-              ["receita", "Receita"],
+              ["geral", "General"],
+              ["time", "Team"],
+              ["receita", "Revenue"],
             ] as const
           ).map(([id, lbl]) => (
             <button
@@ -618,7 +618,7 @@ function CardDialog({
                     onClick={() => setLogoUrl(null)}
                     className="w-fit text-[11px] text-foreground-muted hover:text-danger"
                   >
-                    Remover
+                    Remove
                   </button>
                 )}
               </div>
@@ -651,7 +651,7 @@ function CardDialog({
                 value={githubOrg}
                 onChange={(e) => setGithubOrg(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); fetchRepos(); } }}
-                placeholder="org ou usuário (ex: SkateHive)"
+                placeholder="org or user (e.g. SkateHive)"
                 className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
               />
               <button
@@ -661,7 +661,7 @@ function CardDialog({
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-50"
               >
                 {repoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Code2 className="h-3.5 w-3.5" />}
-                Buscar repos
+                Fetch repos
               </button>
             </div>
             {repoErr && <p className="mb-2 text-xs text-danger">{repoErr}</p>}
@@ -675,7 +675,7 @@ function CardDialog({
                     type="button"
                     onClick={() => toggleRepo(r)}
                     className="inline-flex items-center gap-1 rounded-full border border-accent-border bg-accent-bg px-2 py-0.5 text-[10px] text-accent"
-                    title={`Remover ${r}`}
+                    title={`Remove ${r}`}
                   >
                     {r} <X className="h-2.5 w-2.5" />
                   </button>
@@ -722,7 +722,7 @@ function CardDialog({
                         : "border-border text-foreground-muted hover:border-border-strong"
                     }`}
                   >
-                    Nenhum
+                    None
                   </button>
                   {TIERS.map((t) => (
                     <button
@@ -799,7 +799,7 @@ function CardDialog({
                       <button
                         type="button"
                         onClick={() => removeRow(i)}
-                        aria-label="Remover papel"
+                        aria-label="Remove role"
                         className="shrink-0 rounded-md p-1 text-foreground-faint hover:text-danger"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -824,7 +824,7 @@ function CardDialog({
             <div className="mb-2 flex items-center justify-between">
               <label className="flex items-center gap-1.5 text-xs font-medium text-foreground-muted">
                 <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                Fontes de receita
+                Revenue sources
               </label>
               {tracked.length > 0 && (
                 <div className="flex items-center gap-2">
@@ -852,7 +852,7 @@ function CardDialog({
                       <input
                         value={r.label}
                         onChange={(e) => setRev(i, { label: e.target.value })}
-                        placeholder="Fonte (ex: Venda de zines, Split do serviço)"
+                        placeholder="Source (e.g. Zine sales, Service split)"
                         className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
                       />
                       <select
@@ -867,7 +867,7 @@ function CardDialog({
                       <button
                         type="button"
                         onClick={() => removeRev(i)}
-                        aria-label="Remover fonte"
+                        aria-label="Remove source"
                         className="shrink-0 rounded-md p-1 text-foreground-faint hover:text-danger"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -897,7 +897,7 @@ function CardDialog({
                           <input
                             value={r.address ?? ""}
                             onChange={(e) => setRev(i, { address: e.target.value })}
-                            placeholder="0x… (wallet, contrato ou split de recebimento)"
+                            placeholder="0x… (wallet, contract or receiving split)"
                             spellCheck={false}
                             className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 font-mono text-[11px] text-foreground focus:border-border-strong focus:outline-none"
                           />
@@ -910,7 +910,7 @@ function CardDialog({
                               <>
                                 <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(bal.totalUsd)}</span>
                                 <span className="truncate text-foreground-faint">
-                                  {bal.tokens.map((t) => `${t.balance.toLocaleString("en-US", { maximumFractionDigits: 3 })} ${t.symbol}@${t.chain}`).join(" · ") || "sem saldo"}
+                                  {bal.tokens.map((t) => `${t.balance.toLocaleString("en-US", { maximumFractionDigits: 3 })} ${t.symbol}@${t.chain}`).join(" · ") || "no balance"}
                                 </span>
                               </>
                             )}
@@ -941,8 +941,8 @@ function CardDialog({
                           const fl = flows[key];
                           // Auction/split → accurate event-based revenue (no refund/spend noise).
                           if (rr && rr.method !== "none" && rr.count > 0) {
-                            const label = rr.method === "auction" ? `${rr.count} leilões` : `${rr.count} distribuições`;
-                            const title = rr.method === "auction" ? "Receita de leilões" : "Distribuído (split)";
+                            const label = rr.method === "auction" ? `${rr.count} auctions` : `${rr.count} distributions`;
+                            const title = rr.method === "auction" ? "Auction revenue" : "Distributed (split)";
                             return (
                               <div className="mt-1 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2">
                                 <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
@@ -963,7 +963,7 @@ function CardDialog({
                                 <span className="text-foreground-muted">Recebido <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(fl.receivedUsd)}</span></span>
                                 <span className="text-foreground-muted">Pago/saiu <span className="font-semibold text-foreground">{usd(fl.paidUsd)}</span></span>
                                 {bal && <span className="text-foreground-muted">Dentro <span className="font-semibold text-foreground">{usd(bal.totalUsd)}</span></span>}
-                                {fl.truncated && <span className="text-warning" title="histórico longo — mostrando parte">parcial</span>}
+                                {fl.truncated && <span className="text-warning" title="long history — showing part">partial</span>}
                               </div>
                               <RevenueChart series={fl.series} />
                             </div>
@@ -975,7 +975,7 @@ function CardDialog({
                 );
               })}
               {revRows.length === 0 && (
-                <p className="text-[11px] text-foreground-faint">Nenhuma fonte de receita ainda.</p>
+                <p className="text-[11px] text-foreground-faint">No revenue source yet.</p>
               )}
             </div>
             <button
@@ -986,7 +986,7 @@ function CardDialog({
               <Plus className="h-3.5 w-3.5" /> Adicionar fonte de receita
             </button>
             <p className="mb-4 text-[10px] text-foreground-faint">
-              Wallet / Contrato / Split mostram saldo ao vivo (ETH + USDC via RPC, igual ao /treasury). Split = endereço de um contrato 0xSplits de recebimento.
+              Wallet / Contract / Split show a live balance (ETH + USDC via RPC, same as /treasury). Split = the address of a receiving 0xSplits contract.
             </p>
           </>
         )}
@@ -1000,7 +1000,7 @@ function CardDialog({
                 onClick={() => onDelete(card.id)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-danger/10 px-3 py-2 text-xs font-semibold text-danger hover:bg-danger/20 disabled:opacity-50"
               >
-                <Trash2 className="h-3.5 w-3.5" /> Confirmar exclusão
+                <Trash2 className="h-3.5 w-3.5" /> Confirm deletion
               </button>
             ) : (
               <button
@@ -1012,7 +1012,7 @@ function CardDialog({
               </button>
             )
           ) : (
-            <span className="text-[11px] text-foreground-faint">A raiz não pode ser excluída</span>
+            <span className="text-[11px] text-foreground-faint">The root can&apos;t be deleted</span>
           )}
 
           <button
@@ -1033,7 +1033,7 @@ function CardDialog({
             }
             className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-40"
           >
-            Salvar
+            Save
           </button>
         </div>
       </div>

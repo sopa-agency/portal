@@ -6,6 +6,7 @@ const skatehive: ProjectConfig = {
   switcher: { rank: 10 },
   magazine: true,
   homepage: true,
+  crossPostQueue: true,
   lab: true,
   zineStudio: true,
   name: "SkateHive",
@@ -83,6 +84,10 @@ const skatehive: ProjectConfig = {
   },
   repos: [
     "SkateHive/skatehive3.0",
+    // Privado. Entra aqui pro board do portal: chip de repo, toggle de PRs e
+    // assignees. Fica depois do skatehive3.0 porque repos[0] é o repo "da casa"
+    // usado na home.
+    "SkateHive/marketing-portal",
   ],
   socials: [
     {

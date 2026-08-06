@@ -1,8 +1,8 @@
 import { DollarSign } from "lucide-react";
 import type { OrgRevenue, OrgRevenueStream } from "@/lib/org-revenue";
 import { Sparkline, RevenueChart } from "@/components/revenue-charts";
+import { usd } from "@/lib/format";
 
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
 const signedUsd = (n: number) => `${n >= 0 ? "+" : "−"}${usd(Math.abs(n))}`;
 
 const KIND_LABEL: Record<OrgRevenueStream["kind"], string> = {
@@ -27,7 +27,7 @@ function TrendChips({ stream }: { stream: OrgRevenueStream }) {
   if (!tr || tr.points.length < 2) return null;
   const chip = (label: string, v: number | null) =>
     v == null ? null : (
-      <span className={v >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-danger"}>
+      <span className={v >= 0 ? "text-success" : "text-danger"}>
         {label} {signedUsd(v)}
       </span>
     );
@@ -80,11 +80,11 @@ function StreamRow({ stream }: { stream: OrgRevenueStream }) {
 
       {/* Accurate event-based revenue (auction/split). */}
       {realized && (
-        <div className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2">
+        <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-2">
           <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
             <span className="text-foreground-muted">
               {realized.method === "auction" ? "🔨 Receita de leilões" : "💧 Distribuído (split)"}{" "}
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(realized.revenueUsd)}</span>
+              <span className="font-semibold text-success">{usd(realized.revenueUsd)}</span>
             </span>
             <span className="text-foreground-faint">
               {realized.count} {realized.method === "auction" ? "leilões" : "distribuições"}
@@ -103,7 +103,7 @@ function StreamRow({ stream }: { stream: OrgRevenueStream }) {
         <div className="mt-2 rounded-md border border-border bg-surface-elevated p-2">
           <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
             <span className="text-foreground-muted">
-              Recebido <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(flow.receivedUsd)}</span>
+              Recebido <span className="font-semibold text-success">{usd(flow.receivedUsd)}</span>
             </span>
             <span className="text-foreground-muted">
               Pago/saiu <span className="font-semibold text-foreground">{usd(flow.paidUsd)}</span>
@@ -131,7 +131,7 @@ export function TreasuryRevenue({ data, aggregate = true }: { data: OrgRevenue; 
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-            <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> Receita on-chain
+            <DollarSign className="h-4 w-4 text-success" /> Receita on-chain
           </h2>
           <p className="mt-0.5 text-xs text-foreground-subtle">
             {aggregate
@@ -142,7 +142,7 @@ export function TreasuryRevenue({ data, aggregate = true }: { data: OrgRevenue; 
         <div className="flex gap-5 text-right">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Receita realizada</div>
-            <div className="text-base font-semibold text-emerald-600 dark:text-emerald-400">{usd(data.realizedTotalUsd)}</div>
+            <div className="text-base font-semibold text-success">{usd(data.realizedTotalUsd)}</div>
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Saldo atual</div>
@@ -166,7 +166,7 @@ export function TreasuryRevenue({ data, aggregate = true }: { data: OrgRevenue; 
               <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{p.name}</h3>
               <div className="shrink-0 text-right">
                 {p.realizedTotalUsd > 0 && (
-                  <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{usd(p.realizedTotalUsd)}</div>
+                  <div className="text-xs font-semibold text-success">{usd(p.realizedTotalUsd)}</div>
                 )}
                 <div className="text-[10px] text-foreground-faint">saldo {usd(p.balanceTotalUsd)}</div>
               </div>

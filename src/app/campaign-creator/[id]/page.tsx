@@ -10,6 +10,9 @@ import { ageFromDate } from "@/lib/utils";
 import { getActiveProject } from "@/projects";
 
 export const dynamic = "force-dynamic";
+// Artifact generation can run close to the queue ceiling (~285s) — give the
+// server action the full serverless budget so it isn't killed mid-generation.
+export const maxDuration = 300;
 
 export default async function CampaignFolderPage({
   params,

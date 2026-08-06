@@ -104,10 +104,11 @@ export async function listSnapsForCuration(force = false): Promise<
   const g = await gate();
   if (!g.ok) return g;
 
-  const res = await listSkatehiveVideos(null, { force });
+  // images: true — plenty of snaps are a photo or a GIF, not a clip.
+  const res = await listSkatehiveVideos(null, { force, images: true });
   if (!res.ok) return res;
-  // One card per snap post (a post can yield several video entries → dedupe,
-  // keeping the first clip as the thumbnail).
+  // One card per snap post (a post can yield several media entries → dedupe,
+  // keeping the first clip/photo as the thumbnail).
   const seen = new Set<string>();
   const snaps = res.videos
     .filter((v) => v.source === "snap")
@@ -144,7 +145,8 @@ export async function listSnapsForCuration(force = false): Promise<
         votes: s.votes,
         payout: s.payout,
         url: `https://peakd.com/@${s.author}/${s.permlink}`,
-        thumbnail: s.url, // IPFS video URL → first frame as reference
+        thumbnail: s.url, // clip (first frame as reference) or photo/GIF
+        kind: s.kind,
         created: s.created,
         boost: t ? { budget: t.budget, released: t.released, status: t.status } : null,
         replied: !!replyUrl,
@@ -204,6 +206,7 @@ export async function listBlogPostsForCuration(): Promise<
       payout: parseFloat(p.pending_payout_value ?? "0") || 0,
       url: buildPostUrl(p.author, p.permlink, frontend),
       thumbnail: meta.image?.[0] ?? "",
+      kind: "image",
       created: p.created ?? "",
       boost: t ? { budget: t.budget, released: t.released, status: t.status } : null,
       replied: !!replyUrl,

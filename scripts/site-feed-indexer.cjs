@@ -114,18 +114,60 @@ function isQuote(cast) {
   return (cast.embeds || []).some((e) => e && (e.cast_id || e.cast));
 }
 
-/** Mídia dos embeds do Farcaster. */
+/**
+ * Mídia dos embeds do Farcaster. Três saídas, porque não se renderizam igual:
+ *   image → <img>
+ *   video → arquivo direto, toca em <video>
+ *   embed → HLS (.m3u8) ou player de terceiro; <video> nativo só toca HLS no
+ *           Safari, então em vez de caixa preta vira link
+ *   link  → o Neynar já resolve o Open Graph do site citado (título, descrição
+ *           e imagem), então o preview sai de graça, sem buscar nada
+ */
 function mediaFromEmbeds(embeds) {
   const out = [];
   for (const e of embeds || []) {
     const url = e && e.url;
     if (!url) continue;
-    const mime = (e.metadata && e.metadata.content_type) || "";
-    if (mime.startsWith("image/") || IMG_RE.test(url)) out.push({ type: "image", url });
-    else if (mime.startsWith("video/") || VID_RE.test(url)) out.push({ type: "video", url });
+    const meta = e.metadata || {};
+    const mime = meta.content_type || "";
+    const isHls = /mpegurl/i.test(mime) || /\.m3u8(\?|$)/i.test(url);
+
+    if (isHls) {
+      out.push({ type: "embed", url });
+    } else if (mime.startsWith("image/") || IMG_RE.test(url)) {
+      out.push({ type: "image", url });
+    } else if (mime.startsWith("video/") || VID_RE.test(url)) {
+      out.push({ type: "video", url });
+    } else {
+      const og = meta.html || {};
+      const img = Array.isArray(og.ogImage) ? og.ogImage[0] : og.ogImage;
+      const titulo = og.ogTitle || og.title;
+      // sem título nem imagem não é preview, é só uma URL — o texto já tem
+      if (titulo || (img && img.url)) {
+        out.push({
+          type: "link",
+          url,
+          title: titulo ? String(titulo).slice(0, 120) : null,
+          description: og.ogDescription ? String(og.ogDescription).slice(0, 200) : null,
+          image: img && img.url ? String(img.url) : null,
+        });
+      }
+    }
     IMG_RE.lastIndex = 0; VID_RE.lastIndex = 0;
   }
   return dedupe(out);
+}
+
+/** Tira HTML e sintaxe de markdown do corpo, pra sobrar texto de gente. */
+function limpar(body) {
+  return String(body || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/<[^>]*$/, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function dedupe(list) {
@@ -142,9 +184,18 @@ async function record({ hash, platform, authorSlug, authorHandle, authorFid, tex
   if (existing) {
     // Linha antiga (capturada pelo trail, ou por uma versão anterior deste
     // script). Só ENRIQUECE — nunca reduz o que já está lá.
-    const guardado = existing.mediaJson ? JSON.parse(existing.mediaJson).length : 0;
+    // Grava quando acha MAIS itens ou quando a classificação mudou (ex.: um
+    // .m3u8 que era `video` e virou `embed` — mesma contagem, outro tipo).
+    // Nunca reduz: menos itens que o guardado é extração pior, não melhor.
+    const guardado = existing.mediaJson ? JSON.parse(existing.mediaJson) : [];
+    const novo = JSON.stringify(media);
     const patch = {};
-    if (media.length > guardado) patch.mediaJson = JSON.stringify(media);
+    if (media.length > guardado.length || (media.length === guardado.length && media.length > 0 && novo !== existing.mediaJson)) {
+      patch.mediaJson = novo;
+    }
+    // Texto gravado por uma versão que cortava ANTES de limpar guardou markup
+    // no lugar do conteúdo. Só troca quando o novo é limpo e o antigo não era.
+    if (text && /</.test(existing.text) && !/</.test(text)) patch.text = text;
     if (!existing.kind && kind) patch.kind = kind;
     if (!existing.community && community) patch.community = community;
     if (Object.keys(patch).length === 0) return null;
@@ -211,7 +262,9 @@ async function tick() {
         authorHandle: post.author,
         // Snap não tem título de verdade — o da Hive é "RE: Snaps Container //
         // <data>", ruído puro. O conteúdo do snap é o corpo.
-        text: isSnap ? (post.body || "").slice(0, 500) : post.title || (post.body || "").slice(0, 200),
+        // limpa ANTES de cortar: cortar primeiro parte a tag no meio e o
+        // saneamento do endpoint não reconhece mais o `<iframe ...` sem fechar
+        text: isSnap ? limpar(post.body).slice(0, 500) : post.title || limpar(post.body).slice(0, 200),
         url: `https://peakd.com/@${post.author}/${post.permlink}`,
         postedAt: new Date((post.created || "") + "Z"),
         media: mediaFromMarkdown(post.body),

@@ -4,7 +4,7 @@ import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
 import { ConnectionsView } from "@/components/team-view";
 import { BountySetup } from "@/components/bounty-setup";
-import { getPortalConnections, verifyDiscordConnection, verifyFarcasterConnection, verifyAnalyticsConnection } from "@/lib/portal-connections";
+import { getPortalConnections, verifyDiscordConnection, verifyFarcasterConnection, verifyAnalyticsConnection, verifyTikTokConnection } from "@/lib/portal-connections";
 import { listTeamMembers } from "@/app/actions/team-admin";
 import { MyFarcasterCard } from "@/components/my-farcaster-card";
 import { getMyFarcaster } from "@/app/actions/farcaster-member";
@@ -45,6 +45,24 @@ export default async function SettingsPage() {
       farcasterRow.detail = fc.detail;
       farcasterRow.fixHint = undefined;
       if (fc.handle) farcasterRow.handle = fc.handle;
+    }
+  }
+
+  // Resolve the TikTok row against the DB — the OAuth account lives there, so
+  // env presence alone can't tell whether the brand is actually connected.
+  const tiktokRow = connections.find((c) => c.network === "TikTok");
+  if (tiktokRow && tiktokRow.status !== "na") {
+    const tk = await verifyTikTokConnection(project);
+    if (tk) {
+      tiktokRow.status = tk.status;
+      tiktokRow.detail = tk.detail;
+      tiktokRow.fixHint = undefined;
+      if (tk.handle) tiktokRow.handle = tk.handle;
+    } else if (tiktokRow.status === "warning") {
+      // Credentials exist but nobody connected an account yet.
+      tiktokRow.status = "missing";
+      tiktokRow.detail = "App credentials set, but no account is connected yet.";
+      tiktokRow.fixHint = "Open the TikTok page and click Conectar TikTok";
     }
   }
 

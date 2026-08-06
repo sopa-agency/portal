@@ -1,13 +1,13 @@
 "use client";
 
+import { usd, pct } from "@/lib/format";
+
 // Animated flow view of the payroll stream: a source (the pool) with money
 // "flowing" along connectors to each member, thickness + label by their share.
 // Pure SVG + CSS (no deps); animates only when the stream is live and the
 // viewer hasn't asked to reduce motion.
 
 const PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#06b6d4", "#ec4899", "#8b5cf6", "#84cc16", "#f97316", "#14b8a6", "#e11d48"];
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
-const pct = (n: number) => `${n >= 9.95 ? Math.round(n) : n.toFixed(1)}%`;
 const initials = (s: string) => s.replace(/^@/, "").slice(0, 2).toUpperCase();
 
 export function StreamFlowView({

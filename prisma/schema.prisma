@@ -313,6 +313,11 @@ model InstagramPost {
   brandedPartner  String? // paid partnership @brand — manual only (not sent to API)
   locationNote    String? // location name — manual only (not sent to API)
   studioDoc       Json? // Zine Studio editable carousel doc — rehydrates the studio when reloading this post
+  /// Set when this post came from the cross-post curation queue: the id of the
+  /// `userbase_crosspost_queue` row in the SkateHive app's Supabase. After
+  /// publishing, the scheduler writes the result back to that row so the author
+  /// sees "published" in the app. Applied via targeted SQL (db:push drifts here).
+  crossPostQueueId String?
 
   @@index([projectSlug, status, updatedAt(sort: Desc)])
   @@index([status, scheduledFor]) // for scheduler tick queries
@@ -331,6 +336,12 @@ model InstagramPost {
 model SchedulerLease {
   id            String    @id @default("singleton")
   lastMacTickAt DateTime?
+  /// Last tick from a publishing host that HAD CROSSPOST_DATABASE_URL set.
+  /// The curation UI runs on Vercel and can't see the Mac's env, so the Mac
+  /// reports it here: stale while lastMacTickAt is fresh means the publisher
+  /// can't write results back, and an approved cross-post would go live with
+  /// the author never notified. Applied via targeted SQL (db:push drifts here).
+  crossPostReadyAt DateTime?
   updatedAt     DateTime  @updatedAt
 }
 
@@ -1101,4 +1112,112 @@ model SopaBrief {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// Ledger of cross-post notifications the portal owes the author.
+//
+// The queue and the notifications live in the SkateHive app's Supabase, reached
+// over PostgREST — which has no multi-statement transactions. So "flip the row
+// AND tell the author" can't be atomic there, and the two halves can split: a
+// rejection nobody hears about, or an author told twice.
+//
+// This table restores the guarantee from the portal's own DB, where we DO have
+// transactions. The unique constraint is the whole mechanism: claiming a notice
+// is what grants the right to send it, so a retry can never send twice. Rows
+// left unconfirmed are retried by the scheduler's reconcile pass.
+model CrossPostNotice {
+  id      String @id @default(cuid())
+  /// Row id in the app's `userbase_crosspost_queue`.
+  queueId String
+  /// rejected | scheduled | published | failed
+  kind    String
+  /// Payload to send, so a retry doesn't have to reconstruct it.
+  payload Json
+  /// Null until the app confirmed the insert. Non-null means done, never resend.
+  sentAt    DateTime?
+  attempts  Int      @default(0)
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([queueId, kind])
+  @@index([sentAt])
+}
+
+// ---------------------------------------------------------------------------
+// TikTok — OAuth credentials + the publishing queue.
+//
+// Unlike Meta (long-lived Page tokens in env vars), TikTok issues per-user
+// tokens: the access token lasts 24h and the refresh token 365 days AND ROLLS
+// on every refresh, so the newly-returned refresh_token must overwrite the old
+// one. That can't live in .env — hence this table, mirroring the FarcasterSigner
+// pattern (one row per portal, connected from Settings).
+//
+// Created via targeted SQL (db:push drifts on this DB):
+// scripts/create-tiktok-tables.cjs
+// ---------------------------------------------------------------------------
+model TikTokAccount {
+  projectSlug      String   @id
+  openId           String // stable per-user id scoped to our client key
+  unionId          String?
+  username         String? // @handle, from creator_info
+  displayName      String?
+  avatarUrl        String?
+  scope            String // comma-separated granted scopes
+  accessToken      String   @db.Text
+  accessExpiresAt  DateTime
+  refreshToken     String   @db.Text
+  refreshExpiresAt DateTime
+  /**
+   * Set when TikTok's audit has approved the app for public posting. Until
+   * then every publish is forced to SELF_ONLY — unaudited clients can only
+   * post privately, so sending PUBLIC_TO_EVERYONE would just fail.
+   */
+  audited          Boolean  @default(false)
+  status           String   @default("connected") // connected | revoked
+  connectedBy      String? // portal username who clicked Connect
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// One queued TikTok video. Flow: draft → review (someone approves) → scheduled
+// → publishing → published. `reviewed` is the human gate: the scheduler only
+// picks up rows that a teammate approved, so nothing auto-publishes unreviewed.
+model TikTokPost {
+  id             String    @id @default(cuid())
+  projectSlug    String
+  title          String? // short internal name — identifies the draft in lists
+  caption        String    @default("") @db.Text // TikTok "title" — max 2200 UTF-16 runes
+  videoUrl       String? // public URL of the source video (Pinata/IPFS)
+  coverTimeMs    Int? // frame offset used as the cover (video_cover_timestamp_ms)
+  /**
+   * PUBLIC_TO_EVERYONE | MUTUAL_FOLLOW_FRIENDS | FOLLOWER_OF_CREATOR | SELF_ONLY
+   * — constrained by privacy_level_options from creator_info.
+   */
+  privacy        String    @default("SELF_ONLY")
+  disableComment Boolean   @default(false)
+  disableDuet    Boolean   @default(false)
+  disableStitch  Boolean   @default(false)
+  /**
+   * Paid partnership / own-brand promotion — TikTok requires the disclosure
+   * toggles to be sent explicitly when the post is commercial content.
+   */
+  brandContent   Boolean   @default(false)
+  brandOrganic   Boolean   @default(false)
+  isAigc         Boolean   @default(false)
+  status         String    @default("draft") // draft | scheduled | publishing | published | failed
+  reviewed       Boolean   @default(false) // a teammate approved it for publishing
+  reviewedBy     String?
+  scheduledFor   DateTime?
+  attempts       Int       @default(0)
+  publishId      String? // TikTok publish_id — used to poll status
+  shareUrl       String? // public URL once published
+  error          String?
+  createdBy      String?
+  publishedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([projectSlug, status, updatedAt(sort: Desc)])
+  @@index([status, scheduledFor]) // scheduler tick queries
 }

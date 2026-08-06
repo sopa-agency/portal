@@ -15,6 +15,8 @@ import {
 } from "@/app/actions/marketing-suggestions";
 import { listUnifiedCalendar } from "@/app/actions/post-creator";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
+import { CrossPostCuration } from "@/components/crosspost-curation";
+import { getCrossPostSetup } from "@/app/actions/crossposts";
 import {
   getRepoToSocialConfig,
   getRecentRepoToSocialRuns,
@@ -89,6 +91,7 @@ export default async function MarketingSuggestionsPage({
     repoRunsResult,
     repoHealthResult,
     calendarResult,
+    crossPostSetupResult,
   ] = await Promise.allSettled([
     getActiveProject(),
     getMarketingSuggestionConfig(),
@@ -98,6 +101,7 @@ export default async function MarketingSuggestionsPage({
     getRecentRepoToSocialRuns(),
     getRepoToSocialWorkerHealth(),
     listUnifiedCalendar(),
+    getCrossPostSetup(),
   ]);
 
   const project = projectResult.status === "fulfilled" ? projectResult.value : null;
@@ -193,6 +197,26 @@ export default async function MarketingSuggestionsPage({
     <ScheduleCalendar events={calendarEvents} activeSlug={project?.slug ?? ""} canCreate={!!project?.postCreator} />
   );
 
+  // --- cross-post tab --------------------------------------------------------
+  // Only for projects whose main app actually feeds the queue (see
+  // ProjectConfig.crossPostQueue) — the table lives in that app's Supabase.
+  const crossPostSetup =
+    crossPostSetupResult.status === "fulfilled"
+      ? crossPostSetupResult.value
+      : { ready: false, missing: ["conexão"], publisher: "unknown" as const };
+  const crosspost = project?.crossPostQueue ? (
+    <CrossPostCuration setup={crossPostSetup} />
+  ) : undefined;
+
+  const initialTab =
+    tab === "repo"
+      ? "repo"
+      : tab === "calendar"
+        ? "calendar"
+        : tab === "crosspost" && crosspost
+          ? "crosspost"
+          : "community";
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -202,9 +226,10 @@ export default async function MarketingSuggestionsPage({
         status={`workers: community ${health.worker} · repo ${repoHealth.worker}`}
       />
       <PostSuggestionTabs
-        initial={tab === "repo" ? "repo" : tab === "calendar" ? "calendar" : "community"}
+        initial={initialTab}
         community={community}
         repo={repo}
+        crosspost={crosspost}
         calendar={calendar}
       />
     </div>

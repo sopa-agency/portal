@@ -24,11 +24,10 @@ export default async function KanbanPage() {
       fetchOpenPullRequests(project),
     ]);
     return (
-      <div className="flex flex-col gap-6 lg:h-[calc(100dvh-4rem)]">
+      <div className="flex flex-col gap-4 lg:h-[calc(100dvh-4rem)]">
         <PageHeader
-          eyebrow={project.name}
+          compact
           title="Kanban"
-          description="Todas as tarefas de todos os portais, por status."
           actions={project.repos?.length ? <KanbanRepoPRs prs={prs} /> : undefined}
         />
         <AggregatedKanban
@@ -50,11 +49,12 @@ export default async function KanbanPage() {
     // Fixed viewport height on lg+ (100dvh minus the shell's md:p-8 padding),
     // matching where the sidebar becomes a fixed side rail. Below lg the page
     // flows under the stacked nav so the board doesn't double-scroll.
-    <div className="flex flex-col gap-6 lg:h-[calc(100dvh-4rem)]">
+    <div className="flex flex-col gap-4 lg:h-[calc(100dvh-4rem)]">
+      {/* Compact: the board needs the vertical space, and the page-guide "i"
+          button already carries the explanation this header used to repeat. */}
       <PageHeader
-        eyebrow={project.name}
+        compact
         title="Kanban"
-        description="GitHub Project board — track open issues and pull requests by status."
         actions={project.repos?.length ? <KanbanRepoPRs prs={prs} /> : undefined}
       />
       <KanbanBoard />

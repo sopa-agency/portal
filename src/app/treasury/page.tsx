@@ -7,6 +7,7 @@ import { TreasuryRefresh } from "@/components/treasury-refresh";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
+import { CostsTab } from "@/components/costs-tab";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue } from "@/lib/org-revenue";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
@@ -14,7 +15,7 @@ import { listSopaJobs } from "@/app/actions/sopa-jobs";
 import { PayrollPanel, type PayrollRosterOption } from "@/components/payroll-panel";
 import { listPayrollMembers } from "@/app/actions/payroll";
 import { getTeamRoster } from "@/lib/team-roster";
-import { StreamStatus } from "@/components/stream-status";
+import { NotConfigured } from "@/components/data-state";
 import { CreatePoolButton } from "@/components/create-pool-button";
 import { StreamActions } from "@/components/stream-actions";
 import { StreamFlowView } from "@/components/stream-flow-view";
@@ -22,6 +23,7 @@ import { StreamSustainability } from "@/components/stream-sustainability";
 import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE, SUPERFLUID } from "@/lib/superfluid";
 import { ConnectPoolButton } from "@/components/connect-pool-button";
 import { MembersTab } from "@/components/members-tab";
+import { WithdrawUsdcx } from "@/components/withdraw-usdcx";
 import { BrandTreasury } from "@/components/brand-treasury";
 import { TreasuryAllocation } from "@/components/treasury-allocation";
 import { getAllocation } from "@/app/actions/allocation";
@@ -30,6 +32,9 @@ import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
+import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
+import { SopaStakePanel } from "@/components/sopa-stake-panel";
+import { getPipelineStatus } from "@/lib/mor-pipeline";
 import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
 import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryBriefingButton } from "@/components/treasury-briefing";
@@ -50,9 +55,8 @@ import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
-
-const usd = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+import { usdWhole as usd } from "@/lib/format";
+import { ChevronRight } from "lucide-react";
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
@@ -171,35 +175,44 @@ treasury: {
     // SOPA agency revenue: client jobs (manual).
     isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
   ]);
-  const payrollRes = isSopa ? await listPayrollMembers().catch(() => null) : null;
+  // SOPA data used to be a long serial waterfall of awaits. Now two parallel waves:
+  // wave 1 = everything with no cross-dependency; wave 2 = reads that need a wave-1
+  // result (the pool address, and the SOPA-owned vault).
+  const [payrollRes, rosterRaw, poolAddress, stakePosition, allocation, communityVaults] = await Promise.all([
+    isSopa ? listPayrollMembers().catch(() => null) : Promise.resolve(null),
+    isSopa ? getTeamRoster(project).catch(() => []) : Promise.resolve([]),
+    isSopa ? (SOPA_POOL_ADDRESS ? Promise.resolve(SOPA_POOL_ADDRESS) : findSopaPool().catch(() => null)) : Promise.resolve(null),
+    isSopa ? getStakePosition(SOPA_SAFE).catch(() => null) : Promise.resolve(null),
+    isSopa ? getAllocation(project.slug).catch(() => null) : Promise.resolve(null),
+    isSopa ? getCommunityVaults().catch(() => []) : Promise.resolve([]),
+  ]);
+
+  const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
+  const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
   // Team roster → payroll member picker (auto-detect an EVM wallet in contacts).
   const roster: PayrollRosterOption[] = isSopa
-    ? (await getTeamRoster(project).catch(() => [])).map((m) => ({
+    ? rosterRaw.map((m) => ({
         username: m.username,
         avatarUrl: m.avatarUrl,
         address: m.contacts.find((c) => /^0x[a-fA-F0-9]{40}$/.test(c.value.trim()))?.value.trim(),
       }))
     : [];
-
-  const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
-  const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
-  // Pool address: hardcoded constant, else auto-discovered by admin = SOPA Safe.
-  const poolAddress = isSopa ? SOPA_POOL_ADDRESS ?? (await findSopaPool().catch(() => null)) : null;
-  const streamStatus = poolAddress ? await getStreamStatus(poolAddress).catch(() => null) : null;
-  const stakePosition = isSopa ? await getStakePosition(SOPA_SAFE).catch(() => null) : null;
-  const allocation = isSopa ? await getAllocation(project.slug) : null;
-  const communityVaults = isSopa ? await getCommunityVaults().catch(() => []) : [];
   // Backers of the SOPA-owned vault (the one whose fee funds the payroll).
   const sopaVault = communityVaults.find((v) => v.paysSopa) ?? null;
-  const vaultDepositors = sopaVault ? await getVaultDepositors(sopaVault.vault.address).catch(() => []) : [];
-  // Gross yield rate of the pot = the underlying Moonwell APY (the vault deploys
-  // 100% there). The vault's own netApy isn't indexed by Morpho yet; this fills
-  // the flow's $/month until it is.
-  const vaultGrossApy = sopaVault
-    ? (sopaVault.apy ?? (await fetchVaultApy("0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca").catch(() => null)))
-    : null;
-  // SOPA's accumulated performance fee from the vault so far (fee shares → USDC).
-  const sopaVaultEarned = sopaVault ? await getVaultFeeAccrued(sopaVault.vault.address, SOPA_SAFE).catch(() => 0) : 0;
+
+  // Wave 2 — depends on wave 1 (poolAddress, sopaVault); parallel with each other.
+  // vaultGrossApy = the underlying Moonwell APY (the vault deploys 100% there); the
+  // vault's own netApy isn't indexed by Morpho yet, so this fills the flow's $/month.
+  const [streamStatus, vaultDepositors, vaultGrossApy, sopaVaultEarned] = await Promise.all([
+    poolAddress ? getStreamStatus(poolAddress).catch(() => null) : Promise.resolve(null),
+    sopaVault ? getVaultDepositors(sopaVault.vault.address).catch(() => []) : Promise.resolve([]),
+    sopaVault
+      ? sopaVault.apy != null
+        ? Promise.resolve(sopaVault.apy)
+        : fetchVaultApy("0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca").catch(() => null)
+      : Promise.resolve(null),
+    sopaVault ? getVaultFeeAccrued(sopaVault.vault.address, SOPA_SAFE).catch(() => 0) : Promise.resolve(0),
+  ]);
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
   // both halves are surfaced so the page shows the whole fee, not just our cut.
@@ -243,6 +256,8 @@ treasury: {
 
   // SOPA: one project selector filters balances + revenue together. Brand
   // portals show their single treasury + their own revenue directly.
+  const pipelineStatus = isSopa ? await getPipelineStatus().catch(() => null) : null;
+
   const overviewAndRevenue = isSopa ? (
     <SopaTreasury
       groups={groups}
@@ -265,6 +280,22 @@ treasury: {
 
   const treasuryContent = isSopa ? (
     <div className="space-y-8">
+      {/* Ordem: quanto temos (hero + saldos + receita) → pra que é (earmarks) →
+          o que sai (custos + runway) → atividade do multisig (recolhida, ops). */}
+      {overviewAndRevenue}
+      {/* Operações MOR (pipeline + stake) — ferramentas de owner, recolhidas num
+          collapsible pra Tesouro ficar uma visão limpa de "quanto temos". */}
+      <details className="group border-t border-border pt-8">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
+          <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+          Operações MOR
+          <span className="text-xs font-normal text-foreground-faint">pipeline MOR→USDC · stake na subnet · só a haxixe.eth roda o fluxo</span>
+        </summary>
+        <div className="mt-6 space-y-8">
+          {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
+          <SopaStakePanel />
+        </div>
+      </details>
       {allocation && (
         <TreasuryAllocation
           initial={allocation}
@@ -280,17 +311,19 @@ treasury: {
             .reduce((s, c) => s + c.monthlyUsd, 0)}
         />
       )}
-      {overviewAndRevenue}
-      <MultisigBudgets budgets={budgets} />
-      <SafeActivity safes={safes} />
-      <div className="border-t border-border pt-8">
-        <FixedCostsPanel
-          groups={costGroups}
-          initialCosts={initialCosts}
-          usdBrl={costScope.usdBrl}
-          canEdit={!!session}
-        />
-      </div>
+      {(budgets.length > 0 || safes.length > 0) && (
+        <details className="group border-t border-border pt-8">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
+            <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+            Atividade do multisig
+            <span className="text-xs font-normal text-foreground-faint">orçamentos de bounty · fila de propostas</span>
+          </summary>
+          <div className="mt-6 space-y-8">
+            <MultisigBudgets budgets={budgets} />
+            <SafeActivity safes={safes} />
+          </div>
+        </details>
+      )}
     </div>
   ) : (
     <div className="space-y-8">
@@ -365,17 +398,27 @@ treasury: {
           };
         })()
       : undefined,
+    // SOPA's MOR position (Morpheus/Gnars subnet) — only when the pipeline read
+    // succeeded (SOPA-only). Same live numbers the pipeline + stake panels show.
+    mor: pipelineStatus
+      ? {
+          stakedMor: pipelineStatus.sopaStakedMor,
+          walletMor: pipelineStatus.sopaWalletMor,
+          pendingMor: pipelineStatus.sopaWarehouseMor,
+          subnetPendingMor: pipelineStatus.subnetRewardMor,
+        }
+      : undefined,
   });
 
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Treasury"
-        title={groups.length > 1 ? "Treasuries overview" : `${project.name} treasury`}
+        eyebrow="Tesouraria"
+        title={groups.length > 1 ? "Visão das tesourarias" : `Tesouraria ${project.name}`}
         description={
           groups.length > 1
-            ? `The ${project.name} Safe plus every portal treasury it operates — same wallets and sources as the native apps.`
-            : "The same wallets and data sources the native app shows — live balances across chains."
+            ? `O Safe da ${project.name} + todas as tesourarias dos portais que ela opera — as mesmas carteiras e fontes dos apps nativos.`
+            : "As mesmas carteiras e fontes que o app nativo mostra — saldos ao vivo em várias redes."
         }
         status={usd(combined)}
         actions={
@@ -390,6 +433,14 @@ treasury: {
       {isSopa ? (
         <TreasuryTabs
           treasury={treasuryContent}
+          costs={
+            <CostsTab
+              groups={costGroups}
+              initialCosts={initialCosts}
+              usdBrl={costScope.usdBrl}
+              canEdit={!!session}
+            />
+          }
           members={
             <MembersTab
               canEdit={!!session}
@@ -410,6 +461,7 @@ treasury: {
               streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
               runwayDays={streamStatus?.runwayDays ?? null}
               bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
+              streamFailed={!!poolAddress && !streamStatus}
               flow={
                 <>
                   <StreamFlowView
@@ -417,12 +469,19 @@ treasury: {
                     streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
                     monthlyUsd={streamStatus?.monthlyUsd ?? null}
                   />
-                  {!poolAddress && <StreamStatus data={streamStatus} poolConfigured={!!poolAddress} portalMembers={payroll} />}
+                  {!poolAddress && (
+                    <NotConfigured>
+                      <b className="font-semibold text-foreground">Pool de pagamento ainda não criada.</b> Crie e assine no Safe
+                      (Controles → criar a pool). Depois disso o status ao vivo aparece aqui: taxa mensal, reserva, runway e quem
+                      está conectado.
+                    </NotConfigured>
+                  )}
                 </>
               }
               sustainability={
                 poolAddress ? (
                   <StreamSustainability
+                    failed={!streamStatus}
                     yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
                     burnMonthly={streamStatus?.monthlyUsd ?? 0}
                     bufferUsdcx={streamStatus?.safeUsdcxUsd ?? 0}
@@ -430,6 +489,7 @@ treasury: {
                   />
                 ) : null
               }
+              withdraw={<WithdrawUsdcx />}
               connect={
                 poolAddress ? (
                   <ConnectPoolButton

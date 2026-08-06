@@ -13,7 +13,7 @@ const FULL_BLEED_ROUTES = ["/kanban", "/about", "/org-chart", "/lab", "/zine", "
  * Routes that use the wide dashboard canvas (the Split Desk home design caps
  * at 1760px) instead of the reading column.
  */
-const WIDE_ROUTES = ["/"];
+const WIDE_ROUTES = ["/", "/treasury"];
 
 export function ContentShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

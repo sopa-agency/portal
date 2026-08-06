@@ -74,6 +74,10 @@ const nogenta: ProjectConfig = {
   // Instagram-first like Reelflip — enable the Post Creator. Publishing needs
   // the NOGENTA_INSTAGRAM_* envs before it works end-to-end.
   postCreator: true,
+  // TikTok review queue. Needs NOGENTA_TIKTOK_CLIENT_KEY/_SECRET plus an OAuth
+  // connect from the page; until TikTok audits the app every publish is forced
+  // to private (see docs/tiktok-setup.md).
+  tiktok: true,
   campaignArtifacts: {
     persona:
       "the editorial lead at Nogenta — a skate brand under the Reelflip family. Instagram-first, also cross-posting to Hive via the SkateHive community",

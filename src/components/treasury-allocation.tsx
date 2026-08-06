@@ -3,8 +3,7 @@
 import { useState, useTransition } from "react";
 import { Layers, Loader2, Check, X, SlidersHorizontal, PiggyBank, Users2, Cog, Wallet } from "lucide-react";
 import { setAllocation, type Allocation, type StoredAllocation } from "@/app/actions/allocation";
-
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
+import { usd } from "@/lib/format";
 
 // "Pra que é cada parte do dinheiro" — the treasury is ONE staked pot; these are
 // earmarks on top of it. Each bucket shows what it holds (its share of the pot)
@@ -239,14 +238,14 @@ export function TreasuryAllocation({
       <div className="mt-4 border-t border-border pt-3">
         <div className="mb-1 flex items-center justify-between text-[11px]">
           <span className="inline-flex items-center gap-1.5 text-foreground-muted">
-            <PiggyBank className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> No cofre rendendo
+            <PiggyBank className="h-3.5 w-3.5 text-success" /> No cofre rendendo
           </span>
           <span className="tabular-nums text-foreground-muted">
             <span className="font-semibold text-foreground">{usd(stakedUsd)}</span> de {usd(totalUsd)} · {Math.round(stakedPct)}%
           </span>
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-border">
-          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(stakedPct, stakedUsd > 0 ? 2 : 0)}%` }} />
+          <div className="h-full rounded-full bg-success" style={{ width: `${Math.max(stakedPct, stakedUsd > 0 ? 2 : 0)}%` }} />
         </div>
         {stakedPct < 80 && (
           <p className="mt-1.5 text-[11px] text-warning">

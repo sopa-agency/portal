@@ -1,4 +1,5 @@
 import "server-only";
+import { baseEthCall } from "@/lib/base-rpc";
 
 // Morpho staking (the "Superstaking" bucket). Principal sits in a MetaMorpho
 // ERC-4626 vault on Base earning yield; the Safe owns the shares. Read-only
@@ -23,6 +24,10 @@ export type StakePosition = {
   netDepositedUsd: number | null;
   /** Yield accrued so far = current value − net deposited. Null if unknown. */
   harvestableUsd: number | null;
+  /** True when the read failed — the numbers above are NOT observed. Consumers
+      must show a "não consegui ler" state, never a $0 that looks like an empty
+      position (a genuine empty position returns valueUsd:0 WITHOUT this flag). */
+  failed?: boolean;
 };
 
 /**
@@ -63,16 +68,9 @@ async function fetchNetDeposited(safe: string): Promise<number | null> {
   }
 }
 
-async function ethCall(to: string, data: string): Promise<string> {
-  const res = await fetch(MORPHO.rpc, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", method: "eth_call", params: [{ to, data }, "latest"], id: 1 }),
-    next: { revalidate: 60, tags: ["stake"] },
-  });
-  const json = (await res.json()) as { result?: string };
-  return json.result ?? "0x";
-}
+// eth_call with provider failover — the public Base RPC 429s under the treasury
+// page's burst of reads, which used to blank the staking position.
+const ethCall = (to: string, data: string) => baseEthCall(to, data, { revalidate: 60, tags: ["stake"] });
 
 async function fetchApy(): Promise<number | null> {
   try {
@@ -116,6 +114,8 @@ export async function getStakePosition(safe: string): Promise<StakePosition> {
       harvestableUsd: harvestable,
     };
   } catch {
-    return { valueUsd: 0, apy: null, monthlyYieldUsd: null, netDepositedUsd: null, harvestableUsd: null };
+    // Read failed — flag it. Returning a bare $0 here would be indistinguishable
+    // from a real empty position, exactly the "wrong number" this page refuses.
+    return { valueUsd: 0, apy: null, monthlyYieldUsd: null, netDepositedUsd: null, harvestableUsd: null, failed: true };
   }
 }

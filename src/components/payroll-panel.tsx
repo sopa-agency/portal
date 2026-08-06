@@ -9,13 +9,11 @@ import {
   setPayrollWeights,
   type PayrollMemberDTO,
 } from "@/app/actions/payroll";
+import { useConfirm } from "@/components/confirm-dialog";
+import { pct } from "@/lib/format";
+import { chartColorAt as colorAt } from "@/lib/chart-colors";
 
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
-const pct = (n: number) => `${n >= 9.95 ? Math.round(n) : n.toFixed(1)}%`;
-
-// Weight-slice palette — reads on both light and dark grounds.
-const PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#06b6d4", "#ec4899", "#8b5cf6", "#84cc16", "#f97316", "#14b8a6", "#e11d48"];
-const colorAt = (i: number) => PALETTE[i % PALETTE.length];
 
 /** A team-roster member the payroll form can pre-fill from (address auto-detected). */
 export type PayrollRosterOption = { username: string; avatarUrl: string; address?: string };
@@ -177,6 +175,7 @@ function MemberForm({
     <div className="space-y-2 rounded-lg border border-accent-border bg-accent-bg/40 p-2.5">
       {roster && roster.length > 0 && (
         <select
+          aria-label="Escolher um membro já cadastrado no time"
           value=""
           onChange={(e) => {
             const r = roster.find((x) => x.username === e.target.value);
@@ -196,6 +195,7 @@ function MemberForm({
         <input
           value={d.label}
           onChange={(e) => setD({ ...d, label: e.target.value })}
+          aria-label="Nome ou handle do membro"
           placeholder="Nome / handle"
           className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -203,6 +203,7 @@ function MemberForm({
           value={d.units}
           onChange={(e) => setD({ ...d, units: e.target.value })}
           inputMode="numeric"
+          aria-label="Peso do membro (units)"
           placeholder="peso (units)"
           className="w-28 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs tabular-nums text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -210,6 +211,7 @@ function MemberForm({
       <input
         value={d.address}
         onChange={(e) => setD({ ...d, address: e.target.value })}
+        aria-label="Carteira EVM do membro (Base)"
         placeholder="0x… carteira EVM (Base)"
         spellCheck={false}
         className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 font-mono text-[11px] text-foreground focus:border-border-strong focus:outline-none"
@@ -254,6 +256,7 @@ export function PayrollPanel({
   const [dividing, setDividing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const { confirm, confirmUI } = useConfirm();
 
   const activeMembers = members.filter((m) => m.active);
   const totalUnits = activeMembers.reduce((s, m) => s + m.units, 0);
@@ -287,13 +290,23 @@ export function PayrollPanel({
       } else setErr(res.error);
     });
 
-  const doDelete = (id: string) =>
+  const doDelete = async (id: string) => {
+    const m = members.find((x) => x.id === id);
+    const okToDelete = await confirm({
+      title: "Remover membro?",
+      message: m
+        ? `${m.label} sai do payroll. As units dele voltam pro bolo e as fatias se redistribuem.`
+        : "O membro sai do payroll e as fatias se redistribuem.",
+      confirmLabel: "Remover",
+    });
+    if (!okToDelete) return;
     start(async () => {
       setErr(null);
       const res = await deletePayrollMember(id);
-      if (res.ok) setMembers((prev) => prev.filter((m) => m.id !== id));
+      if (res.ok) setMembers((prev) => prev.filter((x) => x.id !== id));
       else setErr(res.error);
     });
+  };
 
   const doWeights = (weights: { id: string; units: number }[]) =>
     start(async () => {
@@ -437,6 +450,7 @@ export function PayrollPanel({
           <span className="font-mono tabular-nums text-foreground-muted">Σ {totalUnits} units = 100%</span>
         </div>
       )}
+      {confirmUI}
     </section>
   );
 }

@@ -79,7 +79,11 @@ const PROJECT_FRAGMENT = `
       }
     }
   }
-  items(first: 100) {
+  items(first: 100, after: $after) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
     nodes {
       id
       type
@@ -167,7 +171,7 @@ const PROJECT_FRAGMENT = `
 `;
 
 const QUERY = `
-  query GetProject($login: String!, $number: Int!) {
+  query GetProject($login: String!, $number: Int!, $after: String) {
     organization(login: $login) {
       projectV2(number: $number) {
         ${PROJECT_FRAGMENT}
@@ -184,6 +188,12 @@ const QUERY = `
 // ---------------------------------------------------------------------------
 // Main fetch function
 // ---------------------------------------------------------------------------
+
+/**
+ * How many 100-item pages of the board we're willing to walk. A ceiling only —
+ * it exists so a runaway project can't stall the request, not to cap real boards.
+ */
+const MAX_ITEM_PAGES = 10;
 
 /** Resolve the GitHub token for a project (project-scoped, then global). */
 export function resolveGitHubToken(project: ProjectConfig): string | undefined {
@@ -215,7 +225,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       },
       body: JSON.stringify({
         query: QUERY,
-        variables: { login: org, number },
+        variables: { login: org, number, after: null },
       }),
       // Do not cache — always fetch fresh board state
       cache: "no-store",
@@ -240,6 +250,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
               options?: { id: string; name: string }[];
             };
             items: {
+              pageInfo?: { hasNextPage: boolean; endCursor: string | null };
               nodes: Array<{
                 id: string;
                 type: string;
@@ -280,6 +291,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
               options?: { id: string; name: string }[];
             };
             items: {
+              pageInfo?: { hasNextPage: boolean; endCursor: string | null };
               nodes: Array<{
                 id: string;
                 type: string;
@@ -338,6 +350,39 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
     }
 
     const rawItems = projectV2.items.nodes;
+
+    // A board can outgrow a single page, and GitHub returns items in board order —
+    // so anything past item 100 (a freshly transferred issue, say) is invisible
+    // unless we walk the rest of the connection.
+    let pageInfo = projectV2.items.pageInfo;
+    let pages = 1;
+    while (pageInfo?.hasNextPage && pages < MAX_ITEM_PAGES) {
+      const pageRes = await fetch("https://api.github.com/graphql", {
+        method: "POST",
+        headers: {
+          Authorization: `bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: QUERY,
+          variables: { login: org, number, after: pageInfo.endCursor },
+        }),
+        cache: "no-store",
+      });
+      if (!pageRes.ok) break;
+
+      const pageJson = await pageRes.json() as typeof json;
+      const pageProject =
+        pageJson.data?.organization?.projectV2 ?? pageJson.data?.user?.projectV2;
+      // A failed page leaves the board partial rather than empty — `truncated`
+      // still reports it, since pageInfo keeps its hasNextPage.
+      if (!pageProject) break;
+
+      rawItems.push(...pageProject.items.nodes);
+      pageInfo = pageProject.items.pageInfo;
+      pages++;
+    }
+
     const noStatusItems: KanbanItem[] = [];
 
     for (const node of rawItems) {
@@ -409,7 +454,7 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       projectId: projectV2.id,
       statusFieldId: projectV2.field?.id ?? null,
       columns,
-      truncated: rawItems.length === 100,
+      truncated: pageInfo?.hasNextPage ?? false,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

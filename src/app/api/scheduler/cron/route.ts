@@ -8,7 +8,8 @@
 // CRON_SECRET env var is configured. We verify it when present.
 
 import { NextResponse } from "next/server";
-import { runScheduledPublish, macLeaseIsStale, MAC_LEASE_GRACE_MS } from "@/lib/scheduler-core";
+import { runScheduledPublish, macLeaseIsStale } from "@/lib/scheduler-core";
+import { MAC_LEASE_GRACE_MS } from "@/lib/scheduler-lease";
 import { autoBoostFromVotes } from "@/lib/auto-boost";
 import { snapshotRevenueIfDue } from "@/lib/revenue-snapshots";
 import { refillStreamIfLow } from "@/lib/stream-autopilot";

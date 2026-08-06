@@ -1,4 +1,5 @@
 import "server-only";
+import { baseRpc } from "@/lib/base-rpc";
 
 // Read-side Superfluid (GDA) helpers for the SOPA payroll stream on Base.
 // Addresses verified against @superfluid-finance/metadata + on-chain reads.
@@ -51,17 +52,9 @@ export type StreamStatus = {
   members: StreamMember[];
 };
 
-async function rpc<T>(method: string, params: unknown[]): Promise<T> {
-  const res = await fetch(SUPERFLUID.rpc, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
-    next: { revalidate: 60, tags: ["stream"] },
-  });
-  const json = (await res.json()) as { result?: T; error?: unknown };
-  if (json.error) throw new Error(JSON.stringify(json.error));
-  return json.result as T;
-}
+// Provider-failover JSON-RPC — a 429 on the public Base endpoint used to make
+// getStreamStatus() return null, blanking the payroll numbers on the page.
+const rpc = <T>(method: string, params: unknown[]): Promise<T> => baseRpc<T>(method, params, { revalidate: 60, tags: ["stream"] });
 
 /** ERC-20 balanceOf via eth_call (returns raw integer as a JS number of tokens). */
 async function balanceOf(token: string, holder: string, decimals: number): Promise<number> {

@@ -9,8 +9,9 @@ import {
   type SopaJobDTO,
   type JobStatus,
 } from "@/app/actions/sopa-jobs";
+import { useConfirm } from "@/components/confirm-dialog";
+import { usd } from "@/lib/format";
 
-const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 0 : 2 })}`;
 const fmtDate = (iso: string) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
 
@@ -54,6 +55,7 @@ function JobForm({
         <input
           value={d.client}
           onChange={(e) => setD({ ...d, client: e.target.value })}
+          aria-label="Cliente ou job"
           placeholder="Cliente / job (ex: Venice bot)"
           className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -61,6 +63,7 @@ function JobForm({
           value={d.amountUsd}
           onChange={(e) => setD({ ...d, amountUsd: e.target.value })}
           inputMode="decimal"
+          aria-label="Valor recebido em USD"
           placeholder="USD"
           className="w-24 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs tabular-nums text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -68,11 +71,13 @@ function JobForm({
       <div className="flex flex-wrap gap-2">
         <input
           type="date"
+          aria-label="Data do job"
           value={d.occurredOn}
           onChange={(e) => setD({ ...d, occurredOn: e.target.value })}
           className="rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
         <select
+          aria-label="Situação do pagamento"
           value={d.status}
           onChange={(e) => setD({ ...d, status: e.target.value as JobStatus })}
           className="rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
@@ -84,6 +89,7 @@ function JobForm({
       <input
         value={d.description}
         onChange={(e) => setD({ ...d, description: e.target.value })}
+        aria-label="Descrição ou escopo (opcional)"
         placeholder="Descrição / escopo (opcional)"
         className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
       />
@@ -125,6 +131,7 @@ export function SopaRevenuePanel({
   const [editId, setEditId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const { confirm, confirmUI } = useConfirm();
 
   // Only count a split whose config we could actually read. An unreadable split
   // contributes nothing rather than being guessed at a default share.
@@ -166,13 +173,21 @@ export function SopaRevenuePanel({
       } else setErr(res.error);
     });
 
-  const doDelete = (id: string) =>
+  const doDelete = async (id: string) => {
+    const j = jobs.find((x) => x.id === id);
+    const okToDelete = await confirm({
+      title: "Remover job?",
+      message: j ? `“${j.client}” (${usd(j.amountUsd)}) sai da receita da SOPA.` : "O job sai da receita da SOPA.",
+      confirmLabel: "Remover",
+    });
+    if (!okToDelete) return;
     start(async () => {
       setErr(null);
       const res = await deleteSopaJob(id);
-      if (res.ok) setJobs((prev) => prev.filter((j) => j.id !== id));
+      if (res.ok) setJobs((prev) => prev.filter((x) => x.id !== id));
       else setErr(res.error);
     });
+  };
 
   return (
     <section className="space-y-4">
@@ -188,7 +203,7 @@ export function SopaRevenuePanel({
         <div className="flex gap-5 text-right">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Recebido</div>
-            <div className="text-base font-semibold text-emerald-600 dark:text-emerald-400">{usd(realizedTotal)}</div>
+            <div className="text-base font-semibold text-success">{usd(realizedTotal)}</div>
           </div>
           {jobsPending > 0 && (
             <div>
@@ -222,7 +237,7 @@ export function SopaRevenuePanel({
                       <span className="text-warning">divisão não lida</span>
                     ) : (
                       <>
-                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">{usd(o.realizedUsd * o.sopaShare)}</span>
+                        <span className="font-semibold text-success">{usd(o.realizedUsd * o.sopaShare)}</span>
                         <span className="ml-1.5 text-[10px] text-foreground-faint">de {usd(o.realizedUsd)} distribuídos</span>
                       </>
                     )}
@@ -248,7 +263,7 @@ export function SopaRevenuePanel({
             ))}
             <li className="flex items-center justify-between gap-3 border-t border-border pt-1.5 text-xs">
               <span className="font-medium text-foreground-muted">Subtotal on-chain</span>
-              <span className="shrink-0 font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{usd(shareTotal)}</span>
+              <span className="shrink-0 font-semibold tabular-nums text-success">{usd(shareTotal)}</span>
             </li>
           </ul>
           {unreadable > 0 && (
@@ -318,7 +333,7 @@ export function SopaRevenuePanel({
                       <span className="truncate text-sm font-medium text-foreground">{j.client}</span>
                       <span
                         className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                          j.status === "paid" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-warning/15 text-warning"
+                          j.status === "paid" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"
                         }`}
                       >
                         {j.status === "paid" ? "pago" : "a receber"}
@@ -329,7 +344,7 @@ export function SopaRevenuePanel({
                   </div>
                   <span
                     className={`shrink-0 text-sm font-semibold tabular-nums ${
-                      j.status === "paid" ? "text-emerald-600 dark:text-emerald-400" : "text-foreground-muted"
+                      j.status === "paid" ? "text-success" : "text-foreground-muted"
                     }`}
                   >
                     {usd(j.amountUsd)}
@@ -360,6 +375,7 @@ export function SopaRevenuePanel({
           </ul>
         )}
       </div>
+      {confirmUI}
     </section>
   );
 }

@@ -11,8 +11,10 @@ export type CurationSnap = {
   payout: number;
   /** Link to the snap's post page (peakd). */
   url: string;
-  /** IPFS video URL — used as the card's visual reference (first frame). */
+  /** The card's visual: a video URL (first frame) or a photo/GIF URL. */
   thumbnail: string;
+  /** Which of the two the thumbnail is — the card renders video vs img. */
+  kind: "video" | "image";
   created: string;
   /** Boost pacing state, if this snap is/was boosted. */
   boost: { budget: number; released: number; status: string } | null;
