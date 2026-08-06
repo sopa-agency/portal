@@ -2788,8 +2788,9 @@ export function KanbanBoard() {
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       {/* Meta bar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* The project's name lives in the page header and the GitHub link, so
+            this row carries only what's specific to the current fetch. */}
         <p className="flex items-center gap-2 text-sm text-foreground-subtle">
-          {title}
           {truncated && (
             <span className="text-xs text-warning" title="O board passou do limite de itens que buscamos — alguns cards não estão aqui.">
               (board parcial)
@@ -2811,7 +2812,8 @@ export function KanbanBoard() {
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Abrir o projeto no GitHub"
+            aria-label={`Abrir ${title} no GitHub`}
+            title={title}
             className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
             Abrir no GitHub
