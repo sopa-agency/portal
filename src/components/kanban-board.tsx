@@ -45,6 +45,8 @@ import {
   Link2,
   Check,
   Eye,
+  Users,
+  ChevronDown,
 } from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
@@ -2327,6 +2329,7 @@ export function KanbanBoard() {
   const { confirm, confirmUI } = useConfirm();
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase); empty = all
+  const [peopleOpen, setPeopleOpen] = useState(false);
   const [repoFilter, setRepoFilter] = useState<string[]>([]); // repo full names (lowercase); empty = all
   const [showDone, setShowDone] = useState(false); // hide completed columns by default
 
@@ -2790,14 +2793,64 @@ export function KanbanBoard() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* The project's name lives in the page header and the GitHub link, so
             this row carries only what's specific to the current fetch. */}
-        <p className="flex items-center gap-2 text-sm text-foreground-subtle">
+        <div className="flex items-center gap-2 text-sm text-foreground-subtle">
+          {/* Filtering by person is occasional, so it collapses to this trigger
+              and gives its two rows back to the board. It still shows who's
+              selected while closed — a hidden active filter is how cards
+              "disappear". */}
+          {people.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPeopleOpen((v) => !v)}
+              aria-expanded={peopleOpen}
+              title={personFilter.length ? "Filtrando por pessoa" : "Filtrar por pessoa"}
+              className={`flex items-center gap-1.5 rounded-md border py-1 pl-2 pr-1.5 text-xs font-medium transition-colors ${
+                personFilter.length
+                  ? "border-accent bg-accent-bg text-accent"
+                  : "border-border text-foreground-muted hover:border-border-strong hover:text-foreground"
+              }`}
+            >
+              {personFilter.length ? (
+                <span className="flex -space-x-1.5">
+                  {people
+                    .filter((p) => personFilter.includes(p.login.toLowerCase()))
+                    .slice(0, 3)
+                    .map((p) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={p.login}
+                        src={p.avatarUrl}
+                        alt=""
+                        width={18}
+                        height={18}
+                        className="h-[18px] w-[18px] rounded-full object-cover ring-1 ring-surface"
+                      />
+                    ))}
+                </span>
+              ) : (
+                <Users className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {personFilter.length > 3 ? `+${personFilter.length - 3}` : "Pessoas"}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${peopleOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+          {/* One count for both filters — it used to be duplicated per filter
+              row, and the person one vanished once that row collapsed. */}
+          {(personFilter.length > 0 || repoFilter.length > 0) && (
+            <span className="text-xs text-foreground-faint">
+              {displayColumns.reduce((n, c) => n + c.items.length, 0)} cartões
+            </span>
+          )}
           {truncated && (
             <span className="text-xs text-warning" title="O board passou do limite de itens que buscamos — alguns cards não estão aqui.">
               (board parcial)
             </span>
           )}
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="Salvando" />}
-        </p>
+        </div>
         <div className="flex items-center gap-2">
           {doneCount > 0 && (
             <button
@@ -2822,9 +2875,9 @@ export function KanbanBoard() {
         </div>
       </div>
 
-      {/* Filter by person */}
-      {people.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
+      {/* Filter by person — collapsed by default, opened from the meta bar. */}
+      {people.length > 0 && peopleOpen && (
+        <div className="-mt-1 flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => setPersonFilter([])}
@@ -2852,11 +2905,6 @@ export function KanbanBoard() {
               </button>
             );
           })}
-          {personFilter.length > 0 && (
-            <span className="text-[10px] text-foreground-faint">
-              {displayColumns.reduce((n, c) => n + c.items.length, 0)} cartões
-            </span>
-          )}
         </div>
       )}
 
@@ -2891,11 +2939,6 @@ export function KanbanBoard() {
               </button>
             );
           })}
-          {repoFilter.length > 0 && (
-            <span className="text-[10px] text-foreground-faint">
-              {displayColumns.reduce((n, c) => n + c.items.length, 0)} cartões
-            </span>
-          )}
         </div>
       )}
 
