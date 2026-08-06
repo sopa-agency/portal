@@ -2720,7 +2720,11 @@ export function KanbanBoard() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-2 text-sm text-foreground-subtle">
           {title}
-          {truncated && <span className="text-xs text-warning">(first 100 items)</span>}
+          {truncated && (
+            <span className="text-xs text-warning" title="O board passou do limite de itens que buscamos — alguns cards não estão aqui.">
+              (board parcial)
+            </span>
+          )}
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="Salvando" />}
         </p>
         <div className="flex items-center gap-2">
