@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { PlugZap, Zap } from "lucide-react";
+import { TimeSeriesChart } from "@/components/charts/time-series-chart";
+import { shortDate } from "@/components/charts/format";
+import { useT, useLocale } from "@/components/locale-provider";
 import type { GscResult, MetricWithDelta } from "@/lib/google-analytics";
 
 // ---------------------------------------------------------------------------
@@ -185,26 +188,49 @@ function KpiRow({ totals, days }: { totals: Extract<GscResult, { ok: true }>["to
 // Trend sparkline
 // ---------------------------------------------------------------------------
 
-function TrendBar({ trend, days }: { trend: { date: string; clicks: number; impressions: number }[]; days: number }) {
+// Clicks and impressions differ by roughly two orders of magnitude, so they
+// never share a y axis: an arbitrary alignment of two scales invents a
+// correlation the data doesn't have. Two charts, one measure each, stacked so
+// the dates line up — small multiples, the honest version of a dual axis.
+function TrendCharts({
+  trend,
+  days,
+}: {
+  trend: { date: string; clicks: number; impressions: number }[];
+  days: number;
+}) {
+  const t = useT().analytics;
+  const { locale } = useLocale();
   if (trend.length === 0) return null;
-  const max = Math.max(...trend.map((d) => d.clicks), 1);
+  const labels = trend.map((d) => shortDate(d.date, locale));
+
   return (
-    <div className="rounded-xl border border-border bg-surface-elevated p-4">
-      <p className="mb-3 text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
-        Clicks — last {days} days
-      </p>
-      <div className="flex h-12 items-end gap-px">
-        {trend.map((d) => {
-          const heightPct = Math.max((d.clicks / max) * 100, 2);
-          return (
-            <div
-              key={d.date}
-              title={`${d.date}: ${fmt(d.clicks)} clicks / ${fmt(d.impressions)} impr.`}
-              className="flex-1 rounded-sm bg-accent opacity-70 transition-opacity hover:opacity-100"
-              style={{ height: `${heightPct}%` }}
-            />
-          );
-        })}
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div className="rounded-xl border border-border bg-surface-elevated p-4">
+        <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
+          {t.sections.clicks(days)}
+        </p>
+        <TimeSeriesChart
+          labels={labels}
+          series={[{ color: "var(--viz-1)", label: t.sections.clicksLabel, points: trend.map((d) => d.clicks) }]}
+          formatValue={fmt}
+          emptyLabel={t.state.empty}
+          tableLabel={t.state.tableView}
+          dateLabel={t.state.date}
+        />
+      </div>
+      <div className="rounded-xl border border-border bg-surface-elevated p-4">
+        <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
+          {t.sections.impressions(days)}
+        </p>
+        <TimeSeriesChart
+          labels={labels}
+          series={[{ color: "var(--viz-2)", label: t.sections.impressionsLabel, points: trend.map((d) => d.impressions) }]}
+          formatValue={fmt}
+          emptyLabel={t.state.empty}
+          tableLabel={t.state.tableView}
+          dateLabel={t.state.date}
+        />
       </div>
     </div>
   );
@@ -416,7 +442,7 @@ function LiveGsc({ data }: { data: Extract<GscResult, { ok: true }> }) {
   return (
     <div className="space-y-5 rounded-2xl border border-border bg-surface p-5">
       <KpiRow totals={data.totals} days={data.days} />
-      <TrendBar trend={data.trend} days={data.days} />
+      <TrendCharts trend={data.trend} days={data.days} />
       {data.quickWins.length > 0 && <QuickWinsTable rows={data.quickWins} />}
       <BrandedSplit branded={data.branded} />
       <GainersLosers gainers={data.gainers} losers={data.losers} />

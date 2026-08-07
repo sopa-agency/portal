@@ -9,6 +9,7 @@ import type { Dictionary } from "@/lib/i18n/dictionary";
 import { TimeSeriesChart } from "@/components/charts/time-series-chart";
 import { BarList } from "@/components/charts/bar-list";
 import { ShareBar } from "@/components/charts/share-bar";
+import { shortDate } from "@/components/charts/format";
 
 type T = Dictionary["analytics"];
 
@@ -44,22 +45,6 @@ function fmtRelative(iso: string, t: T["state"]): string {
   } catch {
     return "";
   }
-}
-
-/** "7 ago" / "Aug 7" for the x axis — short, no year.
- *
- *  Two formats reach this: GA4's `date` dimension gives yyyymmdd, Search
- *  Console's gives yyyy-mm-dd. Both are built from their parts rather than
- *  handed to `new Date(string)`, which reads them as UTC midnight and lands on
- *  the day before for anyone west of Greenwich. */
-export function shortDate(iso: string, locale: string): string {
-  const m = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(iso);
-  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US", {
-    day: "numeric",
-    month: "short",
-  });
 }
 
 // ---------------------------------------------------------------------------

@@ -448,6 +448,10 @@ const en = {
     sections: {
       trend: (days: number) => `Users per day — last ${days} days`,
       topPages: "Most visited pages",
+      clicks: (days: number) => `Clicks per day — last ${days} days`,
+      impressions: (days: number) => `Impressions per day — last ${days} days`,
+      clicksLabel: "Clicks",
+      impressionsLabel: "Impressions",
       sources: "Where the traffic came from",
       devices: "Devices",
       newVsReturning: "New vs returning",
@@ -1072,6 +1076,10 @@ const pt: typeof en = {
     sections: {
       trend: (days: number) => `Usuários por dia — últimos ${days} dias`,
       topPages: "Páginas mais visitadas",
+      clicks: (days: number) => `Cliques por dia — últimos ${days} dias`,
+      impressions: (days: number) => `Impressões por dia — últimos ${days} dias`,
+      clicksLabel: "Cliques",
+      impressionsLabel: "Impressões",
       sources: "De onde veio o tráfego",
       devices: "Dispositivos",
       newVsReturning: "Novos vs recorrentes",

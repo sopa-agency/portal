@@ -12,7 +12,7 @@
 // 2px surface ring; hairline solid gridlines one step off the surface; text in
 // text tokens, never in the series colour.
 
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useChartWidth } from "@/components/charts/use-chart-width";
 
 export type Series = {
@@ -22,19 +22,35 @@ export type Series = {
   points: number[];
 };
 
-const PAD = { top: 12, right: 12, bottom: 22, left: 44 };
-const HEIGHT = 200;
+const PAD = { top: 14, right: 14, bottom: 24, left: 46 };
+const HEIGHT = 260;
 
-/** Rounded, human tick values covering 0..max — never raw maxima. */
-function niceTicks(max: number, count = 4): number[] {
-  if (max <= 0) return [0, 1];
+/**
+ * Rounded, human tick values covering 0..max — never raw maxima.
+ *
+ * The top tick is the rounded step ABOVE the data's maximum. Stopping at the
+ * last step below it (which an earlier version did) leaves the peaks outside
+ * the plot, where the clip path quietly eats them: a series topping out at 90
+ * drew against a 0–50 axis and looked like it never passed 50. A chart that
+ * crops its own maximum is worse than no chart.
+ */
+function niceScale(max: number, count = 4): { ticks: number[]; top: number } {
+  if (max <= 0) return { ticks: [0, 1], top: 1 };
   const rough = max / count;
   const mag = Math.pow(10, Math.floor(Math.log10(rough)));
   const norm = rough / mag;
-  const step = (norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag;
+  // Never a fractional step: every series on this chart is a count (users,
+  // clicks, impressions). A peak of 1 would otherwise tick at 0 / 0.5 / 1 and
+  // print "0, 1, 1", because the axis formatter rounds — two identical labels
+  // on one axis. Small projects hit this on their first days.
+  const step = Math.max((norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag, 1);
+  const top = Math.ceil(max / step) * step;
   const ticks: number[] = [];
-  for (let v = 0; v <= max + step * 0.001; v += step) ticks.push(v);
-  return ticks;
+  // Guard the float accumulation: 0.1+0.2 style drift would shift labels.
+  for (let i = 0; i * step <= top + step * 1e-9; i++) {
+    ticks.push(Math.round(i * step * 1e6) / 1e6);
+  }
+  return { ticks, top };
 }
 
 function compact(n: number): string {
@@ -65,13 +81,16 @@ export function TimeSeriesChart({
   const clipId = useId();
 
   const count = labels.length;
+  // Changing the range swaps the data under the same element, and a CSS
+  // animation only replays on a fresh node — so the series get a key derived
+  // from the slice they represent.
+  const drawKey = useMemo(() => `${count}:${labels[0] ?? ""}`, [count, labels]);
   const hasData = count > 0 && series.some((s) => s.points.some((p) => p > 0));
 
   const plotW = Math.max(width - PAD.left - PAD.right, 10);
   const plotH = HEIGHT - PAD.top - PAD.bottom;
   const max = Math.max(...series.flatMap((s) => s.points), 1);
-  const ticks = niceTicks(max);
-  const top = ticks[ticks.length - 1] || 1;
+  const { ticks, top } = niceScale(max);
 
   const x = (i: number) => (count <= 1 ? plotW / 2 : (i / (count - 1)) * plotW);
   const y = (v: number) => plotH - (v / top) * plotH;
@@ -175,17 +194,24 @@ export function TimeSeriesChart({
                     .map((v, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(v)}`)
                     .join(" ");
                   return (
-                    <g key={s.label}>
+                    <g key={`${s.label}:${drawKey}`}>
                       {/* Area only for a lone series: two washes overlapping
                           would read as a third colour. */}
                       {series.length === 1 && (
                         <path
+                          className="chart-area"
                           d={`${line} L${x(count - 1)},${plotH} L${x(0)},${plotH} Z`}
                           fill={s.color}
-                          opacity={0.1}
                         />
                       )}
                       <path
+                        // The stroke draws itself in once, left to right. The
+                        // dash pattern is the whole path length, so animating
+                        // the offset to zero reveals it; `pathLength` fixes
+                        // that length at 1 so the numbers don't depend on the
+                        // data's scale. Honours prefers-reduced-motion in CSS.
+                        className="chart-line"
+                        pathLength={1}
                         d={line}
                         fill="none"
                         stroke={s.color}

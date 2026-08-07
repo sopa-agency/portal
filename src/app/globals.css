@@ -841,6 +841,51 @@ body {
   }
 }
 
+/* ── Chart entrances ────────────────────────────────────────────────────────
+   The line draws itself left to right, once, and the wash fades in behind it
+   a beat later. Two reasons it earns its place: it points the eye at the
+   direction time runs, and it marks the moment new data lands when the period
+   changes — the same job the reduced-opacity hold does for the rest of the
+   card. `pathLength: 1` normalises the dash maths, so a 7-day and a 90-day
+   series take exactly the same time. */
+@keyframes chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes chart-fill {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.1;
+  }
+}
+
+.chart-line {
+  stroke-dasharray: 1;
+  animation: chart-draw 700ms cubic-bezier(0.33, 0.9, 0.35, 1) both;
+}
+
+.chart-area {
+  opacity: 0.1;
+  animation: chart-fill 420ms ease 260ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-line,
+  .chart-area {
+    animation: none;
+  }
+  .chart-line {
+    stroke-dasharray: none;
+  }
+}
+
 /* ── Underline tabs (home: Morning brief ∥ Socials) ─────────────────────────
    Same idea as the segmented thumb, drawn as a rule instead of a pill: the
    line travels between tabs so the eye follows one object rather than watching
