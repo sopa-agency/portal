@@ -7,8 +7,9 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { isTrailParticipant } from "@/lib/farcaster-trail-config";
 import { CommandK } from "@/components/command-k";
 import { ContentShell } from "@/components/content-shell";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { PageInfo } from "@/components/page-info";
+import { FloatingActions } from "@/components/floating-actions";
+import { LocaleProvider } from "@/components/locale-provider";
+import { getLocale } from "@/lib/i18n/server";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import { getAccess } from "@/lib/team-access";
@@ -52,6 +53,7 @@ export default async function RootLayout({
   const access = authed ? await getAccess(authed.username, project) : null;
   const session = access?.allowed ? authed : null;
   // The /login route always renders (so users can sign in / switch accounts).
+  const locale = await getLocale();
   const hdrs = await headers();
   const pathname = hdrs.get("x-pathname") ?? "";
   const isLoginRoute = pathname === "/login";
@@ -125,7 +127,7 @@ export default async function RootLayout({
 
   return (
     <html
-      lang="en"
+      lang={locale}
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
@@ -137,6 +139,7 @@ export default async function RootLayout({
       </head>
       <body className="min-h-full bg-background text-foreground">
         <ThemeProvider>
+          <LocaleProvider locale={locale}>
           {session ? (
             // Authenticated layout: sidebar + main, with live team presence.
             <PresenceProvider username={session.username} projectSlug={project.slug}>
@@ -162,8 +165,7 @@ export default async function RootLayout({
                 tiktokEnabled={!!project.tiktok}
                 farcasterTrailEnabled={isTrailParticipant(project.slug)}
               />
-              <ThemeToggle />
-              <PageInfo />
+              <FloatingActions />
               <main className="min-w-0 flex-1">
                 <ContentShell>{children}</ContentShell>
               </main>
@@ -184,6 +186,7 @@ export default async function RootLayout({
             // every other unauthorized request before this renders).
             children
           )}
+          </LocaleProvider>
         </ThemeProvider>
       </body>
     </html>

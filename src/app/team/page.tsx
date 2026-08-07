@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { getActiveProject } from "@/projects";
 import { PageHeader } from "@/components/page-header";
+import { getDictionary } from "@/lib/i18n/server";
 import { TeamView } from "@/components/team-view";
 import { getTeamMessageOptions } from "@/lib/team-messaging";
 import { getTeamRoster, portalsForUser } from "@/lib/team-roster";
@@ -15,6 +16,7 @@ import { listTeamMembers, listAllPortalAccess } from "@/app/actions/team-admin";
 
 export default async function TeamPage() {
   const project = await getActiveProject();
+  const t = await getDictionary();
 
   // Single centralized team registry (allowlist + cross-portal contacts + global admins).
   const roster = await getTeamRoster(project);
@@ -48,10 +50,14 @@ export default async function TeamPage() {
 
   return (
     <div className="space-y-8">
+      {/* Eyebrow is the CATEGORY, not the portal — the portal is already named
+          in the sidebar switcher, and the roster count belongs up here rather
+          than repeated in a second heading below. */}
       <PageHeader
-        eyebrow={project.name}
-        title="Team"
-        description="Members of this portal. Connections moved to Settings."
+        eyebrow={t.team.eyebrow}
+        title={t.team.title}
+        status={t.team.memberCount(members.length)}
+        description={t.team.description}
       />
       <TeamView projectName={project.name} members={members} canManage={viewer?.role === "admin"} />
       {teamAdmin?.ok ? (

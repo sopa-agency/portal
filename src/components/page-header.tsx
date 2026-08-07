@@ -47,9 +47,10 @@ export function PageHeader({ eyebrow, title, description, status, actions, compa
         )}
       </div>
       {actions && (
-        // A compact header sits in the same band as the app's fixed top-right
-        // buttons (page guide + theme), so its actions need room to clear them.
-        <div className={`flex shrink-0 items-center gap-2 ${compact ? "mr-20" : ""}`}>{actions}</div>
+        // A compact header sits in the same band as FloatingActions, so its own
+        // actions have to clear that row. Sized for the widest case — guide +
+        // language + theme — since the guide button only exists on some routes.
+        <div className={`flex shrink-0 items-center gap-2 ${compact ? "mr-40" : ""}`}>{actions}</div>
       )}
     </header>
   );

@@ -40,7 +40,7 @@ export function PageInfo() {
         onClick={() => setOpen(true)}
         aria-label={`How the ${guide.title} page works`}
         title="How this page works"
-        className="fixed right-14 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface text-foreground-muted shadow-sm transition-colors hover:border-border-strong hover:text-foreground"
+        className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface text-foreground-muted shadow-sm transition-colors hover:border-border-strong hover:text-foreground"
       >
         <Info className="h-4 w-4" />
       </button>

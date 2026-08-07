@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Skeleton, SkeletonRegion } from "@/components/skeleton";
+import { useT } from "@/components/locale-provider";
 import {
   Bot,
   Mail,
@@ -1530,12 +1531,9 @@ function ConnectionCard({
 
 // ── Main export ────────────────────────────────────────────────────────────
 
-const MVP_TABS: { key: MvpPeriodKey; tab: string; title: string }[] = [
-  { key: "week", tab: "Esta semana", title: "Funcionário da Semana" },
-  { key: "lastWeek", tab: "Semana passada", title: "Funcionário da Semana Passada" },
-  { key: "month", tab: "Este mês", title: "Funcionário do Mês" },
-  { key: "lastMonth", tab: "Mês passado", title: "Funcionário do Mês Passado" },
-];
+/** Order of the period switch. The labels themselves live in the dictionary,
+ *  keyed by these same values. */
+const MVP_TAB_KEYS: MvpPeriodKey[] = ["week", "lastWeek", "month", "lastMonth"];
 
 /** Segmented control whose active pill slides between tabs instead of blinking
  *  from one to the next. The pill is a single absolutely-positioned element
@@ -1548,6 +1546,7 @@ function PeriodTabs({
   active: MvpPeriodKey;
   onSelect: (key: MvpPeriodKey) => void;
 }) {
+  const t = useT();
   const rowRef = useRef<HTMLDivElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
 
@@ -1582,20 +1581,20 @@ function PeriodTabs({
           }`}
           style={pill ? { transform: `translateX(${pill.x}px)`, width: pill.w } : undefined}
         />
-        {MVP_TABS.map((t) => {
-          const on = t.key === active;
+        {MVP_TAB_KEYS.map((key) => {
+          const on = key === active;
           return (
             <button
-              key={t.key}
+              key={key}
               type="button"
-              data-tab={t.key}
-              onClick={() => onSelect(t.key)}
+              data-tab={key}
+              onClick={() => onSelect(key)}
               aria-pressed={on}
               className={`relative whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${
                 on ? "text-accent-foreground" : "text-foreground-muted hover:text-foreground"
               }`}
             >
-              {t.tab}
+              {t.team.mvp.tabs[key]}
             </button>
           );
         })}
@@ -1608,8 +1607,9 @@ function PeriodTabs({
  *  the same avatar/heading sizes, so the real card fills it in rather than
  *  shoving the roster below it down the page. */
 function MvpPosterSkeleton() {
+  const t = useT();
   return (
-    <SkeletonRegion label="Carregando o destaque da equipe…">
+    <SkeletonRegion label={`${t.team.mvp.loading}…`}>
       <section className="relative overflow-hidden rounded-3xl border border-border bg-surface">
         <div className="relative p-6 sm:p-8">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1695,6 +1695,7 @@ function Collapsible({
  *  (tasks closed in the window, weighted by fire priority). Weeks run Sunday to
  *  Saturday in team time. Hidden when nobody qualifies in any period. */
 function WeeklyMvpPoster({ projectName }: { projectName: string }) {
+  const t = useT();
   const [periods, setPeriods] = useState<MvpPeriod[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<MvpPeriodKey>("week");
@@ -1714,7 +1715,6 @@ function WeeklyMvpPoster({ projectName }: { projectName: string }) {
   if (!periods || !periods.some((p) => p.winner)) return null;
 
   const active = periods.find((p) => p.key === tab) ?? periods[0];
-  const meta = MVP_TABS.find((t) => t.key === active.key)!;
   const winner = active.winner;
   // The winner has their own block above, so the leaderboard picks up at 2nd.
   const runnersUp = active.ranking.slice(1, 5);
@@ -1765,7 +1765,7 @@ function WeeklyMvpPoster({ projectName }: { projectName: string }) {
 
               <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent">
-                  {meta.title}
+                  {t.team.mvp.titles[active.key]}
                 </p>
                 <p className="mt-1 truncate text-3xl font-black tracking-tight text-foreground sm:text-4xl">
                   @{mvpName(winner)}
@@ -1804,7 +1804,7 @@ function WeeklyMvpPoster({ projectName }: { projectName: string }) {
             {runnersUp.length > 0 && (
               <div className="mt-7 border-t border-border pt-5">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground-faint">
-                  Pódio
+                  {t.team.mvp.podium}
                 </p>
                 <ul className="mt-3 space-y-2.5">
                   {runnersUp.map((e, i) => (
@@ -1852,6 +1852,7 @@ function WeeklyMvpPoster({ projectName }: { projectName: string }) {
 }
 
 export function TeamView({ projectName, members, canManage }: TeamViewProps) {
+  const t = useT();
   // Shareable: the open member lives in ?member=<username> so a copied link
   // opens that member's dialog directly.
   const [memberParam, setMemberParam] = useUrlTab("member", "");
@@ -1883,24 +1884,22 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
   return (
     <div className="space-y-8">
       <WeeklyMvpPoster projectName={projectName} />
-      <section aria-labelledby="team-heading">
-        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h2 id="team-heading" className="text-lg font-semibold tracking-tight text-foreground">
-            Team
-          </h2>
-          <span className="text-xs tabular-nums text-foreground-faint">
-            {members.length} {members.length === 1 ? "membro" : "membros"} · {projectName}
-          </span>
+      {/* No heading of its own: the PageHeader above already says "Team", names
+          the portal and carries the member count. Repeating all three here was
+          the same two words four times in one fold (menu, eyebrow, h1, h2).
+          The section keeps an accessible name via aria-label instead. */}
+      <section aria-label={t.team.roster}>
+        <div className="mb-4 flex justify-end">
           <button
             type="button"
             onClick={toggleRoster}
             aria-expanded={!rosterHidden}
             aria-controls="team-roster"
-            title={rosterHidden ? "Mostrar a equipe" : "Ocultar a equipe — útil antes de um print"}
-            className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+            title={rosterHidden ? t.team.showTitle : t.team.hideTitle}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
             {rosterHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-            {rosterHidden ? "Mostrar" : "Ocultar"}
+            {rosterHidden ? t.team.show : t.team.hide}
           </button>
         </div>
 
@@ -1934,7 +1933,7 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
             className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border px-6 py-8 text-xs text-foreground-faint transition-colors hover:border-border-strong hover:text-foreground-muted"
           >
             <EyeOff className="h-4 w-4" aria-hidden="true" />
-            Equipe oculta · clique para mostrar
+            {t.team.hiddenPlaceholder}
           </button>
         </Collapsible>
       </section>
