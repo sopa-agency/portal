@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   Bot,
   Mail,
@@ -1536,6 +1536,73 @@ const MVP_TABS: { key: MvpPeriodKey; tab: string; title: string }[] = [
   { key: "lastMonth", tab: "Mês passado", title: "Funcionário do Mês Passado" },
 ];
 
+/** Segmented control whose active pill slides between tabs instead of blinking
+ *  from one to the next. The pill is a single absolutely-positioned element
+ *  measured off the active button, so the tabs keep their natural label widths —
+ *  nothing hardcoded to drift out of sync when a label changes. */
+function PeriodTabs({
+  active,
+  onSelect,
+}: {
+  active: MvpPeriodKey;
+  onSelect: (key: MvpPeriodKey) => void;
+}) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
+
+  // Layout effect, so the pill is already under the active tab on the first
+  // paint — measuring after paint would flash it at the left edge.
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const measure = () => {
+      const btn = row.querySelector<HTMLButtonElement>(`[data-tab="${active}"]`);
+      if (btn) setPill({ x: btn.offsetLeft, w: btn.offsetWidth });
+    };
+    measure();
+    // Labels reflow on a font swap or a container resize; without this the pill
+    // stays where it was and drifts off the tab it belongs to.
+    const ro = new ResizeObserver(measure);
+    ro.observe(row);
+    return () => ro.disconnect();
+  }, [active]);
+
+  return (
+    <div className="inline-flex max-w-full overflow-x-auto rounded-full border border-border bg-surface-elevated p-0.5">
+      {/* Inner row carries no border or padding, so a button's offsetLeft maps
+          straight onto the pill's absolute position with nothing to correct. */}
+      <div ref={rowRef} className="relative flex">
+        <span
+          aria-hidden="true"
+          className={`absolute inset-y-0 left-0 rounded-full bg-accent ${
+            pill
+              ? "transition-[transform,width] duration-300 ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
+              : "opacity-0"
+          }`}
+          style={pill ? { transform: `translateX(${pill.x}px)`, width: pill.w } : undefined}
+        />
+        {MVP_TABS.map((t) => {
+          const on = t.key === active;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              data-tab={t.key}
+              onClick={() => onSelect(t.key)}
+              aria-pressed={on}
+              className={`relative whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${
+                on ? "text-accent-foreground" : "text-foreground-muted hover:text-foreground"
+              }`}
+            >
+              {t.tab}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const mvpName = (e: WeeklyMvp) => e.username ?? e.login;
 const mvpAvatar = (e: WeeklyMvp) =>
   e.username ? `https://images.hive.blog/u/${e.username}/avatar` : e.avatarUrl;
@@ -1626,26 +1693,7 @@ function WeeklyMvpPoster({ projectName }: { projectName: string }) {
         {/* Header: period switch on the left, provenance on the right — a
             screenshot of this card should say on its own whose board and when. */}
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="inline-flex max-w-full overflow-x-auto rounded-full border border-border bg-surface-elevated p-0.5">
-            {MVP_TABS.map((t) => {
-              const on = t.key === active.key;
-              return (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => setTab(t.key)}
-                  aria-pressed={on}
-                  className={`whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${
-                    on
-                      ? "bg-accent text-accent-foreground"
-                      : "text-foreground-muted hover:text-foreground"
-                  }`}
-                >
-                  {t.tab}
-                </button>
-              );
-            })}
-          </div>
+          <PeriodTabs active={active.key} onSelect={setTab} />
           <div className="text-right">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-foreground-faint">
               {projectName}
