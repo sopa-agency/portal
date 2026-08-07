@@ -31,6 +31,7 @@ import { verifySession } from "@/lib/team-access";
 import { getTeamRoster } from "@/lib/team-roster";
 import { getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
 import { MyTasks } from "@/components/my-tasks";
+import { NextActionsBand, type NextAction } from "@/components/next-actions-band";
 import { getProjectIssueIndex } from "@/lib/issue-index";
 
 // Direction B home (from the Claude Design handoff): summary band with the
@@ -198,18 +199,44 @@ export default async function Home() {
   }
 
   // --- left pane: one tab per briefing agent (DEV / MKT / …) ---------------
+  // Next actions are lifted out of each briefing into a single band above the
+  // columns, so the part that asks the team to DO something isn't printed
+  // twice below the fold. The columns keep everything else.
   const briefTabs: SplitTab[] = [];
+  const nextActions: NextAction[] = [];
   let freshBriefs = 0;
   for (const agent of briefingAgents) {
     const result = briefResults.find((r) => (r.ok ? r.briefing.agent.slug : r.agent.slug) === agent.slug);
     if (!result) continue;
     if (result.ok && result.briefing.date === today) freshBriefs++;
+    // Only bullets can be hoisted. If an agent writes its actions some other
+    // way (a numbered list, a paragraph), nothing is extracted — and then the
+    // column MUST keep printing them, or they'd vanish from the page entirely.
+    // Hence per-agent, not a blanket omit.
+    const before = nextActions.length;
+    if (result.ok) {
+      const label = agent.tabLabel ?? agent.label;
+      for (const section of result.briefing.sections) {
+        if (section.kind !== "actions") continue;
+        for (const line of section.body.split("\n")) {
+          const bullet = line.trim();
+          if (!/^[-*•]\s+/.test(bullet)) continue;
+          nextActions.push({
+            agentLabel: label,
+            agentSlug: agent.slug,
+            text: bullet.replace(/^[-*•]\s+/, ""),
+          });
+        }
+      }
+    }
+    const hoisted = nextActions.length > before;
     briefTabs.push({
       slug: agent.slug,
       label: agent.tabLabel ?? agent.label,
       content: result.ok ? (
         <MorningBriefing
           briefing={result.briefing}
+          omitActions={hoisted}
           teamEmails={project.teamEmails ?? []}
           projectName={project.name}
           githubRepo={project.repos[0]}
@@ -272,6 +299,14 @@ export default async function Home() {
       <HomeTabs
         briefTabs={briefTabs}
         channelTabs={channelTabs}
+        briefTop={
+          <NextActionsBand
+            actions={nextActions}
+            t={t.nextActions}
+            githubRepo={project.repos[0]}
+            issueInfo={issueInfo}
+          />
+        }
         socialTiles={tiles}
         socialAside={<NextPosts events={calEvents} activeSlug={project.slug} canCreate={!!project.postCreator} />}
         briefAbove={

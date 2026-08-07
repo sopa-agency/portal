@@ -415,6 +415,19 @@ const en = {
       anonymous: "Today",
     },
     tabs: { brief: "Morning brief", socials: "Socials" },
+    /** Every agent's next actions, pulled into one list above the columns. */
+    nextActions: {
+      title: "What to do today",
+      count: (n: number) => `${n} action${n > 1 ? "s" : ""}`,
+    },
+    regenerate: {
+      label: "Regenerate",
+      options: "Regeneration options",
+      /** Each entry names its own language, so whoever needs it can read it. */
+      inPortuguese: "Regenerar em português",
+      inEnglish: "Regenerate in English",
+      failed: "Regeneration failed",
+    },
     /** Briefing freshness, in the header beside the button that fixes it. */
     briefings: {
       fresh: "briefings up to date",
@@ -954,6 +967,17 @@ const pt: typeof en = {
       anonymous: "Hoje",
     },
     tabs: { brief: "Briefing do dia", socials: "Redes" },
+    nextActions: {
+      title: "O que fazer hoje",
+      count: (n: number) => `${n} aç${n > 1 ? "ões" : "ão"}`,
+    },
+    regenerate: {
+      label: "Regenerar",
+      options: "Opções de regeneração",
+      inPortuguese: "Regenerar em português",
+      inEnglish: "Regenerate in English",
+      failed: "Falha ao regenerar",
+    },
     briefings: {
       fresh: "briefings atualizados",
       stale: (n: number) => `${n} briefing${n > 1 ? "s" : ""} desatualizado${n > 1 ? "s" : ""}`,

@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { FileText, Megaphone, type LucideIcon } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
 import { useT } from "@/components/locale-provider";
@@ -20,6 +20,7 @@ export function HomeTabs({
   briefTabs,
   channelTabs,
   briefAbove,
+  briefTop,
   socialTiles,
   socialAside,
 }: {
@@ -27,6 +28,8 @@ export function HomeTabs({
   channelTabs: SplitTab[];
   /** Rendered above the Morning brief content (e.g. the user's own tasks). */
   briefAbove?: ReactNode;
+  /** Leads the Morning brief tab — the day's next actions, both agents. */
+  briefTop?: ReactNode;
   /** Social metric tiles — double as the channel selector on the Socials tab. */
   socialTiles?: BandTile[];
   /** Side panel on the Socials tab (e.g. upcoming posts + calendar). */
@@ -41,6 +44,35 @@ export function HomeTabs({
   const [socialActive, setSocialActive] = useUrlTab("social", channelTabs[0]?.slug ?? "");
 
   const activeView = views.find((v) => v.id === view) ?? views[0];
+
+  // Geometry straight to the DOM: the underline follows the active tab, and
+  // recomputing it shouldn't cost a render. See .underline-tabs in globals.
+  const listRef = useRef<HTMLDivElement>(null);
+  const buttonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const activeId = activeView?.id;
+
+  const positionThumb = useCallback(() => {
+    const list = listRef.current;
+    const button = activeId ? buttonRefs.current.get(activeId) : undefined;
+    if (!list || !button) return;
+    list.style.setProperty("--tab-x", `${button.offsetLeft}px`);
+    list.style.setProperty("--tab-w", `${button.offsetWidth}px`);
+  }, [activeId]);
+
+  useLayoutEffect(() => {
+    positionThumb();
+    const id = requestAnimationFrame(() => listRef.current?.setAttribute("data-ready", "true"));
+    return () => cancelAnimationFrame(id);
+  }, [positionThumb]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(positionThumb);
+    observer.observe(list);
+    for (const button of buttonRefs.current.values()) observer.observe(button);
+    return () => observer.disconnect();
+  }, [positionThumb]);
   const currentChannel = channelTabs.find((t) => t.slug === socialActive) ?? channelTabs[0];
 
   if (!views.length) return null;
@@ -51,17 +83,30 @@ export function HomeTabs({
     <div>
       {/* Top-level tabs (hidden when only one section exists). */}
       {views.length > 1 && (
-        <div className="mb-6 flex gap-1 border-b border-border" role="tablist">
+        <div
+          ref={listRef}
+          className="underline-tabs mb-6 flex gap-1 border-b border-border"
+          role="tablist"
+        >
+          <span className="underline-tabs-thumb" aria-hidden="true" />
           {views.map((v) => {
             const Icon = v.icon;
             const on = v.id === activeView?.id;
             return (
               <button
                 key={v.id}
+                ref={(node) => {
+                  if (node) buttonRefs.current.set(v.id, node);
+                  else buttonRefs.current.delete(v.id);
+                }}
                 type="button"
                 role="tab"
                 aria-selected={on}
                 onClick={() => setView(v.id)}
+                // The CSS border is the pre-hydration underline: the sliding
+                // thumb has no width until JS measures the tab, so without this
+                // the first paint (and a JS-off render) shows no active marker.
+                // .underline-tabs[data-ready] hides it once the thumb takes over.
                 className={`-mb-px flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm font-semibold transition-colors ${
                   on
                     ? "border-accent text-accent"
@@ -76,9 +121,10 @@ export function HomeTabs({
         </div>
       )}
 
-      <div role="tabpanel">
+      <div role="tabpanel" key={activeView?.id} className="tab-panel">
         {showingBrief ? (
           <>
+            {briefTop ? <div className="mb-6">{briefTop}</div> : null}
             {briefAbove ? <div className="mb-6">{briefAbove}</div> : null}
             {/* Show every briefing agent side by side (DEV ∥ MKT) instead of a
                 switcher — the full-width tab has room for both at once. */}

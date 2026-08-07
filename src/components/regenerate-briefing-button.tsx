@@ -7,8 +7,10 @@ import {
   type BriefingLanguage,
 } from "@/app/actions/briefings";
 import { BriefingRegenDialog } from "@/components/briefing-regen-dialog";
+import { useT } from "@/components/locale-provider";
 
 export function RegenerateBriefingButton() {
+  const t = useT().home.regenerate;
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,7 @@ export function RegenerateBriefingButton() {
       const result = await regenerateAllBriefings(language);
       const enqueued = result.results.filter((r) => r.jobId);
       if (enqueued.length === 0) {
-        setError(result.results.find((r) => !r.ok)?.error ?? "Regeneration failed");
+        setError(result.results.find((r) => !r.ok)?.error ?? t.failed);
         return;
       }
       // Hand off to the progress dialog — it polls the Mac worker jobs and
@@ -54,14 +56,14 @@ export function RegenerateBriefingButton() {
           type="button"
           onClick={() => run("pt")}
           disabled={pending}
-          className="inline-flex items-center gap-2 rounded-l-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-sm font-medium text-accent transition hover:bg-accent/20 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-l-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/20 disabled:opacity-50"
         >
           {pending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
           ) : (
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className="h-4 w-4 shrink-0 text-accent" />
           )}
-          Regenerar
+          {t.label}
         </button>
         <button
           type="button"
@@ -69,8 +71,8 @@ export function RegenerateBriefingButton() {
           disabled={pending}
           aria-haspopup="menu"
           aria-expanded={open}
-          aria-label="Opções de regeneração"
-          className="inline-flex items-center justify-center rounded-r-lg border border-l-0 border-accent-border bg-accent-bg px-1.5 py-1.5 text-accent transition hover:bg-accent/20 disabled:opacity-50"
+          aria-label={t.options}
+          className="inline-flex items-center justify-center rounded-r-lg border border-l-0 border-accent-border bg-accent-bg px-1.5 py-1.5 text-foreground-muted transition-colors hover:bg-accent/20 hover:text-foreground disabled:opacity-50"
         >
           <ChevronDown
             className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`}
@@ -91,7 +93,7 @@ export function RegenerateBriefingButton() {
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition hover:bg-foreground/5 disabled:opacity-50"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Regenerar em português
+            {t.inPortuguese}
           </button>
           <button
             role="menuitem"
@@ -101,13 +103,13 @@ export function RegenerateBriefingButton() {
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition hover:bg-foreground/5 disabled:opacity-50"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Regenerate in English
+            {t.inEnglish}
           </button>
         </div>
       )}
 
       {error && (
-        <p className="max-w-xs truncate text-right text-[11px] text-red-300" title={error}>
+        <p className="max-w-xs truncate text-right text-[11px] text-danger" title={error}>
           {error}
         </p>
       )}

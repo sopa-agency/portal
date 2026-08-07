@@ -841,6 +841,49 @@ body {
   }
 }
 
+/* ── Underline tabs (home: Morning brief ∥ Socials) ─────────────────────────
+   Same idea as the segmented thumb, drawn as a rule instead of a pill: the
+   line travels between tabs so the eye follows one object rather than watching
+   a border blink from one word to another. Geometry from JS, same reason —
+   tabs are text-width. */
+.underline-tabs {
+  position: relative;
+}
+
+.underline-tabs-thumb {
+  position: absolute;
+  bottom: -1px; /* sits on the container's border, not above it */
+  left: 0;
+  height: 2px;
+  /* Its own names, not the segmented control's: custom properties inherit, so
+     a segmented control nested inside these tabs would pick up this list's
+     geometry for a frame before its own effect ran. */
+  width: var(--tab-w, 0);
+  transform: translateX(var(--tab-x, 0));
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.underline-tabs[data-ready="true"] .underline-tabs-thumb {
+  transition:
+    transform 340ms cubic-bezier(0.32, 1.02, 0.35, 1),
+    width 340ms cubic-bezier(0.32, 1.02, 0.35, 1);
+}
+
+/* Progressive enhancement: each tab carries a plain CSS bottom border so the
+   active one is marked on the first paint and with JS off. The moment the
+   measured thumb exists, that border steps aside — both sit on the container's
+   border line, so the handover is invisible. */
+.underline-tabs[data-ready="true"] [role="tab"] {
+  border-bottom-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .underline-tabs[data-ready="true"] .underline-tabs-thumb {
+    transition: none;
+  }
+}
+
 /* ── Inbox rows that leave once handled ─────────────────────────────────────
    A row that vanishes the instant you act on it reads as "did that work?".
    These hold their place for a beat in a done state, then collapse — the grid

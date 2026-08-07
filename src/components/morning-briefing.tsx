@@ -25,6 +25,7 @@ function partitionSections(sections: Section[]) {
 
 export function MorningBriefing({
   briefing,
+  omitActions = false,
   teamEmails = [],
   projectName = "",
   githubRepo,
@@ -32,6 +33,9 @@ export function MorningBriefing({
   issueInfo,
 }: {
   briefing: Briefing;
+  /** Next actions are hoisted into one band above the columns — see
+   *  NextActionsBand. Set so this column doesn't print them a second time. */
+  omitActions?: boolean;
   teamEmails?: string[];
   projectName?: string;
   githubRepo?: string;
@@ -82,9 +86,10 @@ export function MorningBriefing({
         <BriefingSection key={`middle-${i}`} {...s} githubRepo={githubRepo} issueInfo={issueInfo} />
       ))}
 
-      {actions.map((s, i) => (
-        <BriefingSection key={`actions-${i}`} {...s} githubRepo={githubRepo} issueInfo={issueInfo} />
-      ))}
+      {!omitActions &&
+        actions.map((s, i) => (
+          <BriefingSection key={`actions-${i}`} {...s} githubRepo={githubRepo} issueInfo={issueInfo} />
+        ))}
 
       {sources.map((s, i) => (
         <BriefingSources key={`sources-${i}`} heading={s.heading} body={s.body} githubRepo={githubRepo} issueInfo={issueInfo} />
