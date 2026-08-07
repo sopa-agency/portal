@@ -400,6 +400,40 @@ const en = {
     },
   },
   /**
+   * Home. Chrome only: the briefing prose and the Kanban task cards are data
+   * from the agent and from GitHub, and stay in whatever language they were
+   * written in.
+   */
+  home: {
+    /** Time of day decides which one. The page is a morning brief, so that's
+     *  the server's guess until the client's clock says otherwise. */
+    greeting: {
+      morning: (name: string) => `Good morning, ${name}`,
+      afternoon: (name: string) => `Good afternoon, ${name}`,
+      evening: (name: string) => `Good evening, ${name}`,
+      /** No session — nobody to greet. */
+      anonymous: "Today",
+    },
+    tabs: { brief: "Morning brief", socials: "Socials" },
+    /** Briefing freshness, in the header beside the button that fixes it. */
+    briefings: {
+      fresh: "briefings up to date",
+      stale: (n: number) => `${n} briefing${n > 1 ? "s" : ""} out of date`,
+      none: "no briefing yet",
+    },
+    tasks: {
+      title: "My tasks",
+      /** Header count. The cards themselves are GitHub's, untranslated. */
+      count: (n: number) => `${n} on the Kanban`,
+      overdue: (n: number) => `${n} overdue`,
+      dueToday: (n: number) => `${n} due today`,
+      allClear: "nothing overdue",
+      expand: "Show tasks",
+      collapse: "Hide tasks",
+      open: "Open card on the Kanban",
+    },
+  },
+  /**
    * Post Suggestions. Chrome only — the generated post text inside the cards is
    * the product, written by the agent in whatever language it was prompted in,
    * and is never translated here.
@@ -910,6 +944,30 @@ const pt: typeof en = {
       minutes: (n: number) => `${n}min`,
       hours: (n: number) => `${n}h`,
       days: (n: number) => `${n}d`,
+    },
+  },
+  home: {
+    greeting: {
+      morning: (name: string) => `Bom dia, ${name}`,
+      afternoon: (name: string) => `Boa tarde, ${name}`,
+      evening: (name: string) => `Boa noite, ${name}`,
+      anonymous: "Hoje",
+    },
+    tabs: { brief: "Briefing do dia", socials: "Redes" },
+    briefings: {
+      fresh: "briefings atualizados",
+      stale: (n: number) => `${n} briefing${n > 1 ? "s" : ""} desatualizado${n > 1 ? "s" : ""}`,
+      none: "nenhum briefing ainda",
+    },
+    tasks: {
+      title: "Minhas tarefas",
+      count: (n: number) => `${n} no Kanban`,
+      overdue: (n: number) => `${n} atrasada${n > 1 ? "s" : ""}`,
+      dueToday: (n: number) => `${n} vence${n > 1 ? "m" : ""} hoje`,
+      allClear: "nada atrasado",
+      expand: "Mostrar tarefas",
+      collapse: "Ocultar tarefas",
+      open: "Abrir card no Kanban",
     },
   },
   postSuggestions: {

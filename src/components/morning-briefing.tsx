@@ -1,23 +1,13 @@
-import { AlertCircle, Calendar } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import type {
   Briefing,
   BriefingAgent,
   BriefingSection as Section,
 } from "@/lib/morning-briefing";
-import { freshnessLabel } from "@/lib/morning-briefing";
 import { BriefingSection, BriefingSources } from "@/components/briefing-section";
 import { MarkdownContent } from "@/components/markdown-content";
 import { BriefingOptions } from "@/components/briefing-options";
 import type { IssueIndex } from "@/lib/issue-index";
-
-const FRESHNESS_BADGE: Record<
-  ReturnType<typeof freshnessLabel>["tone"],
-  string
-> = {
-  fresh: "border-accent-border bg-accent-bg text-accent",
-  stale: "border-border text-foreground-muted",
-  warn: "border-warning/30 bg-warning/10 text-warning",
-};
 
 function partitionSections(sections: Section[]) {
   const status: Section[] = [];
@@ -35,7 +25,6 @@ function partitionSections(sections: Section[]) {
 
 export function MorningBriefing({
   briefing,
-  today,
   teamEmails = [],
   projectName = "",
   githubRepo,
@@ -43,7 +32,6 @@ export function MorningBriefing({
   issueInfo,
 }: {
   briefing: Briefing;
-  today: string;
   teamEmails?: string[];
   projectName?: string;
   githubRepo?: string;
@@ -51,7 +39,6 @@ export function MorningBriefing({
   issueInfo?: IssueIndex;
 }) {
   const { status, actions, sources, middle } = partitionSections(briefing.sections);
-  const freshness = freshnessLabel(briefing.date, today);
   const hasAnySections = briefing.sections.length > 0;
 
   return (
@@ -63,16 +50,10 @@ export function MorningBriefing({
           </h2>
           <span className="text-xs text-foreground-subtle">@{briefing.agent.slug}</span>
         </div>
+        {/* No date, no freshness badge: the page header carries both once,
+            beside the Regenerate button. Two agents meant the same day and the
+            same "stale" were printed three times on one screen. */}
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-xs text-foreground-muted">
-            <Calendar className="h-3.5 w-3.5" />
-            {briefing.date}
-          </span>
-          <span
-            className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${FRESHNESS_BADGE[freshness.tone]}`}
-          >
-            {freshness.label}
-          </span>
           <BriefingOptions
             agentSlug={briefing.agent.slug}
             agentLabel={briefing.agent.label}

@@ -6,7 +6,10 @@ export const maxDuration = 300;
 
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
-import { SummaryBand, type BandTile } from "@/components/summary-band";
+import { type BandTile } from "@/components/summary-band";
+import { HomeGreeting } from "@/components/home-greeting";
+import { getDictionary, getLocale } from "@/lib/i18n/server";
+import type { Dictionary, Locale } from "@/lib/i18n/dictionary";
 import { MorningBriefing, BriefingMissing } from "@/components/morning-briefing";
 import { RegenerateBriefingButton } from "@/components/regenerate-briefing-button";
 import { ChannelStrategy } from "@/components/social-dashboard";
@@ -40,6 +43,46 @@ function formatNumber(n: number): string {
   return String(n);
 }
 
+/** "sexta-feira, 7 de agosto" from a yyyy-mm-dd. Built from the parts rather
+ *  than `new Date(iso)`, which parses as UTC midnight and lands on the day
+ *  before for anyone west of Greenwich. */
+function longDate(iso: string, locale: Locale): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const text = new Date(y, m - 1, d).toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  // Portuguese gives "sexta-feira, 7 de agosto" — only the first letter should
+  // rise. Tailwind's `capitalize` would make it "Sexta-Feira, 7 De Agosto".
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Briefing freshness, said once, next to the button that fixes it. */
+function BriefingFreshness({
+  fresh,
+  total,
+  t,
+}: {
+  fresh: number;
+  total: number;
+  t: Dictionary["home"];
+}) {
+  if (total === 0) {
+    return <span className="text-foreground-faint">{t.briefings.none}</span>;
+  }
+  const stale = total - fresh;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 ${stale > 0 ? "text-warning" : "text-foreground-subtle"}`}
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stale > 0 ? "bg-warning" : "bg-success"}`} />
+      {stale > 0 ? t.briefings.stale(stale) : t.briefings.fresh}
+    </span>
+  );
+}
+
 
 export default async function Home() {
   const project = await getActiveProject();
@@ -47,6 +90,8 @@ export default async function Home() {
   // when enabled, otherwise the treasury.
   if (project.hiddenRoutes?.includes("/")) redirect(project.about ? "/about" : "/treasury");
   const today = todayIsoDate();
+  const [locale, dict] = await Promise.all([getLocale(), getDictionary()]);
+  const t = dict.home;
 
   // SOPA home: an aggregated morning briefing — every project's next actions in
   // one view (SOPA has no briefing agent of its own).
@@ -165,7 +210,6 @@ export default async function Home() {
       content: result.ok ? (
         <MorningBriefing
           briefing={result.briefing}
-          today={today}
           teamEmails={project.teamEmails ?? []}
           projectName={project.name}
           githubRepo={project.repos[0]}
@@ -186,13 +230,10 @@ export default async function Home() {
   }));
 
   // --- summary band: real at-a-glance numbers ------------------------------
+  // No Briefings tile: its "0/2 · stale — regenerate" floated mid-page, three
+  // scroll-inches from the Regenerate button and repeating what each briefing
+  // card already said. That state lives in the header now.
   const tiles: BandTile[] = [
-    {
-      label: "Briefings",
-      value: `${freshBriefs}/${briefTabs.length || briefingAgents.length}`,
-      sub: freshBriefs === briefTabs.length && briefTabs.length > 0 ? "fresh today" : "stale — regenerate",
-      tone: freshBriefs === briefTabs.length && briefTabs.length > 0 ? "ok" : "warn",
-    },
     ...socials.map((s, i): BandTile => {
       // slug matches the channelTabs slug so the band tile can select the channel.
       const slug = s.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -212,22 +253,26 @@ export default async function Home() {
 
   return (
     <div className="space-y-7">
+      {/* The old header spent its three lines on things the reader already
+          knew: the workspace name (twice, counting the sidebar) and the
+          project's config description. It now says what this page is — a
+          given day — and puts the briefing's state next to the button that
+          fixes it, instead of stranding "0/2 stale" in a band mid-page. */}
       <PageHeader
-        eyebrow={`Daily · ${today}`}
-        title={project.name}
-        description={project.description}
+        title={<HomeGreeting username={session?.username ?? null} />}
+        description={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>{longDate(today, locale)}</span>
+            <BriefingFreshness fresh={freshBriefs} total={briefTabs.length} t={t} />
+          </span>
+        }
         actions={<RegenerateBriefingButton />}
       />
 
       <HomeTabs
         briefTabs={briefTabs}
         channelTabs={channelTabs}
-        briefBand={
-          tiles.filter((t) => t.label === "Briefings").length ? (
-            <SummaryBand tiles={tiles.filter((t) => t.label === "Briefings")} />
-          ) : null
-        }
-        socialTiles={tiles.filter((t) => t.label !== "Briefings")}
+        socialTiles={tiles}
         socialAside={<NextPosts events={calEvents} activeSlug={project.slug} canCreate={!!project.postCreator} />}
         briefAbove={
           session && project.githubProject ? (

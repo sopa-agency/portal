@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 
 type PageHeaderProps = {
   eyebrow?: string;
-  title: string;
+  /** A node, so a page can compose it (the home greeting reads the clock). */
+  title: ReactNode;
   description?: ReactNode;
   /** A short qualifier beside the title. A node, so a page can pass a badge. */
   status?: ReactNode;

@@ -3,6 +3,7 @@
 import { type ReactNode } from "react";
 import { FileText, Megaphone, type LucideIcon } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
+import { useT } from "@/components/locale-provider";
 import { SummaryBand, type BandTile } from "@/components/summary-band";
 
 // Home layout: Morning brief and Socials split into two TOP-LEVEL tabs. Morning
@@ -19,7 +20,6 @@ export function HomeTabs({
   briefTabs,
   channelTabs,
   briefAbove,
-  briefBand,
   socialTiles,
   socialAside,
 }: {
@@ -27,16 +27,15 @@ export function HomeTabs({
   channelTabs: SplitTab[];
   /** Rendered above the Morning brief content (e.g. the user's own tasks). */
   briefAbove?: ReactNode;
-  /** At-a-glance tiles shown at the top of the Morning brief tab (under the tabs). */
-  briefBand?: ReactNode;
   /** Social metric tiles — double as the channel selector on the Socials tab. */
   socialTiles?: BandTile[];
   /** Side panel on the Socials tab (e.g. upcoming posts + calendar). */
   socialAside?: ReactNode;
 }) {
+  const t = useT().home.tabs;
   const views: { id: string; label: string; icon: LucideIcon }[] = [];
-  if (briefTabs.length) views.push({ id: "briefing", label: "Morning brief", icon: FileText });
-  if (channelTabs.length) views.push({ id: "social", label: "Socials", icon: Megaphone });
+  if (briefTabs.length) views.push({ id: "briefing", label: t.brief, icon: FileText });
+  if (channelTabs.length) views.push({ id: "social", label: t.socials, icon: Megaphone });
 
   const [view, setView] = useUrlTab("view", views[0]?.id ?? "briefing");
   const [socialActive, setSocialActive] = useUrlTab("social", channelTabs[0]?.slug ?? "");
@@ -80,7 +79,6 @@ export function HomeTabs({
       <div role="tabpanel">
         {showingBrief ? (
           <>
-            {briefBand ? <div className="mb-6 flex justify-center">{briefBand}</div> : null}
             {briefAbove ? <div className="mb-6">{briefAbove}</div> : null}
             {/* Show every briefing agent side by side (DEV ∥ MKT) instead of a
                 switcher — the full-width tab has room for both at once. */}
