@@ -28,10 +28,10 @@ type KanbanColId = "generating" | "drafted" | "approved" | "published";
 
 // Colours only — the labels come from the dictionary at render time.
 const KANBAN_COLUMNS: { id: KanbanColId; accent: string; border: string }[] = [
-  { id: "generating", accent: "text-amber-400", border: "border-amber-400/20" },
+  { id: "generating", accent: "text-warning", border: "border-warning/25" },
   { id: "drafted", accent: "text-foreground-muted", border: "border-border" },
   { id: "approved", accent: "text-accent", border: "border-accent-border" },
-  { id: "published", accent: "text-emerald-400", border: "border-emerald-400/20" },
+  { id: "published", accent: "text-success", border: "border-success/25" },
 ];
 
 // Re-exported for back-compat with anything that imported it from this shell.
@@ -134,22 +134,22 @@ function KanbanCard({
       className={`block w-full rounded-xl border px-3 py-3 text-left transition-all ${
         isSelected
           ? "border-accent-border bg-surface-elevated ring-1 ring-accent/30"
-          : "border-border bg-surface/70 hover:border-border-strong hover:bg-surface-elevated"
+          : "border-border bg-surface hover:border-border-strong hover:bg-foreground/[0.04]"
       }`}
     >
       {/* The generated tweet is the product — never translated by the switch. */}
       {tweetText ? (
         <p className="mb-2 line-clamp-5 text-sm leading-relaxed text-foreground">{tweetText}</p>
       ) : isProcessing ? (
-        <p className="mb-2 flex items-start gap-2 text-sm text-amber-400/70">
-          <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
+        <p className="mb-2 flex items-start gap-2 text-sm text-warning">
+          <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-warning" />
           <span>
             {run.statusMessage ??
               (run.jobStatus === "pending" ? t.card.queued : t.card.working)}
           </span>
         </p>
       ) : run.error ? (
-        <p className="mb-2 line-clamp-2 text-sm text-red-400">{run.error}</p>
+        <p className="mb-2 line-clamp-2 text-sm text-danger">{run.error}</p>
       ) : (
         <p className="mb-2 text-sm text-foreground-subtle">{t.card.emptyTweets}</p>
       )}
@@ -173,11 +173,11 @@ function KanbanCard({
             </span>
           )}
           {tweetStatus === "skipped" && (
-            <span className="rounded-full bg-zinc-500/15 px-1.5 py-0.5 text-[10px] text-foreground-muted">
+            <span className="rounded-full bg-foreground/10 px-1.5 py-0.5 text-[10px] text-foreground-muted">
               {t.card.skipped}
             </span>
           )}
-          {isProcessing && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />}
+          {isProcessing && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />}
         </div>
       </div>
     </button>
@@ -198,7 +198,7 @@ function KanbanColumn({
   t: T;
 }) {
   return (
-    <div className={`flex min-w-0 flex-col rounded-2xl border ${col.border} bg-surface/50`}>
+    <div className={`flex min-w-0 flex-col rounded-2xl border ${col.border} bg-surface`}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
         <span className={`text-[11px] font-medium uppercase tracking-[0.14em] ${col.accent}`}>
           {t.board[col.id]}
@@ -314,13 +314,13 @@ function TriggerPanel({
 
   const workerColor =
     health.worker === "active" || health.worker === "idle"
-      ? "text-emerald-300"
+      ? "text-success"
       : health.worker === "stale"
-        ? "text-amber-300"
-        : "text-red-300";
+        ? "text-warning"
+        : "text-danger";
 
   return (
-    <div className="space-y-4 rounded-2xl border border-border bg-surface/50 p-5">
+    <div className="space-y-4 rounded-2xl border border-border bg-surface p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground-subtle">
@@ -344,7 +344,7 @@ function TriggerPanel({
       </div>
 
       {health.worker === "offline" && (
-        <div className="rounded-xl border border-red-400/20 bg-red-500/5 px-3 py-2 text-[11px] leading-relaxed text-red-300/90">
+        <div className="rounded-xl border border-danger/25 bg-danger/5 px-3 py-2 text-[11px] leading-relaxed text-danger">
           {t.run.offlineBefore}{" "}
           <code className="rounded bg-foreground/10 px-1 py-0.5 font-mono">npm run worker:repo-to-social</code>.
         </div>
@@ -356,14 +356,14 @@ function TriggerPanel({
         </span>
         <span>
           {t.health.db}:{" "}
-          <span className={health.db === "connected" ? "text-emerald-300" : "text-red-300"}>
+          <span className={health.db === "connected" ? "text-success" : "text-danger"}>
             {t.health.dbState[health.db]}
           </span>
         </span>
         {health.pendingJobs > 0 && (
           <span>
             {t.health.queue}:{" "}
-            <span className="text-amber-300">{t.health.pending(health.pendingJobs)}</span>
+            <span className="text-warning">{t.health.pending(health.pendingJobs)}</span>
           </span>
         )}
         {lastRun && (
@@ -374,9 +374,9 @@ function TriggerPanel({
             <span
               className={
                 lastRun.status === "success"
-                  ? "text-emerald-400"
+                  ? "text-success"
                   : lastRun.status === "error"
-                    ? "text-red-400"
+                    ? "text-danger"
                     : "text-foreground-muted"
               }
             >
@@ -420,11 +420,11 @@ function SettingsAccordion({
         : t.repo.count(list.length);
 
   return (
-    <div className="rounded-2xl border border-border bg-gradient-to-b from-white/[0.02] to-transparent">
+    <div className="rounded-2xl border border-border bg-surface">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-left transition-colors hover:bg-surface/70"
+        className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-left transition-colors hover:bg-foreground/[0.03]"
       >
         <div className="flex items-center gap-3">
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground-subtle">
@@ -540,8 +540,8 @@ export function RepoToSocialShell({
   return (
     <div className="space-y-6">
       {activeJobCount > 0 && (
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface/60 px-4 py-3">
-          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-400" />
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning" />
           <p className="text-sm text-foreground-muted">{t.run.inProgress(activeJobCount)}</p>
         </div>
       )}

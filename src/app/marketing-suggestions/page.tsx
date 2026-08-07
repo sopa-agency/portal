@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/page-header";
 import { getDictionary } from "@/lib/i18n/server";
+import type { Dictionary } from "@/lib/i18n/dictionary";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { MarketingSuggestionsShell } from "@/components/marketing-suggestions-shell";
 import { RepoToSocialShell } from "@/components/repo-to-social-shell";
@@ -59,6 +60,39 @@ const DEFAULT_REPO_HEALTH: RepoToSocialWorkerHealth = {
   reason: "Database unreachable. Set DATABASE_URL in .env.local and run `npm run db:push`.",
 };
 
+/**
+ * Worker health beside the title. The old chip spelled out
+ * "workers: community idle · repo idle" in the most prominent line of the
+ * page — jargon, always the same, and repeated inside each tab. This says
+ * nothing when both are up and turns amber/red the moment one isn't; the
+ * detail moves to the tooltip.
+ */
+function WorkerHealth({
+  workers,
+  t,
+}: {
+  workers: ("active" | "idle" | "stale" | "offline" | "unknown")[];
+  t: Dictionary["postSuggestions"];
+}) {
+  const down = workers.some((w) => w === "offline" || w === "unknown");
+  const stale = workers.some((w) => w === "stale");
+  const tone = down
+    ? { dot: "bg-danger", text: "text-danger", label: t.status.down }
+    : stale
+      ? { dot: "bg-warning", text: "text-warning", label: t.status.stale }
+      : { dot: "bg-success", text: "text-foreground-subtle", label: t.status.ok };
+
+  return (
+    <span
+      title={t.status.detail(t.worker[workers[0]], t.worker[workers[1]])}
+      className={`inline-flex items-center gap-1.5 text-xs ${tone.text}`}
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} />
+      {tone.label}
+    </span>
+  );
+}
+
 function HealthBanner({
   down,
   reason,
@@ -71,14 +105,14 @@ function HealthBanner({
 }) {
   if (down) {
     return (
-      <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 px-5 py-3 text-sm text-amber-200">
+      <div className="rounded-2xl border border-warning/30 bg-warning/5 px-5 py-3 text-sm text-warning">
         {reason ?? offlineLabel}
       </div>
     );
   }
   if (reason) {
     return (
-      <div className="rounded-2xl border border-border bg-surface/40 px-5 py-3 text-sm text-foreground-muted">
+      <div className="rounded-2xl border border-border bg-surface px-5 py-3 text-sm text-foreground-muted">
         {reason}
       </div>
     );
@@ -236,11 +270,12 @@ export default async function MarketingSuggestionsPage({
 
   return (
     <div className="space-y-8">
+      {/* No eyebrow: the sidebar section already says Marketing, and its accent
+          green competed with the active tab right below it. */}
       <PageHeader
-        eyebrow={t.eyebrow}
         title={t.title}
         description={t.description(projectName)}
-        status={t.status(t.worker[health.worker], t.worker[repoHealth.worker])}
+        status={<WorkerHealth workers={[health.worker, repoHealth.worker]} t={t} />}
       />
       <PostSuggestionTabs
         initial={initialTab}

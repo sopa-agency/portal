@@ -405,14 +405,26 @@ const en = {
    * and is never translated here.
    */
   postSuggestions: {
-    eyebrow: "Marketing",
     title: "Post Suggestions",
+    /** One line. The tabs below say where the drafts come from — the old
+     *  second half of this sentence was an inventory of them. */
     description: (project: string) =>
-      `Ready-to-post drafts for ${project} — from community activity (top creators, best posts, what's happening) or straight from repo commits. One run, multiple platforms.`,
-    /** Header chip. Both generators' worker health, already localized. */
-    status: (community: string, repo: string) =>
-      `workers: community ${community} · repo ${repo}`,
+      `Ready-to-post drafts for ${project}. One run, multiple platforms.`,
+    /**
+     * Header health. Quiet when both generators are up; it only claims
+     * attention when one is stale or down, which is the only time the word
+     * "worker" is worth a reader's time.
+     */
+    status: {
+      ok: "workers running",
+      stale: "worker stale",
+      down: "worker not running",
+      /** Tooltip — the detail, for when the dot isn't enough. */
+      detail: (community: string, repo: string) =>
+        `community: ${community} · repo: ${repo}`,
+    },
     tabs: {
+      label: "Draft sources",
       community: "Community",
       repo: "Repo to Social",
       crosspost: "Cross-post",
@@ -901,13 +913,18 @@ const pt: typeof en = {
     },
   },
   postSuggestions: {
-    eyebrow: "Marketing",
     title: "Sugestões de Post",
     description: (project: string) =>
-      `Rascunhos prontos para publicar da ${project} — a partir da atividade da comunidade (top criadores, melhores posts, o que está rolando) ou direto dos commits do repositório. Uma rodada, várias plataformas.`,
-    status: (community: string, repo: string) =>
-      `workers: comunidade ${community} · repo ${repo}`,
+      `Rascunhos prontos para publicar da ${project}. Uma rodada, várias plataformas.`,
+    status: {
+      ok: "workers rodando",
+      stale: "worker travado",
+      down: "worker parado",
+      detail: (community: string, repo: string) =>
+        `comunidade: ${community} · repo: ${repo}`,
+    },
     tabs: {
+      label: "Fontes de rascunho",
       community: "Comunidade",
       repo: "Repo para Social",
       crosspost: "Cross-post",
