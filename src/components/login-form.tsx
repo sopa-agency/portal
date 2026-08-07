@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Loader2 } from "lucide-react";
@@ -35,8 +35,22 @@ export function LoginForm({ projectName, logo, githubEnabled }: LoginFormProps) 
   const oauthError = params.get("error");
   const [username, setUsername] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const isBusy = state.kind === "connecting";
+
+  // Feeds the card's spotlight (see .auth-card::after). Written straight to the
+  // node: this fires on every pointer move, and a state update per frame would
+  // re-render the whole form for a decoration. Mouse only — on touch there is no
+  // hover, so the highlight would just stick wherever the last tap landed.
+  const trackPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== "mouse") return;
+    const el = cardRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    el.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+    el.style.setProperty("--my", `${e.clientY - rect.top}px`);
+  };
 
   const connect = async () => {
     const cleaned = username.toLowerCase().trim().replace(/^@/, "");
@@ -156,17 +170,21 @@ export function LoginForm({ projectName, logo, githubEnabled }: LoginFormProps) 
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-surface px-6 py-8 shadow-xl">
+    <div className="auth-scene flex min-h-screen items-center justify-center px-4">
+      {/* Decoration only — the scene behind the card. */}
+      <div className="auth-grid" aria-hidden="true" />
+      <span className="auth-aura auth-aura-a" aria-hidden="true" />
+      <span className="auth-aura auth-aura-b" aria-hidden="true" />
+
+      <div
+        ref={cardRef}
+        onPointerMove={trackPointer}
+        className="auth-card w-full max-w-sm rounded-2xl px-6 py-8"
+      >
         <div className="flex flex-col items-center text-center">
-          <Image
-            src={logo}
-            alt={projectName}
-            width={56}
-            height={56}
-            className="mb-3"
-            priority
-          />
+          <span className="auth-logo mb-3 inline-flex">
+            <Image src={logo} alt={projectName} width={56} height={56} priority />
+          </span>
           <h1 className="text-xl font-bold tracking-tight text-accent">portal · {projectName}</h1>
           <p className="mt-1 text-xs uppercase tracking-widest text-foreground-subtle">
             internal ops
@@ -187,7 +205,7 @@ export function LoginForm({ projectName, logo, githubEnabled }: LoginFormProps) 
               autoComplete="username"
               spellCheck={false}
               disabled={isBusy}
-              className="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground transition-colors placeholder:text-foreground-faint hover:border-border-strong focus:border-accent-border focus:outline-none focus:ring-2 focus:ring-accent/25"
             />
           </label>
 
@@ -195,7 +213,7 @@ export function LoginForm({ projectName, logo, githubEnabled }: LoginFormProps) 
             type="button"
             onClick={connect}
             disabled={isBusy}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-accent-border bg-accent-bg px-4 py-2.5 text-sm font-medium text-accent transition hover:bg-accent/20 disabled:opacity-50"
+            className="auth-action flex w-full items-center justify-center gap-2 rounded-lg border border-accent-border bg-accent-bg px-4 py-2.5 text-sm font-medium text-accent hover:border-accent hover:bg-accent/20 disabled:opacity-50"
           >
             {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
             Connect with Hive Keychain
@@ -208,7 +226,7 @@ export function LoginForm({ projectName, logo, githubEnabled }: LoginFormProps) 
               </div>
               <a
                 href={`/api/auth/github/start?next=${encodeURIComponent(redirectTo)}`}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface-elevated px-4 py-2.5 text-sm font-medium text-foreground transition hover:border-border-strong"
+                className="auth-action flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface-elevated px-4 py-2.5 text-sm font-medium text-foreground hover:border-border-strong"
               >
                 <svg viewBox="0 0 16 16" aria-hidden className="h-4 w-4 fill-current"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                 Entrar com GitHub
