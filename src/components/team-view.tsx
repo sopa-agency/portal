@@ -253,12 +253,14 @@ function MemberCard({ member, onOpen }: { member: TeamMember; onOpen: (member: T
   const showInitials = avatarFailed || member.hasAvatar === false;
   const badge = roleBadge(member);
 
+  // w-full because the card is NOT a direct grid item — it sits inside the
+  // stagger wrapper, and a <button> shrinks to its content unless told not to.
   return (
     <button
       type="button"
       onClick={() => onOpen(member)}
       aria-label={`Open @${member.username} contact card`}
-      className="group relative flex flex-col items-center gap-3 rounded-2xl border border-border bg-surface p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-accent-border hover:bg-surface-elevated hover:shadow-lg"
+      className="group relative flex w-full flex-col items-center gap-3 rounded-2xl border border-border bg-surface p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-accent-border hover:bg-surface-elevated hover:shadow-lg"
     >
       {/* Role sits in the corner instead of beside the name — the name line was
           doing two jobs and truncating badly on long handles. */}
