@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useT } from "@/components/locale-provider";
+import type { Dictionary } from "@/lib/i18n/dictionary";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect, useCallback } from "react";
@@ -23,12 +25,17 @@ const clampWidth = (px: number) =>
 /** Opens the ⌘K palette from a click — see CommandK's listener. */
 const COMMAND_K_EVENT = "portal:open-command-k";
 
+type NavItemKey = keyof Dictionary["nav"]["items"];
+type NavGroupKey = keyof Dictionary["nav"]["groups"];
+
 type NavItem = {
   href: string;
-  label: string;
+  /** Dictionary key, not display text — the label itself is translated at
+   *  render time so this table never has to be duplicated per language. */
+  key: NavItemKey;
   icon: LucideIcon;
   /** Section header this item sits under (Home/Settings stay ungrouped). */
-  group?: string;
+  group?: NavGroupKey;
   requiresPostCreator?: boolean;
   requiresLab?: boolean;
   requiresZine?: boolean;
@@ -46,32 +53,32 @@ type NavItem = {
 
 // Grouped by what you're doing: Home on top, Settings pinned at the bottom.
 const NAV: NavItem[] = [
-  { href: "/", label: "Home", icon: Home },
+  { href: "/", key: "home", icon: Home },
 
-  { href: "/post-creator", label: "Post Creator", icon: SquarePen, group: "Criação", requiresPostCreator: true },
-  { href: "/zine", label: "Zine Studio", icon: BookOpenText, group: "Criação", requiresZine: true },
-  { href: "/lab", label: "Lab", icon: FlaskConical, group: "Criação", requiresLab: true },
-  { href: "/tiktok", label: "TikTok", icon: Music2, group: "Criação", requiresTikTok: true },
-  { href: "/campaign-creator", label: "Campaign Creator", icon: Megaphone, group: "Criação" },
-  { href: "/marketing-suggestions", label: "Post Suggestions", icon: Sparkles, group: "Criação" },
+  { href: "/post-creator", key: "postCreator", icon: SquarePen, group: "creation", requiresPostCreator: true },
+  { href: "/zine", key: "zine", icon: BookOpenText, group: "creation", requiresZine: true },
+  { href: "/lab", key: "lab", icon: FlaskConical, group: "creation", requiresLab: true },
+  { href: "/tiktok", key: "tiktok", icon: Music2, group: "creation", requiresTikTok: true },
+  { href: "/campaign-creator", key: "campaignCreator", icon: Megaphone, group: "creation" },
+  { href: "/marketing-suggestions", key: "postSuggestions", icon: Sparkles, group: "creation" },
 
-  { href: "/curadoria", label: "Engagement", icon: Heart, group: "Crescimento", requiresFarcasterTrail: true },
-  { href: "/analytics", label: "Analytics", icon: ChartColumn, group: "Crescimento" },
-  { href: "/userbase", label: "Userbase", icon: Users, group: "Crescimento" },
+  { href: "/curadoria", key: "engagement", icon: Heart, group: "growth", requiresFarcasterTrail: true },
+  { href: "/analytics", key: "analytics", icon: ChartColumn, group: "growth" },
+  { href: "/userbase", key: "userbase", icon: Users, group: "growth" },
 
-  { href: "/magazine", label: "Magazine", icon: Newspaper, group: "Publicação", requiresMagazine: true },
-  { href: "/homepage", label: "Homepage", icon: LayoutTemplate, group: "Publicação", requiresHomepage: true },
+  { href: "/magazine", key: "magazine", icon: Newspaper, group: "publishing", requiresMagazine: true },
+  { href: "/homepage", key: "homepage", icon: LayoutTemplate, group: "publishing", requiresHomepage: true },
 
-  { href: "/kanban", label: "Kanban", icon: SquareKanban, group: "Operação", requiresKanban: true },
-  { href: "/treasury", label: "Treasury", icon: Landmark, group: "Operação" },
-  { href: "/org-chart", label: "Org Chart", icon: Workflow, group: "Operação", requiresOrgChart: true },
-  { href: "/portfolio", label: "Portfolio", icon: Briefcase, group: "Operação", requiresPortfolio: true },
-  { href: "/briefs", label: "Briefs", icon: Inbox, group: "Operação", requiresBriefs: true },
-  { href: "/reunioes", label: "Reuniões", icon: CalendarDays, group: "Operação", requiresMeetings: true },
-  { href: "/about", label: "About", icon: Presentation, group: "Operação", requiresAbout: true },
-  { href: "/team", label: "Team", icon: UsersRound, group: "Operação" },
+  { href: "/kanban", key: "kanban", icon: SquareKanban, group: "operations", requiresKanban: true },
+  { href: "/treasury", key: "treasury", icon: Landmark, group: "operations" },
+  { href: "/org-chart", key: "orgChart", icon: Workflow, group: "operations", requiresOrgChart: true },
+  { href: "/portfolio", key: "portfolio", icon: Briefcase, group: "operations", requiresPortfolio: true },
+  { href: "/briefs", key: "briefs", icon: Inbox, group: "operations", requiresBriefs: true },
+  { href: "/reunioes", key: "meetings", icon: CalendarDays, group: "operations", requiresMeetings: true },
+  { href: "/about", key: "about", icon: Presentation, group: "operations", requiresAbout: true },
+  { href: "/team", key: "team", icon: UsersRound, group: "operations" },
 
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/settings", key: "settings", icon: Settings },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -113,6 +120,7 @@ type AppSidebarProps = {
 };
 
 export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, briefsEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
+  const t = useT();
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -294,7 +302,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
+          aria-label={t.nav.openMenu}
           aria-expanded={mobileOpen}
           aria-controls="app-sidebar"
           className="rounded-lg p-2 text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
@@ -332,7 +340,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
-            aria-label="Close menu"
+            aria-label={t.nav.closeMenu}
             className="rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
           >
             <X className="h-5 w-5" />
@@ -349,10 +357,10 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+            aria-label={`${collapsed ? t.nav.expand : t.nav.collapse} ${t.nav.menu}`}
             aria-expanded={!collapsed}
             aria-controls="app-sidebar"
-            title={`${collapsed ? "Expandir" : "Recolher"} menu (⌘B)`}
+            title={`${collapsed ? t.nav.expand : t.nav.collapse} ${t.nav.menu} (⌘B)`}
             className="rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
           >
             {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
@@ -360,8 +368,8 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent(COMMAND_K_EVENT))}
-            aria-label="Buscar páginas"
-            title="Buscar (⌘K)"
+            aria-label={t.nav.searchPages}
+            title={`${t.nav.search} (⌘K)`}
             className="rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"
           >
             <Search className="h-4 w-4" />
@@ -378,7 +386,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
               onClick={() => setSwitcherOpen((o) => !o)}
               aria-haspopup="menu"
               aria-expanded={switcherOpen}
-              aria-label="Switch workspace"
+              aria-label={t.nav.switchWorkspace}
               title={collapsed ? projectName : undefined}
               className={`flex w-full items-center gap-3 rounded-lg py-2 text-left transition-colors hover:bg-foreground/5 ${
                 collapsed ? "px-2 lg:justify-center lg:px-0" : "px-2"
@@ -461,7 +469,8 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           {(() => {
             const items: React.ReactNode[] = [];
             let lastGroup: string | undefined;
-            for (const { href, label, icon: Icon, group } of nav) {
+            for (const { href, key, icon: Icon, group } of nav) {
+              const label = t.nav.items[key];
               // Section header when entering a new group.
               if (group && group !== lastGroup) {
                 items.push(
@@ -476,7 +485,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
                         collapsed ? "lg:hidden" : ""
                       }`}
                     >
-                      {group}
+                      {t.nav.groups[group]}
                     </span>
                   </li>,
                 );
@@ -530,13 +539,13 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
           </div>
           <div className={`min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
             <p className="truncate text-sm font-medium text-foreground">@{username}</p>
-            <p className="text-[10px] uppercase tracking-wider text-foreground-faint">connected</p>
+            <p className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.nav.connected}</p>
           </div>
           <button
             type="button"
             onClick={logout}
             disabled={pending}
-            aria-label="Log out"
+            aria-label={t.nav.logOut}
             className="shrink-0 rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
           >
             <LogOut className="h-4 w-4" />
@@ -550,7 +559,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="Redimensionar menu"
+          aria-label={t.nav.resizeMenu}
           aria-valuenow={width}
           aria-valuemin={SIDEBAR_WIDTH_MIN}
           aria-valuemax={SIDEBAR_WIDTH_MAX}
@@ -562,7 +571,7 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
             else if (e.key === "ArrowRight") { e.preventDefault(); nudgeWidth(16); }
             else if (e.key === "Home") { e.preventDefault(); resetWidth(); }
           }}
-          title="Arraste para redimensionar · duplo clique para restaurar"
+          title={t.nav.resizeHint}
           className={`absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none lg:block ${
             dragging ? "bg-accent" : "bg-transparent hover:bg-accent/40"
           } focus-visible:bg-accent focus-visible:outline-none`}

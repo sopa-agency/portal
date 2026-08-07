@@ -10,6 +10,7 @@ import { ContentShell } from "@/components/content-shell";
 import { FloatingActions } from "@/components/floating-actions";
 import { LocaleProvider } from "@/components/locale-provider";
 import { getLocale } from "@/lib/i18n/server";
+import { dictionaryFor } from "@/lib/i18n/dictionary";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import { getAccess } from "@/lib/team-access";
@@ -54,6 +55,7 @@ export default async function RootLayout({
   const session = access?.allowed ? authed : null;
   // The /login route always renders (so users can sign in / switch accounts).
   const locale = await getLocale();
+  const t = dictionaryFor(locale);
   const hdrs = await headers();
   const pathname = hdrs.get("x-pathname") ?? "";
   const isLoginRoute = pathname === "/login";
@@ -100,27 +102,27 @@ export default async function RootLayout({
   // Enabled routes for the active portal (for ⌘K). Mirrors the sidebar's gating.
   const navItems = (
     [
-      { href: "/", label: "Home", on: true },
-      { href: "/post-creator", label: "Post Creator", on: !!project.postCreator },
-      { href: "/lab", label: "Lab", on: !!project.lab },
-      { href: "/tiktok", label: "TikTok", on: !!project.tiktok },
-      { href: "/zine", label: "Zine Studio", on: !!project.zineStudio },
-      { href: "/marketing-suggestions", label: "Post Suggestions", on: true },
-      { href: "/campaign-creator", label: "Campaign Creator", on: true },
-      { href: "/userbase", label: "Userbase", on: true },
-      { href: "/settings?tab=brain", label: "Brain", on: !project.hiddenRoutes?.includes("/brain") },
-      { href: "/analytics", label: "Analytics", on: true },
-      { href: "/kanban", label: "Kanban", on: !!project.githubProject || !!project.kanbanAggregate },
-      { href: "/magazine", label: "Magazine", on: !!project.magazine },
-      { href: "/homepage", label: "Homepage", on: !!project.homepage },
-      { href: "/about", label: "About", on: !!project.about },
-      { href: "/treasury", label: "Treasury", on: true },
-      { href: "/org-chart", label: "Org Chart", on: !!project.orgChart },
-      { href: "/reunioes", label: "Reuniões", on: !!project.meetings },
-      { href: "/portfolio", label: "Portfolio", on: !!project.portfolio },
-      { href: "/team", label: "Team", on: true },
-      { href: "/settings", label: "Settings", on: true },
-    ] as const
+      { href: "/", label: t.nav.items.home, on: true },
+      { href: "/post-creator", label: t.nav.items.postCreator, on: !!project.postCreator },
+      { href: "/lab", label: t.nav.items.lab, on: !!project.lab },
+      { href: "/tiktok", label: t.nav.items.tiktok, on: !!project.tiktok },
+      { href: "/zine", label: t.nav.items.zine, on: !!project.zineStudio },
+      { href: "/marketing-suggestions", label: t.nav.items.postSuggestions, on: true },
+      { href: "/campaign-creator", label: t.nav.items.campaignCreator, on: true },
+      { href: "/userbase", label: t.nav.items.userbase, on: true },
+      { href: "/settings?tab=brain", label: t.nav.items.brain, on: !project.hiddenRoutes?.includes("/brain") },
+      { href: "/analytics", label: t.nav.items.analytics, on: true },
+      { href: "/kanban", label: t.nav.items.kanban, on: !!project.githubProject || !!project.kanbanAggregate },
+      { href: "/magazine", label: t.nav.items.magazine, on: !!project.magazine },
+      { href: "/homepage", label: t.nav.items.homepage, on: !!project.homepage },
+      { href: "/about", label: t.nav.items.about, on: !!project.about },
+      { href: "/treasury", label: t.nav.items.treasury, on: true },
+      { href: "/org-chart", label: t.nav.items.orgChart, on: !!project.orgChart },
+      { href: "/reunioes", label: t.nav.items.meetings, on: !!project.meetings },
+      { href: "/portfolio", label: t.nav.items.portfolio, on: !!project.portfolio },
+      { href: "/team", label: t.nav.items.team, on: true },
+      { href: "/settings", label: t.nav.items.settings, on: true },
+    ]
   )
     .filter((r) => r.on && !project.hiddenRoutes?.includes(r.href))
     .map(({ href, label }) => ({ href, label }));
