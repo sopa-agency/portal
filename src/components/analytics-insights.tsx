@@ -8,16 +8,17 @@ import {
   generateAnalyticsInsights,
   getLatestAnalyticsInsight,
 } from "@/app/actions/analytics-insights";
+import { useT } from "@/components/locale-provider";
+import type { Dictionary } from "@/lib/i18n/dictionary";
 
-function relativeTime(iso: string): string {
+function relativeTime(iso: string, t: Dictionary["analytics"]["state"]): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return t.justNow;
+  if (mins < 60) return t.minutesAgo(mins);
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  if (hrs < 24) return t.hoursAgo(hrs);
+  return t.daysAgo(Math.floor(hrs / 24));
 }
 
 export function AnalyticsInsights({
@@ -27,6 +28,7 @@ export function AnalyticsInsights({
   days: 7 | 28 | 90;
   agentName?: string;
 }) {
+  const t = useT().analytics;
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,12 +72,9 @@ export function AnalyticsInsights({
             <Sparkles className="h-4 w-4 text-accent" />
           </span>
           <div>
-            <p className="text-sm font-semibold text-foreground">AI analysis</p>
+            <p className="text-sm font-semibold text-foreground">{t.insights.title}</p>
             <p className="text-xs text-foreground-subtle">
-              {agentName
-                ? `${agentName} reads the numbers`
-                : "The project agent reads the numbers"}{" "}
-              and suggests SEO &amp; growth actions.
+              {t.insights.blurb(agentName || t.insights.defaultAgent)}
             </p>
           </div>
         </div>
@@ -90,17 +89,17 @@ export function AnalyticsInsights({
           {pending ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Analyzing…
+              {t.insights.analyzing}
             </>
           ) : result ? (
             <>
               <RefreshCw className="h-4 w-4" />
-              Re-analyze ({days}d)
+              {t.insights.reanalyze(days)}
             </>
           ) : (
             <>
               <Sparkles className="h-4 w-4" />
-              Analyze with AI ({days}d)
+              {t.insights.analyze(days)}
             </>
           )}
         </button>
@@ -109,8 +108,9 @@ export function AnalyticsInsights({
 
       {lastUpdated && !pending && (
         <p className="mt-2 text-xs text-foreground-subtle">
-          Updated {relativeTime(lastUpdated.at)}
-          {lastUpdated.by ? ` by @${lastUpdated.by}` : ""}
+          {lastUpdated.by
+            ? t.insights.updatedBy(relativeTime(lastUpdated.at, t.state), lastUpdated.by)
+            : t.insights.updated(relativeTime(lastUpdated.at, t.state))}
         </p>
       )}
 
@@ -122,8 +122,7 @@ export function AnalyticsInsights({
 
       {pending && !result && (
         <p className="mt-4 text-xs text-foreground-subtle">
-          Reading {days}-day analytics data and thinking through SEO &amp; growth
-          moves… this can take a minute.
+          {t.insights.working(days)}
         </p>
       )}
 

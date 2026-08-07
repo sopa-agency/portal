@@ -400,6 +400,76 @@ const en = {
     },
   },
   /**
+   * Analytics. The two sources answer different questions, so the tabs are
+   * named after the question, not the vendor — the vendor stays as a source
+   * tag for whoever needs to know where a number came from.
+   */
+  analytics: {
+    title: "Analytics",
+    description: "How people find the site, and what they do once they arrive.",
+    tabs: {
+      audience: {
+        label: "Site audience",
+        blurb: "Who arrived, where they came from and what they did.",
+        source: "source: Google Analytics",
+      },
+      search: {
+        label: "Google search",
+        blurb: "What people searched before reaching the site — or before not reaching it.",
+        source: "source: Search Console",
+      },
+    },
+    range: { label: "Period", d7: "7d", d28: "28d", d90: "90d" },
+    insights: {
+      title: "AI analysis",
+      blurb: (agent: string) => `${agent} reads the numbers and suggests SEO & growth actions.`,
+      defaultAgent: "The project agent",
+      analyze: (days: number) => `Analyze with AI (${days}d)`,
+      reanalyze: (days: number) => `Re-analyze (${days}d)`,
+      analyzing: "Analyzing…",
+      working: (days: number) =>
+        `Reading ${days} days of analytics and thinking through SEO & growth moves… this can take a minute.`,
+      updated: (ago: string) => `Updated ${ago}`,
+      updatedBy: (ago: string, who: string) => `Updated ${ago} by @${who}`,
+    },
+
+    kpi: {
+      users: "Users",
+      newUsers: "New users",
+      sessions: "Sessions",
+      views: "Views",
+      engagement: "Engagement",
+      avgSession: "Avg. session",
+      bounceRate: "Bounce rate",
+      engagedSessions: "Engaged sessions",
+      /** Delta is always against the immediately preceding period. */
+      vsPrevious: "vs previous period",
+    },
+    sections: {
+      trend: (days: number) => `Users per day — last ${days} days`,
+      topPages: "Most visited pages",
+      sources: "Where the traffic came from",
+      devices: "Devices",
+      newVsReturning: "New vs returning",
+      countries: "Top countries",
+    },
+    state: {
+      loading: "Loading…",
+      empty: "No data for this period",
+      other: "Other",
+      notConfiguredTitle: "Google Analytics not configured",
+      notConfiguredBody: "Set ga4PropertyId in this project's analytics config.",
+      unavailable: "Analytics unavailable",
+      updated: (ago: string) => `Updated ${ago} · cached for 10 min`,
+      tableView: "See the numbers",
+      justNow: "just now",
+      date: "Date",
+      minutesAgo: (n: number) => `${n}m ago`,
+      hoursAgo: (n: number) => `${n}h ago`,
+      daysAgo: (n: number) => `${n}d ago`,
+    },
+  },
+  /**
    * Home. Chrome only: the briefing prose and the Kanban task cards are data
    * from the agent and from GitHub, and stay in whatever language they were
    * written in.
@@ -957,6 +1027,70 @@ const pt: typeof en = {
       minutes: (n: number) => `${n}min`,
       hours: (n: number) => `${n}h`,
       days: (n: number) => `${n}d`,
+    },
+  },
+  analytics: {
+    title: "Analytics",
+    description: "Como as pessoas encontram o site e o que fazem quando chegam.",
+    tabs: {
+      audience: {
+        label: "Audiência do site",
+        blurb: "Quem chegou, de onde veio e o que fez.",
+        source: "fonte: Google Analytics",
+      },
+      search: {
+        label: "Busca no Google",
+        blurb: "O que as pessoas buscaram antes de chegar ao site — ou antes de não chegar.",
+        source: "fonte: Search Console",
+      },
+    },
+    range: { label: "Período", d7: "7d", d28: "28d", d90: "90d" },
+    insights: {
+      title: "Análise por IA",
+      blurb: (agent: string) => `${agent} lê os números e sugere ações de SEO e crescimento.`,
+      defaultAgent: "O agente do projeto",
+      analyze: (days: number) => `Analisar com IA (${days}d)`,
+      reanalyze: (days: number) => `Analisar de novo (${days}d)`,
+      analyzing: "Analisando…",
+      working: (days: number) =>
+        `Lendo ${days} dias de analytics e pensando em ações de SEO e crescimento… isso pode levar um minuto.`,
+      updated: (ago: string) => `Atualizado ${ago}`,
+      updatedBy: (ago: string, who: string) => `Atualizado ${ago} por @${who}`,
+    },
+
+    kpi: {
+      users: "Usuários",
+      newUsers: "Novos usuários",
+      sessions: "Sessões",
+      views: "Visualizações",
+      engagement: "Engajamento",
+      avgSession: "Sessão média",
+      bounceRate: "Taxa de rejeição",
+      engagedSessions: "Sessões engajadas",
+      vsPrevious: "vs período anterior",
+    },
+    sections: {
+      trend: (days: number) => `Usuários por dia — últimos ${days} dias`,
+      topPages: "Páginas mais visitadas",
+      sources: "De onde veio o tráfego",
+      devices: "Dispositivos",
+      newVsReturning: "Novos vs recorrentes",
+      countries: "Principais países",
+    },
+    state: {
+      loading: "Carregando…",
+      empty: "Sem dados neste período",
+      other: "Outros",
+      notConfiguredTitle: "Google Analytics não configurado",
+      notConfiguredBody: "Defina ga4PropertyId na configuração de analytics deste projeto.",
+      unavailable: "Analytics indisponível",
+      updated: (ago: string) => `Atualizado ${ago} · em cache por 10 min`,
+      tableView: "Ver os números",
+      justNow: "agora",
+      date: "Data",
+      minutesAgo: (n: number) => `há ${n}min`,
+      hoursAgo: (n: number) => `há ${n}h`,
+      daysAgo: (n: number) => `há ${n}d`,
     },
   },
   home: {
