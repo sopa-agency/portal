@@ -10,6 +10,8 @@ import { ContentShell } from "@/components/content-shell";
 import { FloatingActions } from "@/components/floating-actions";
 import { LocaleProvider } from "@/components/locale-provider";
 import { getLocale } from "@/lib/i18n/server";
+import { prisma } from "@/lib/prisma";
+import { hiveAvatarUrl } from "@/lib/team-roster";
 import { dictionaryFor } from "@/lib/i18n/dictionary";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
@@ -53,6 +55,16 @@ export default async function RootLayout({
   const authed = await verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value);
   const access = authed ? await getAccess(authed.username, project) : null;
   const session = access?.allowed ? authed : null;
+  // Avatar state was resolved at login and parked in the DB precisely so this
+  // layout — which runs on every page — reads it locally instead of calling
+  // Hive on the critical path. Null (never resolved / lookup failed) falls back
+  // to initials rather than risking Hive's generic silhouette.
+  const viewerHasAvatar = session
+    ? await prisma.memberActivity
+        .findUnique({ where: { username: session.username }, select: { hasAvatar: true } })
+        .then((r) => r?.hasAvatar ?? false)
+        .catch(() => false)
+    : false;
   // The /login route always renders (so users can sign in / switch accounts).
   const locale = await getLocale();
   const t = dictionaryFor(locale);
@@ -148,6 +160,7 @@ export default async function RootLayout({
             <div className="min-h-screen lg:flex">
               <AppSidebar
                 username={session.username}
+                avatarUrl={viewerHasAvatar ? hiveAvatarUrl(session.username) : null}
                 projectName={project.name}
                 projectLogo={project.theme.logo}
                 currentSlug={project.slug}

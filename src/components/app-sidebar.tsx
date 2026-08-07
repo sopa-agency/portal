@@ -99,6 +99,9 @@ type SwitchProject = {
 
 type AppSidebarProps = {
   username: string;
+  /** Resolved at login and read from the DB; null when the account has no Hive
+   *  picture, so the initials stand in rather than Hive's generic silhouette. */
+  avatarUrl?: string | null;
   projectName: string;
   projectLogo: string;
   currentSlug: string;
@@ -119,8 +122,11 @@ type AppSidebarProps = {
   farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, briefsEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, avatarUrl, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, briefsEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
   const t = useT();
+  // A 404 on the image still has to fall back — hasAvatar answers "did they
+  // ever set one", not "is it serving right now".
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -531,12 +537,25 @@ export function AppSidebar({ username, projectName, projectLogo, currentSlug, sw
             collapsed ? "px-2 lg:flex-col lg:gap-2 lg:px-0" : "px-2"
           }`}
         >
-          <div
-            title={collapsed ? `@${username}` : undefined}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent"
-          >
-            {username.slice(0, 2)}
-          </div>
+          {avatarUrl && !avatarFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarUrl}
+              alt=""
+              width={32}
+              height={32}
+              onError={() => setAvatarFailed(true)}
+              title={collapsed ? `@${username}` : undefined}
+              className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
+            />
+          ) : (
+            <div
+              title={collapsed ? `@${username}` : undefined}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent"
+            >
+              {username.slice(0, 2)}
+            </div>
+          )}
           <div className={`min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
             <p className="truncate text-sm font-medium text-foreground">@{username}</p>
             <p className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.nav.connected}</p>

@@ -3,6 +3,7 @@ import { SESSION_COOKIE, SESSION_MAX_AGE, signSession, cookieDomainFor } from "@
 import { getAccess } from "@/lib/team-access";
 import { getProject, resolveProjectSlug } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
+import { resolveHasAvatar } from "@/lib/team-roster";
 import { githubOAuthCreds, exchangeGithubCode, fetchGithubUser, resolveMemberFromGithub, linkGithubIdentity } from "@/lib/oauth-github";
 
 export const runtime = "nodejs";
@@ -54,10 +55,24 @@ export async function GET(req: NextRequest) {
   await linkGithubIdentity(gh.login, username, gh.emails[0] ?? null);
   try {
     const now = new Date();
+    // Resolved here, at the one moment we can afford an external call, so the
+    // root layout never pays for it on every page render.
+    const hasAvatar = await resolveHasAvatar(username).catch(() => null);
     await prisma.memberActivity.upsert({
       where: { username },
-      update: { lastLoginAt: now, lastLoginProject: project.slug, loginCount: { increment: 1 } },
-      create: { username, lastLoginAt: now, lastLoginProject: project.slug, loginCount: 1 },
+      update: {
+        lastLoginAt: now,
+        lastLoginProject: project.slug,
+        loginCount: { increment: 1 },
+        ...(hasAvatar === null ? {} : { hasAvatar }),
+      },
+      create: {
+        username,
+        lastLoginAt: now,
+        lastLoginProject: project.slug,
+        loginCount: 1,
+        ...(hasAvatar === null ? {} : { hasAvatar }),
+      },
     });
   } catch {
     /* non-critical */

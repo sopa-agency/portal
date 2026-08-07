@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth";
 import { getAccess } from "@/lib/team-access";
 import { prisma } from "@/lib/prisma";
+import { resolveHasAvatar } from "@/lib/team-roster";
 import { getActiveProject } from "@/projects/index";
 
 export const runtime = "nodejs";
@@ -93,10 +94,24 @@ export async function POST(req: NextRequest) {
   // Record login activity (last seen + count) — best-effort, never blocks login.
   try {
     const now = new Date();
+    // Resolved here, at the one moment we can afford an external call, so the
+    // root layout never pays for it on every page render.
+    const hasAvatar = await resolveHasAvatar(username).catch(() => null);
     await prisma.memberActivity.upsert({
       where: { username },
-      update: { lastLoginAt: now, lastLoginProject: project.slug, loginCount: { increment: 1 } },
-      create: { username, lastLoginAt: now, lastLoginProject: project.slug, loginCount: 1 },
+      update: {
+        lastLoginAt: now,
+        lastLoginProject: project.slug,
+        loginCount: { increment: 1 },
+        ...(hasAvatar === null ? {} : { hasAvatar }),
+      },
+      create: {
+        username,
+        lastLoginAt: now,
+        lastLoginProject: project.slug,
+        loginCount: 1,
+        ...(hasAvatar === null ? {} : { hasAvatar }),
+      },
     });
   } catch {
     /* tracking is non-critical */

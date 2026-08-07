@@ -668,6 +668,11 @@ model MemberActivity {
   lastLoginAt      DateTime
   lastLoginProject String?
   loginCount       Int      @default(0)
+  // Whether the Hive account has a profile picture, resolved at login and kept
+  // here so the root layout — which renders on EVERY page — never has to call
+  // an external API to draw the sidebar avatar. Null = never resolved (rows
+  // that predate this, or a login where the Hive lookup failed).
+  hasAvatar        Boolean?
   updatedAt        DateTime @updatedAt
 }
 

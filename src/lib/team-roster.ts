@@ -80,6 +80,25 @@ async function fetchHasAvatar(usernames: string[]): Promise<Map<string, boolean>
   return new Map(usernames.map((u) => [u, _avatarCache.get(u) ?? true]));
 }
 
+/** Hive serves every avatar from the same path, so the URL needs no lookup —
+ *  only the "did they ever set one?" answer does. */
+export function hiveAvatarUrl(username: string): string {
+  return `https://images.hive.blog/u/${username}/avatar`;
+}
+
+/**
+ * Whether a single Hive account has a real profile picture.
+ *
+ * Exists because Hive answers 200 with a generic silhouette for accounts that
+ * never set one, so an <img> onError handler cannot tell the two apart — the
+ * question has to be asked of the API.
+ *
+ * Callers on a hot path should persist the answer rather than ask per render.
+ */
+export async function resolveHasAvatar(username: string): Promise<boolean> {
+  return (await fetchHasAvatar([username])).get(username) ?? true;
+}
+
 export async function getTeamRoster(project: ProjectConfig): Promise<RosterMember[]> {
   // Membership = the portal's allowlist + cross-portal admins (GLOBAL_ALLOWLIST),
   // so "who's in Team" matches "who has access".
@@ -97,7 +116,7 @@ export async function getTeamRoster(project: ProjectConfig): Promise<RosterMembe
     const emailRaw = contacts.find((c) => c.label.toLowerCase() === "email")?.value?.trim();
     return {
       username,
-      avatarUrl: `https://images.hive.blog/u/${username}/avatar`,
+      avatarUrl: hiveAvatarUrl(username),
       hasAvatar: hasAvatar.get(username) ?? true,
       profileUrl: `${frontend}/@${username}`,
       email: emailRaw && /@/.test(emailRaw) ? emailRaw.toLowerCase() : null,
