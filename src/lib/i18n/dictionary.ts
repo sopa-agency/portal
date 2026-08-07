@@ -91,6 +91,55 @@ const en = {
       brain: "Brain",
     },
   },
+  /**
+   * Board chrome only — toolbar, filters and the board-level loading/error/empty
+   * states. Everything inside a card (the card itself, its dialog, and the
+   * toasts its actions raise) is deliberately absent: those strings are wired to
+   * GitHub mutations and stay as they are until they get their own pass.
+   */
+  kanban: {
+    people: "People",
+    filterByPerson: "Filter by person",
+    filteringByPerson: "Filtering by person",
+    /** Chip next to the filters. Interpolated with the visible card count. */
+    cardCount: (n: number) => `${n} ${n === 1 ? "card" : "cards"}`,
+    partial: "(partial board)",
+    partialTitle: "The board went past the number of items we fetch — some cards aren't here.",
+    saving: "Saving",
+    showDone: "Show completed",
+    hideDone: "Hide completed",
+    openInGitHub: "Open in GitHub",
+    openInGitHubTitled: (title: string) => `Open ${title} on GitHub`,
+    repo: "Repo",
+    /** "All" chips. Split per filter because Portuguese genders them. */
+    allPeople: "All",
+    allRepos: "All",
+    allProjects: "All",
+    openContactCard: (username: string) => `Open @${username} contact card`,
+    filterPerson: (login: string) => `Filter @${login}`,
+    loadingBoard: "Loading the Kanban",
+    loadFailed: "Failed to load the Kanban",
+    loadFailedShort: "Failed to load",
+    /** Three slots around the <code> scope names, which stay untranslated. */
+    scopeHintPrefix: "Check that",
+    scopeHintMiddle: "has the scopes",
+    scopeHintAnd: "and",
+    prs: {
+      toggle: "Show the repositories' open pull requests",
+      empty: "No open PRs in the project's repos.",
+      draft: "draft",
+      /** Relative time on each PR. Minutes/hours/days are the same letter in
+       *  both languages; only these two differ. */
+      now: "now",
+      weeks: (n: number) => `${n}w`,
+    },
+    /** SOPA hub only: the read-only board that merges every portal's Kanban. */
+    aggregate: {
+      project: "Project:",
+      person: "Person:",
+      empty: "No tasks on the boards (or GitHub tokens unavailable).",
+    },
+  },
   team: {
     eyebrow: "People",
     title: "Team",
@@ -166,6 +215,43 @@ const pt: typeof en = {
       team: "Equipe",
       settings: "Configurações",
       brain: "Brain",
+    },
+  },
+  kanban: {
+    people: "Pessoas",
+    filterByPerson: "Filtrar por pessoa",
+    filteringByPerson: "Filtrando por pessoa",
+    cardCount: (n: number) => `${n} ${n === 1 ? "cartão" : "cartões"}`,
+    partial: "(board parcial)",
+    partialTitle: "O board passou do limite de itens que buscamos — alguns cards não estão aqui.",
+    saving: "Salvando",
+    showDone: "Mostrar concluídas",
+    hideDone: "Ocultar concluídas",
+    openInGitHub: "Abrir no GitHub",
+    openInGitHubTitled: (title: string) => `Abrir ${title} no GitHub`,
+    repo: "Repo",
+    allPeople: "Todas",
+    allRepos: "Todos",
+    allProjects: "Todos",
+    openContactCard: (username: string) => `Abrir o cartão de contato de @${username}`,
+    filterPerson: (login: string) => `Filtrar @${login}`,
+    loadingBoard: "Carregando o Kanban",
+    loadFailed: "Falha ao carregar o Kanban",
+    loadFailedShort: "Falha ao carregar",
+    scopeHintPrefix: "Confirme que",
+    scopeHintMiddle: "tem os escopos",
+    scopeHintAnd: "e",
+    prs: {
+      toggle: "Mostrar pull requests abertos dos repositórios",
+      empty: "Nenhum PR aberto nos repositórios do projeto.",
+      draft: "rascunho",
+      now: "agora",
+      weeks: (n: number) => `${n}sem`,
+    },
+    aggregate: {
+      project: "Projeto:",
+      person: "Pessoa:",
+      empty: "Nenhuma tarefa nos boards (ou tokens do GitHub indisponíveis).",
     },
   },
   team: {

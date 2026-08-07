@@ -23,6 +23,7 @@ import { getProjectAssignees, type Assignee } from "@/app/actions/kanban";
 import { BountyBadge, taskKeyOf } from "@/components/bounty-panel";
 import { CardDetailDialog, FirePriority, DeadlineChip, CardFx, cardFxState } from "@/components/kanban-board";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useT } from "@/components/locale-provider";
 
 const COL_PREFIX = "aggcol:";
 
@@ -41,6 +42,7 @@ export function AggregatedKanban({
   bounties: BountyDTO[];
   canManage: boolean;
 }) {
+  const t = useT();
   const router = useRouter();
   const [cols, setCols] = useState<AggregatedColumn[]>(columns);
   useEffect(() => setCols(columns), [columns]);
@@ -249,16 +251,16 @@ export function AggregatedKanban({
   }
 
   if (total === 0) {
-    return <p className="text-sm text-foreground-muted">Nenhuma tarefa nos boards (ou tokens do GitHub indisponíveis).</p>;
+    return <p className="text-sm text-foreground-muted">{t.kanban.aggregate.empty}</p>;
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* Project filter */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Projeto:</span>
+        <span className="text-[10px] uppercase tracking-wide text-foreground-faint">{t.kanban.aggregate.project}</span>
         <button type="button" onClick={() => setBoard(null)} className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${board === null ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
-          Todos <span className="text-foreground-faint">({total})</span>
+          {t.kanban.allProjects} <span className="text-foreground-faint">({total})</span>
         </button>
         {boards.map((b) => {
           const n = cols.reduce((s, c) => s + c.items.filter((i) => i.board === b).length, 0);
@@ -270,7 +272,7 @@ export function AggregatedKanban({
         })}
         {doneCount > 0 && (
           <button type="button" onClick={() => setShowDone((v) => !v)} className={`ml-auto rounded-full border px-2 py-0.5 text-[11px] font-medium ${showDone ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
-            {showDone ? "Ocultar concluídas" : "Mostrar concluídas"} <span className="text-foreground-faint">({doneCount})</span>
+            {showDone ? t.kanban.hideDone : t.kanban.showDone} <span className="text-foreground-faint">({doneCount})</span>
           </button>
         )}
       </div>
@@ -278,8 +280,8 @@ export function AggregatedKanban({
       {/* Person filter */}
       {people.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] uppercase tracking-wide text-foreground-faint">Pessoa:</span>
-          <button type="button" onClick={() => setPersonFilter([])} className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${personFilter.length === 0 ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>Todas</button>
+          <span className="text-[10px] uppercase tracking-wide text-foreground-faint">{t.kanban.aggregate.person}</span>
+          <button type="button" onClick={() => setPersonFilter([])} className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${personFilter.length === 0 ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>{t.kanban.allPeople}</button>
           {people.map((p) => {
             const on = personFilter.includes(p.login.toLowerCase());
             return (

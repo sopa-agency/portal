@@ -303,6 +303,93 @@ body {
   z-index: 2;
 }
 
+/* ── Disclosure: a row that opens in place (Kanban's "Pessoas" filter) ───────
+   Height can't be transitioned to `auto`, so the row is a grid whose single
+   track goes 0fr → 1fr — that DOES interpolate, and the inner element clips
+   what doesn't fit yet. The row stays mounted so closing animates too; `inert`
+   (set by the component) keeps the collapsed chips out of tab order and off
+   the a11y tree, which `overflow: hidden` alone would not do.
+
+   The negative margin cancels ONE of the flex parent's two gaps around a
+   zero-height item, so a closed row occupies exactly the space of no row at
+   all — and because it interpolates alongside the track, the board slides
+   instead of jumping the last 1rem. It assumes a `gap-4` parent; a caller that
+   wants the open row tighter than that sets --disclosure-open-mt. */
+.disclosure-row {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: -1rem;
+  opacity: 0;
+  transition:
+    grid-template-rows 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    margin-top 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    opacity 140ms ease;
+}
+
+.disclosure-row[data-open="true"] {
+  grid-template-rows: 1fr;
+  margin-top: var(--disclosure-open-mt, 0rem);
+  opacity: 1;
+  /* Fade in over the whole open so the chips don't land before the row has
+     room for them; on close they leave first and the row follows. */
+  transition:
+    grid-template-rows 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    margin-top 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    opacity 200ms ease;
+}
+
+/* The clipping box. Padding cancelled by an equal negative margin costs no
+   layout but keeps the clip a couple of pixels off the content, so a focus
+   ring on the first or last chip isn't shaved once the row is open. */
+.disclosure-row > * {
+  min-height: 0;
+  overflow: hidden;
+  margin: -2px;
+  padding: 2px;
+}
+
+/* ── Popover: a panel anchored to its trigger (Kanban's "PRs" list) ──────────
+   Absolutely positioned, so nothing reflows and only paint properties move.
+   Kept mounted for the same reason as above; `visibility` is what actually
+   takes it out of hit-testing, and its transition is a zero-length step
+   DELAYED to the end of the close so the fade is still visible on the way
+   out. `inert` handles focus and screen readers. */
+.popover-panel {
+  transform-origin: top right;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+  visibility: hidden;
+  transition:
+    opacity 130ms ease,
+    transform 130ms ease-in,
+    visibility 0s linear 130ms;
+}
+
+.popover-panel[data-open="true"] {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  /* Slight overshoot on the way in — the panel arrives rather than appears. */
+  transition:
+    opacity 150ms ease,
+    transform 210ms cubic-bezier(0.2, 1.12, 0.4, 1),
+    visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure-row,
+  .disclosure-row[data-open="true"],
+  .popover-panel,
+  .popover-panel[data-open="true"] {
+    /* Opacity only: no travel, no size animation — but the panel still has to
+       stop hit-testing when closed, so visibility keeps its step. */
+    transform: none;
+    transition:
+      opacity 100ms ease,
+      visibility 0s;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Studio (vendored from r4topunk/reelflip-studio) — token bridge + brand fonts.
    The studio's shadcn-style UI expects the full shadcn variable set; we map it

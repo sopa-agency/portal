@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -60,6 +60,7 @@ import { FirePriority, DeadlineChip } from "@/components/card-indicators";
 import { requestCardTest, resolveCardTest } from "@/app/actions/card-test";
 import { useDialogA11y } from "@/hooks/use-dialog-a11y";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useT } from "@/components/locale-provider";
 
 // ---------------------------------------------------------------------------
 // Column status color (mid-tone hues that read on both light & dark surfaces)
@@ -2326,6 +2327,7 @@ type Board = Extract<KanbanResult, { ok: true }> & {
  *   "Abrir no GitHub" instead of colliding with the app's fixed top-right chrome.
  */
 export function KanbanBoard({ actions }: { actions?: ReactNode }) {
+  const t = useT();
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2700,7 +2702,7 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
   // --- render ---
   if (loading) {
     return (
-      <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-2" aria-label="Carregando o Kanban">
+      <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-2" aria-label={t.kanban.loadingBoard}>
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="flex h-full min-h-64 min-w-64 flex-1 basis-80 animate-pulse flex-col rounded-xl border border-border bg-surface/60 p-2">
             <div className="m-1 mb-3 h-4 w-24 rounded bg-foreground/[0.07]" />
@@ -2716,17 +2718,17 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
   }
 
   if (error || !board) {
-    const message = error ?? "Falha ao carregar";
+    const message = error ?? t.kanban.loadFailedShort;
     const hint = /scope|permission|token/i.test(message);
     return (
       <div className="rounded-lg border border-danger/30 bg-danger/5 p-6" role="alert">
-        <p className="text-sm font-medium text-danger">Falha ao carregar o Kanban</p>
+        <p className="text-sm font-medium text-danger">{t.kanban.loadFailed}</p>
         <p className="mt-1 text-xs text-foreground-muted">{message}</p>
         {hint && (
           <p className="mt-3 text-xs text-foreground-subtle">
-            Confirme que <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">GITHUB_TOKEN</code> tem os escopos{" "}
+            {t.kanban.scopeHintPrefix} <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">GITHUB_TOKEN</code> {t.kanban.scopeHintMiddle}{" "}
             <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">project</code>,{" "}
-            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">read:org</code> e{" "}
+            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">read:org</code> {t.kanban.scopeHintAnd}{" "}
             <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[11px]">repo</code>.
           </p>
         )}
@@ -2811,7 +2813,7 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
               type="button"
               onClick={() => setPeopleOpen((v) => !v)}
               aria-expanded={peopleOpen}
-              title={personFilter.length ? "Filtrando por pessoa" : "Filtrar por pessoa"}
+              title={personFilter.length ? t.kanban.filteringByPerson : t.kanban.filterByPerson}
               className={`flex items-center gap-1.5 rounded-md border py-1 pl-2 pr-1.5 text-xs font-medium transition-colors ${
                 personFilter.length
                   ? "border-accent bg-accent-bg text-accent"
@@ -2838,7 +2840,7 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
               ) : (
                 <Users className="h-3.5 w-3.5" aria-hidden="true" />
               )}
-              {personFilter.length > 3 ? `+${personFilter.length - 3}` : "Pessoas"}
+              {personFilter.length > 3 ? `+${personFilter.length - 3}` : t.kanban.people}
               <ChevronDown
                 className={`h-3.5 w-3.5 transition-transform ${peopleOpen ? "rotate-180" : ""}`}
                 aria-hidden="true"
@@ -2849,15 +2851,15 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
               row, and the person one vanished once that row collapsed. */}
           {(personFilter.length > 0 || repoFilter.length > 0) && (
             <span className="text-xs text-foreground-faint">
-              {displayColumns.reduce((n, c) => n + c.items.length, 0)} cartões
+              {t.kanban.cardCount(displayColumns.reduce((n, c) => n + c.items.length, 0))}
             </span>
           )}
           {truncated && (
-            <span className="text-xs text-warning" title="O board passou do limite de itens que buscamos — alguns cards não estão aqui.">
-              (board parcial)
+            <span className="text-xs text-warning" title={t.kanban.partialTitle}>
+              {t.kanban.partial}
             </span>
           )}
-          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="Salvando" />}
+          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label={t.kanban.saving} />}
         </div>
         <div className="flex items-center gap-2">
           {actions}
@@ -2867,66 +2869,79 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
               onClick={() => setShowDone((v) => !v)}
               className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${showDone ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
             >
-              {showDone ? "Ocultar concluídas" : "Mostrar concluídas"} <span className="text-foreground-faint">({doneCount})</span>
+              {showDone ? t.kanban.hideDone : t.kanban.showDone} <span className="text-foreground-faint">({doneCount})</span>
             </button>
           )}
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={`Abrir ${title} no GitHub`}
+            aria-label={t.kanban.openInGitHubTitled(title)}
             title={title}
             className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
-            Abrir no GitHub
+            {t.kanban.openInGitHub}
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
           </a>
         </div>
       </div>
 
-      {/* Filter by person — collapsed by default, opened from the meta bar. */}
-      {people.length > 0 && peopleOpen && (
-        <div className="-mt-1 flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setPersonFilter([])}
-            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${personFilter.length === 0 ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
-          >
-            Todos
-          </button>
-          {people.map((p) => {
-            const on = personFilter.includes(p.login.toLowerCase());
-            const member = memberForLogin(p.login);
-            return (
+      {/* Filter by person — collapsed by default, opened from the meta bar.
+          Stays mounted so the close animates as well as the open; `inert` is
+          what keeps the collapsed chips unfocusable and unread. The custom
+          property preserves the row's original -mt-1 tightening (see
+          .disclosure-row), which can't live on the clipped inner element. */}
+      {people.length > 0 && (
+        <div
+          className="disclosure-row"
+          data-open={peopleOpen}
+          inert={!peopleOpen}
+          style={{ "--disclosure-open-mt": "-0.25rem" } as CSSProperties}
+        >
+          <div>
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
-                key={p.login}
                 type="button"
-                onClick={() => {
-                  if (!openMemberByLogin(p.login)) togglePerson(p.login);
-                }}
-                title={member ? `Open @${member.username} contact card` : `Filter @${p.login}`}
-                aria-pressed={on}
-                className={`flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] transition ${on ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
+                onClick={() => setPersonFilter([])}
+                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${personFilter.length === 0 ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.avatarUrl} alt="" width={20} height={20} className="h-5 w-5 rounded-full object-cover" />
-                {member ? member.username : p.login}
+                {t.kanban.allPeople}
               </button>
-            );
-          })}
+              {people.map((p) => {
+                const on = personFilter.includes(p.login.toLowerCase());
+                const member = memberForLogin(p.login);
+                return (
+                  <button
+                    key={p.login}
+                    type="button"
+                    onClick={() => {
+                      if (!openMemberByLogin(p.login)) togglePerson(p.login);
+                    }}
+                    title={member ? t.kanban.openContactCard(member.username) : t.kanban.filterPerson(p.login)}
+                    aria-pressed={on}
+                    className={`flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] transition ${on ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.avatarUrl} alt="" width={20} height={20} className="h-5 w-5 rounded-full object-cover" />
+                    {member ? member.username : p.login}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
       {/* Filter by repo — only worth showing once the board spans more than one */}
       {repos.length > 1 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-foreground-faint">Repo</span>
+          <span className="text-[10px] font-medium uppercase tracking-wide text-foreground-faint">{t.kanban.repo}</span>
           <button
             type="button"
             onClick={() => setRepoFilter([])}
             className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${repoFilter.length === 0 ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
           >
-            Todos
+            {t.kanban.allRepos}
           </button>
           {repos.map((r) => {
             const on = repoFilter.includes(r.toLowerCase());
