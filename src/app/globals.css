@@ -213,6 +213,79 @@ body {
   }
 }
 
+/* ── Language switch: the flag turns like a card ────────────────────────────
+   Two faces on one plane, the back pre-rotated half a turn and both with their
+   backsides hidden, so exactly one flag is ever visible. The perspective lives
+   on the button: without it the turn is a flat squash instead of a rotation. */
+.lang-toggle {
+  perspective: 320px;
+}
+
+.lang-flip {
+  position: relative;
+  display: block;
+  height: 20px;
+  width: 20px;
+  transform-style: preserve-3d;
+  /* Slightly past a half turn and back — the overshoot is what makes it feel
+     like a flicked coin rather than a slider moving between two stops. */
+  transition: transform 620ms cubic-bezier(0.34, 1.32, 0.64, 1);
+}
+
+.lang-flip[data-locale="pt"] {
+  transform: rotateY(180deg);
+}
+
+.lang-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  /* Rounds the shadow to the flag itself, which is a circle inside a square. */
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgb(0 0 0 / 0.18);
+}
+
+.lang-face-back {
+  transform: rotateY(180deg);
+}
+
+/* At rest the flag is the only saturated thing in a row of monochrome icons,
+   which made it louder than a piece of app chrome should be. Held back a
+   little until you reach for it, so the full colour is part of the
+   interaction instead of a permanent claim on your attention.
+
+   The filter goes on the <svg>, NOT on .lang-flip: filter forces
+   transform-style back to flat, which would kill the card turn outright. */
+.lang-toggle svg {
+  filter: saturate(0.7);
+  transition: filter 260ms ease;
+}
+
+.lang-toggle:hover svg,
+.lang-toggle:focus-visible svg {
+  filter: saturate(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lang-toggle svg {
+    transition: none;
+  }
+}
+
+/* Press feedback on the whole mark, independent of the turn. */
+.lang-toggle:active .lang-flip {
+  scale: 0.92;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lang-flip {
+    transition: none;
+  }
+  .lang-toggle:active .lang-flip {
+    scale: 1;
+  }
+}
+
 /* ── Theme switch: circular reveal ──────────────────────────────────────────
    The default cross-fade is disabled so the old theme just sits still while the
    new one is clipped in by the growing circle animated in theme-provider.tsx. */
