@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Repeat, Loader2, CalendarClock } from "lucide-react";
 import { createMeeting, updateMeeting, deleteMeeting, improveMeeting, type MeetingDTO } from "@/app/actions/meetings";
@@ -10,6 +10,9 @@ import { ImproveAiButton } from "@/components/improve-ai-button";
 import { CopyButton } from "@/components/copy-button";
 import { MeetingAtaPanel } from "@/components/meeting-ata-panel";
 import { addSharedCalendar, deleteSharedCalendar, getAvailability, getCalendarConnectInfo, type SharedCalendarDTO, type BusyBlock, type TeamAvail } from "@/app/actions/shared-calendars";
+import { useLocale } from "@/components/locale-provider";
+import { SelectMenu } from "@/components/select-menu";
+import { DateField } from "@/components/date-field";
 
 type RosterMember = { username: string; email: string | null; avatarUrl: string; github?: string | null };
 
@@ -28,8 +31,20 @@ const DURATIONS = [
 ];
 const HOUR_H = 48; // px per hour
 const HOURS = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i);
-const DAY_NAMES = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const COLORS = ["#a3e635", "#38bdf8", "#f472b6", "#fbbf24", "#c084fc", "#34d399"];
+
+/**
+ * Stored colours are hex chosen for the dark grid. Each is a slot whose actual
+ * shade comes from CSS, so the same meeting reads correctly in both themes
+ * (see --evt-* in globals.css). Anything not in the palette — a legacy or
+ * hand-set colour — is used as-is, with alpha appended for the fill.
+ */
+function eventColors(stored: string | null | undefined): { line: string; fill: string } {
+  const i = stored ? COLORS.indexOf(stored) : -1;
+  if (i >= 0) return { line: `var(--evt-${i + 1})`, fill: `var(--evt-${i + 1}-soft)` };
+  if (!stored) return { line: "var(--accent)", fill: "var(--accent-bg)" };
+  return { line: stored, fill: `${stored}22` };
+}
 
 function startOfWeek(d: Date): Date {
   const x = new Date(d);
@@ -144,6 +159,34 @@ type Editor = {
 };
 
 export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines = [], projects, defaultProject, accent, scopeToProject = false }: { initialMeetings: MeetingDTO[]; initialCalendars: SharedCalendarDTO[]; deadlines?: TaskDeadline[]; projects: ProjectOption[]; defaultProject: string; accent: string; scopeToProject?: boolean }) {
+  const { locale, t: dict } = useLocale();
+  const t = dict.meetings;
+  const intlLocale = locale === "pt" ? "pt-BR" : "en-US";
+  // Weekday headers, Sunday-first, from a known Sunday so the list can't drift.
+  const dayNames = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat(intlLocale, { weekday: "short" });
+    const sunday = new Date(2024, 0, 7);
+    return Array.from({ length: 7 }, (_, i) =>
+      fmt.format(addDays(sunday, i)).replace(".", "").replace(/^./, (c) => c.toUpperCase()),
+    );
+  }, [intlLocale]);
+  const hourLabel = useMemo(
+    () => new Intl.DateTimeFormat(intlLocale, { hour: "2-digit", minute: "2-digit" }),
+    [intlLocale],
+  );
+
+  // Every quarter hour of the day. 96 rows is nothing to render, and the
+  // select's typeahead means "14" jumps straight to 14:00.
+  const timeOptions = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat(intlLocale, { hour: "2-digit", minute: "2-digit" });
+    return Array.from({ length: 96 }, (_, i) => {
+      const h = Math.floor(i / 4);
+      const m = (i % 4) * 15;
+      const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      return { value, label: fmt.format(new Date(2024, 0, 1, h, m)) };
+    });
+  }, [intlLocale]);
+
   const membersWithEmail = (slug: string) =>
     (projects.find((p) => p.slug === slug)?.members ?? []).filter((m): m is RosterMember & { email: string } => !!m.email);
   // Active portal's members → availability panel list.
@@ -153,14 +196,17 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
   const [view, setView] = useState<"day" | "week" | "month">("week");
   const [cursor, setCursor] = useState<Date>(() => new Date());
   const weekStart = useMemo(() => startOfWeek(cursor), [cursor]);
+  // Which way the last move went, so the range label slides in from that side.
+  const [dir, setDir] = useState(1);
   // Step the cursor by the active view's unit.
-  const goTo = (dir: -1 | 0 | 1) => {
-    if (dir === 0) { setCursor(new Date()); return; }
+  const goTo = (step: -1 | 0 | 1) => {
+    setDir(step === 0 ? 1 : step);
+    if (step === 0) { setCursor(new Date()); return; }
     setCursor((c) => {
       const n = new Date(c);
-      if (view === "day") n.setDate(n.getDate() + dir);
-      else if (view === "week") n.setDate(n.getDate() + dir * 7);
-      else n.setMonth(n.getMonth() + dir);
+      if (view === "day") n.setDate(n.getDate() + step);
+      else if (view === "week") n.setDate(n.getDate() + step * 7);
+      else n.setMonth(n.getMonth() + step);
       return n;
     });
   };
@@ -296,6 +342,29 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
     [visibleMeetings, weekStart],
   );
 
+  const durationOptions = useMemo(() => {
+    const base = DURATIONS.map((d) => ({ value: String(d.min), label: t.editor.durations[`m${d.min}` as keyof typeof t.editor.durations] }));
+    const current = editor?.durationMin;
+    // A meeting saved with an odd length keeps its own row rather than
+    // silently snapping to the nearest preset when you open it.
+    return current && !DURATIONS.some((d) => d.min === current)
+      ? [...base, { value: String(current), label: t.editor.customDuration(current) }].sort((a, b) => Number(a.value) - Number(b.value))
+      : base;
+  }, [editor?.durationMin, t]);
+
+  // Kept mounted through the close so the exit animates; see .dialog-panel.
+  const [editorOpen, setEditorOpen] = useState(false);
+  useEffect(() => {
+    if (!editor) return;
+    // Next frame, so the panel paints closed once and then transitions.
+    const id = requestAnimationFrame(() => setEditorOpen(true));
+    return () => cancelAnimationFrame(id);
+  }, [editor]);
+  function closeEditor() {
+    setEditorOpen(false);
+    window.setTimeout(() => setEditor(null), 200);
+  }
+
   function openNew(day: Date, hour: number) {
     const start = new Date(day);
     start.setHours(hour, 0, 0, 0);
@@ -364,7 +433,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
       notes: editor.notes,
       kind: editor.kind,
       forProject: projects.find((p) => p.slug === editor.forProject)?.name ?? editor.forProject,
-      when: new Date(editor.start).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" }),
+      when: new Date(editor.start).toLocaleString(intlLocale, { dateStyle: "full", timeStyle: "short" }),
       attendees: editor.attendees,
       owners: editor.owners,
       instruction,
@@ -376,7 +445,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
 
   async function save() {
     if (!editor) return;
-    if (!editor.title.trim()) { setErr("Dê um título à reunião."); return; }
+    if (!editor.title.trim()) { setErr(t.editor.needTitle); return; }
     setSaving(true);
     setErr(null);
     const startsAt = new Date(editor.start).toISOString();
@@ -386,18 +455,18 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
       const r = await updateMeeting(editor.id, common, true);
       if (r.ok) {
         setMeetings((prev) => prev.map((m) => (m.id === r.meeting.id ? r.meeting : m)));
-        setEditor(null);
-        const notes = [r.inviteError && `convites: ${r.inviteError}`, r.calendarError && `Google: ${r.calendarError}`].filter(Boolean);
+        closeEditor();
+        const notes = [r.inviteError && t.editor.inviteError(r.inviteError), r.calendarError && t.editor.googleError(r.calendarError)].filter(Boolean);
         if (notes.length) setToast(notes.join(" · "));
       } else setErr(r.error);
     } else {
       const r = await createMeeting(common);
       if (r.ok) {
         setMeetings((prev) => [...prev, r.meeting]);
-        setEditor(null);
-        const parts: string[] = ["Reunião criada"];
-        if (editor.attendees.length) parts.push(r.inviteError ? `convites falharam (${r.inviteError})` : `${r.invited ?? 0} convite(s) enviado(s)`);
-        if (r.calendarError) parts.push(`Google: ${r.calendarError}`);
+        closeEditor();
+        const parts: string[] = [t.editor.created];
+        if (editor.attendees.length) parts.push(r.inviteError ? t.editor.invitesFailed(r.inviteError) : t.editor.invitesSent(r.invited ?? 0));
+        if (r.calendarError) parts.push(t.editor.googleError(r.calendarError));
         if (parts.length > 1) setToast(parts.join(" · "));
       } else setErr(r.error);
     }
@@ -407,35 +476,35 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
     if (!editor?.id) return;
     setSaving(true);
     const r = await deleteMeeting(editor.id);
-    if (r.ok) { setMeetings((prev) => prev.filter((m) => m.id !== editor.id)); setEditor(null); }
+    if (r.ok) { setMeetings((prev) => prev.filter((m) => m.id !== editor.id)); closeEditor(); }
     else setErr(r.error);
     setSaving(false);
   }
 
   const rangeLabel =
     view === "day"
-      ? cursor.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" })
+      ? cursor.toLocaleDateString(intlLocale, { weekday: "short", day: "2-digit", month: "short" })
       : view === "month"
-        ? cursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
-        : `${days[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} – ${days[6].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}`;
+        ? cursor.toLocaleDateString(intlLocale, { month: "long", year: "numeric" })
+        : `${days[0].toLocaleDateString(intlLocale, { day: "2-digit", month: "short" })} – ${days[6].toLocaleDateString(intlLocale, { day: "2-digit", month: "short" })}`;
 
   return (
     <div className="flex h-[calc(100dvh-3rem)] flex-col gap-3 md:h-[calc(100dvh-4rem)]">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-bold text-foreground">Reuniões</h1>
-          <p className="text-[11px] text-foreground-faint">Calendário semanal · clique num horário para marcar</p>
+          <h1 className="text-lg font-bold text-foreground">{t.title}</h1>
+          <p className="text-[11px] text-foreground-faint">{t.subtitle}</p>
           {/* Project filter */}
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            <button type="button" onClick={() => setProjFilter("all")} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${projFilter === "all" ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
-              Todos <span className="text-foreground-faint">({meetings.length})</span>
+            <button type="button" onClick={() => setProjFilter("all")} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${projFilter === "all" ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong hover:text-foreground"}`}>
+              {t.all} <span className="text-foreground-faint">({meetings.length})</span>
             </button>
             {projects
               .map((p) => ({ p, n: meetings.filter((m) => (m.forProject ?? defaultProject) === p.slug).length }))
               .filter((x) => x.n > 0 || x.p.slug === defaultProject)
               .map(({ p, n }) => (
-                <button key={p.slug} type="button" onClick={() => setProjFilter(p.slug)} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${projFilter === p.slug ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}>
+                <button key={p.slug} type="button" onClick={() => setProjFilter(p.slug)} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${projFilter === p.slug ? "border-accent-border bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong hover:text-foreground"}`}>
                   {p.name} <span className="text-foreground-faint">({n})</span>
                 </button>
               ))}
@@ -443,31 +512,43 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
         </div>
         <div className="flex items-center gap-2">
           {/* View switcher */}
-          <div className="flex items-center rounded-lg border border-border text-xs">
+          {/* One pill slides between three equal cells — the old version blinked
+              a background on and off, which read as three separate controls. */}
+          <div className="relative grid grid-cols-3 rounded-lg border border-border p-0.5 text-xs">
+            <span
+              aria-hidden="true"
+              className="seg-indicator absolute inset-y-0.5 left-0.5 rounded-md bg-accent-bg"
+              style={{ width: "calc((100% - 0.25rem) / 3)", transform: `translateX(${["day", "week", "month"].indexOf(view) * 100}%)` }}
+            />
             {(["day", "week", "month"] as const).map((v) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => setView(v)}
-                className={`px-2.5 py-1.5 font-medium transition-colors ${view === v ? "bg-accent-bg text-accent" : "text-foreground-muted hover:text-foreground"}`}
+                aria-pressed={view === v}
+                className={`relative z-10 rounded-md px-2.5 py-1 font-medium transition-colors ${view === v ? "text-accent" : "text-foreground-muted hover:text-foreground"}`}
               >
-                {v === "day" ? "Dia" : v === "week" ? "Semana" : "Mês"}
+                {t.views[v]}
               </button>
             ))}
           </div>
-          <button type="button" onClick={() => goTo(0)} className="rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground">Hoje</button>
+          <button type="button" onClick={() => goTo(0)} className="auth-action rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground">{t.today}</button>
           <div className="flex items-center rounded-lg border border-border">
-            <button type="button" onClick={() => goTo(-1)} aria-label="Anterior" className="px-2 py-1.5 text-foreground-muted hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="w-36 text-center text-xs font-medium capitalize text-foreground">{rangeLabel}</span>
-            <button type="button" onClick={() => goTo(1)} aria-label="Próximo" className="px-2 py-1.5 text-foreground-muted hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
+            <button type="button" onClick={() => goTo(-1)} aria-label={t.prev} className="rounded-l-lg px-2 py-1.5 text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
+            {/* Keyed by the label so the animation replays on every move, and by
+                direction so it slides in from the side you came from. */}
+            <span key={rangeLabel} className="cal-range w-36 text-center text-xs font-medium capitalize text-foreground" style={{ "--range-from": `${dir * 6}px` } as CSSProperties}>
+              {rangeLabel}
+            </span>
+            <button type="button" onClick={() => goTo(1)} aria-label={t.next} className="rounded-r-lg px-2 py-1.5 text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
           </div>
           <div className="relative">
-            <button type="button" onClick={() => setCalPanel((o) => !o)} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"><CalendarClock className="h-3.5 w-3.5" /> Disponibilidade{(() => { const n = teamAvail.filter((t) => t.status === "ok").length + calendars.length; return n ? ` (${n})` : ""; })()}{availBusy && <Loader2 className="h-3 w-3 animate-spin" />}</button>
+            <button type="button" onClick={() => setCalPanel((o) => !o)} className="auth-action flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"><CalendarClock className="h-3.5 w-3.5" /> {t.availability.action}{(() => { const n = teamAvail.filter((t) => t.status === "ok").length + calendars.length; return n ? ` (${n})` : ""; })()}{availBusy && <Loader2 className="h-3 w-3 animate-spin" />}</button>
             {calPanel && (
               <div className="absolute right-0 top-[calc(100%+0.35rem)] z-50 w-80 rounded-xl border border-border bg-surface-elevated p-3 shadow-lg">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-foreground">Disponibilidade da equipe</span>
-                  <label className="flex items-center gap-1 text-[10px] text-foreground-muted"><input type="checkbox" checked={showAvail} onChange={(e) => setShowAvail(e.target.checked)} /> mostrar</label>
+                  <span className="text-xs font-semibold text-foreground">{t.availability.title}</span>
+                  <label className="flex items-center gap-1 text-[10px] text-foreground-muted"><input type="checkbox" checked={showAvail} onChange={(e) => setShowAvail(e.target.checked)} /> {t.availability.show}</label>
                 </div>
 
                 {/* Team members (auto-loaded from the central roster) */}
@@ -475,8 +556,8 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                   <div className="mb-2 max-h-44 space-y-1 overflow-auto">
                     {invitable.map((m) => {
                       const st = teamAvail.find((t) => t.username === m.username);
-                      const dot = st?.color ?? accent;
-                      const label = !st ? (availBusy ? "verificando…" : "—") : st.status === "ok" ? "conectado" : st.status === "notShared" ? "não compartilhou" : "erro";
+                      const dot = st?.color ?? "var(--accent)";
+                      const label = !st ? (availBusy ? t.availability.checking : "—") : st.status === "ok" ? t.availability.connected : st.status === "notShared" ? t.availability.notShared : t.availability.error;
                       const labelClass = st?.status === "ok" ? "text-success" : st?.status === "notShared" ? "text-foreground-faint" : st?.status === "error" ? "text-warning" : "text-foreground-faint";
                       const shown = !hiddenTeam.has(m.username);
                       return (
@@ -490,15 +571,15 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                     })}
                   </div>
                 )}
-                {invitable.length === 0 && <p className="mb-2 text-[11px] text-foreground-faint">Nenhum membro com email. Cadastre o email da galera na aba <span className="text-foreground-muted">Team</span> que eles aparecem aqui.</p>}
+                {invitable.length === 0 && <p className="mb-2 text-[11px] text-foreground-faint">{t.availability.none}</p>}
 
                 {/* Manually-added extra calendars (people outside the team / iCal feeds) */}
                 {calendars.length > 0 && (
                   <div className="space-y-1.5 border-t border-border pt-2">
-                    <span className="text-[10px] uppercase tracking-wide text-foreground-subtle">Extras</span>
+                    <span className="text-[10px] uppercase tracking-wide text-foreground-subtle">{t.availability.extras}</span>
                     {calendars.map((c) => (
                       <div key={c.id} className="flex items-center gap-2 text-xs">
-                        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: c.color ?? accent }} />
+                        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: c.color ?? "var(--accent)" }} />
                         <span className="min-w-0 flex-1 truncate text-foreground">{c.name}</span>
                         <button type="button" onClick={() => removeCal(c.id)} className="text-foreground-faint hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
@@ -507,34 +588,34 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                 )}
                 {serviceEmail ? (
                   <div className="mt-2 rounded-md border border-border bg-surface p-2 text-[10px] text-foreground-muted">
-                    Pra um membro aparecer como <span className="text-success">conectado</span>, ele compartilha “Ver disponibilidade” do Google Calendar dele com:
+                    {t.availability.sharePrefix} <span className="text-success">{t.availability.connected}</span>, {t.availability.shareSuffix}
                     <CopyButton value={serviceEmail} className="mt-1 flex w-full items-center gap-1 truncate rounded bg-surface-elevated px-1.5 py-1 text-left font-mono text-[10px] text-accent hover:underline">{serviceEmail}</CopyButton>
                   </div>
                 ) : null}
                 {meetingsCal ? (
                   <div className="mt-2 rounded-md border border-border bg-surface p-2 text-[10px] text-foreground-muted">
-                    As reuniões são criadas no calendário: <span className="font-mono text-foreground-subtle">{meetingsCal}</span>
+                    {t.availability.createdIn} <span className="font-mono text-foreground-subtle">{meetingsCal}</span>
                   </div>
                 ) : null}
                 <details className="mt-2 border-t border-border pt-2">
-                  <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-foreground-subtle">+ Calendário extra (fora da equipe / iCal)</summary>
+                  <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-foreground-subtle">{t.availability.addExtra}</summary>
                   <div className="mt-1.5 space-y-1.5">
-                    <input value={newCal.name} onChange={(e) => setNewCal({ ...newCal, name: e.target.value })} placeholder="Nome (pessoa)" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
-                    <input value={newCal.icsUrl} onChange={(e) => setNewCal({ ...newCal, icsUrl: e.target.value })} placeholder="email@gmail.com ou https://…/basic.ics" className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
-                    <button type="button" onClick={addCal} className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90">Adicionar calendário</button>
+                    <input value={newCal.name} onChange={(e) => setNewCal({ ...newCal, name: e.target.value })} placeholder={t.availability.namePlaceholder} className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
+                    <input value={newCal.icsUrl} onChange={(e) => setNewCal({ ...newCal, icsUrl: e.target.value })} placeholder={t.availability.icsPlaceholder} className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none" />
+                    <button type="button" onClick={addCal} className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90">{t.availability.addAction}</button>
                   </div>
                 </details>
               </div>
             )}
           </div>
-          <button type="button" onClick={() => openNew(today, Math.max(DAY_START, Math.min(DAY_END - 1, today.getHours())))} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90"><Plus className="h-3.5 w-3.5" /> Nova reunião</button>
+          <button type="button" onClick={() => openNew(today, Math.max(DAY_START, Math.min(DAY_END - 1, today.getHours())))} className="auth-action flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90"><Plus className="h-3.5 w-3.5" /> {t.newMeeting}</button>
         </div>
       </div>
 
       {toast && (
         <div className="flex items-center justify-between rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs text-accent">
           {toast}
-          <button type="button" onClick={() => setToast(null)} aria-label="Fechar"><X className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={() => setToast(null)} aria-label={t.dismiss}><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
 
@@ -549,7 +630,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
             const isToday = sameDay(d, today);
             return (
               <div key={i} className={`border-l border-border px-1 py-1.5 text-center ${isToday ? "bg-accent-bg" : ""}`}>
-                <div className="text-[10px] uppercase tracking-wide text-foreground-subtle">{DAY_NAMES[d.getDay()]}</div>
+                <div className="text-[10px] uppercase tracking-wide text-foreground-subtle">{dayNames[d.getDay()]}</div>
                 <div className={`text-sm font-semibold ${isToday ? "text-accent" : "text-foreground"}`}>{d.getDate()}</div>
               </div>
             );
@@ -561,21 +642,24 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
           {/* hour gutter */}
           <div>
             {HOURS.map((h) => (
-              <div key={h} style={{ height: HOUR_H }} className="relative border-b border-border/50">
+              <div key={h} style={{ height: HOUR_H, borderColor: "var(--cal-line)" }} className="relative border-b">
                 <span className="absolute -top-1.5 right-1 text-[10px] text-foreground-faint">{String(h).padStart(2, "0")}:00</span>
               </div>
             ))}
           </div>
           {/* day columns */}
           {days.map((day, di) => (
-            <div key={di} className="relative border-l border-border">
+            <div key={di} className="relative border-l" style={{ borderColor: "var(--cal-line-strong)" }}>
               {HOURS.map((h) => (
                 <div
                   key={h}
-                  style={{ height: HOUR_H }}
+                  style={{ height: HOUR_H, borderColor: "var(--cal-line)" }}
                   onClick={() => openNew(day, h)}
-                  className="border-b border-border/50 transition-colors hover:bg-accent-bg/40"
-                />
+                  title={t.slotHint}
+                  className="cal-slot group/slot flex items-start justify-end border-b p-1"
+                >
+                  <Plus className="cal-slot-hint h-3 w-3 text-accent" aria-hidden="true" />
+                </div>
               ))}
               {/* availability (busy) blocks behind meetings — no titles, just busy */}
               {showAvail && (busyByDay[days[di].getDay()] ?? []).map((b, bi) => {
@@ -583,12 +667,16 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                 const e = new Date(b.end);
                 const top = ((s.getHours() + s.getMinutes() / 60) - DAY_START) * HOUR_H;
                 const height = Math.max(14, ((e.getTime() - s.getTime()) / 3600000) * HOUR_H);
-                const c = b.color ?? accent;
+                // A hex from the server keeps its alpha suffixes; the fallback
+                // has to be whole values, since you can't concatenate onto a var().
+                const busyStyle = b.color
+                  ? { backgroundColor: `${b.color}1f`, borderColor: `${b.color}66` }
+                  : { backgroundColor: "var(--accent-bg)", borderColor: "var(--accent-border)" };
                 return (
                   <div
                     key={`busy-${bi}`}
-                    title={b.title ? `${b.name}: ${b.title}` : `${b.name} · ocupado`}
-                    style={{ top: Math.max(0, top), height, backgroundColor: `${c}1f`, borderColor: `${c}66` }}
+                    title={b.title ? `${b.name}: ${b.title}` : t.availability.busy(b.name)}
+                    style={{ top: Math.max(0, top), height, ...busyStyle }}
                     className="pointer-events-none absolute left-1 right-1 z-0 overflow-hidden rounded-md border border-dashed px-1 text-[9px] leading-tight text-foreground-faint"
                   >
                     {b.title ? `${b.name}: ${b.title}` : b.name}
@@ -602,7 +690,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                 return dayOccs.map((o) => {
                 const top = ((o.start.getHours() + o.start.getMinutes() / 60) - DAY_START) * HOUR_H;
                 const height = Math.max(20, ((o.end.getTime() - o.start.getTime()) / 3600000) * HOUR_H);
-                const c = o.meeting.color ?? accent;
+                const c = eventColors(o.meeting.color);
                 const pos = lanes.get(o.meeting.id) ?? { left: 0, width: 1 };
                 return (
                   <button
@@ -614,10 +702,10 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                       height,
                       left: `calc(${pos.left * 100}% + 2px)`,
                       width: `calc(${pos.width * 100}% - 4px)`,
-                      backgroundColor: `${c}22`,
-                      borderColor: c,
+                      backgroundColor: c.fill,
+                      borderColor: c.line,
                     }}
-                    className="absolute z-10 overflow-hidden rounded-md border-l-2 px-1.5 py-0.5 text-left hover:brightness-110"
+                    className="cal-event absolute z-10 overflow-hidden rounded-md border-l-2 px-1.5 py-0.5 text-left"
                   >
                     <div className="flex items-center gap-1 truncate text-[11px] font-semibold text-foreground">
                       {o.meeting.weekly && <Repeat className="h-2.5 w-2.5 shrink-0 text-foreground-subtle" />}
@@ -625,8 +713,8 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                       {o.meeting.title}
                     </div>
                     <div className="flex items-center gap-1 text-[10px] text-foreground-muted">
-                      {o.start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                      {o.meeting.kind === "exec" && o.meeting.owners.length > 0 && <span className="truncate text-accent">· {o.meeting.owners.length} dono(s)</span>}
+                      {hourLabel.format(o.start)}
+                      {o.meeting.kind === "exec" && o.meeting.owners.length > 0 && <span className="truncate text-accent">· {t.owners(o.meeting.owners.length)}</span>}
                     </div>
                   </button>
                 );
@@ -640,8 +728,8 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
           /* MONTH VIEW — day cells with event chips */
           <div>
             <div className="grid grid-cols-7 border-b border-border bg-surface">
-              {DAY_NAMES.map((n) => (
-                <div key={n} className="border-l border-border px-1 py-1.5 text-center text-[10px] uppercase tracking-wide text-foreground-subtle">{n}</div>
+              {dayNames.map((n) => (
+                <div key={n} className="border-l px-1 py-1.5 text-center text-[10px] uppercase tracking-wide text-foreground-subtle" style={{ borderColor: "var(--cal-line-strong)" }}>{n}</div>
               ))}
             </div>
             <div className="grid grid-cols-7">
@@ -659,7 +747,8 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                   <div
                     key={i}
                     onClick={() => openNew(day, 9)}
-                    className={`min-h-[88px] cursor-pointer border-b border-l border-border p-1 transition-colors hover:bg-accent-bg/40 ${inMonth ? "" : "bg-surface-elevated/40"}`}
+                    style={{ borderColor: "var(--cal-line-strong)", backgroundColor: inMonth ? undefined : "var(--cal-outside)" }}
+                    className="cal-slot min-h-[88px] cursor-pointer border-b border-l p-1"
                   >
                     <button
                       type="button"
@@ -670,22 +759,22 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                     </button>
                     <div className="space-y-0.5">
                       {dayMeetings.slice(0, 3).map(({ m, start }) => {
-                        const c = m.color ?? accent;
+                        const c = eventColors(m.color);
                         return (
                           <button
                             key={m.id}
                             type="button"
                             onClick={(e) => { e.stopPropagation(); openEdit(m); }}
-                            style={{ backgroundColor: `${c}22`, borderColor: c }}
-                            className="flex w-full items-center gap-1 overflow-hidden rounded border-l-2 px-1 py-0.5 text-left text-[10px] leading-tight text-foreground hover:brightness-110"
+                            style={{ backgroundColor: c.fill, borderColor: c.line }}
+                            className="cal-event flex w-full items-center gap-1 overflow-hidden rounded border-l-2 px-1 py-0.5 text-left text-[10px] leading-tight text-foreground"
                           >
-                            <span className="shrink-0 text-foreground-subtle">{start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                            <span className="shrink-0 text-foreground-subtle">{hourLabel.format(start)}</span>
                             <span className="min-w-0 flex-1 truncate">{m.title}</span>
                           </button>
                         );
                       })}
                       {dayMeetings.length > 3 && (
-                        <div className="px-1 text-[10px] text-foreground-faint">+{dayMeetings.length - 3} mais</div>
+                        <div className="px-1 text-[10px] text-foreground-faint">{t.moreEvents(dayMeetings.length - 3)}</div>
                       )}
                       {/* Task deadlines due this day */}
                       {dayDeadlines.slice(0, 3).map((d) => {
@@ -695,7 +784,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                             key={d.itemId}
                             href={`/kanban?open=${encodeURIComponent(d.itemId)}`}
                             onClick={(e) => e.stopPropagation()}
-                            title={`Deadline${d.firePriority ? ` · 🔥${d.firePriority}` : ""}: ${d.title}${d.board ? ` (${d.board})` : ""}`}
+                            title={`${t.deadlineTitle}${d.firePriority ? ` · 🔥${d.firePriority}` : ""}: ${d.title}${d.board ? ` (${d.board})` : ""}`}
                             className={`flex w-full items-center gap-1 overflow-hidden rounded border-l-2 px-1 py-0.5 text-left text-[10px] leading-tight hover:brightness-110 ${overdue ? "border-danger bg-danger/10 text-danger" : "border-warning bg-warning/10 text-warning"}`}
                           >
                             <CalendarClock className="h-2.5 w-2.5 shrink-0" />
@@ -705,7 +794,7 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                         );
                       })}
                       {dayDeadlines.length > 3 && (
-                        <div className="px-1 text-[10px] text-foreground-faint">+{dayDeadlines.length - 3} deadlines</div>
+                        <div className="px-1 text-[10px] text-foreground-faint">{t.moreDeadlines(dayDeadlines.length - 3)}</div>
                       )}
                     </div>
                   </div>
@@ -718,59 +807,124 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
 
       {/* Editor */}
       {editor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setEditor(null)}>
-          <div className={`max-h-[92vh] w-full space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl ${editor.id ? "max-w-3xl" : "max-w-lg"}`} onClick={(e) => e.stopPropagation()}>
+        <div
+          className="dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          data-open={editorOpen}
+          onClick={closeEditor}
+        >
+          <div
+            className={`dialog-panel max-h-[92vh] w-full space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-2xl ${editor.id ? "max-w-3xl" : "max-w-lg"}`}
+            data-open={editorOpen}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-foreground">{editor.id ? "Editar reunião" : "Nova reunião"}</h2>
-              <button type="button" onClick={() => setEditor(null)} className="text-foreground-faint hover:text-foreground"><X className="h-4 w-4" /></button>
+              <h2 className="text-base font-bold text-foreground">{editor.id ? t.editor.editTitle : t.editor.createTitle}</h2>
+              <button type="button" onClick={closeEditor} aria-label={t.editor.close} className="rounded-md p-1 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground"><X className="h-4 w-4" /></button>
             </div>
             <input
               value={editor.title}
               onChange={(e) => setEditor({ ...editor, title: e.target.value })}
-              placeholder="Título da reunião"
+              placeholder={t.editor.titlePlaceholder}
               autoFocus
               className="w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
             />
             {/* Project + type */}
             <div className="flex gap-2 text-xs">
-              <label className="flex-1 text-foreground-muted">Projeto
-                <select value={editor.forProject} onChange={(e) => setForProject(e.target.value)} className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground">
-                  {projects.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
-                </select>
-              </label>
-              <label className="flex-1 text-foreground-muted">Tipo
-                <select value={editor.kind} onChange={(e) => setEditor({ ...editor, kind: e.target.value as "plan" | "exec" })} className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground">
-                  <option value="plan">[PLAN] Planejamento</option>
-                  <option value="exec">[EXEC] Execução</option>
-                </select>
-              </label>
+              <div className="flex-1 space-y-1">
+                <span className="text-foreground-muted">{t.editor.project}</span>
+                <SelectMenu
+                  size="sm"
+                  value={editor.forProject}
+                  options={projects.map((p) => ({ value: p.slug, label: p.name }))}
+                  onChange={setForProject}
+                  placeholder={t.editor.project}
+                  label={t.editor.project}
+                  className="w-full"
+                />
+              </div>
+              <div className="flex-1 space-y-1">
+                <span className="text-foreground-muted">{t.editor.kind}</span>
+                <SelectMenu
+                  size="sm"
+                  value={editor.kind}
+                  options={[
+                    { value: "plan", label: t.editor.kinds.plan },
+                    { value: "exec", label: t.editor.kinds.exec },
+                  ]}
+                  onChange={(v) => setEditor({ ...editor, kind: v as "plan" | "exec" })}
+                  placeholder={t.editor.kind}
+                  label={t.editor.kind}
+                  className="w-full"
+                />
+              </div>
             </div>
-            <div className="flex gap-2 text-xs">
-              <label className="flex-1 text-foreground-muted">Início
-                <input type="datetime-local" value={editor.start} onChange={(e) => setEditor({ ...editor, start: e.target.value })} className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground" />
-              </label>
-              <label className="text-foreground-muted">Duração
-                <select value={editor.durationMin} onChange={(e) => setEditor({ ...editor, durationMin: Number(e.target.value) })} className="mt-1 block w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-foreground">
-                  {DURATIONS.map((d) => <option key={d.min} value={d.min}>{d.label}</option>)}
-                  {!DURATIONS.some((d) => d.min === editor.durationMin) && <option value={editor.durationMin}>{editor.durationMin} min</option>}
-                </select>
-              </label>
+            {/* datetime-local hands the whole thing to the browser: its own
+                calendar, its own clock, neither themeable. Split into the two
+                pickers the rest of the app already uses. */}
+            <div className="flex flex-wrap gap-2 text-xs">
+              <div className="min-w-[9rem] flex-1 space-y-1">
+                <span className="text-foreground-muted">{t.editor.date}</span>
+                <DateField
+                  value={editor.start.slice(0, 10)}
+                  onChange={(next) => next && setEditor({ ...editor, start: `${next}T${editor.start.slice(11, 16)}` })}
+                  className="w-full"
+                />
+              </div>
+              <div className="min-w-[7rem] flex-1 space-y-1">
+                <span className="text-foreground-muted">{t.editor.time}</span>
+                <SelectMenu
+                  size="sm"
+                  value={editor.start.slice(11, 16)}
+                  options={timeOptions}
+                  onChange={(v) => setEditor({ ...editor, start: `${editor.start.slice(0, 10)}T${v}` })}
+                  placeholder={t.editor.time}
+                  label={t.editor.time}
+                  className="w-full"
+                />
+              </div>
+              <div className="min-w-[7rem] flex-1 space-y-1">
+                <span className="text-foreground-muted">{t.editor.duration}</span>
+                <SelectMenu
+                  size="sm"
+                  value={String(editor.durationMin)}
+                  options={durationOptions}
+                  onChange={(v) => setEditor({ ...editor, durationMin: Number(v) })}
+                  placeholder={t.editor.duration}
+                  label={t.editor.duration}
+                  className="w-full"
+                />
+              </div>
             </div>
             <label className="flex items-center gap-2 text-xs text-foreground-muted">
               <input type="checkbox" checked={editor.weekly} onChange={(e) => setEditor({ ...editor, weekly: e.target.checked })} />
-              <Repeat className="h-3.5 w-3.5" /> Repetir toda semana
+              <Repeat className="h-3.5 w-3.5" /> {t.editor.weekly}
             </label>
             <div className="flex items-center gap-1.5">
-              {COLORS.map((c) => (
-                <button key={c} type="button" onClick={() => setEditor({ ...editor, color: c })} className={`h-5 w-5 rounded-full ${editor.color === c ? "ring-2 ring-offset-2 ring-offset-surface" : ""}`} style={{ backgroundColor: c, boxShadow: editor.color === c ? `0 0 0 2px ${c}` : undefined }} aria-label={`Cor ${c}`} />
-              ))}
+              {COLORS.map((c, i) => {
+                // The swatch shows the shade this theme will actually paint,
+                // so what you pick is what you get — the stored hex is the same
+                // either way.
+                const shade = `var(--evt-${i + 1})`;
+                const on = editor.color === c;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setEditor({ ...editor, color: c })}
+                    className={`h-5 w-5 rounded-full transition-transform hover:scale-110 ${on ? "ring-2 ring-offset-2 ring-offset-surface" : ""}`}
+                    style={{ backgroundColor: shade, boxShadow: on ? `0 0 0 2px ${shade}` : undefined }}
+                    aria-pressed={on}
+                    aria-label={t.editor.color(c)}
+                  />
+                );
+              })}
             </div>
 
             {/* Attendees — everyone's invited; EXEC meetings highlight owners (★) as responsible */}
             <div className="space-y-1.5">
               <span className="text-xs text-foreground-muted">
-                Convidados · {projects.find((p) => p.slug === editor.forProject)?.name}
-                {editor.kind === "exec" ? " — clique no ★ pra marcar o dono" : ""}
+                {t.editor.attendees} · {projects.find((p) => p.slug === editor.forProject)?.name}
+                {editor.kind === "exec" ? t.editor.ownerHint : ""}
               </span>
               {editorMembers.length > 0 ? (
                 <div className="flex max-h-28 flex-wrap gap-1 overflow-auto">
@@ -784,14 +938,14 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                           {m.username}
                         </button>
                         {editor.kind === "exec" && on && (
-                          <button type="button" onClick={() => toggleOwner(m.email)} title={owner ? "Dono (responsável)" : "Marcar como dono"} className="leading-none">{owner ? "★" : "☆"}</button>
+                          <button type="button" onClick={() => toggleOwner(m.email)} title={owner ? t.editor.owner : t.editor.makeOwner} className="leading-none">{owner ? "★" : "☆"}</button>
                         )}
                       </span>
                     );
                   })}
                 </div>
               ) : (
-                <p className="text-[10px] text-foreground-faint">Esse projeto não tem membros com email — cadastre na aba Team, ou digite abaixo.</p>
+                <p className="text-[10px] text-foreground-faint">{t.editor.noMembers}</p>
               )}
               {editor.attendees.filter((a) => !editorMembers.some((m) => m.email === a)).length > 0 && (
                 <div className="flex flex-wrap gap-1">
@@ -805,42 +959,42 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (/@/.test(emailInput)) { toggleAttendee(emailInput); setEmailInput(""); } } }}
-                  placeholder="email@exemplo.com"
+                  placeholder={t.editor.emailPlaceholder}
                   className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
                 />
-                <button type="button" onClick={() => { if (/@/.test(emailInput)) { toggleAttendee(emailInput); setEmailInput(""); } }} className="rounded-md border border-border px-2 py-1 text-xs text-foreground-muted hover:text-foreground">Add</button>
+                <button type="button" onClick={() => { if (/@/.test(emailInput)) { toggleAttendee(emailInput); setEmailInput(""); } }} className="rounded-md border border-border px-2 py-1 text-xs text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground">{t.editor.add}</button>
               </div>
             </div>
 
             {/* Pauta + Improve with AI */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-foreground-muted">Pauta</span>
+                <span className="text-xs text-foreground-muted">{t.editor.agenda}</span>
                 <ImproveAiButton busy={aiBusy} defaultInstruction={MEETING_AI_INSTRUCTION} onRun={(instr) => improveWithAI(instr)} />
               </div>
               <textarea
                 value={editor.notes}
                 onChange={(e) => setEditor({ ...editor, notes: e.target.value })}
                 rows={3}
-                placeholder="Pauta / o que será discutido"
+                placeholder={t.editor.agendaPlaceholder}
                 className="w-full resize-none rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
               />
             </div>
 
             {/* Invite email (AI-fillable, editable) */}
             <details className="rounded-lg border border-border bg-surface-elevated p-2" open={!!editor.emailBody}>
-              <summary className="cursor-pointer text-xs text-foreground-muted">Email do convite {editor.emailBody ? "(personalizado)" : "(padrão)"}</summary>
+              <summary className="cursor-pointer text-xs text-foreground-muted">{t.editor.inviteEmail} {editor.emailBody ? t.editor.inviteCustom : t.editor.inviteDefault}</summary>
               <textarea
                 value={editor.emailBody}
                 onChange={(e) => setEditor({ ...editor, emailBody: e.target.value })}
                 rows={4}
-                placeholder="Vazio = email padrão. Use o Improve with AI pra gerar."
+                placeholder={t.editor.inviteEmailPlaceholder}
                 className="mt-1.5 w-full resize-none rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
               />
             </details>
             {editor.id && editor.googleEventUrl && (
               <a href={editor.googleEventUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground-muted hover:border-border-strong hover:text-foreground">
-                <CalendarClock className="h-3.5 w-3.5" /> Ver no Google Calendar
+                <CalendarClock className="h-3.5 w-3.5" /> {t.editor.openInGoogle}
               </a>
             )}
             {/* Post-meeting: ata + action items + Kanban cards (existing meetings only) */}
@@ -856,11 +1010,11 @@ export function MeetingsCalendar({ initialMeetings, initialCalendars, deadlines 
             })()}
             {err && <p className="text-xs text-danger">{err}</p>}
             <div className="flex items-center gap-2">
-              <button type="button" onClick={save} disabled={saving} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Salvar
+              <button type="button" onClick={save} disabled={saving} className="auth-action flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {t.editor.save}
               </button>
               {editor.id && (
-                <button type="button" onClick={remove} disabled={saving} className="flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground-muted hover:border-danger/50 hover:text-danger disabled:opacity-50">
+                <button type="button" onClick={remove} disabled={saving} aria-label={t.editor.delete} title={t.editor.delete} className="auth-action flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground-muted hover:border-danger/50 hover:text-danger disabled:opacity-50">
                   <Trash2 className="h-4 w-4" />
                 </button>
               )}

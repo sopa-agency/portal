@@ -617,6 +617,152 @@ body {
   }
 }
 
+/* ── Calendar palette ───────────────────────────────────────────────────────
+   Event colours are stored in the database as hex, and the six the picker
+   offers were chosen for a dark grid: 400-level tints that glow on near-black
+   and go pale and low-contrast on white. Rather than migrate stored data, each
+   stored colour is a SLOT, and the slot resolves to the right shade per theme —
+   light mode gets the 700-level version of the same hue, so a "pink meeting"
+   stays pink in both without anyone re-picking anything.
+
+   The soft pair is the chip fill. It is a flat rgba rather than an alpha over
+   the solid so that the fill can be lighter in light mode (12%) than in dark
+   (16%), which is what keeps the text on top readable in both. */
+:root {
+  --evt-1: #4d7c0f;
+  --evt-1-soft: rgba(77, 124, 15, 0.12);
+  --evt-2: #0369a1;
+  --evt-2-soft: rgba(3, 105, 161, 0.12);
+  --evt-3: #be185d;
+  --evt-3-soft: rgba(190, 24, 93, 0.12);
+  --evt-4: #b45309;
+  --evt-4-soft: rgba(180, 83, 9, 0.12);
+  --evt-5: #7e22ce;
+  --evt-5-soft: rgba(126, 34, 206, 0.12);
+  --evt-6: #047857;
+  --evt-6-soft: rgba(4, 120, 87, 0.12);
+  /* Grid rules. The old hour lines were the border token at 50% — 4% black on
+     white, which is invisible; the grid has to be legible to be a grid. */
+  --cal-line: rgba(0, 0, 0, 0.07);
+  --cal-line-strong: rgba(0, 0, 0, 0.11);
+  --cal-outside: rgba(0, 0, 0, 0.025);
+}
+
+.dark {
+  --evt-1: #a3e635;
+  --evt-1-soft: rgba(163, 230, 53, 0.16);
+  --evt-2: #38bdf8;
+  --evt-2-soft: rgba(56, 189, 248, 0.16);
+  --evt-3: #f472b6;
+  --evt-3-soft: rgba(244, 114, 182, 0.16);
+  --evt-4: #fbbf24;
+  --evt-4-soft: rgba(251, 191, 36, 0.16);
+  --evt-5: #c084fc;
+  --evt-5-soft: rgba(192, 132, 252, 0.16);
+  --evt-6: #34d399;
+  --evt-6-soft: rgba(52, 211, 153, 0.16);
+  --cal-line: rgba(255, 255, 255, 0.06);
+  --cal-line-strong: rgba(255, 255, 255, 0.1);
+  --cal-outside: rgba(255, 255, 255, 0.02);
+}
+
+/* An empty half-hour is a button; it should say so before you click it. */
+.cal-slot {
+  transition: background-color 140ms ease;
+}
+
+.cal-slot:hover {
+  background-color: var(--accent-bg);
+}
+
+.cal-slot-hint {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.cal-slot:hover .cal-slot-hint {
+  opacity: 1;
+}
+
+.cal-event {
+  transition:
+    transform 140ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    box-shadow 140ms ease,
+    filter 140ms ease;
+}
+
+.cal-event:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -8px rgb(0 0 0 / 0.35);
+  filter: brightness(1.06);
+  z-index: 20;
+}
+
+/* The segmented Day/Week/Month control: one pill that slides between three
+   equal cells, instead of three backgrounds blinking on and off. */
+.seg-indicator {
+  transition: transform 260ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+/* The date range re-mounts on every navigation (React key), so this plays each
+   time — it tells you WHICH way you moved, which arrows alone don't. */
+@keyframes cal-range-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--range-from, 6px));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.cal-range {
+  animation: cal-range-in 240ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+/* ── Modal: fade the ground, lift the panel ─────────────────────────────────
+   Both halves stay mounted through the close so the exit animates; the owner
+   drops them from the tree once the transition is done. */
+.dialog-backdrop {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.dialog-backdrop[data-open="true"] {
+  opacity: 1;
+}
+
+.dialog-panel {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  transition:
+    opacity 180ms ease,
+    transform 240ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+.dialog-panel[data-open="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cal-event:hover {
+    transform: none;
+  }
+  .cal-range {
+    animation: none;
+  }
+  .seg-indicator {
+    transition: none;
+  }
+  .dialog-panel,
+  .dialog-panel[data-open="true"] {
+    transform: none;
+    transition: opacity 120ms ease;
+  }
+}
+
 /* ── Popover: a panel anchored to its trigger (Kanban's "PRs" list) ──────────
    Absolutely positioned, so nothing reflows and only paint properties move.
    Kept mounted for the same reason as above; `visibility` is what actually
