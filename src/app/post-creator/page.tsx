@@ -36,6 +36,7 @@ export default async function PostCreatorPage() {
       <PostCreator
         agentName={project.agent.displayName}
         igHandle={igHandle}
+        projectSlug={project.slug}
         cardStyles={[...cardStyles]}
         brandName={project.name}
         brandAccent={project.theme.accentDark}

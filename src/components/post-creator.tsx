@@ -79,6 +79,7 @@ import { Toaster as StudioToaster } from "@/components/studio/ui/sonner";
 import { toast } from "sonner";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
+import { ownEvents } from "@/lib/calendar-scope";
 import { EmojiPicker } from "@/components/emoji-picker";
 
 // Studio (vendored Figma-like design tool) — heavy + browser-only, so it loads
@@ -852,12 +853,15 @@ function PostDialog({
 function ScheduledCalendar({
   items,
   extras,
+  projectSlug,
   onOpenPost,
   onImport,
   onAddPost,
 }: {
   items: DraftRow[];
   extras: CalendarExtra[];
+  /** The portal this calendar belongs to — nothing from another project shows. */
+  projectSlug: string;
   onOpenPost: (id: string) => void;
   onImport?: () => Promise<
     | { ok: true; imported: number; skipped: number; total: number }
@@ -963,10 +967,16 @@ function ScheduledCalendar({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
-  // Cross-source scheduled events (suggestions / repo / nested projects).
+  // Cross-source scheduled events (suggestions / repo / Lab) for THIS project —
+  // see calendar-scope for why the guard is here as well as on the server.
+  const visibleExtras = useMemo(
+    () => ownEvents(extraList, projectSlug),
+    [extraList, projectSlug],
+  );
+
   const extrasByDay = useMemo(() => {
     const map: Record<string, CalendarExtra[]> = {};
-    for (const e of extraList) {
+    for (const e of visibleExtras) {
       const dt = new Date(e.when);
       if (Number.isNaN(dt.getTime())) continue;
       const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
@@ -976,7 +986,7 @@ function ScheduledCalendar({
       map[key].sort((a, b) => (a.when < b.when ? -1 : 1));
     }
     return map;
-  }, [extraList]);
+  }, [visibleExtras]);
 
   const year = calendarMonth.getFullYear();
   const month = calendarMonth.getMonth();
@@ -1221,11 +1231,11 @@ function ScheduledCalendar({
                           {eTime}
                         </span>
                         <span className="ml-auto shrink-0 rounded bg-surface-elevated px-1 text-[8px] uppercase tracking-wide text-foreground-faint">
-                          {e.kind === "instagram" ? e.projectSlug.slice(0, 4) : e.platform.slice(0, 4)}
+                          {e.platform.slice(0, 4)}
                         </span>
                       </>
                     );
-                    const label = `${e.platform} via ${e.kind} (${e.projectSlug}): ${e.title}`;
+                    const label = `${e.platform} via ${e.kind}: ${e.title}`;
                     return editable ? (
                       <button
                         key={e.id}
@@ -1263,7 +1273,7 @@ function ScheduledCalendar({
       {openExtra && (
         <ScheduledPostDialog
           event={openExtra}
-          activeSlug=""
+          activeSlug={projectSlug}
           onClose={() => setOpenExtra(null)}
           onChanged={(newWhen) =>
             setExtraList((prev) =>
@@ -1709,6 +1719,7 @@ function studioCapaTitle(doc: unknown): string {
 export function PostCreator({
   agentName,
   igHandle,
+  projectSlug,
   cardStyles = [],
   brandName = "",
   brandAccent = "#a3e635",
@@ -1717,6 +1728,8 @@ export function PostCreator({
 }: {
   agentName: string;
   igHandle: string;
+  /** Slug of the portal in use — scopes the calendar to this project alone. */
+  projectSlug: string;
   cardStyles?: ("holo" | "pixel" | "gold" | "bounty" | "skatecard")[];
   brandName?: string;
   brandAccent?: string;
@@ -3839,6 +3852,7 @@ export function PostCreator({
             <ScheduledCalendar
               items={calendarPosts}
               extras={calendarExtras}
+              projectSlug={projectSlug}
               onOpenPost={(id) => setDialogPostId(id)}
               onImport={async () => {
                 const res = await importRecentInstagramPosts(10);

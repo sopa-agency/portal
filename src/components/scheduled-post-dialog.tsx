@@ -16,6 +16,7 @@ import {
   cancelScheduledTweet,
 } from "@/app/actions/repo-to-social";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { isForeign } from "@/lib/calendar-scope";
 
 function toLocalInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -59,6 +60,8 @@ export function ScheduledPostDialog({
   }, [onClose]);
 
   const editable = (event.kind === "suggestion" || event.kind === "repo") && !!parsed;
+  const foreign = isForeign(event, activeSlug);
+  const originName = event.projectName ?? event.projectSlug;
   const sourceHref =
     event.kind === "repo" ? "/marketing-suggestions?tab=repo" : "/marketing-suggestions";
 
@@ -107,9 +110,9 @@ export function ScheduledPostDialog({
             <SocialBrandIcon platform={event.platform} className="h-4 w-4 shrink-0" />
             <span className="truncate">
               Scheduled {event.platform} post
-              {event.projectSlug !== activeSlug && (
-                <span className="ml-1.5 rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-foreground-subtle">
-                  {event.projectSlug}
+              {foreign && (
+                <span className="ml-1.5 rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-subtle">
+                  {originName}
                 </span>
               )}
             </span>
@@ -127,6 +130,16 @@ export function ScheduledPostDialog({
         <p className="mt-3 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-xl border border-border bg-surface px-3.5 py-3 text-sm leading-relaxed text-foreground">
           {event.title || "(no text)"}
         </p>
+
+        {/* Calendars are scoped to one project, so this should never show. If it
+            does, the feed leaked another project's post — say so plainly rather
+            than let someone reschedule it thinking it is theirs. */}
+        {foreign && (
+          <p className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+            This post belongs to the {originName} portal — it publishes on {originName}&apos;s
+            accounts, not this one. Open it there to change it.
+          </p>
+        )}
 
         {editable ? (
           <>
@@ -178,7 +191,7 @@ export function ScheduledPostDialog({
           </>
         ) : (
           <p className="mt-3 text-xs text-foreground-subtle">
-            Scheduled on the {event.projectSlug} portal — open it there to edit.
+            Scheduled on the {originName} portal — open it there to edit.
           </p>
         )}
       </div>

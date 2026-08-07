@@ -1,15 +1,16 @@
 "use client";
 
 // Reusable month-grid schedule calendar fed by unified CalendarExtra events
-// (Instagram posts, suggestion/repo scheduled tweets, nested projects).
-// Used on the Post Suggestions page; the Post Creator keeps its richer
-// thumbnail calendar.
+// (Instagram posts, suggestion/repo scheduled tweets, Lab posts) — always for
+// ONE project, the portal you are in. Used on the Post Suggestions page; the
+// Post Creator keeps its richer thumbnail calendar.
 
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { CalendarExtra } from "@/app/actions/post-creator";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
+import { ownEvents } from "@/lib/calendar-scope";
 
 const CHIP_LIMIT = 3;
 
@@ -37,16 +38,20 @@ export function ScheduleCalendar({
   });
   const todayKey = dayKey(new Date());
 
+  // This portal's events only — see calendar-scope. The server already scopes
+  // the feed; this is the guard that keeps a widened query off the screen.
+  const visible = useMemo(() => ownEvents(list, activeSlug), [list, activeSlug]);
+
   const byDay = useMemo(() => {
     const map: Record<string, CalendarExtra[]> = {};
-    for (const e of list) {
+    for (const e of visible) {
       const dt = new Date(e.when);
       if (Number.isNaN(dt.getTime())) continue;
       (map[dayKey(dt)] ??= []).push(e);
     }
     for (const k of Object.keys(map)) map[k].sort((a, b) => (a.when < b.when ? -1 : 1));
     return map;
-  }, [list]);
+  }, [visible]);
 
   const year = month.getFullYear();
   const m = month.getMonth();
@@ -89,8 +94,7 @@ export function ScheduleCalendar({
           <ChevronRight className="h-4 w-4" />
         </button>
         <span className="ml-2 text-[11px] text-foreground-faint">
-          all scheduled posts across Instagram, suggestions and repo runs
-          {events.some((e) => e.projectSlug !== activeSlug) ? " — nested projects included" : ""}
+          this project&apos;s scheduled posts — Instagram, suggestions and repo runs
         </span>
       </div>
 
@@ -140,17 +144,12 @@ export function ScheduleCalendar({
                       minute: "2-digit",
                       hour12: false,
                     });
-                    const label = `${e.platform} via ${e.kind} (${e.projectSlug}): ${e.title}`;
+                    const label = `${e.platform} via ${e.kind}: ${e.title}`;
                     const href = hrefFor(e);
                     const body = (
                       <>
                         <SocialBrandIcon platform={e.platform} className="h-3 w-3 shrink-0" />
                         <span className="truncate text-[10px] leading-tight tabular-nums text-foreground-muted">{time}</span>
-                        {e.projectSlug !== activeSlug && (
-                          <span className="ml-auto shrink-0 rounded bg-surface-elevated px-1 text-[8px] uppercase tracking-wide text-foreground-faint">
-                            {e.projectSlug.slice(0, 4)}
-                          </span>
-                        )}
                       </>
                     );
                     return href ? (

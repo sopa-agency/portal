@@ -715,17 +715,25 @@ export async function markPosted(
 }
 
 // ---------------------------------------------------------------------------
-// listCalendarExtras — everything scheduled that ISN'T an own-project
-// Instagram post, so the calendar shows the whole picture: posts scheduled
-// from Post Suggestions and Repo to Social (any platform), plus the scheduled
-// Instagram posts of nested projects (Reelflip sees Gnars + SkateHive).
+// listCalendarExtras — everything scheduled for THIS project that isn't one of
+// its own Instagram posts: posts scheduled from Post Suggestions and Repo to
+// Social (any platform), plus Lab cross-network posts.
+//
+// Scope is one project, never a family. Nesting (Gnars/Nogenta under SkateHive
+// via `switcher.parent`) is a sidebar-layout detail — it must not bleed into
+// what a calendar shows, or whoever works on SkateHive reads a Gnars post as
+// theirs. Each portal answers for its own content: SkateHive shows SkateHive,
+// Gnars shows Gnars. Keep new queries here scoped to `project.slug`.
 // ---------------------------------------------------------------------------
 
 export type CalendarExtra = {
   id: string;
   kind: "suggestion" | "repo" | "instagram" | "lab";
-  /** Origin project (badged in the calendar when not the active one). */
+  /** Origin project. Always the active portal — the calendars are scoped to it;
+   *  kept on the event so the UI can prove that and never mislabel a post. */
   projectSlug: string;
+  /** Display name of the origin project ("Gnars"). */
+  projectName?: string;
   platform: string;
   title: string;
   when: string; // ISO
@@ -736,22 +744,17 @@ export async function listCalendarExtras(): Promise<
 > {
   try {
     const { project } = await authGate();
-    const { getAllProjects } = await import("@/projects/index");
-    const childSlugs = getAllProjects()
-      .filter((p) => p.switcher?.parent === project.slug)
-      .map((p) => p.slug);
-    const family = [project.slug, ...childSlugs];
     const events: CalendarExtra[] = [];
 
     const [sugRuns, repoRuns] = await Promise.all([
       prisma.marketingSuggestionRun.findMany({
-        where: { configId: { in: family } },
+        where: { configId: project.slug },
         orderBy: { startedAt: "desc" },
         take: 40,
         select: { id: true, configId: true, tweets: true, tweetStates: true },
       }),
       prisma.repoToSocialRun.findMany({
-        where: { configId: { in: family } },
+        where: { configId: project.slug },
         orderBy: { startedAt: "desc" },
         take: 40,
         select: { id: true, configId: true, tweets: true, tweetStates: true },
@@ -775,6 +778,7 @@ export async function listCalendarExtras(): Promise<
               id: `${kind}:${run.id}:${idx}:${platform}`,
               kind,
               projectSlug: run.configId,
+              projectName: project.name,
               platform,
               title: String(tweets[Number(idx)] ?? "").slice(0, 1000),
               when: iso,
@@ -786,27 +790,9 @@ export async function listCalendarExtras(): Promise<
     harvest(sugRuns, "suggestion");
     harvest(repoRuns, "repo");
 
-    if (childSlugs.length > 0) {
-      const rows = await prisma.instagramPost.findMany({
-        where: { projectSlug: { in: childSlugs }, status: "scheduled" },
-        select: { id: true, projectSlug: true, caption: true, scheduledFor: true },
-      });
-      for (const r of rows) {
-        if (!r.scheduledFor) continue;
-        events.push({
-          id: `ig:${r.id}`,
-          kind: "instagram",
-          projectSlug: r.projectSlug,
-          platform: "instagram",
-          title: r.caption.slice(0, 600),
-          when: r.scheduledFor.toISOString(),
-        });
-      }
-    }
-
-    // Lab-scheduled cross-network posts (non-IG), family-wide.
+    // Lab-scheduled cross-network posts (non-IG) — this project's only.
     const labPosts = await prisma.labScheduledPost.findMany({
-      where: { projectSlug: { in: family }, status: { in: ["scheduled", "publishing"] } },
+      where: { projectSlug: project.slug, status: { in: ["scheduled", "publishing"] } },
       select: { id: true, projectSlug: true, network: true, text: true, scheduledFor: true },
     });
     for (const lp of labPosts) {
@@ -814,6 +800,7 @@ export async function listCalendarExtras(): Promise<
         id: `lab:${lp.id}`,
         kind: "lab",
         projectSlug: lp.projectSlug,
+        projectName: project.name,
         platform: lp.network,
         title: lp.text.slice(0, 600),
         when: lp.scheduledFor.toISOString(),
@@ -827,8 +814,9 @@ export async function listCalendarExtras(): Promise<
   }
 }
 
-/** Unified calendar feed: own Instagram posts (scheduled + published) AND all
- *  cross-source extras — for calendars outside the Post Creator. */
+/** Unified calendar feed for THIS project: its Instagram posts (scheduled +
+ *  published) plus its cross-source extras — for calendars outside the Post
+ *  Creator. Single-project, like `listCalendarExtras`. */
 export async function listUnifiedCalendar(): Promise<
   { ok: true; events: CalendarExtra[] } | { ok: false; error: string }
 > {
@@ -847,6 +835,7 @@ export async function listUnifiedCalendar(): Promise<
         id: `own:${r.id}`,
         kind: "instagram",
         projectSlug: project.slug,
+        projectName: project.name,
         platform: "instagram",
         title: r.caption.slice(0, 600),
         when: when.toISOString(),

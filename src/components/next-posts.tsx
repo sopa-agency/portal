@@ -5,6 +5,7 @@ import { CalendarDays, X } from "lucide-react";
 import type { CalendarExtra } from "@/app/actions/post-creator";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { ownEvents } from "@/lib/calendar-scope";
 
 function whenLabel(iso: string): string {
   const d = new Date(iso);
@@ -30,7 +31,8 @@ export function NextPosts({
   const [open, setOpen] = useState(false);
   // Capture "now" once (Date.now() during render is impure).
   const [now] = useState(() => Date.now());
-  const upcoming = events
+  // This portal's own posts only — see calendar-scope.
+  const upcoming = ownEvents(events, activeSlug)
     .filter((e) => Date.parse(e.when) >= now)
     .sort((a, b) => Date.parse(a.when) - Date.parse(b.when))
     .slice(0, 8);
@@ -61,9 +63,6 @@ export function NextPosts({
                 <p className="line-clamp-2 text-xs text-foreground">{e.title || "(sem título)"}</p>
                 <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-foreground-faint">
                   <span className="font-medium text-foreground-subtle">{whenLabel(e.when)}</span>
-                  {e.projectSlug !== activeSlug && (
-                    <span className="rounded-full bg-foreground/5 px-1.5 py-0.5 uppercase tracking-wide">{e.projectSlug}</span>
-                  )}
                 </p>
               </div>
             </li>
