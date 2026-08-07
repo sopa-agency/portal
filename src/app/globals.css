@@ -318,7 +318,10 @@ body {
 .disclosure-row {
   display: grid;
   grid-template-rows: 0fr;
-  margin-top: -1rem;
+  /* The default cancels one gap of a `gap-4` flex parent. A caller whose parent
+     has no gap (a plain card, say) sets --disclosure-closed-mt: 0, or the
+     collapsed row eats 1rem of whatever sits above it. */
+  margin-top: var(--disclosure-closed-mt, -1rem);
   opacity: 0;
   transition:
     grid-template-rows 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
@@ -760,6 +763,58 @@ body {
   .dialog-panel[data-open="true"] {
     transform: none;
     transition: opacity 120ms ease;
+  }
+}
+
+/* ── Tab panels ─────────────────────────────────────────────────────────────
+   Switching tabs used to swap content instantly, which reads as a page reload
+   rather than a change of view. Keyed on the tab id, so this replays on each
+   switch. Opacity and a few pixels only — no layout animation, because these
+   panels are tall and animating their height would be motion sickness. */
+@keyframes tab-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tab-panel {
+  animation: tab-panel-in 220ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+/* ── Inbox rows that leave once handled ─────────────────────────────────────
+   A row that vanishes the instant you act on it reads as "did that work?".
+   These hold their place for a beat in a done state, then collapse — the grid
+   trick from .disclosure-row, since height doesn't interpolate to auto. */
+.row-leaving {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 240ms ease;
+}
+
+.row-leaving[data-leaving="true"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.row-leaving > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-panel {
+    animation: none;
+  }
+  .row-leaving {
+    transition: opacity 150ms ease;
   }
 }
 
