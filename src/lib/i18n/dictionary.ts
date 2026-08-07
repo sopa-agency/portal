@@ -41,6 +41,17 @@ export const LOCALE_SHORT: Record<Locale, string> = {
 };
 
 const en = {
+  /** Shared controls, not tied to one screen. */
+  ui: {
+    date: {
+      open: "Choose a date",
+      empty: "No date",
+      today: "Today",
+      clear: "Clear",
+      prevMonth: "Previous month",
+      nextMonth: "Next month",
+    },
+  },
   nav: {
     switchLanguage: "Switch language",
     // Sidebar chrome.
@@ -115,8 +126,10 @@ const en = {
     allPeople: "All",
     allRepos: "All",
     allProjects: "All",
-    openContactCard: (username: string) => `Open @${username} contact card`,
     filterPerson: (login: string) => `Filter @${login}`,
+    /** Repo picker in the "new card" form and in convert-draft-to-issue. */
+    repoPlaceholder: "Choose the repo…",
+    repoLabel: "Target repository for the issue",
     loadingBoard: "Loading the Kanban",
     loadFailed: "Failed to load the Kanban",
     loadFailedShort: "Failed to load",
@@ -137,6 +150,7 @@ const en = {
     aggregate: {
       project: "Project:",
       person: "Person:",
+      projectPicker: "Board for the new card",
       empty: "No tasks on the boards (or GitHub tokens unavailable).",
     },
   },
@@ -172,6 +186,16 @@ const en = {
 };
 
 const pt: typeof en = {
+  ui: {
+    date: {
+      open: "Escolher uma data",
+      empty: "Sem data",
+      today: "Hoje",
+      clear: "Limpar",
+      prevMonth: "Mês anterior",
+      nextMonth: "Próximo mês",
+    },
+  },
   nav: {
     switchLanguage: "Trocar idioma",
     openMenu: "Abrir menu",
@@ -233,8 +257,9 @@ const pt: typeof en = {
     allPeople: "Todas",
     allRepos: "Todos",
     allProjects: "Todos",
-    openContactCard: (username: string) => `Abrir o cartão de contato de @${username}`,
     filterPerson: (login: string) => `Filtrar @${login}`,
+    repoPlaceholder: "Escolha o repo…",
+    repoLabel: "Repositório de destino da issue",
     loadingBoard: "Carregando o Kanban",
     loadFailed: "Falha ao carregar o Kanban",
     loadFailedShort: "Falha ao carregar",
@@ -251,6 +276,7 @@ const pt: typeof en = {
     aggregate: {
       project: "Projeto:",
       person: "Pessoa:",
+      projectPicker: "Board do novo card",
       empty: "Nenhuma tarefa nos boards (ou tokens do GitHub indisponíveis).",
     },
   },

@@ -357,7 +357,10 @@ body {
 .popover-panel {
   transform-origin: top right;
   opacity: 0;
-  transform: translateY(-6px) scale(0.97);
+  /* --pop-y is the direction it comes from: negative drops in from above the
+     trigger, positive rises in from below it. AnchoredPopover flips the sign
+     when it has to open upwards. */
+  transform: translateY(var(--pop-y, -6px)) scale(0.97);
   visibility: hidden;
   transition:
     opacity 130ms ease,

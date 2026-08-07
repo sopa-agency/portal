@@ -24,6 +24,7 @@ import { BountyBadge, taskKeyOf } from "@/components/bounty-panel";
 import { CardDetailDialog, FirePriority, DeadlineChip, CardFx, cardFxState } from "@/components/kanban-board";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useT } from "@/components/locale-provider";
+import { SelectMenu } from "@/components/select-menu";
 
 const COL_PREFIX = "aggcol:";
 
@@ -383,6 +384,7 @@ function DroppableColumn({
   onAdd: (proj: ProjMeta, optionId: string | undefined, title: string) => void | Promise<void>;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const { setNodeRef, isOver } = useDroppable({ id: `${COL_PREFIX}${name}` });
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
@@ -425,9 +427,15 @@ function DroppableColumn({
               className="w-full resize-none rounded-md bg-surface px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-foreground-faint focus:ring-1 focus:ring-accent-border"
             />
             <div className="flex items-center gap-1.5">
-              <select value={projSlug} onChange={(e) => setProjSlug(e.target.value)} className="min-w-0 flex-1 rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-foreground">
-                {candidates.map((c) => <option key={c.proj.slug} value={c.proj.slug}>{c.proj.name}</option>)}
-              </select>
+              <SelectMenu
+                size="sm"
+                value={chosen?.proj.slug ?? ""}
+                options={candidates.map((c) => ({ value: c.proj.slug, label: c.proj.name }))}
+                onChange={setProjSlug}
+                placeholder={t.kanban.aggregate.projectPicker}
+                label={t.kanban.aggregate.projectPicker}
+                className="min-w-0 flex-1"
+              />
               <button type="button" onClick={() => { setTitle(""); setAdding(false); }} className="rounded-md p-1 text-foreground-faint hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
               <button type="button" onClick={submit} disabled={busy || !title.trim()} className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground disabled:opacity-50">
                 {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add"}

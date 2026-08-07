@@ -61,6 +61,8 @@ import { requestCardTest, resolveCardTest } from "@/app/actions/card-test";
 import { useDialogA11y } from "@/hooks/use-dialog-a11y";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useT } from "@/components/locale-provider";
+import { SelectMenu } from "@/components/select-menu";
+import { DateField } from "@/components/date-field";
 
 // ---------------------------------------------------------------------------
 // Column status color (mid-tone hues that read on both light & dark surfaces)
@@ -688,6 +690,7 @@ function ColumnView({
   onOpenMember?: (member: TeamMember) => void;
   busy: boolean;
 }) {
+  const t = useT();
   const { setNodeRef, isOver } = useDroppable({ id: `container:${column.name}` });
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -708,12 +711,12 @@ function ColumnView({
   }, [adding]);
 
   function submit() {
-    const t = draft.trim();
-    if (t) {
+    const title = draft.trim();
+    if (title) {
       // Nothing picked while several repos are in play — hold the form open
       // instead of creating the issue somewhere the user didn't ask for.
       if (repoMissing) return;
-      onAddDraft(column.name, t, kind, kind === "issue" ? repo || undefined : undefined);
+      onAddDraft(column.name, title, kind, kind === "issue" ? repo || undefined : undefined);
     }
     setDraft("");
     setRepoPick("");
@@ -797,21 +800,22 @@ function ColumnView({
                     ))}
                   </div>
                   {kind === "issue" && repoOptions.length > 1 && (
-                    <select
+                    <SelectMenu
+                      size="sm"
                       value={repo}
-                      onChange={(e) => setRepoPick(e.target.value)}
-                      title="Repositório de destino da issue"
-                      className={`min-w-0 max-w-[10rem] truncate rounded-md border bg-surface px-1.5 py-0.5 text-[10.5px] outline-none focus:ring-1 focus:ring-accent-border ${
-                        repoMissing ? "border-warning text-warning" : "border-border text-foreground-muted"
-                      }`}
-                    >
-                      {repoMissing && <option value="">Escolha o repo…</option>}
-                      {repoOptions.map((r) => (
-                        <option key={r} value={r}>
-                          {shortRepo(r)}
-                        </option>
-                      ))}
-                    </select>
+                      options={repoOptions.map((r) => ({
+                        value: r,
+                        label: shortRepo(r),
+                        // Same hue the repo filter chips use, so a repo reads
+                        // as the same colour everywhere on the board.
+                        dot: `hsl(${repoHue(r)} 65% 55%)`,
+                      }))}
+                      onChange={setRepoPick}
+                      placeholder={t.kanban.repoPlaceholder}
+                      label={t.kanban.repoLabel}
+                      invalid={repoMissing}
+                      className="min-w-0 max-w-[10rem]"
+                    />
                   )}
                 </div>
               ) : (
@@ -1280,6 +1284,7 @@ export function CardDetailDialog({
   onPatchItem: (itemId: string, patch: Partial<KanbanItem>) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignBusy, setAssignBusy] = useState(false);
   const [manualLogin, setManualLogin] = useState("");
@@ -1752,12 +1757,10 @@ export function CardDetailDialog({
             </div>
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <span className="text-[10px] font-medium uppercase tracking-wide text-foreground-faint">Deadline</span>
-              <input
-                type="date"
+              <DateField
                 value={item.deadline ?? ""}
                 disabled={prioBusy}
-                onChange={(e) => setDeadline(e.target.value || null)}
-                className="rounded-lg border border-border bg-surface px-2 py-0.5 text-xs text-foreground outline-none focus:border-border-strong disabled:opacity-50 [color-scheme:light] dark:[color-scheme:dark]"
+                onChange={(next) => setDeadline(next)}
               />
               {item.deadline ? (
                 <button
@@ -1904,21 +1907,19 @@ export function CardDetailDialog({
                     Converter em issue
                   </button>
                   {convertOptions.length > 1 && (
-                    <select
+                    <SelectMenu
                       value={convertRepo}
-                      onChange={(e) => setConvertPick(e.target.value)}
-                      title="Repositório de destino da issue"
-                      className={`max-w-[14rem] truncate rounded-lg border bg-surface px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-accent-border ${
-                        convertRepo ? "border-border text-foreground-muted" : "border-warning text-warning"
-                      }`}
-                    >
-                      {!convertRepo && <option value="">Escolha o repo…</option>}
-                      {convertOptions.map((r) => (
-                        <option key={r} value={r}>
-                          {shortRepo(r)}
-                        </option>
-                      ))}
-                    </select>
+                      options={convertOptions.map((r) => ({
+                        value: r,
+                        label: shortRepo(r),
+                        dot: `hsl(${repoHue(r)} 65% 55%)`,
+                      }))}
+                      onChange={setConvertPick}
+                      placeholder={t.kanban.repoPlaceholder}
+                      label={t.kanban.repoLabel}
+                      invalid={!convertRepo}
+                      className="max-w-[14rem]"
+                    />
                   )}
                 </div>
               )}
@@ -2790,12 +2791,6 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
     const matched = board.assignable?.find((m) => m.login.toLowerCase() === login.toLowerCase());
     return matched?.username ? teamMemberByUsername.get(matched.username.toLowerCase()) ?? null : null;
   };
-  const openMemberByLogin = (login: string): boolean => {
-    const member = memberForLogin(login);
-    if (!member) return false;
-    setSelectedMember(member);
-    return true;
-  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -2914,10 +2909,14 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
                   <button
                     key={p.login}
                     type="button"
-                    onClick={() => {
-                      if (!openMemberByLogin(p.login)) togglePerson(p.login);
-                    }}
-                    title={member ? t.kanban.openContactCard(member.username) : t.kanban.filterPerson(p.login)}
+                    /* Filters, always. It used to open the contact card instead
+                       whenever the login matched a team member, which made one
+                       control in a row of filters do two different things
+                       depending on who you clicked. The contact card is still a
+                       click away on the assignee avatars and in the card
+                       dialog, so nothing was lost by making this single-purpose. */
+                    onClick={() => togglePerson(p.login)}
+                    title={t.kanban.filterPerson(p.login)}
                     aria-pressed={on}
                     className={`flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] transition ${on ? "border-accent bg-accent-bg text-accent" : "border-border text-foreground-muted hover:border-border-strong"}`}
                   >
