@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Skeleton, SkeletonRegion } from "@/components/skeleton";
 import {
   Bot,
   Mail,
@@ -1603,6 +1604,43 @@ function PeriodTabs({
   );
 }
 
+/** Stand-in for the MVP poster while it loads. Same shell, same paddings and
+ *  the same avatar/heading sizes, so the real card fills it in rather than
+ *  shoving the roster below it down the page. */
+function MvpPosterSkeleton() {
+  return (
+    <SkeletonRegion label="Carregando o destaque da equipe…">
+      <section className="relative overflow-hidden rounded-3xl border border-border bg-surface">
+        <div className="relative p-6 sm:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <Skeleton round className="h-[30px] w-[376px] max-w-full" />
+            <div className="space-y-1.5 text-right">
+              <Skeleton round className="ml-auto h-2.5 w-20" />
+              <Skeleton round className="ml-auto h-3 w-28" />
+            </div>
+          </div>
+          <div className="mt-7 flex flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:gap-6 sm:text-left">
+            <Skeleton round className="h-24 w-24 shrink-0 sm:h-28 sm:w-28" />
+            <div className="min-w-0 space-y-3">
+              <Skeleton round className="h-3 w-40" />
+              <Skeleton className="h-9 w-56 max-w-full sm:h-10" />
+              <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
+                <Skeleton round className="h-6 w-24" />
+                <Skeleton round className="h-6 w-20" />
+              </div>
+            </div>
+          </div>
+          <div className="mt-7 space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-11 w-full" />
+            ))}
+          </div>
+        </div>
+      </section>
+    </SkeletonRegion>
+  );
+}
+
 const mvpName = (e: WeeklyMvp) => e.username ?? e.login;
 const mvpAvatar = (e: WeeklyMvp) =>
   e.username ? `https://images.hive.blog/u/${e.username}/avatar` : e.avatarUrl;
@@ -1658,15 +1696,21 @@ function Collapsible({
  *  Saturday in team time. Hidden when nobody qualifies in any period. */
 function WeeklyMvpPoster({ projectName }: { projectName: string }) {
   const [periods, setPeriods] = useState<MvpPeriod[] | null>(null);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<MvpPeriodKey>("week");
   useEffect(() => {
     let live = true;
     getWeeklyMvp()
       .then((r) => { if (live && r.ok) setPeriods(r.periods); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, []);
 
+  // Placeholder only while the request is actually in flight. A failed or empty
+  // result still renders nothing — a shimmer that never resolves would be worse
+  // than a missing card, and this poster is allowed to be absent.
+  if (loading) return <MvpPosterSkeleton />;
   if (!periods || !periods.some((p) => p.winner)) return null;
 
   const active = periods.find((p) => p.key === tab) ?? periods[0];
