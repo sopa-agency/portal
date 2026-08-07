@@ -348,6 +348,39 @@ body {
   padding: 2px;
 }
 
+/* ── Live badge: the dot that says the data is being read right now ──────────
+   A ring expanding out of a solid dot. It's decoration for a claim the copy
+   already makes, so it stops entirely under reduced motion rather than
+   degrading — a pulsing dot is exactly the kind of movement that setting is
+   asking us to drop. */
+@keyframes live-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: currentColor;
+  animation: live-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* ── Popover: a panel anchored to its trigger (Kanban's "PRs" list) ──────────
    Absolutely positioned, so nothing reflows and only paint properties move.
    Kept mounted for the same reason as above; `visibility` is what actually

@@ -4,7 +4,8 @@ type PageHeaderProps = {
   eyebrow?: string;
   title: string;
   description?: ReactNode;
-  status?: string;
+  /** A short qualifier beside the title. A node, so a page can pass a badge. */
+  status?: ReactNode;
   actions?: ReactNode;
   /**
    * Single tight row instead of the stacked block — for pages where the content
@@ -36,10 +37,15 @@ export function PageHeader({ eyebrow, title, description, status, actions, compa
           >
             {title}
           </h1>
-          {status && (
+          {/* A plain string gets the default neutral pill; anything richer is
+              already styled by the page that passed it, so it renders as-is
+              rather than getting a second pill around it. */}
+          {typeof status === "string" ? (
             <span className="rounded-full border border-border px-2.5 py-0.5 text-xs text-foreground-muted">
               {status}
             </span>
+          ) : (
+            status
           )}
         </div>
         {description && (

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Coins } from "lucide-react";
 import type { FinanceMonthPoint, FinancialDashboardView } from "@/lib/financial-dashboard";
+import { useLocale } from "@/components/locale-provider";
 
 // "Entrada vs saída" — the operating view, laid out per the Claude Design:
 // one card with the paired bar chart on the left and the period totals on the
@@ -11,9 +12,9 @@ import type { FinanceMonthPoint, FinancialDashboardView } from "@/lib/financial-
 const usd = (n: number, d = 0) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < 100 ? 2 : d });
 
-const monthLabel = (month: string) => {
+const monthLabel = (month: string, locale: string) => {
   const [year, mm] = month.split("-").map(Number);
-  return new Date(Date.UTC(year, mm - 1, 1)).toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" }).replace(".", "");
+  return new Date(Date.UTC(year, mm - 1, 1)).toLocaleDateString(locale, { month: "short", timeZone: "UTC" }).replace(".", "");
 };
 
 const ranges = [12, 6, 3, 1] as const;
@@ -24,6 +25,9 @@ function sum(series: FinanceMonthPoint[], key: keyof FinanceMonthPoint) {
 
 /** Paired bars per month: entrada (accent) vs saída (muted). */
 function Bars({ series }: { series: FinanceMonthPoint[] }) {
+  const { locale, t } = useLocale();
+  const intlLocale = locale === "pt" ? "pt-BR" : "en-US";
+  const d = t.treasury.dashboard;
   const max = Math.max(1, ...series.flatMap((p) => [p.incomingUsd, p.outgoingUsd]));
   return (
     <div>
@@ -35,12 +39,12 @@ function Bars({ series }: { series: FinanceMonthPoint[] }) {
             <div
               className="w-3.5 rounded-t bg-accent"
               style={{ height: `${Math.max((p.incomingUsd / max) * 100, p.incomingUsd > 0 ? 2 : 0)}%` }}
-              title={`Entrada ${usd(p.incomingUsd)}`}
+              title={d.barIn(usd(p.incomingUsd))}
             />
             <div
               className="w-3.5 rounded-t bg-border-strong"
               style={{ height: `${Math.max((p.outgoingUsd / max) * 100, p.outgoingUsd > 0 ? 2 : 0)}%` }}
-              title={`Saída ${usd(p.outgoingUsd)}`}
+              title={d.barOut(usd(p.outgoingUsd))}
             />
           </div>
         ))}
@@ -48,16 +52,16 @@ function Bars({ series }: { series: FinanceMonthPoint[] }) {
       <div className="flex gap-2.5 px-1 pt-1.5">
         {series.map((p) => (
           <div key={p.month} className="flex-1 text-center text-[11px] text-foreground-faint">
-            {monthLabel(p.month)}
+            {monthLabel(p.month, intlLocale)}
           </div>
         ))}
       </div>
       <div className="mt-2.5 flex gap-4 text-xs text-foreground-muted">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-sm bg-accent" /> entrada
+          <span className="h-2.5 w-2.5 rounded-sm bg-accent" /> {d.in.toLowerCase()}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-sm bg-border-strong" /> saída
+          <span className="h-2.5 w-2.5 rounded-sm bg-border-strong" /> {d.out.toLowerCase()}
         </span>
       </div>
     </div>
@@ -75,6 +79,8 @@ function Box({ label, value, tone = "text-foreground", sub }: { label: string; v
 }
 
 export function FinancialDashboard({ views, selectedView }: { views: FinancialDashboardView[]; selectedView: string }) {
+  const t = useLocale().t.treasury;
+  const d = t.dashboard;
   const [range, setRange] = useState<(typeof ranges)[number]>(6);
   const view = views.find((item) => item.slug === selectedView) ?? views[0];
   const visibleSeries = useMemo(() => view.series.slice(-range), [range, view.series]);
@@ -86,20 +92,20 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
   const netUsd = incomingUsd - outgoingUsd;
   const jobsShare = incomingUsd > 0 ? (jobsUsd / incomingUsd) * 100 : 0;
   const onchainShare = incomingUsd > 0 ? (onchainIncomingUsd / incomingUsd) * 100 : 0;
-  const periodLabel = `${range} ${range === 1 ? "mês" : "meses"}`;
+  const periodLabel = d.months(range);
   const netPhrase =
     incomingUsd === 0 && outgoingUsd === 0
-      ? "sem movimento no período"
+      ? d.noMovement
       : netUsd >= 0
-        ? `entrou mais do que saiu nos últimos ${periodLabel}`
-        : `saiu mais do que entrou nos últimos ${periodLabel}`;
+        ? d.netPositive(periodLabel)
+        : d.netNegative(periodLabel);
 
   return (
     <div className="space-y-4">
       {/* Chart + period totals, one card */}
       <section className="rounded-2xl border border-border bg-surface p-5">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="flex-1 text-base font-semibold tracking-tight text-foreground">Entrada vs saída</h2>
+          <h2 className="flex-1 text-base font-semibold tracking-tight text-foreground">{t.sections.inOut}</h2>
           <div className="flex gap-1 rounded-full bg-surface-elevated p-1">
             {ranges.map((value) => (
               <button
@@ -122,11 +128,11 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
             <Bars series={visibleSeries} />
           </div>
           <div className="grid min-w-[220px] flex-1 grid-cols-2 gap-2.5 self-start">
-            <Box label="Entrada" value={usd(incomingUsd)} tone="text-success" />
-            <Box label="Saída" value={usd(outgoingUsd)} tone="text-foreground" />
+            <Box label={d.in} value={usd(incomingUsd)} tone="text-success" />
+            <Box label={d.out} value={usd(outgoingUsd)} tone="text-foreground" />
             <div className="col-span-2">
               <Box
-                label="Líquido no período"
+                label={d.net}
                 value={usd(netUsd)}
                 tone={netUsd >= 0 ? "text-success" : "text-danger"}
                 sub={netPhrase}
@@ -140,15 +146,15 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
       <div className="grid gap-3">
         <div className="rounded-2xl border border-border bg-surface p-4">
           <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-foreground-subtle">
-            <Coins className="h-4 w-4 text-foreground-faint" /> De onde vem a receita
+            <Coins className="h-4 w-4 text-foreground-faint" /> {d.mixTitle}
           </div>
           <p className="mt-1 text-[11px] text-foreground-faint">
-            Jobs = trabalhos da agência. On-chain = fatia dos leilões e swaps das marcas.
+            {d.mixHint}
           </p>
           <div className="mt-3 space-y-2">
             <div>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-foreground-muted">Marcas (on-chain)</span>
+                <span className="text-foreground-muted">{d.brands}</span>
                 <span className="font-semibold tabular-nums text-foreground">
                   {usd(onchainIncomingUsd)} · {Math.round(onchainShare)}%
                 </span>
@@ -159,7 +165,7 @@ export function FinancialDashboard({ views, selectedView }: { views: FinancialDa
             </div>
             <div>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-foreground-muted">Agência (jobs)</span>
+                <span className="text-foreground-muted">{d.agency}</span>
                 <span className="font-semibold tabular-nums text-foreground">
                   {usd(jobsUsd)} · {Math.round(jobsShare)}%
                 </span>

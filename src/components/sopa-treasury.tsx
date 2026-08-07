@@ -10,6 +10,8 @@ import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { Section } from "@/components/section-heading";
 import { usd as usd2 } from "@/lib/format";
 import { TreasuryHealthHero } from "@/components/treasury-health-hero";
+import { dedupeTreasuryGroups } from "@/lib/treasury-aggregate";
+import { useT } from "@/components/locale-provider";
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -29,10 +31,11 @@ export function SopaTreasury({
   /** SOPA-level agency revenue (jobs + split share) — shown only on "Tudo". */
   agency: ReactNode;
 }) {
+  const t = useT().treasury;
   const [view, setView] = useState("all");
   const isAll = view === "all";
   const selected = groups.find((g) => g.slug === view);
-  const visibleGroups = isAll ? groups : selected ? [selected] : groups;
+  const visibleGroups = isAll ? dedupeTreasuryGroups(groups) : selected ? [selected] : groups;
 
   const filteredRevenue: OrgRevenue | null = !revenue
     ? null
@@ -49,7 +52,7 @@ export function SopaTreasury({
           };
         })();
 
-  const tabs = [{ slug: "all", name: "Tudo" }, ...groups.map((g) => ({ slug: g.slug, name: g.name }))];
+  const tabs = [{ slug: "all", name: t.all }, ...groups.map((g) => ({ slug: g.slug, name: g.name }))];
 
   // Hero numbers for the current filter: how much, is it healthy, how long it lasts.
   const dash = dashboardViews.find((d) => d.slug === view) ?? dashboardViews[0];
@@ -57,7 +60,7 @@ export function SopaTreasury({
   const walletCount = visibleGroups.reduce((s, g) => s + g.report.evm.length + g.report.hive.length, 0);
   const runwayMonths = dash?.runwayMonths ?? null;
   const burnUsd = dash?.burnUsd ?? 0;
-  const projLabel = isAll ? "Tudo" : selected?.name ?? "";
+  const projLabel = isAll ? t.all : selected?.name ?? "";
 
   return (
     <div className="space-y-8">
@@ -79,7 +82,7 @@ export function SopaTreasury({
                 {t.name}
               </button>
             ))}
-            <span className="ml-1 text-[11px] text-foreground-faint">o filtro ajusta todos os números abaixo</span>
+            <span className="ml-1 text-[11px] text-foreground-faint">{t.filterHint}</span>
           </div>
         </div>
       )}
@@ -93,17 +96,16 @@ export function SopaTreasury({
         watermarkLogo="/projects/sopa/logo.png"
         runwayFooter={
           burnUsd > 0
-            ? `contando ${usd2(burnUsd)}/mês de custos${isAll ? " de todos os projetos" : ""}`
-            : "nenhum custo fixo lançado neste filtro"
+            ? isAll
+              ? t.hero.countingCostsAll(usd2(burnUsd))
+              : t.hero.countingCosts(usd2(burnUsd))
+            : t.hero.noCostsFiled
         }
       />
 
       <FinancialDashboard views={dashboardViews} selectedView={view} />
 
-      <Section
-        title="Onde o dinheiro está"
-        hint={`Cada carteira e ativo que compõe o tesouro${isAll ? ", somando todos os projetos" : ""}.`}
-      >
+      <Section title={t.sections.where} hint={isAll ? t.sections.whereHintAll : t.sections.whereHint}>
         <TreasuryViews groups={visibleGroups} hideSelector hideTotal />
       </Section>
 

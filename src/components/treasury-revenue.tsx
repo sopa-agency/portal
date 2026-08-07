@@ -1,7 +1,11 @@
+"use client";
+
 import { DollarSign } from "lucide-react";
 import type { OrgRevenue, OrgRevenueStream } from "@/lib/org-revenue";
 import { Sparkline, RevenueChart } from "@/components/revenue-charts";
 import { usd } from "@/lib/format";
+import { useT } from "@/components/locale-provider";
+import type { Dictionary } from "@/lib/i18n/dictionary";
 
 const signedUsd = (n: number) => `${n >= 0 ? "+" : "−"}${usd(Math.abs(n))}`;
 
@@ -40,7 +44,7 @@ function TrendChips({ stream }: { stream: OrgRevenueStream }) {
   );
 }
 
-function StreamRow({ stream }: { stream: OrgRevenueStream }) {
+function StreamRow({ stream, t }: { stream: OrgRevenueStream; t: Dictionary["treasury"]["revenue"] }) {
   const { realized, flow } = stream;
   return (
     <div className="rounded-lg border border-border bg-surface p-3">
@@ -66,7 +70,7 @@ function StreamRow({ stream }: { stream: OrgRevenueStream }) {
       ) : (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
           <span className="text-foreground-muted">
-            saldo <span className="font-semibold text-foreground">{usd(stream.balanceUsd)}</span>
+            {t.balanceShort} <span className="font-semibold text-foreground">{usd(stream.balanceUsd)}</span>
           </span>
           {stream.tokens.length > 0 && (
             <span className="truncate text-foreground-faint">
@@ -83,16 +87,16 @@ function StreamRow({ stream }: { stream: OrgRevenueStream }) {
         <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-2">
           <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
             <span className="text-foreground-muted">
-              {realized.method === "auction" ? "🔨 Receita de leilões" : "💧 Distribuído (split)"}{" "}
+              {realized.method === "auction" ? t.auction : t.split}{" "}
               <span className="font-semibold text-success">{usd(realized.revenueUsd)}</span>
             </span>
             <span className="text-foreground-faint">
-              {realized.count} {realized.method === "auction" ? "leilões" : "distribuições"}
+              {realized.count} {realized.method === "auction" ? t.auctions : t.distributions}
             </span>
             <span className="text-foreground-muted">
-              · dentro agora <span className="font-semibold text-foreground">{usd(stream.balanceUsd)}</span>
+              · {t.insideNow} <span className="font-semibold text-foreground">{usd(stream.balanceUsd)}</span>
             </span>
-            {realized.truncated && <span className="text-warning">parcial</span>}
+            {realized.truncated && <span className="text-warning">{t.partial}</span>}
           </div>
           <RevenueChart series={realized.series} />
         </div>
@@ -103,12 +107,16 @@ function StreamRow({ stream }: { stream: OrgRevenueStream }) {
         <div className="mt-2 rounded-md border border-border bg-surface-elevated p-2">
           <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
             <span className="text-foreground-muted">
-              Recebido <span className="font-semibold text-success">{usd(flow.receivedUsd)}</span>
+              {t.received} <span className="font-semibold text-success">{usd(flow.receivedUsd)}</span>
             </span>
             <span className="text-foreground-muted">
-              Pago/saiu <span className="font-semibold text-foreground">{usd(flow.paidUsd)}</span>
+              {t.paid} <span className="font-semibold text-foreground">{usd(flow.paidUsd)}</span>
             </span>
-            {flow.truncated && <span className="text-warning" title="histórico longo — mostrando parte">parcial</span>}
+            {flow.truncated && (
+              <span className="text-warning" title={t.partialTitle}>
+                {t.partial}
+              </span>
+            )}
           </div>
           <RevenueChart series={flow.series} />
         </div>
@@ -125,27 +133,26 @@ function StreamRow({ stream }: { stream: OrgRevenueStream }) {
 // revenue streams (balances + realized gross + trend), mirroring the org-chart
 // Receita tab but read-only. Rendered only when tracked streams exist.
 export function TreasuryRevenue({ data, aggregate = true }: { data: OrgRevenue; aggregate?: boolean }) {
+  const t = useT().treasury.revenue;
   if (!data.projects.length) return null;
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-            <DollarSign className="h-4 w-4 text-success" /> Receita on-chain
+            <DollarSign className="h-4 w-4 text-success" /> {t.title}
           </h2>
           <p className="mt-0.5 text-xs text-foreground-subtle">
-            {aggregate
-              ? "Fontes de receita rastreadas por projeto — leituras ao vivo das mesmas carteiras/contratos do org-chart."
-              : "Fontes de receita rastreadas deste projeto — leituras on-chain ao vivo (configuradas no org-chart)."}
+            {aggregate ? t.hintAll : t.hintOne}
           </p>
         </div>
         <div className="flex gap-5 text-right">
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Receita realizada</div>
+            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.realized}</div>
             <div className="text-base font-semibold text-success">{usd(data.realizedTotalUsd)}</div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Saldo atual</div>
+            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.balance}</div>
             <div className="text-base font-semibold text-foreground">{usd(data.balanceTotalUsd)}</div>
           </div>
         </div>
@@ -168,12 +175,12 @@ export function TreasuryRevenue({ data, aggregate = true }: { data: OrgRevenue; 
                 {p.realizedTotalUsd > 0 && (
                   <div className="text-xs font-semibold text-success">{usd(p.realizedTotalUsd)}</div>
                 )}
-                <div className="text-[10px] text-foreground-faint">saldo {usd(p.balanceTotalUsd)}</div>
+                <div className="text-[10px] text-foreground-faint">{t.balanceShort} {usd(p.balanceTotalUsd)}</div>
               </div>
             </div>
             <div className="space-y-2">
               {p.streams.map((s, i) => (
-                <StreamRow key={i} stream={s} />
+                <StreamRow key={i} stream={s} t={t} />
               ))}
             </div>
           </div>

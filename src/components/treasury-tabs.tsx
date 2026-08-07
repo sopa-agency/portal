@@ -3,16 +3,20 @@
 import { type ReactNode } from "react";
 import { Wallet, ScrollText, Users2, PiggyBank, Receipt, type LucideIcon } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
+import { useT } from "@/components/locale-provider";
 
 // Top-level tabs on the SOPA treasury page: the live treasury (balances +
 // revenue), fixed costs, the payroll stream members, community staking, the plan.
 export function TreasuryTabs({ treasury, costs, members, apoiar, plan }: { treasury: ReactNode; costs?: ReactNode; members?: ReactNode; apoiar?: ReactNode; plan: ReactNode }) {
+  // Ids stay Portuguese: they are the ?tab= value, so translating them would
+  // break every link anyone has already shared.
+  const t = useT().treasury.tabs;
   const tabs: { id: string; label: string; icon: LucideIcon; node: ReactNode }[] = [
-    { id: "tesouro", label: "Tesouro", icon: Wallet, node: treasury },
-    ...(costs ? [{ id: "custos", label: "Custos", icon: Receipt, node: costs }] : []),
-    ...(members ? [{ id: "membros", label: "Membros", icon: Users2, node: members }] : []),
-    ...(apoiar ? [{ id: "apoiar", label: "Apoiar", icon: PiggyBank, node: apoiar }] : []),
-    { id: "plano", label: "Plano financeiro", icon: ScrollText, node: plan },
+    { id: "tesouro", label: t.treasury, icon: Wallet, node: treasury },
+    ...(costs ? [{ id: "custos", label: t.costs, icon: Receipt, node: costs }] : []),
+    ...(members ? [{ id: "membros", label: t.members, icon: Users2, node: members }] : []),
+    ...(apoiar ? [{ id: "apoiar", label: t.support, icon: PiggyBank, node: apoiar }] : []),
+    { id: "plano", label: t.plan, icon: ScrollText, node: plan },
   ];
   const [tab, setTab] = useUrlTab("tab", "tesouro");
   const active = tabs.some((t) => t.id === tab) ? tab : "tesouro";

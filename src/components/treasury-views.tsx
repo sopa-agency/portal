@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ExternalLink, Layers, Wallet } from "lucide-react";
 import type { TreasuryGroup, EvmWalletReport, HiveAccountReport } from "@/lib/treasury";
 import { TokenLogo } from "@/components/token-logo";
+import { useT } from "@/components/locale-provider";
+import type { Dictionary } from "@/lib/i18n/dictionary";
 
 const usd = (n: number, max = 0) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < 1 ? 4 : max });
@@ -50,12 +52,12 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
 
 type Segment = { label: string; valueUsd: number; color: string };
 
-/** Top-N segments + an aggregated "Outros" tail, for a stacked allocation bar. */
-function toSegments(items: { label: string; valueUsd: number }[], topN = 6): Segment[] {
+/** Top-N segments + an aggregated "rest" tail, for a stacked allocation bar. */
+function toSegments(items: { label: string; valueUsd: number }[], restLabel: string, topN = 6): Segment[] {
   const sorted = [...items].sort((a, b) => b.valueUsd - a.valueUsd).filter((i) => i.valueUsd > 0);
   const head = sorted.slice(0, topN).map((i, idx) => ({ ...i, color: colorAt(idx) }));
   const tail = sorted.slice(topN);
-  if (tail.length) head.push({ label: "Outros", valueUsd: tail.reduce((s, i) => s + i.valueUsd, 0), color: REST_COLOR });
+  if (tail.length) head.push({ label: restLabel, valueUsd: tail.reduce((s, i) => s + i.valueUsd, 0), color: REST_COLOR });
   return head;
 }
 
@@ -105,6 +107,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 /** The hero + composition + holdings overview for the current view. */
 function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[]; title: string; hideTotal?: boolean }) {
+  const t = useT().treasury.views;
   const grand = groups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
   const evmTotal = groups.reduce((s, g) => s + g.report.evmTotalUsd, 0);
   const hiveTotal = groups.reduce((s, g) => s + g.report.hiveTotalUsd, 0);
@@ -118,10 +121,13 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
     return (sym: string) => m.get(sym.toUpperCase()) ?? REST_COLOR;
   }, [assets]);
 
-  const assetSegments = useMemo(() => toSegments(assets.map((a) => ({ label: a.symbol, valueUsd: a.valueUsd }))), [assets]);
+  const assetSegments = useMemo(
+    () => toSegments(assets.map((a) => ({ label: a.symbol, valueUsd: a.valueUsd })), t.others),
+    [assets, t.others],
+  );
   const projectSegments = useMemo(
-    () => toSegments(groups.map((g) => ({ label: g.name, valueUsd: g.report.grandTotalUsd }))),
-    [groups],
+    () => toSegments(groups.map((g) => ({ label: g.name, valueUsd: g.report.grandTotalUsd })), t.others),
+    [groups, t.others],
   );
   const multi = groups.length > 1;
 
@@ -149,8 +155,8 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
         <div className={`grid grid-cols-2 gap-4 sm:grid-cols-4 ${hideTotal ? "" : "mt-5"}`}>
           <Stat label="EVM" value={usd(evmTotal)} />
           <Stat label="Hive" value={usd(hiveTotal)} />
-          <Stat label="Ativos" value={String(assets.length)} />
-          <Stat label={multi ? "Carteiras" : "Redes"} value={String(multi ? walletCount : chainCount)} />
+          <Stat label={t.assets} value={String(assets.length)} />
+          <Stat label={multi ? t.wallets : t.networks} value={String(multi ? walletCount : chainCount)} />
         </div>
       </div>
 
@@ -159,14 +165,14 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
         {multi && (
           <div className="space-y-3">
             <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-              <Layers className="h-3.5 w-3.5" /> Por projeto
+              <Layers className="h-3.5 w-3.5" /> {t.byProject}
             </h4>
             <AllocationBar segments={projectSegments} total={grand} />
           </div>
         )}
         <div className="space-y-3">
           <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-            <Wallet className="h-3.5 w-3.5" /> Por ativo
+            <Wallet className="h-3.5 w-3.5" /> {t.byAsset}
           </h4>
           <AllocationBar segments={assetSegments} total={grand} />
         </div>
@@ -197,7 +203,7 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                       return apr ? (
                         <span
                           className="rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success"
-                          title={apr.est ? "Estimativa — rendimento do HP via inflação (vesting); curadoria varia." : "Taxa de juros do HBD em savings (on-chain)."}
+                          title={apr.est ? t.aprEstimate : t.aprSavings}
                         >
                           {apr.text}{apr.est ? "*" : ""}
                         </span>
@@ -228,8 +234,11 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
 // Per-wallet detail (kept for drill-down, collapsed by default)
 // ---------------------------------------------------------------------------
 
-function EvmCard({ w }: { w: EvmWalletReport }) {
-  const segs = w.totalUsd > 0 ? toSegments(w.tokens.map((t) => ({ label: `${t.symbol}·${t.chain}`, valueUsd: t.valueUsd }))) : [];
+function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["views"] }) {
+  const segs =
+    w.totalUsd > 0
+      ? toSegments(w.tokens.map((tk) => ({ label: `${tk.symbol}·${tk.chain}`, valueUsd: tk.valueUsd })), t.others)
+      : [];
   return (
     <div className="group rounded-2xl border border-border bg-surface p-5 transition-colors hover:border-border-strong">
       <div className="flex items-start justify-between gap-3">
@@ -249,7 +258,7 @@ function EvmCard({ w }: { w: EvmWalletReport }) {
         <div className="shrink-0 text-right">
           <p className="text-lg font-bold tabular-nums text-foreground">{usd(w.totalUsd)}</p>
           {w.tokens.length > 0 && (
-            <p className="text-[10px] tabular-nums text-foreground-faint">{w.tokens.length} ativo{w.tokens.length !== 1 ? "s" : ""}</p>
+            <p className="text-[10px] tabular-nums text-foreground-faint">{t.assetCount(w.tokens.length)}</p>
           )}
         </div>
       </div>
@@ -261,7 +270,7 @@ function EvmCard({ w }: { w: EvmWalletReport }) {
         </div>
       )}
       {w.error ? (
-        <p className="mt-3 text-xs text-danger">Couldn&apos;t load balances: {w.error}</p>
+        <p className="mt-3 text-xs text-danger">{t.loadFailed} {w.error}</p>
       ) : w.tokens.length > 0 ? (
         <div className="mt-4 space-y-2">
           {w.tokens.map((t, i) => (
@@ -281,13 +290,13 @@ function EvmCard({ w }: { w: EvmWalletReport }) {
           ))}
         </div>
       ) : (
-        <p className="mt-3 text-xs text-foreground-faint">No balances above dust.</p>
+        <p className="mt-3 text-xs text-foreground-faint">{t.noBalances}</p>
       )}
     </div>
   );
 }
 
-function HiveCard({ a }: { a: HiveAccountReport }) {
+function HiveCard({ a, t }: { a: HiveAccountReport; t: Dictionary["treasury"]["views"] }) {
   return (
     <div className="group rounded-2xl border border-border bg-surface p-5 transition-colors hover:border-border-strong">
       <div className="flex items-start justify-between gap-3">
@@ -314,7 +323,7 @@ function HiveCard({ a }: { a: HiveAccountReport }) {
         <p className="shrink-0 text-lg font-bold tabular-nums text-foreground">{usd(a.usd)}</p>
       </div>
       {a.error ? (
-        <p className="mt-3 text-xs text-danger">Couldn&apos;t load balances: {a.error}</p>
+        <p className="mt-3 text-xs text-danger">{t.loadFailed} {a.error}</p>
       ) : (
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(
@@ -336,7 +345,7 @@ function HiveCard({ a }: { a: HiveAccountReport }) {
   );
 }
 
-function WalletDetail({ groups, withHeadings }: { groups: TreasuryGroup[]; withHeadings: boolean }) {
+function WalletDetail({ groups, withHeadings, t }: { groups: TreasuryGroup[]; withHeadings: boolean; t: Dictionary["treasury"]["views"] }) {
   return (
     <div className="space-y-8">
       {groups.map((g) => (
@@ -350,14 +359,14 @@ function WalletDetail({ groups, withHeadings }: { groups: TreasuryGroup[]; withH
           {g.report.evm.length > 0 && (
             <div className="grid gap-4 lg:grid-cols-2">
               {g.report.evm.map((w) => (
-                <EvmCard key={w.address} w={w} />
+                <EvmCard key={w.address} w={w} t={t} />
               ))}
             </div>
           )}
           {g.report.hive.length > 0 && (
             <div className="grid gap-4 lg:grid-cols-2">
               {g.report.hive.map((a) => (
-                <HiveCard key={a.account} a={a} />
+                <HiveCard key={a.account} a={a} t={t} />
               ))}
             </div>
           )}
@@ -378,6 +387,8 @@ function WalletDetail({ groups, withHeadings }: { groups: TreasuryGroup[]; withH
  * a "by project" allocation.
  */
 export function TreasuryViews({ groups, hideSelector = false, hideTotal = false }: { groups: TreasuryGroup[]; hideSelector?: boolean; hideTotal?: boolean }) {
+  const tr = useT().treasury;
+  const t = tr.views;
   const [view, setView] = useState<string>("all");
   const [showDetail, setShowDetail] = useState(false);
   const multi = groups.length > 1;
@@ -387,13 +398,14 @@ export function TreasuryViews({ groups, hideSelector = false, hideTotal = false 
   const effectiveView = hideSelector ? "all" : view;
   const visible = effectiveView === "all" ? groups : groups.filter((g) => g.slug === effectiveView);
   const prices = groups[0]?.report.prices;
-  const title = effectiveView === "all" ? (multi ? "Tesouro combinado" : visible[0]?.name ?? "Tesouro") : visible[0]?.name ?? "Tesouro";
+  const title =
+    effectiveView === "all" ? (multi ? t.combined : visible[0]?.name ?? t.fallback) : visible[0]?.name ?? t.fallback;
 
   return (
     <div className="space-y-6">
       {multi && !hideSelector && (
         <div className="flex flex-wrap gap-1.5">
-          {[{ slug: "all", name: "Tudo" }, ...groups].map((g) => (
+          {[{ slug: "all", name: tr.all }, ...groups].map((g) => (
             <button
               key={g.slug}
               type="button"
@@ -419,19 +431,19 @@ export function TreasuryViews({ groups, hideSelector = false, hideTotal = false 
           className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-foreground-subtle transition-colors hover:text-foreground"
         >
           <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showDetail ? "rotate-180" : ""}`} />
-          Detalhe por carteira
+          {t.walletDetail}
         </button>
         {showDetail && (
           <div className="mt-4">
-            <WalletDetail groups={visible} withHeadings={multi && view === "all"} />
+            <WalletDetail groups={visible} withHeadings={multi && view === "all"} t={t} />
           </div>
         )}
       </div>
 
       {prices && (
         <p className="text-[11px] text-foreground-faint">
-          HIVE {usd(prices.hive, 2)} · HBD {usd(prices.hbd, 2)} via CoinGecko. HP = owned vesting shares
-          (incl. delegated out), same math as skatehive.app/dao. Sources cached 5 min. <span className="text-foreground-faint">* APR do HP é estimativa (inflação → vesting); o do HBD savings é a taxa on-chain.</span>
+          {t.pricesNote(usd(prices.hive, 2), usd(prices.hbd, 2))}{" "}
+          <span className="text-foreground-faint">{t.aprFootnote}</span>
         </p>
       )}
     </div>

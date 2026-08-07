@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { TreasuryGroup } from "@/lib/treasury";
 import { Section } from "@/components/section-heading";
 import { TreasuryHealthHero } from "@/components/treasury-health-hero";
+import { getDictionary } from "@/lib/i18n/server";
 
 // Brand treasury (Gnars, SkateHive…) in the same design language as the SOPA
 // cockpit — but these portals have NO stake/stream payroll setup, so there's no
@@ -12,7 +13,7 @@ import { TreasuryHealthHero } from "@/components/treasury-health-hero";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
-export function BrandTreasury({
+export async function BrandTreasury({
   group,
   monthlyBurnUsd,
   balances,
@@ -31,6 +32,7 @@ export function BrandTreasury({
   /** Fixed costs panel. */
   costs: ReactNode;
 }) {
+  const { treasury: t } = await getDictionary();
   const total = group?.report.grandTotalUsd ?? 0;
   const walletCount = (group?.report.evm.length ?? 0) + (group?.report.hive.length ?? 0);
   const runwayMonths = monthlyBurnUsd > 0 ? total / monthlyBurnUsd : null;
@@ -43,25 +45,29 @@ export function BrandTreasury({
         totalUsd={total}
         walletCount={walletCount}
         runwayMonths={runwayMonths}
-        runwayFooter="no ritmo de gasto atual"
+        runwayFooter={t.hero.currentPace}
       />
 
-      {dashboard && <Section title="Entrada vs saída" hint="O que entrou e o que saiu, mês a mês.">{dashboard}</Section>}
+      {dashboard && (
+        <Section title={t.sections.inOut} hint={t.sections.inOutHint}>
+          {dashboard}
+        </Section>
+      )}
 
       {revenue && (
-        <Section title="De onde vem a receita" hint="As fontes on-chain deste projeto — leilões e splits, lidos direto da blockchain.">
+        <Section title={t.sections.revenue} hint={t.sections.revenueHint}>
           {revenue}
         </Section>
       )}
 
-      <Section title="Onde o dinheiro está" hint="Cada carteira e ativo que compõe o tesouro.">
+      <Section title={t.sections.where} hint={t.sections.whereHint}>
         {balances}
       </Section>
 
-      <Section title="Custos fixos" hint="O que sai todo mês — é isso que define o runway acima.">
+      <Section title={t.sections.costs} hint={t.sections.costsHint}>
         <div className="flex items-center gap-1.5 text-xs text-foreground-faint">
           <Coins className="h-3.5 w-3.5" />
-          {monthlyBurnUsd > 0 ? `${usd(monthlyBurnUsd)}/mês em custos ativos` : "nenhum custo cadastrado"}
+          {monthlyBurnUsd > 0 ? t.sections.costsMonthly(usd(monthlyBurnUsd)) : t.sections.costsNone}
         </div>
         {costs}
       </Section>

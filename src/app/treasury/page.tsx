@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/page-header";
+import { LiveBadge } from "@/components/live-badge";
+import { getDictionary } from "@/lib/i18n/server";
 import { SetupGuide, CodeBlock } from "@/components/setup-guide";
 import { TreasuryViews } from "@/components/treasury-views";
 import { TreasuryRefresh } from "@/components/treasury-refresh";
@@ -48,6 +50,7 @@ import { VaultFlowView } from "@/components/vault-flow-view";
 import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
+import { combinedTreasuryUsd, dedupeTreasuryGroups } from "@/lib/treasury-aggregate";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
 import { fetchCostScope } from "@/lib/fixed-costs-data";
 import { getActiveProject, getAllProjects } from "@/projects";
@@ -55,11 +58,11 @@ import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
-import { usdWhole as usd } from "@/lib/format";
 import { ChevronRight } from "lucide-react";
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
+  const t = await getDictionary();
 
   if (!project.treasury) {
     return (
@@ -113,7 +116,7 @@ treasury: {
   }
 
   const groups = await fetchTreasuryGroups(project);
-  const combined = groups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
+  const combined = combinedTreasuryUsd(groups);
 
   // Surface Safe transaction activity. Candidates = EVM treasury wallets (chain
   // unknown → probe Base + mainnet) plus the project's configured bounty Safes
@@ -164,7 +167,11 @@ treasury: {
   // Fixed costs + runway. Costs are scoped to the treasuries actually shown
   // (each group's slug), so a brand portal sees only its own and SOPA the lot.
   // `canEdit` = any allowlisted member of the active portal.
-  const costGroups = groups.map((g) => ({ slug: g.slug, name: g.name, treasuryUsd: g.report.grandTotalUsd }));
+  const costGroups = dedupeTreasuryGroups(groups).map((g) => ({
+    slug: g.slug,
+    name: g.name,
+    treasuryUsd: g.report.grandTotalUsd,
+  }));
   const isSopa = project.slug === "sopa";
   const [costScope, session, orgRevenue, jobsRes] = await Promise.all([
     fetchCostScope(costGroups.map((g) => g.slug)),
@@ -412,15 +419,17 @@ treasury: {
 
   return (
     <div className="space-y-8">
+      {/* The project name is the eyebrow and "Tesouraria" the title — it used to
+          be the other way round, which said the word twice. The status slot no
+          longer repeats the total either: the hero card below shows it in full
+          size, so this one carries the live signal instead. */}
       <PageHeader
-        eyebrow="Tesouraria"
-        title={groups.length > 1 ? "Visão das tesourarias" : `Tesouraria ${project.name}`}
+        eyebrow={project.name}
+        title={groups.length > 1 ? t.treasury.titleMulti : t.treasury.title}
         description={
-          groups.length > 1
-            ? `O Safe da ${project.name} + todas as tesourarias dos portais que ela opera — as mesmas carteiras e fontes dos apps nativos.`
-            : "As mesmas carteiras e fontes que o app nativo mostra — saldos ao vivo em várias redes."
+          groups.length > 1 ? t.treasury.descriptionMulti(project.name) : t.treasury.description
         }
-        status={usd(combined)}
+        status={<LiveBadge label={t.treasury.live} title={t.treasury.liveTitle} />}
         actions={
           <div className="flex items-center gap-2">
             <TreasuryBriefingButton briefing={briefing} />
