@@ -3,6 +3,7 @@
 import { type ReactNode } from "react";
 import { Sparkles, GitBranch, CalendarDays, Users } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
+import { useT } from "@/components/locale-provider";
 
 type TabKey = "community" | "repo" | "crosspost" | "calendar";
 
@@ -22,14 +23,15 @@ export function PostSuggestionTabs({
   crosspost?: ReactNode;
   calendar?: ReactNode;
 }) {
+  const t = useT().postSuggestions.tabs;
   // Shareable: active tab in ?tab=.
   const [rawTab, setTab] = useUrlTab("tab", initial);
   const tab = (["community", "repo", "crosspost", "calendar"].includes(rawTab) ? rawTab : initial) as TabKey;
   const tabs = [
-    { key: "community" as const, label: "Community", icon: Sparkles },
-    { key: "repo" as const, label: "Repo to Social", icon: GitBranch },
-    ...(crosspost ? [{ key: "crosspost" as const, label: "Cross-post", icon: Users }] : []),
-    ...(calendar ? [{ key: "calendar" as const, label: "Calendar", icon: CalendarDays }] : []),
+    { key: "community" as const, label: t.community, icon: Sparkles },
+    { key: "repo" as const, label: t.repo, icon: GitBranch },
+    ...(crosspost ? [{ key: "crosspost" as const, label: t.crosspost, icon: Users }] : []),
+    ...(calendar ? [{ key: "calendar" as const, label: t.calendar, icon: CalendarDays }] : []),
   ];
   return (
     <div className="space-y-6">

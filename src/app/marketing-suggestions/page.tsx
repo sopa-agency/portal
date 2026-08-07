@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/page-header";
+import { getDictionary } from "@/lib/i18n/server";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { MarketingSuggestionsShell } from "@/components/marketing-suggestions-shell";
 import { RepoToSocialShell } from "@/components/repo-to-social-shell";
@@ -58,11 +59,20 @@ const DEFAULT_REPO_HEALTH: RepoToSocialWorkerHealth = {
   reason: "Database unreachable. Set DATABASE_URL in .env.local and run `npm run db:push`.",
 };
 
-function HealthBanner({ down, reason }: { down: boolean; reason: string | null | undefined }) {
+function HealthBanner({
+  down,
+  reason,
+  offlineLabel,
+}: {
+  down: boolean;
+  reason: string | null | undefined;
+  /** Fallback when the backend gives no reason of its own. */
+  offlineLabel: string;
+}) {
   if (down) {
     return (
       <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 px-5 py-3 text-sm text-amber-200">
-        {reason ?? "Backend offline."}
+        {reason ?? offlineLabel}
       </div>
     );
   }
@@ -82,6 +92,7 @@ export default async function MarketingSuggestionsPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { tab } = await searchParams;
+  const { postSuggestions: t } = await getDictionary();
   const [
     projectResult,
     configResult,
@@ -119,7 +130,11 @@ export default async function MarketingSuggestionsPage({
 
   const community = (
     <div className="space-y-6">
-      <HealthBanner down={health.db === "unreachable"} reason={health.reason} />
+      <HealthBanner
+        down={health.db === "unreachable"}
+        reason={health.reason}
+        offlineLabel={t.health.offline}
+      />
       <MarketingSuggestionsShell
         config={config}
         runs={runs}
@@ -155,15 +170,17 @@ export default async function MarketingSuggestionsPage({
 
   const repo = (
     <div className="space-y-6">
-      <HealthBanner down={repoHealth.db === "unreachable"} reason={repoHealth.reason} />
+      <HealthBanner
+        down={repoHealth.db === "unreachable"}
+        reason={repoHealth.reason}
+        offlineLabel={t.health.offline}
+      />
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface px-4 py-2.5 text-xs">
         <span className="font-semibold uppercase tracking-wider text-foreground-subtle">
-          Reading commits from
+          {t.repo.readingFrom}
         </span>
         {watchedRepos.length === 0 ? (
-          <span className="italic text-foreground-faint">
-            no repo configured — set one in the config below
-          </span>
+          <span className="italic text-foreground-faint">{t.repo.noRepo}</span>
         ) : (
           watchedRepos.map((r) => (
             <a
@@ -220,10 +237,10 @@ export default async function MarketingSuggestionsPage({
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Marketing"
-        title="Post Suggestions"
-        description={`Ready-to-post drafts for ${projectName} — from community activity (top creators, best posts, what's happening) or straight from repo commits. One run, multiple platforms.`}
-        status={`workers: community ${health.worker} · repo ${repoHealth.worker}`}
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description(projectName)}
+        status={t.status(t.worker[health.worker], t.worker[repoHealth.worker])}
       />
       <PostSuggestionTabs
         initial={initialTab}

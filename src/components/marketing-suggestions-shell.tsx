@@ -13,14 +13,19 @@ import {
 import { MarketingSuggestionsDialog } from "@/components/marketing-suggestions-batch-dialog";
 import type { TweetBrand } from "@/components/tweet-batch-dialog";
 import { effectiveTweetStatus } from "@/components/tweet-batch-dialog";
+import { useT } from "@/components/locale-provider";
+import type { Dictionary } from "@/lib/i18n/dictionary";
+
+type T = Dictionary["postSuggestions"];
 
 type KanbanColId = "generating" | "drafted" | "approved" | "published";
 
-const KANBAN_COLUMNS: { id: KanbanColId; label: string; accent: string; border: string }[] = [
-  { id: "generating", label: "Generating", accent: "text-amber-400", border: "border-amber-400/20" },
-  { id: "drafted", label: "Drafts", accent: "text-foreground-muted", border: "border-border" },
-  { id: "approved", label: "Approved", accent: "text-accent", border: "border-accent-border" },
-  { id: "published", label: "Published", accent: "text-emerald-400", border: "border-emerald-400/20" },
+// Colours only — the labels come from the dictionary at render time.
+const KANBAN_COLUMNS: { id: KanbanColId; accent: string; border: string }[] = [
+  { id: "generating", accent: "text-amber-400", border: "border-amber-400/20" },
+  { id: "drafted", accent: "text-foreground-muted", border: "border-border" },
+  { id: "approved", accent: "text-accent", border: "border-accent-border" },
+  { id: "published", accent: "text-emerald-400", border: "border-emerald-400/20" },
 ];
 
 type DraftCard = {
@@ -54,21 +59,23 @@ function bucketForCard(card: DraftCard): KanbanColId {
   return "drafted";
 }
 
-function formatRelative(date: Date | string): string {
+function formatRelative(date: Date | string, t: T["time"]): string {
   const d = typeof date === "string" ? new Date(date) : date;
   const secs = Math.round((Date.now() - d.getTime()) / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
-  return `${Math.round(secs / 86400)}d ago`;
+  if (secs < 60) return t.seconds(secs);
+  if (secs < 3600) return t.minutes(Math.round(secs / 60));
+  if (secs < 86400) return t.hours(Math.round(secs / 3600));
+  return t.days(Math.round(secs / 86400));
 }
 
 function PlatformDots({
   run,
   tweetIndex,
+  t,
 }: {
   run: MarketingSuggestionRunRow;
   tweetIndex: number | null;
+  t: T["card"];
 }) {
   const state = tweetIndex !== null ? run.tweetStates?.[String(tweetIndex)] : undefined;
   const pub = state?.publishedTo ?? {};
@@ -80,11 +87,11 @@ function PlatformDots({
   const posted = platforms.filter((p) => pub[p.key]);
   if (posted.length === 0) return null;
   return (
-    <div className="flex items-center gap-0.5" aria-label="published to">
+    <div className="flex items-center gap-0.5" aria-label={t.publishedTo}>
       {posted.map((p) => (
         <span
           key={p.key}
-          title={`Posted on ${p.label === "X" ? "X" : p.label === "H" ? "Hive" : "Farcaster"}`}
+          title={t.postedOn(p.label === "X" ? "X" : p.label === "H" ? "Hive" : "Farcaster")}
           className={`flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold ${p.color}`}
         >
           {p.label}
@@ -98,10 +105,12 @@ function KanbanCard({
   card,
   isSelected,
   onSelect,
+  t,
 }: {
   card: DraftCard;
   isSelected: boolean;
   onSelect: (run: MarketingSuggestionRunRow, tweetIndex: number | null) => void;
+  t: T;
 }) {
   const { run, tweetIndex, tweetText } = card;
   const isProcessing = run.jobStatus === "pending" || run.jobStatus === "running";
@@ -118,6 +127,8 @@ function KanbanCard({
           : "border-border bg-surface/70 hover:border-border-strong hover:bg-surface-elevated"
       }`}
     >
+      {/* The generated post text is the product — it ships in whatever language
+          the agent wrote it, untouched by the locale switch. */}
       {tweetText ? (
         <p className="mb-2 line-clamp-5 text-sm leading-relaxed text-foreground">{tweetText}</p>
       ) : isProcessing ? (
@@ -125,19 +136,21 @@ function KanbanCard({
           <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
           <span>
             {run.statusMessage ??
-              (run.jobStatus === "pending" ? "Queued — waiting for worker…" : "Working…")}
+              (run.jobStatus === "pending" ? t.card.queued : t.card.working)}
           </span>
         </p>
       ) : run.error ? (
         <p className="mb-2 line-clamp-2 text-sm text-red-400">{run.error}</p>
       ) : (
-        <p className="mb-2 text-sm text-foreground-subtle">No posts generated.</p>
+        <p className="mb-2 text-sm text-foreground-subtle">{t.card.empty}</p>
       )}
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-foreground-subtle">{formatRelative(run.startedAt)}</span>
-          <PlatformDots run={run} tweetIndex={tweetIndex} />
+          <span className="text-[10px] text-foreground-subtle">
+            {formatRelative(run.startedAt, t.time)}
+          </span>
+          <PlatformDots run={run} tweetIndex={tweetIndex} t={t.card} />
         </div>
         <div className="flex items-center gap-1.5">
           {tweetIndex !== null && totalTweets > 1 && (
@@ -147,12 +160,12 @@ function KanbanCard({
           )}
           {tweetStatus === "approved" && (
             <span className="rounded-full bg-accent-bg px-1.5 py-0.5 text-[10px] text-accent">
-              ready
+              {t.card.ready}
             </span>
           )}
           {tweetStatus === "skipped" && (
             <span className="rounded-full bg-zinc-500/15 px-1.5 py-0.5 text-[10px] text-foreground-muted">
-              skipped
+              {t.card.skipped}
             </span>
           )}
           {isProcessing && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />}
@@ -162,29 +175,24 @@ function KanbanCard({
   );
 }
 
-const COLUMN_EMPTY_HINT: Record<KanbanColId, string> = {
-  generating: "Click “Suggest posts” to queue a run.",
-  drafted: "Drafts will land here once generated.",
-  approved: "Approve a draft to move it here.",
-  published: "Posted suggestions show up here.",
-};
-
 function KanbanColumn({
   col,
   cards,
   selectedId,
   onSelect,
+  t,
 }: {
   col: (typeof KANBAN_COLUMNS)[number];
   cards: DraftCard[];
   selectedId: string | null;
   onSelect: (run: MarketingSuggestionRunRow, tweetIndex: number | null) => void;
+  t: T;
 }) {
   return (
     <div className={`flex min-w-0 flex-col rounded-2xl border ${col.border} bg-surface/50`}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
         <span className={`text-[11px] font-medium uppercase tracking-[0.14em] ${col.accent}`}>
-          {col.label}
+          {t.board[col.id]}
         </span>
         {cards.length > 0 && (
           <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[10px] text-foreground-subtle">
@@ -196,7 +204,7 @@ function KanbanColumn({
         {cards.length === 0 ? (
           <div className="flex flex-1 items-center justify-center px-3 py-6">
             <p className="text-center text-[11px] leading-relaxed text-foreground-faint">
-              {COLUMN_EMPTY_HINT[col.id]}
+              {t.board.emptyCommunity[col.id]}
             </p>
           </div>
         ) : (
@@ -206,6 +214,7 @@ function KanbanColumn({
               card={card}
               isSelected={card.id === selectedId}
               onSelect={onSelect}
+              t={t}
             />
           ))
         )}
@@ -218,10 +227,12 @@ function KanbanBoard({
   runs,
   selectedId,
   onSelect,
+  t,
 }: {
   runs: MarketingSuggestionRunRow[];
   selectedId: string | null;
   onSelect: (run: MarketingSuggestionRunRow, tweetIndex: number | null) => void;
+  t: T;
 }) {
   const buckets: Record<KanbanColId, DraftCard[]> = {
     generating: [],
@@ -242,6 +253,7 @@ function KanbanBoard({
           cards={buckets[col.id]}
           selectedId={selectedId}
           onSelect={onSelect}
+          t={t}
         />
       ))}
     </div>
@@ -253,11 +265,13 @@ function TriggerPanel({
   health,
   runs,
   projectName,
+  t,
 }: {
   config: MarketingSuggestionConfig;
   health: MarketingSuggestionWorkerHealth;
   runs: MarketingSuggestionRunRow[];
   projectName: string;
+  t: T;
 }) {
   const router = useRouter();
   const [freePrompt, setFreePrompt] = useState("");
@@ -266,9 +280,9 @@ function TriggerPanel({
 
   const lastRun = runs[0] ?? null;
   const enabledSources = [
-    config.useTopPosts && "top posts",
-    config.useTopCreators && "top creators",
-    config.useBriefing && "marketing briefing",
+    config.useTopPosts && t.run.sourceNames.topPosts,
+    config.useTopCreators && t.run.sourceNames.topCreators,
+    config.useBriefing && t.run.sourceNames.briefing,
   ].filter(Boolean) as string[];
 
   const handleRun = () => {
@@ -276,28 +290,19 @@ function TriggerPanel({
     startRunning(async () => {
       const result = await enqueueMarketingSuggestionRun(freePrompt.trim() || undefined);
       if (result.ok) {
-        setMessage(`Queued run ${result.runId?.slice(0, 8)}.`);
+        setMessage(t.run.queuedRun(result.runId?.slice(0, 8) ?? ""));
         setFreePrompt("");
         setTimeout(() => {
           setMessage(null);
           router.refresh();
         }, 1500);
       } else {
-        setMessage(`Error: ${result.error}`);
+        setMessage(t.run.error(result.error ?? ""));
       }
     });
   };
 
-  const workerLabel =
-    health.worker === "active"
-      ? "active"
-      : health.worker === "idle"
-        ? "running (idle)"
-        : health.worker === "stale"
-          ? "stale"
-          : health.worker === "offline"
-            ? "not running"
-            : "unknown";
+  const workerLabel = t.worker[health.worker];
 
   const workerColor =
     health.worker === "active" || health.worker === "idle"
@@ -310,24 +315,24 @@ function TriggerPanel({
     <div className="space-y-4 rounded-2xl border border-border bg-surface/50 p-5">
       <div>
         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground-subtle">
-          Suggest community posts
+          {t.run.heading}
         </p>
         <p className="mt-0.5 text-xs text-foreground-subtle">
           {enabledSources.length === 0
-            ? "No sources enabled — open Settings to turn some on."
-            : `Pulls ${enabledSources.join(" + ")} and drafts posts about the ${projectName} community.`}
+            ? t.run.noSources
+            : t.run.sources(enabledSources.join(" + "), projectName)}
         </p>
       </div>
 
       <div>
         <label className="block text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
-          Theme or focus (optional)
+          {t.run.themeLabel}
         </label>
         <input
           type="text"
           value={freePrompt}
           onChange={(e) => setFreePrompt(e.target.value)}
-          placeholder={config.freePromptHint || "e.g. mini ramp jam, welcome new skaters, recap the week"}
+          placeholder={config.freePromptHint || t.run.themePlaceholder}
           className="mt-1 w-full rounded-xl border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-foreground-subtle focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30"
         />
       </div>
@@ -338,19 +343,17 @@ function TriggerPanel({
           type="button"
           onClick={handleRun}
           disabled={isRunning || enabledSources.length === 0}
-          title={
-            enabledSources.length === 0 ? "Enable at least one source in Settings first" : undefined
-          }
+          title={enabledSources.length === 0 ? t.run.needsSource : undefined}
           className="inline-flex items-center gap-1.5 rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-xs font-medium text-accent transition-all hover:bg-accent/20 disabled:opacity-50"
         >
           {isRunning && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {isRunning ? "Queuing…" : "Suggest posts"}
+          {isRunning ? t.run.submitting : t.run.submit}
         </button>
       </div>
 
       {health.worker === "offline" && (
         <div className="rounded-xl border border-red-400/20 bg-red-500/5 px-3 py-2 text-[11px] leading-relaxed text-red-300/90">
-          Worker is not running. Queued jobs will sit until you start it with{" "}
+          {t.run.offlineBefore}{" "}
           <code className="rounded bg-foreground/10 px-1 py-0.5 font-mono">
             npm run worker:marketing-suggestions
           </code>
@@ -360,23 +363,26 @@ function TriggerPanel({
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-border pt-3 text-[11px] text-foreground-subtle">
         <span>
-          Worker: <span className={workerColor}>{workerLabel}</span>
+          {t.health.worker}: <span className={workerColor}>{workerLabel}</span>
         </span>
         <span>
-          DB:{" "}
+          {t.health.db}:{" "}
           <span className={health.db === "connected" ? "text-emerald-300" : "text-red-300"}>
-            {health.db}
+            {t.health.dbState[health.db]}
           </span>
         </span>
         {health.pendingJobs > 0 && (
           <span>
-            Queue: <span className="text-amber-300">{health.pendingJobs} pending</span>
+            {t.health.queue}:{" "}
+            <span className="text-amber-300">{t.health.pending(health.pendingJobs)}</span>
           </span>
         )}
         {lastRun && (
           <span>
-            Last run:{" "}
-            <span className="text-foreground-muted">{formatRelative(lastRun.startedAt)}</span>
+            {t.health.lastRun}:{" "}
+            <span className="text-foreground-muted">
+              {formatRelative(lastRun.startedAt, t.time)}
+            </span>
             {" · "}
             <span
               className={
@@ -389,10 +395,10 @@ function TriggerPanel({
             >
               {lastRun.jobStatus ?? lastRun.status}
             </span>
-            {lastRun.tweets.length > 0 && ` · ${lastRun.tweets.length} posts`}
+            {lastRun.tweets.length > 0 && ` · ${t.health.posts(lastRun.tweets.length)}`}
           </span>
         )}
-        {!lastRun && <span>No runs yet</span>}
+        {!lastRun && <span>{t.health.noRuns}</span>}
       </div>
     </div>
   );
@@ -403,20 +409,22 @@ function SettingsAccordion({
   setConfig,
   isSaving,
   onSave,
+  t,
 }: {
   config: MarketingSuggestionConfig;
   setConfig: (patch: Partial<MarketingSuggestionConfig>) => void;
   isSaving: boolean;
   onSave: () => void;
+  t: T["settings"];
 }) {
   const [open, setOpen] = useState(false);
   const sourcesSummary = [
-    config.useTopPosts && "posts",
-    config.useTopCreators && "creators",
-    config.useBriefing && "briefing",
+    config.useTopPosts && t.sourcesShort.topPosts,
+    config.useTopCreators && t.sourcesShort.topCreators,
+    config.useBriefing && t.sourcesShort.briefing,
   ]
     .filter(Boolean)
-    .join(" + ") || "none";
+    .join(" + ") || t.sourcesNone;
 
   return (
     <div className="rounded-2xl border border-border bg-gradient-to-b from-white/[0.02] to-transparent">
@@ -427,10 +435,10 @@ function SettingsAccordion({
       >
         <div className="flex items-center gap-3">
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground-subtle">
-            Settings
+            {t.title}
           </p>
           <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-foreground-faint">
-            sources: {sourcesSummary}
+            {t.sourcesChip(sourcesSummary)}
           </span>
         </div>
         <span className="text-xs text-foreground-faint">{open ? "▲" : "▼"}</span>
@@ -440,49 +448,47 @@ function SettingsAccordion({
         <div className="space-y-5 border-t border-border px-5 py-5">
           <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
-              Sources to feed the agent
+              {t.sourcesLabel}
             </label>
             <div className="space-y-2">
               <SourceToggle
                 checked={config.useTopPosts}
                 onChange={(v) => setConfig({ useTopPosts: v })}
-                title="Top Hive posts"
-                desc="Trending posts from the community Hive feed this past week."
+                title={t.topPosts.title}
+                desc={t.topPosts.desc}
               />
               <SourceToggle
                 checked={config.useTopCreators}
                 onChange={(v) => setConfig({ useTopCreators: v })}
-                title="Top creators"
-                desc="Leaderboard derived from the week's top posts (by votes + payout)."
+                title={t.topCreators.title}
+                desc={t.topCreators.desc}
               />
               <SourceToggle
                 checked={config.useBriefing}
                 onChange={(v) => setConfig({ useBriefing: v })}
-                title="Marketing briefing"
-                desc="Preamble of today's marketing briefing, if available."
+                title={t.briefing.title}
+                desc={t.briefing.desc}
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
             <label className="text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
-              Theme placeholder
+              {t.placeholderLabel}
             </label>
             <input
               type="text"
               value={config.freePromptHint}
               onChange={(e) => setConfig({ freePromptHint: e.target.value })}
-              placeholder="e.g. tag a creator, recap the week, welcome newcomers"
+              placeholder={t.placeholderInput}
               className="w-full rounded-xl border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-foreground-subtle focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
-            <p className="text-[11px] text-foreground-faint">
-              Shown as the placeholder in the &ldquo;Theme or focus&rdquo; field above.
-            </p>
+            <p className="text-[11px] text-foreground-faint">{t.placeholderHint}</p>
           </div>
 
           <div className="space-y-1.5">
             <label className="text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
-              Generation prompt
+              {t.promptLabel}
             </label>
             <textarea
               value={config.prompt}
@@ -490,10 +496,7 @@ function SettingsAccordion({
               rows={10}
               className="w-full resize-y rounded-xl border border-border bg-surface-elevated px-3 py-2 font-mono text-sm text-foreground placeholder:text-foreground-subtle focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
-            <p className="text-[11px] text-foreground-faint">
-              Instructions shaping tone and format. The agent receives this plus the enabled
-              sources and your theme.
-            </p>
+            <p className="text-[11px] text-foreground-faint">{t.promptHint}</p>
           </div>
 
           <button
@@ -502,7 +505,7 @@ function SettingsAccordion({
             disabled={isSaving}
             className="rounded-xl bg-lime-400 px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {isSaving ? "Saving…" : "Save settings"}
+            {isSaving ? t.saving : t.save}
           </button>
         </div>
       )}
@@ -558,6 +561,7 @@ export function MarketingSuggestionsShell({
   projectName?: string;
   brand: TweetBrand;
 }) {
+  const t = useT().postSuggestions;
   const router = useRouter();
   const [config, setConfigState] = useState(initialConfig);
   const [runs, setRuns] = useState(initialRuns);
@@ -611,17 +615,21 @@ export function MarketingSuggestionsShell({
       {activeJobCount > 0 && (
         <div className="flex items-center gap-3 rounded-xl border border-border bg-surface/60 px-4 py-3">
           <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-400" />
-          <p className="text-sm text-foreground-muted">
-            {activeJobCount} generation{activeJobCount > 1 ? "s" : ""} in progress —
-            refreshing every 3s
-          </p>
+          <p className="text-sm text-foreground-muted">{t.run.inProgress(activeJobCount)}</p>
         </div>
       )}
 
-      <TriggerPanel config={config} health={health} runs={runs} projectName={projectName} />
+      <TriggerPanel
+        config={config}
+        health={health}
+        runs={runs}
+        projectName={projectName}
+        t={t}
+      />
 
       <KanbanBoard
         runs={runs}
+        t={t}
         selectedId={
           selectedRunId
             ? `${selectedRunId}:${focusedTweetIndex === null ? "meta" : focusedTweetIndex}`
@@ -638,6 +646,7 @@ export function MarketingSuggestionsShell({
         setConfig={updateConfig}
         isSaving={isSaving}
         onSave={handleSave}
+        t={t.settings}
       />
 
       <MarketingSuggestionsDialog

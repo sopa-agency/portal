@@ -13,6 +13,10 @@ import { parseRepoUrls, repoUrlToLabel } from "@/lib/repo-to-social-utils";
 import { RepoToSocialDialog } from "@/components/repo-to-social-batch-dialog";
 import type { TweetBrand } from "@/components/tweet-batch-dialog";
 import { effectiveTweetStatus as effectiveTweetStatusBase } from "@/components/tweet-batch-dialog";
+import { useT } from "@/components/locale-provider";
+import type { Dictionary } from "@/lib/i18n/dictionary";
+
+type T = Dictionary["postSuggestions"];
 
 type Config = {
   repoUrl: string;
@@ -22,11 +26,12 @@ type Config = {
 
 type KanbanColId = "generating" | "drafted" | "approved" | "published";
 
-const KANBAN_COLUMNS: { id: KanbanColId; label: string; accent: string; border: string }[] = [
-  { id: "generating", label: "Generating", accent: "text-amber-400", border: "border-amber-400/20" },
-  { id: "drafted", label: "Drafts", accent: "text-foreground-muted", border: "border-border" },
-  { id: "approved", label: "Approved", accent: "text-accent", border: "border-accent-border" },
-  { id: "published", label: "Published", accent: "text-emerald-400", border: "border-emerald-400/20" },
+// Colours only — the labels come from the dictionary at render time.
+const KANBAN_COLUMNS: { id: KanbanColId; accent: string; border: string }[] = [
+  { id: "generating", accent: "text-amber-400", border: "border-amber-400/20" },
+  { id: "drafted", accent: "text-foreground-muted", border: "border-border" },
+  { id: "approved", accent: "text-accent", border: "border-accent-border" },
+  { id: "published", accent: "text-emerald-400", border: "border-emerald-400/20" },
 ];
 
 // Re-exported for back-compat with anything that imported it from this shell.
@@ -64,16 +69,24 @@ function bucketForCard(card: DraftCard): KanbanColId {
   return "drafted";
 }
 
-function formatRelative(date: Date | string): string {
+function formatRelative(date: Date | string, t: T["time"]): string {
   const d = typeof date === "string" ? new Date(date) : date;
   const secs = Math.round((Date.now() - d.getTime()) / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
-  return `${Math.round(secs / 86400)}d ago`;
+  if (secs < 60) return t.seconds(secs);
+  if (secs < 3600) return t.minutes(Math.round(secs / 60));
+  if (secs < 86400) return t.hours(Math.round(secs / 3600));
+  return t.days(Math.round(secs / 86400));
 }
 
-function PlatformDots({ run, tweetIndex }: { run: RepoToSocialRunRow; tweetIndex: number | null }) {
+function PlatformDots({
+  run,
+  tweetIndex,
+  t,
+}: {
+  run: RepoToSocialRunRow;
+  tweetIndex: number | null;
+  t: T["card"];
+}) {
   const state = tweetIndex !== null ? run.tweetStates?.[String(tweetIndex)] : undefined;
   const pub = state?.publishedTo ?? {};
   const platforms: { key: "x" | "hive" | "farcaster"; label: string; color: string }[] = [
@@ -84,11 +97,11 @@ function PlatformDots({ run, tweetIndex }: { run: RepoToSocialRunRow; tweetIndex
   const posted = platforms.filter((p) => pub[p.key]);
   if (posted.length === 0) return null;
   return (
-    <div className="flex items-center gap-0.5" aria-label="published to">
+    <div className="flex items-center gap-0.5" aria-label={t.publishedTo}>
       {posted.map((p) => (
         <span
           key={p.key}
-          title={`Posted on ${p.label === "X" ? "X" : p.label === "H" ? "Hive" : "Farcaster"}`}
+          title={t.postedOn(p.label === "X" ? "X" : p.label === "H" ? "Hive" : "Farcaster")}
           className={`flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold ${p.color}`}
         >
           {p.label}
@@ -102,10 +115,12 @@ function KanbanCard({
   card,
   isSelected,
   onSelect,
+  t,
 }: {
   card: DraftCard;
   isSelected: boolean;
   onSelect: (run: RepoToSocialRunRow, tweetIndex: number | null) => void;
+  t: T;
 }) {
   const { run, tweetIndex, tweetText } = card;
   const isProcessing = run.jobStatus === "pending" || run.jobStatus === "running";
@@ -122,6 +137,7 @@ function KanbanCard({
           : "border-border bg-surface/70 hover:border-border-strong hover:bg-surface-elevated"
       }`}
     >
+      {/* The generated tweet is the product — never translated by the switch. */}
       {tweetText ? (
         <p className="mb-2 line-clamp-5 text-sm leading-relaxed text-foreground">{tweetText}</p>
       ) : isProcessing ? (
@@ -129,19 +145,21 @@ function KanbanCard({
           <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
           <span>
             {run.statusMessage ??
-              (run.jobStatus === "pending" ? "Queued — waiting for worker…" : "Working…")}
+              (run.jobStatus === "pending" ? t.card.queued : t.card.working)}
           </span>
         </p>
       ) : run.error ? (
         <p className="mb-2 line-clamp-2 text-sm text-red-400">{run.error}</p>
       ) : (
-        <p className="mb-2 text-sm text-foreground-subtle">No tweets generated.</p>
+        <p className="mb-2 text-sm text-foreground-subtle">{t.card.emptyTweets}</p>
       )}
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-foreground-subtle">{formatRelative(run.startedAt)}</span>
-          <PlatformDots run={run} tweetIndex={tweetIndex} />
+          <span className="text-[10px] text-foreground-subtle">
+            {formatRelative(run.startedAt, t.time)}
+          </span>
+          <PlatformDots run={run} tweetIndex={tweetIndex} t={t.card} />
         </div>
         <div className="flex items-center gap-1.5">
           {tweetIndex !== null && totalTweets > 1 && (
@@ -151,12 +169,12 @@ function KanbanCard({
           )}
           {tweetStatus === "approved" && (
             <span className="rounded-full bg-accent-bg px-1.5 py-0.5 text-[10px] text-accent">
-              ready
+              {t.card.ready}
             </span>
           )}
           {tweetStatus === "skipped" && (
             <span className="rounded-full bg-zinc-500/15 px-1.5 py-0.5 text-[10px] text-foreground-muted">
-              skipped
+              {t.card.skipped}
             </span>
           )}
           {isProcessing && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />}
@@ -166,29 +184,24 @@ function KanbanCard({
   );
 }
 
-const COLUMN_EMPTY_HINT: Record<KanbanColId, string> = {
-  generating: "Click “Generate now” to queue a run.",
-  drafted: "Drafts will land here once generated.",
-  approved: "Approve a draft to move it here.",
-  published: "Posted tweets show up here.",
-};
-
 function KanbanColumn({
   col,
   cards,
   selectedId,
   onSelect,
+  t,
 }: {
   col: (typeof KANBAN_COLUMNS)[number];
   cards: DraftCard[];
   selectedId: string | null;
   onSelect: (run: RepoToSocialRunRow, tweetIndex: number | null) => void;
+  t: T;
 }) {
   return (
     <div className={`flex min-w-0 flex-col rounded-2xl border ${col.border} bg-surface/50`}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
         <span className={`text-[11px] font-medium uppercase tracking-[0.14em] ${col.accent}`}>
-          {col.label}
+          {t.board[col.id]}
         </span>
         {cards.length > 0 && (
           <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[10px] text-foreground-subtle">
@@ -200,7 +213,7 @@ function KanbanColumn({
         {cards.length === 0 ? (
           <div className="flex flex-1 items-center justify-center px-3 py-6">
             <p className="text-center text-[11px] leading-relaxed text-foreground-faint">
-              {COLUMN_EMPTY_HINT[col.id]}
+              {t.board.emptyRepo[col.id]}
             </p>
           </div>
         ) : (
@@ -210,6 +223,7 @@ function KanbanColumn({
               card={card}
               isSelected={card.id === selectedId}
               onSelect={onSelect}
+              t={t}
             />
           ))
         )}
@@ -222,10 +236,12 @@ function KanbanBoard({
   runs,
   selectedId,
   onSelect,
+  t,
 }: {
   runs: RepoToSocialRunRow[];
   selectedId: string | null;
   onSelect: (run: RepoToSocialRunRow, tweetIndex: number | null) => void;
+  t: T;
 }) {
   const buckets: Record<KanbanColId, DraftCard[]> = {
     generating: [],
@@ -246,6 +262,7 @@ function KanbanBoard({
           cards={buckets[col.id]}
           selectedId={selectedId}
           onSelect={onSelect}
+          t={t}
         />
       ))}
     </div>
@@ -256,10 +273,12 @@ function TriggerPanel({
   repoUrl,
   health,
   runs,
+  t,
 }: {
   repoUrl: string;
   health: RepoToSocialWorkerHealth;
   runs: RepoToSocialRunRow[];
+  t: T;
 }) {
   const router = useRouter();
   const [isRunning, startRunning] = useTransition();
@@ -269,10 +288,10 @@ function TriggerPanel({
   const parsedUrls = parseRepoUrls(repoUrl);
   const repoLabel =
     parsedUrls.length === 0
-      ? "no repository configured"
+      ? t.repo.none
       : parsedUrls.length === 1
         ? repoUrlToLabel(parsedUrls[0])
-        : `${parsedUrls.length} repos`;
+        : t.repo.count(parsedUrls.length);
   const hasRepo = parsedUrls.length > 0;
 
   const handleRun = () => {
@@ -280,27 +299,18 @@ function TriggerPanel({
     startRunning(async () => {
       const result = await enqueueRepoToSocialRun();
       if (result.ok) {
-        setMessage(`Queued run ${result.runId?.slice(0, 8)}.`);
+        setMessage(t.run.queuedRun(result.runId?.slice(0, 8) ?? ""));
         setTimeout(() => {
           setMessage(null);
           router.refresh();
         }, 1500);
       } else {
-        setMessage(`Error: ${result.error}`);
+        setMessage(t.run.error(result.error ?? ""));
       }
     });
   };
 
-  const workerLabel =
-    health.worker === "active"
-      ? "active"
-      : health.worker === "idle"
-        ? "running (idle)"
-        : health.worker === "stale"
-          ? "stale"
-          : health.worker === "offline"
-            ? "not running"
-            : "unknown";
+  const workerLabel = t.worker[health.worker];
 
   const workerColor =
     health.worker === "active" || health.worker === "idle"
@@ -313,10 +323,10 @@ function TriggerPanel({
     <div className="space-y-4 rounded-2xl border border-border bg-surface/50 p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground-subtle">Generate</p>
-          <p className="mt-0.5 truncate text-xs text-foreground-subtle">
-            Pulls recent commits from <span className="text-foreground-muted">{repoLabel}</span> and generates tweet drafts.
+          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground-subtle">
+            {t.repo.heading}
           </p>
+          <p className="mt-0.5 truncate text-xs text-foreground-subtle">{t.repo.pulls(repoLabel)}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {message && <span className="text-[11px] text-accent">{message}</span>}
@@ -324,40 +334,42 @@ function TriggerPanel({
             type="button"
             onClick={handleRun}
             disabled={isRunning || !hasRepo}
-            title={!hasRepo ? "Configure at least one repository URL first" : undefined}
+            title={!hasRepo ? t.repo.needsRepo : undefined}
             className="inline-flex items-center gap-1.5 rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-xs font-medium text-accent transition-all hover:bg-accent/20 disabled:opacity-50"
           >
             {isRunning && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {isRunning ? "Queuing…" : "Generate now"}
+            {isRunning ? t.run.submitting : t.repo.submit}
           </button>
         </div>
       </div>
 
       {health.worker === "offline" && (
         <div className="rounded-xl border border-red-400/20 bg-red-500/5 px-3 py-2 text-[11px] leading-relaxed text-red-300/90">
-          Worker is not running. Queued jobs will sit until you start it with{" "}
+          {t.run.offlineBefore}{" "}
           <code className="rounded bg-foreground/10 px-1 py-0.5 font-mono">npm run worker:repo-to-social</code>.
         </div>
       )}
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-border pt-3 text-[11px] text-foreground-subtle">
         <span>
-          Worker: <span className={workerColor}>{workerLabel}</span>
+          {t.health.worker}: <span className={workerColor}>{workerLabel}</span>
         </span>
         <span>
-          DB:{" "}
+          {t.health.db}:{" "}
           <span className={health.db === "connected" ? "text-emerald-300" : "text-red-300"}>
-            {health.db}
+            {t.health.dbState[health.db]}
           </span>
         </span>
         {health.pendingJobs > 0 && (
           <span>
-            Queue: <span className="text-amber-300">{health.pendingJobs} pending</span>
+            {t.health.queue}:{" "}
+            <span className="text-amber-300">{t.health.pending(health.pendingJobs)}</span>
           </span>
         )}
         {lastRun && (
           <span>
-            Last run: <span className="text-foreground-muted">{formatRelative(lastRun.startedAt)}</span>
+            {t.health.lastRun}:{" "}
+            <span className="text-foreground-muted">{formatRelative(lastRun.startedAt, t.time)}</span>
             {" · "}
             <span
               className={
@@ -370,10 +382,10 @@ function TriggerPanel({
             >
               {lastRun.jobStatus ?? lastRun.status}
             </span>
-            {lastRun.tweets.length > 0 && ` · ${lastRun.tweets.length} tweets`}
+            {lastRun.tweets.length > 0 && ` · ${t.repo.tweets(lastRun.tweets.length)}`}
           </span>
         )}
-        {!lastRun && <span>No runs yet</span>}
+        {!lastRun && <span>{t.health.noRuns}</span>}
       </div>
     </div>
   );
@@ -387,6 +399,7 @@ function SettingsAccordion({
   isSaving,
   onSave,
   repoPlaceholder,
+  t,
 }: {
   repoUrl: string;
   setRepoUrl: (v: string) => void;
@@ -395,11 +408,16 @@ function SettingsAccordion({
   isSaving: boolean;
   onSave: () => void;
   repoPlaceholder?: string;
+  t: T;
 }) {
   const [open, setOpen] = useState(false);
   const list = parseRepoUrls(repoUrl);
   const summary =
-    list.length === 0 ? "no repositories set" : list.length === 1 ? repoUrlToLabel(list[0]) : `${list.length} repos`;
+    list.length === 0
+      ? t.repo.settingsNone
+      : list.length === 1
+        ? repoUrlToLabel(list[0])
+        : t.repo.count(list.length);
 
   return (
     <div className="rounded-2xl border border-border bg-gradient-to-b from-white/[0.02] to-transparent">
@@ -409,7 +427,9 @@ function SettingsAccordion({
         className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-left transition-colors hover:bg-surface/70"
       >
         <div className="flex items-center gap-3">
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground-subtle">Settings</p>
+          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground-subtle">
+            {t.settings.title}
+          </p>
           <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-foreground-faint">
             {summary}
           </span>
@@ -421,7 +441,7 @@ function SettingsAccordion({
         <div className="space-y-5 border-t border-border px-5 py-5">
           <div className="space-y-1.5">
             <label className="text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
-              Source repository URL (GitHub)
+              {t.repo.urlLabel}
             </label>
             <textarea
               value={repoUrl}
@@ -430,22 +450,20 @@ function SettingsAccordion({
               placeholder={repoPlaceholder ?? "https://github.com/owner/repo"}
               className="w-full resize-y rounded-xl border border-border bg-surface-elevated px-3 py-2 font-mono text-sm text-foreground placeholder:text-foreground-subtle focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
-            <p className="text-[11px] text-foreground-faint">
-              One repository per line. Commits from each are merged by date before drafting tweets.
-            </p>
+            <p className="text-[11px] text-foreground-faint">{t.repo.urlHint}</p>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">Tweet generation prompt</label>
+            <label className="text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
+              {t.settings.repoPromptLabel}
+            </label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={8}
               className="w-full resize-y rounded-xl border border-border bg-surface-elevated px-3 py-2 font-mono text-sm text-foreground placeholder:text-foreground-subtle focus:border-accent-border focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
-            <p className="text-[11px] text-foreground-faint">
-              Instructions shaping tone and format of generated tweets.
-            </p>
+            <p className="text-[11px] text-foreground-faint">{t.repo.promptHint}</p>
           </div>
 
           <button
@@ -454,7 +472,7 @@ function SettingsAccordion({
             disabled={isSaving}
             className="rounded-xl bg-lime-400 px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {isSaving ? "Saving…" : "Save settings"}
+            {isSaving ? t.settings.saving : t.settings.save}
           </button>
         </div>
       )}
@@ -475,6 +493,7 @@ export function RepoToSocialShell({
   repoPlaceholder?: string;
   brand: TweetBrand;
 }) {
+  const t = useT().postSuggestions;
   const router = useRouter();
   const [repoUrl, setRepoUrl] = useState(initialConfig.repoUrl);
   const [prompt, setPrompt] = useState(initialConfig.prompt);
@@ -523,13 +542,11 @@ export function RepoToSocialShell({
       {activeJobCount > 0 && (
         <div className="flex items-center gap-3 rounded-xl border border-border bg-surface/60 px-4 py-3">
           <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-400" />
-          <p className="text-sm text-foreground-muted">
-            {activeJobCount} generation{activeJobCount > 1 ? "s" : ""} in progress — refreshing every 3s
-          </p>
+          <p className="text-sm text-foreground-muted">{t.run.inProgress(activeJobCount)}</p>
         </div>
       )}
 
-      <TriggerPanel repoUrl={repoUrl} health={health} runs={runs} />
+      <TriggerPanel repoUrl={repoUrl} health={health} runs={runs} t={t} />
 
       <KanbanBoard
         runs={runs}
@@ -542,6 +559,7 @@ export function RepoToSocialShell({
           setSelectedRunId(r.id);
           setFocusedTweetIndex(idx);
         }}
+        t={t}
       />
 
       <SettingsAccordion
@@ -552,6 +570,7 @@ export function RepoToSocialShell({
         isSaving={isSaving}
         onSave={handleSave}
         repoPlaceholder={repoPlaceholder}
+        t={t}
       />
 
       <RepoToSocialDialog

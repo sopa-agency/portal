@@ -399,6 +399,159 @@ const en = {
       days: (n: number) => `${n}d`,
     },
   },
+  /**
+   * Post Suggestions. Chrome only — the generated post text inside the cards is
+   * the product, written by the agent in whatever language it was prompted in,
+   * and is never translated here.
+   */
+  postSuggestions: {
+    eyebrow: "Marketing",
+    title: "Post Suggestions",
+    description: (project: string) =>
+      `Ready-to-post drafts for ${project} — from community activity (top creators, best posts, what's happening) or straight from repo commits. One run, multiple platforms.`,
+    /** Header chip. Both generators' worker health, already localized. */
+    status: (community: string, repo: string) =>
+      `workers: community ${community} · repo ${repo}`,
+    tabs: {
+      community: "Community",
+      repo: "Repo to Social",
+      crosspost: "Cross-post",
+      calendar: "Calendar",
+    },
+    /** Worker health, shared by both tabs. */
+    worker: {
+      active: "active",
+      idle: "running (idle)",
+      stale: "stale",
+      offline: "not running",
+      unknown: "unknown",
+    },
+    board: {
+      generating: "Generating",
+      drafted: "Drafts",
+      approved: "Approved",
+      published: "Published",
+      /** Empty-column hints. The two tabs differ in the verb that fills them. */
+      emptyCommunity: {
+        generating: "Click “Suggest posts” to queue a run.",
+        drafted: "Drafts will land here once generated.",
+        approved: "Approve a draft to move it here.",
+        published: "Posted suggestions show up here.",
+      },
+      emptyRepo: {
+        generating: "Click “Generate now” to queue a run.",
+        drafted: "Drafts will land here once generated.",
+        approved: "Approve a draft to move it here.",
+        published: "Posted tweets show up here.",
+      },
+    },
+    /** Card furniture — never the post text itself. */
+    card: {
+      queued: "Queued — waiting for worker…",
+      working: "Working…",
+      empty: "No posts generated.",
+      /** The repo tab drafts tweets specifically, so it says so. */
+      emptyTweets: "No tweets generated.",
+      ready: "ready",
+      skipped: "skipped",
+      publishedTo: "published to",
+      postedOn: (platform: string) => `Posted on ${platform}`,
+    },
+    /** Relative age of a run. */
+    time: {
+      seconds: (n: number) => `${n}s ago`,
+      minutes: (n: number) => `${n}m ago`,
+      hours: (n: number) => `${n}h ago`,
+      days: (n: number) => `${n}d ago`,
+    },
+    run: {
+      inProgress: (n: number) =>
+        `${n} generation${n > 1 ? "s" : ""} in progress — refreshing every 3s`,
+      heading: "Suggest community posts",
+      sources: (list: string, project: string) =>
+        `Pulls ${list} and drafts posts about the ${project} community.`,
+      sourceNames: {
+        topPosts: "top posts",
+        topCreators: "top creators",
+        briefing: "marketing briefing",
+      },
+      noSources: "No sources enabled — open Settings to turn some on.",
+      themeLabel: "Theme or focus (optional)",
+      themePlaceholder: "e.g. mini ramp jam, welcome new skaters, recap the week",
+      submit: "Suggest posts",
+      submitting: "Queuing…",
+      queuedRun: (id: string) => `Queued run ${id}.`,
+      error: (message: string) => `Error: ${message}`,
+      needsSource: "Enable at least one source in Settings first",
+      /** Wraps the `npm run worker:…` command, which stays verbatim. */
+      offlineBefore: "Worker is not running. Queued jobs will sit until you start it with",
+    },
+    health: {
+      worker: "Worker",
+      db: "DB",
+      /** Closed union from the health action, safe to index. */
+      dbState: { connected: "connected", unreachable: "unreachable" },
+      queue: "Queue",
+      pending: (n: number) => `${n} pending`,
+      lastRun: "Last run",
+      noRuns: "No runs yet",
+      posts: (n: number) => `${n} posts`,
+      offline: "Backend offline.",
+    },
+    settings: {
+      title: "Settings",
+      sourcesChip: (summary: string) => `sources: ${summary}`,
+      sourcesNone: "none",
+      sourcesShort: { topPosts: "posts", topCreators: "creators", briefing: "briefing" },
+      sourcesLabel: "Sources to feed the agent",
+      topPosts: {
+        title: "Top Hive posts",
+        desc: "Trending posts from the community Hive feed this past week.",
+      },
+      topCreators: {
+        title: "Top creators",
+        desc: "Leaderboard derived from the week's top posts (by votes + payout).",
+      },
+      briefing: {
+        title: "Marketing briefing",
+        desc: "Preamble of today's marketing briefing, if available.",
+      },
+      placeholderLabel: "Theme placeholder",
+      placeholderInput: "e.g. tag a creator, recap the week, welcome newcomers",
+      placeholderHint: "Shown as the placeholder in the “Theme or focus” field above.",
+      promptLabel: "Generation prompt",
+      promptHint:
+        "Instructions shaping tone and format. The agent receives this plus the enabled sources and your theme.",
+      repoPromptLabel: "Tweet generation prompt",
+      save: "Save settings",
+      saving: "Saving…",
+    },
+    repo: {
+      heading: "Generate",
+      submit: "Generate now",
+      needsRepo: "Configure at least one repository URL first",
+      readingFrom: "Reading commits from",
+      noRepo: "no repo configured — set one in the config below",
+      pulls: (label: string) => `Pulls recent commits from ${label} and generates tweet drafts.`,
+      none: "no repository configured",
+      count: (n: number) => `${n} repos`,
+      tweets: (n: number) => `${n} tweets`,
+      settingsNone: "no repositories set",
+      urlLabel: "Source repository URL (GitHub)",
+      urlHint:
+        "One repository per line. Commits from each are merged by date before drafting tweets.",
+      promptHint: "Instructions shaping tone and format of generated tweets.",
+    },
+    calendar: {
+      hint: "this project's scheduled posts — Instagram, suggestions and repo runs",
+      prevMonth: "Previous month",
+      nextMonth: "Next month",
+      create: "Create a post on this date",
+      createOn: (day: string) => `Create a post on ${day}`,
+      more: (n: number) => `+${n} more`,
+      weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    },
+  },
   team: {
     eyebrow: "People",
     title: "Team",
@@ -745,6 +898,148 @@ const pt: typeof en = {
       minutes: (n: number) => `${n}min`,
       hours: (n: number) => `${n}h`,
       days: (n: number) => `${n}d`,
+    },
+  },
+  postSuggestions: {
+    eyebrow: "Marketing",
+    title: "Sugestões de Post",
+    description: (project: string) =>
+      `Rascunhos prontos para publicar da ${project} — a partir da atividade da comunidade (top criadores, melhores posts, o que está rolando) ou direto dos commits do repositório. Uma rodada, várias plataformas.`,
+    status: (community: string, repo: string) =>
+      `workers: comunidade ${community} · repo ${repo}`,
+    tabs: {
+      community: "Comunidade",
+      repo: "Repo para Social",
+      crosspost: "Cross-post",
+      calendar: "Calendário",
+    },
+    worker: {
+      active: "ativo",
+      idle: "rodando (ocioso)",
+      stale: "travado",
+      offline: "parado",
+      unknown: "desconhecido",
+    },
+    board: {
+      generating: "Gerando",
+      drafted: "Rascunhos",
+      approved: "Aprovados",
+      published: "Publicados",
+      emptyCommunity: {
+        generating: "Clique em “Sugerir posts” para enfileirar uma rodada.",
+        drafted: "Os rascunhos aparecem aqui depois de gerados.",
+        approved: "Aprove um rascunho para ele vir para cá.",
+        published: "As sugestões publicadas aparecem aqui.",
+      },
+      emptyRepo: {
+        generating: "Clique em “Gerar agora” para enfileirar uma rodada.",
+        drafted: "Os rascunhos aparecem aqui depois de gerados.",
+        approved: "Aprove um rascunho para ele vir para cá.",
+        published: "Os tweets publicados aparecem aqui.",
+      },
+    },
+    card: {
+      queued: "Na fila — esperando o worker…",
+      working: "Trabalhando…",
+      empty: "Nenhum post gerado.",
+      emptyTweets: "Nenhum tweet gerado.",
+      ready: "pronto",
+      skipped: "pulado",
+      publishedTo: "publicado em",
+      postedOn: (platform: string) => `Publicado no ${platform}`,
+    },
+    time: {
+      seconds: (n: number) => `há ${n}s`,
+      minutes: (n: number) => `há ${n}min`,
+      hours: (n: number) => `há ${n}h`,
+      days: (n: number) => `há ${n}d`,
+    },
+    run: {
+      inProgress: (n: number) =>
+        `${n} geraç${n > 1 ? "ões" : "ão"} em andamento — atualizando a cada 3s`,
+      heading: "Sugerir posts da comunidade",
+      sources: (list: string, project: string) =>
+        `Puxa ${list} e escreve posts sobre a comunidade ${project}.`,
+      sourceNames: {
+        topPosts: "melhores posts",
+        topCreators: "top criadores",
+        briefing: "briefing de marketing",
+      },
+      noSources: "Nenhuma fonte ativa — abra os Ajustes para ligar alguma.",
+      themeLabel: "Tema ou foco (opcional)",
+      themePlaceholder: "ex.: jam na mini ramp, boas-vindas aos novatos, resumo da semana",
+      submit: "Sugerir posts",
+      submitting: "Enfileirando…",
+      queuedRun: (id: string) => `Rodada ${id} enfileirada.`,
+      error: (message: string) => `Erro: ${message}`,
+      needsSource: "Ligue ao menos uma fonte nos Ajustes antes",
+      offlineBefore:
+        "O worker não está rodando. Os jobs ficam parados na fila até você iniciar com",
+    },
+    health: {
+      worker: "Worker",
+      db: "Banco",
+      dbState: { connected: "conectado", unreachable: "inacessível" },
+      queue: "Fila",
+      pending: (n: number) => `${n} na fila`,
+      lastRun: "Última rodada",
+      noRuns: "Nenhuma rodada ainda",
+      posts: (n: number) => `${n} posts`,
+      offline: "Backend fora do ar.",
+    },
+    settings: {
+      title: "Ajustes",
+      sourcesChip: (summary: string) => `fontes: ${summary}`,
+      sourcesNone: "nenhuma",
+      sourcesShort: { topPosts: "posts", topCreators: "criadores", briefing: "briefing" },
+      sourcesLabel: "Fontes que alimentam o agente",
+      topPosts: {
+        title: "Melhores posts do Hive",
+        desc: "Posts em alta no feed Hive da comunidade nesta última semana.",
+      },
+      topCreators: {
+        title: "Top criadores",
+        desc: "Ranking tirado dos melhores posts da semana (por votos + payout).",
+      },
+      briefing: {
+        title: "Briefing de marketing",
+        desc: "Preâmbulo do briefing de marketing de hoje, se houver.",
+      },
+      placeholderLabel: "Placeholder do tema",
+      placeholderInput: "ex.: marque um criador, resuma a semana, dê boas-vindas",
+      placeholderHint: "Aparece como placeholder no campo “Tema ou foco” acima.",
+      promptLabel: "Prompt de geração",
+      promptHint:
+        "Instruções que moldam tom e formato. O agente recebe isto junto das fontes ligadas e do seu tema.",
+      repoPromptLabel: "Prompt de geração dos tweets",
+      save: "Salvar ajustes",
+      saving: "Salvando…",
+    },
+    repo: {
+      heading: "Gerar",
+      submit: "Gerar agora",
+      needsRepo: "Configure ao menos uma URL de repositório antes",
+      readingFrom: "Lendo commits de",
+      noRepo: "nenhum repo configurado — defina um nos ajustes abaixo",
+      pulls: (label: string) =>
+        `Puxa os commits recentes de ${label} e gera rascunhos de tweet.`,
+      none: "nenhum repositório configurado",
+      count: (n: number) => `${n} repos`,
+      tweets: (n: number) => `${n} tweets`,
+      settingsNone: "nenhum repositório definido",
+      urlLabel: "URL do repositório de origem (GitHub)",
+      urlHint:
+        "Um repositório por linha. Os commits de cada um são mesclados por data antes de virar tweet.",
+      promptHint: "Instruções que moldam o tom e o formato dos tweets gerados.",
+    },
+    calendar: {
+      hint: "posts agendados deste projeto — Instagram, sugestões e rodadas do repo",
+      prevMonth: "Mês anterior",
+      nextMonth: "Próximo mês",
+      create: "Criar post nesta data",
+      createOn: (day: string) => `Criar post em ${day}`,
+      more: (n: number) => `+${n}`,
+      weekdays: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"],
     },
   },
   team: {

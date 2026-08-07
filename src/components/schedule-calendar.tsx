@@ -11,6 +11,7 @@ import type { CalendarExtra } from "@/app/actions/post-creator";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
 import { ownEvents } from "@/lib/calendar-scope";
+import { useLocale } from "@/components/locale-provider";
 
 const CHIP_LIMIT = 3;
 
@@ -28,6 +29,10 @@ export function ScheduleCalendar({
   /** Show a hover "+" per day that opens the Post Creator pre-scheduled to it. */
   canCreate?: boolean;
 }) {
+  // `locale` too: the month name comes from the platform formatter, not the
+  // dictionary, so it needs the active language passed explicitly.
+  const { locale, t: dict } = useLocale();
+  const t = dict.postSuggestions.calendar;
   const [list, setList] = useState<CalendarExtra[]>(events);
   const [openEvent, setOpenEvent] = useState<CalendarExtra | null>(null);
   const [month, setMonth] = useState<Date>(() => {
@@ -63,8 +68,10 @@ export function ScheduleCalendar({
     });
   }, [year, m]);
 
-  const monthLabel = month.toLocaleString(undefined, { month: "long", year: "numeric" });
-  const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const monthLabel = month.toLocaleString(locale === "pt" ? "pt-BR" : "en-US", {
+    month: "long",
+    year: "numeric",
+  });
 
   const hrefFor = (e: CalendarExtra): string | null => {
     if (e.kind === "instagram" && e.projectSlug === activeSlug) return "/post-creator";
@@ -76,7 +83,7 @@ export function ScheduleCalendar({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          aria-label="Previous month"
+          aria-label={t.prevMonth}
           onClick={() => setMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
           className="rounded-lg border border-border p-1.5 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
         >
@@ -87,20 +94,18 @@ export function ScheduleCalendar({
         </span>
         <button
           type="button"
-          aria-label="Next month"
+          aria-label={t.nextMonth}
           onClick={() => setMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
           className="rounded-lg border border-border p-1.5 text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        <span className="ml-2 text-[11px] text-foreground-faint">
-          this project&apos;s scheduled posts — Instagram, suggestions and repo runs
-        </span>
+        <span className="ml-2 text-[11px] text-foreground-faint">{t.hint}</span>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         <div className="grid grid-cols-7 border-b border-border">
-          {WEEKDAYS.map((wd) => (
+          {t.weekdays.map((wd) => (
             <div key={wd} className="py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
               {wd}
             </div>
@@ -120,8 +125,8 @@ export function ScheduleCalendar({
                 {canAdd && (
                   <a
                     href={`/post-creator?date=${key}`}
-                    title="Criar post nesta data"
-                    aria-label={`Criar post em ${key}`}
+                    title={t.create}
+                    aria-label={t.createOn(key)}
                     onClick={(e) => e.stopPropagation()}
                     className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-md border border-border bg-surface text-foreground-muted opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:border-accent-border hover:text-accent"
                   >
@@ -170,7 +175,7 @@ export function ScheduleCalendar({
                   })}
                   {dayEvents.length > CHIP_LIMIT && (
                     <p className="px-1 text-[10px] font-medium text-foreground-subtle">
-                      +{dayEvents.length - CHIP_LIMIT} more
+                      {t.more(dayEvents.length - CHIP_LIMIT)}
                     </p>
                   )}
                 </div>
