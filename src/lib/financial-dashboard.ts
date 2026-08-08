@@ -1,6 +1,7 @@
 import type { FixedCostDTO } from "@/lib/fixed-costs";
 import type { OrgRevenue } from "@/lib/org-revenue";
 import type { TreasuryGroup } from "@/lib/treasury";
+import { combinedTreasuryUsd } from "@/lib/treasury-aggregate";
 
 type JobLike = {
   amountUsd: number;
@@ -178,7 +179,9 @@ export function buildFinancialDashboardViews({
     }
   }
 
-  const totalTreasuryUsd = views.reduce((sum, view) => sum + view.treasuryUsd, 0);
+  // Native project views may intentionally share a source. The aggregate must
+  // count each wallet/account only once (e.g. Hive @gnars in two projects).
+  const totalTreasuryUsd = combinedTreasuryUsd(groups);
   const totalBurnUsd = views.reduce((sum, view) => sum + view.burnUsd, 0);
 
   return [
