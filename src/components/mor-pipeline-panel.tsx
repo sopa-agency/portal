@@ -11,11 +11,12 @@
 import { useState } from "react";
 import { createPublicClient, http, getAddress, encodeFunctionData } from "viem";
 import { base } from "viem/chains";
-import { Loader2, ExternalLink, CheckCircle2, AlertTriangle, Plug } from "lucide-react";
+import { Loader2, ExternalLink, CheckCircle2, AlertTriangle, Plug, RefreshCw, Zap } from "lucide-react";
 import {
   PIPELINE, TOKENS, TOP_SPLIT_STRUCT, DOWNSTREAM_SPLIT_STRUCT, pipelineAbis,
   getPipelineStatus, type PipelineStatus,
 } from "@/lib/mor-pipeline";
+import { getSwapMinOut } from "@/app/actions/mor-swap";
 
 type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 const pub = createPublicClient({ chain: base, transport: http("https://base-rpc.publicnode.com") });
@@ -112,6 +113,34 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
     { address: PIPELINE.warehouse, abi: pipelineAbis.warehouse, fn: "withdraw", args: [PIPELINE.sopa, TOKENS.usdc.address] },
   ]);
 
+  // Native flash-fill via our SwapperFlashFiller — replaces clicking the Splits
+  // explorer. Reads a protective minOut from the swapper's oracle (server-side),
+  // then fills. Owner-only (the filler is owner-gated to haxixe). The explorer
+  // link stays in the UI as a fallback.
+  const nativeSwap = async (hop: "A" | "B") => {
+    if (!account) return;
+    const id = hop === "A" ? "swapA" : "swapB";
+    setBusy(id);
+    setErr(null);
+    const q = await getSwapMinOut(hop).catch(() => null);
+    if (!q) { setErr("Falha ao cotar o swap."); setBusy(null); return; }
+    if (BigInt(q.baseAmount || "0") <= BigInt(1)) {
+      setErr(`Swapper ${hop} vazio — nada pra trocar. Rode Avançar MOR primeiro.`);
+      setBusy(null);
+      return;
+    }
+    const cfg = hop === "A"
+      ? { swapper: PIPELINE.swapperA, token: TOKENS.mor.address, fee: 3000 }
+      : { swapper: PIPELINE.swapperB, token: TOKENS.weth.address, fee: 500 };
+    await run(id, [{ address: PIPELINE.filler, abi: pipelineAbis.filler, fn: "fill", args: [cfg.swapper, cfg.token, cfg.fee, BigInt(q.minOut), PIPELINE.sopa] }]);
+  };
+
+  const doRefresh = async () => {
+    setBusy("refresh");
+    await getPipelineStatus().then(setStatus).catch(() => {});
+    setBusy(null);
+  };
+
   // USD hints — null when the price feed is down (0) or the amount is dust, so we
   // never show a distracting "$0.00" next to an empty hop.
   const mUsd = (n: number) => (status.morPriceUsd > 0 && n > 0 ? usd(n * status.morPriceUsd) : null);
@@ -157,15 +186,20 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
             <b className="text-foreground"> avançar</b> os fundos é permissionless — qualquer carteira ajuda.
           </p>
         </div>
-        {account ? (
-          <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${isOwner ? "bg-success/15 text-success" : "bg-accent-bg text-accent"}`}>
-            {isOwner ? "haxixe conectada" : "pode avançar o fluxo"}
-          </span>
-        ) : (
-          <button type="button" onClick={connect} className={`${btn} border border-accent-border bg-accent-bg text-accent hover:bg-accent/20`}>
-            <Plug className="h-3.5 w-3.5" /> Conectar carteira
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={doRefresh} disabled={busy === "refresh"} title="Atualizar saldos" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground`}>
+            <RefreshCw className={`h-3.5 w-3.5 ${busy === "refresh" ? "animate-spin" : ""}`} />
           </button>
-        )}
+          {account ? (
+            <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${isOwner ? "bg-success/15 text-success" : "bg-accent-bg text-accent"}`}>
+              {isOwner ? "haxixe conectada" : "pode avançar o fluxo"}
+            </span>
+          ) : (
+            <button type="button" onClick={connect} className={`${btn} border border-accent-border bg-accent-bg text-accent hover:bg-accent/20`}>
+              <Plug className="h-3.5 w-3.5" /> Conectar carteira
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Status view (read-only for everyone) */}
@@ -205,12 +239,26 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
             <button type="button" onClick={advanceMor} disabled={!!busy || !canAdvanceMor} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
               {busy === "mor" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Avançar MOR
             </button>
-            <a href={splitsUrl(PIPELINE.swapperA)} target="_blank" rel="noopener noreferrer" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground`}>
-              Swap A{mUsd(status.swapperAMor) ? ` · ~${mUsd(status.swapperAMor)}` : ""} <ExternalLink className="h-3 w-3" />
-            </a>
-            <a href={splitsUrl(PIPELINE.swapperB)} target="_blank" rel="noopener noreferrer" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground`}>
-              Swap B{eUsd(status.swapperBWeth) ? ` · ~${eUsd(status.swapperBWeth)}` : ""} <ExternalLink className="h-3 w-3" />
-            </a>
+            <span className="inline-flex items-center gap-1">
+              {isOwner && (
+                <button type="button" onClick={() => nativeSwap("A")} disabled={!!busy} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
+                  {busy === "swapA" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} Swap A{mUsd(status.swapperAMor) ? ` · ~${mUsd(status.swapperAMor)}` : ""}
+                </button>
+              )}
+              <a href={splitsUrl(PIPELINE.swapperA)} target="_blank" rel="noopener noreferrer" title="Fallback: abrir no explorer dos Splits" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground ${isOwner ? "px-2" : ""}`}>
+                {isOwner ? <ExternalLink className="h-3 w-3" /> : <>Swap A{mUsd(status.swapperAMor) ? ` · ~${mUsd(status.swapperAMor)}` : ""} <ExternalLink className="h-3 w-3" /></>}
+              </a>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              {isOwner && (
+                <button type="button" onClick={() => nativeSwap("B")} disabled={!!busy} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
+                  {busy === "swapB" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} Swap B{eUsd(status.swapperBWeth) ? ` · ~${eUsd(status.swapperBWeth)}` : ""}
+                </button>
+              )}
+              <a href={splitsUrl(PIPELINE.swapperB)} target="_blank" rel="noopener noreferrer" title="Fallback: abrir no explorer dos Splits" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground ${isOwner ? "px-2" : ""}`}>
+                {isOwner ? <ExternalLink className="h-3 w-3" /> : <>Swap B{eUsd(status.swapperBWeth) ? ` · ~${eUsd(status.swapperBWeth)}` : ""} <ExternalLink className="h-3 w-3" /></>}
+              </a>
+            </span>
             <button type="button" onClick={advanceUsdc} disabled={!!busy || !canAdvanceUsdc} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
               {busy === "usdc" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Avançar USDC
             </button>
@@ -225,7 +273,8 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
           {err && <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{err}</p>}
           <p className="mt-3 text-[11px] text-foreground-faint">
             Ordem: <b>Reivindicar</b> → <b>Avançar MOR</b> → <b>Swap A</b> → <b>Swap B</b> → <b>Avançar USDC</b>. Avançar roda
-            nativo (distribute + withdraw, permissionless); os dois swaps abrem a UI de &quot;swap funds&quot; dos Splits (caminho testado).
+            nativo (distribute + withdraw, permissionless). <b>Swap A/B</b> agora rodam nativo pelo nosso filler (só a haxixe) com minOut
+            protegido — o ícone <ExternalLink className="inline h-3 w-3" /> ao lado abre a UI dos Splits como fallback.
             ⚠️ = fundos creditados no Warehouse esperando um withdraw.
           </p>
         </>

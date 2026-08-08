@@ -21,6 +21,7 @@ export const PIPELINE = {
   warehouse: getAddress("0x8fb66F38cF86A3d5e8768f8F1754A24A6c661Fb8"),
   builders: getAddress("0x42BB446eAE6dca7723a9eBdb81EA88aFe77eF4B9"),
   owner: getAddress("0x8Bf5941d27176242745B716251943Ae4892a3C26"), // haxixe.eth — only driver
+  filler: getAddress("0x40b2F18912FF46Dc826F522B9cbdb0224739aa66"), // SwapperFlashFiller — native flash-fill (fork-tested, owner = haxixe)
   sopa: getAddress("0x96c37393b79ad7eabdf9ccf82c2edad3d3c0eea2"),
   gnarsTreasury: getAddress("0x72ad986ebac0246d2b3c565ab2a1ce3a14ce6f88"),
   subnetId: "0xf129111951997d1c386be9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d" as `0x${string}`,
@@ -60,6 +61,7 @@ export const pipelineAbis = {
   warehouse: [{ type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "_owner", type: "address" }, { name: "_token", type: "address" }], outputs: [] },
     { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "id", type: "uint256" }], outputs: [{ type: "uint256" }] }] as const,
   erc20: [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }] }] as const,
+  filler: [{ type: "function", name: "fill", stateMutability: "nonpayable", inputs: [{ name: "swapper", type: "address" }, { name: "tokenFromTrader", type: "address" }, { name: "poolFee", type: "uint24" }, { name: "minOut", type: "uint256" }, { name: "surplusTo", type: "address" }], outputs: [] }] as const,
 } as const;
 
 /** Warehouse (ERC-6909) token id = uint256(uint160(tokenAddress)). */
