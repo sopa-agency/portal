@@ -30,6 +30,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
   const [err, setErr] = useState<string | null>(null);
 
   const isOwner = account != null && account.toLowerCase() === PIPELINE.owner.toLowerCase();
+  const connected = account != null;
 
   async function connect() {
     setErr(null);
@@ -90,12 +91,17 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
     { address: PIPELINE.warehouse, abi: pipelineAbis.warehouse, fn: "withdraw", args: [PIPELINE.sopa, TOKENS.usdc.address] },
   ]);
 
-  const rows: { label: string; value: string; flag?: "warn" | "ok" }[] = [
-    { label: "Reward da subnet (a reivindicar)", value: mor(status.subnetRewardMor) },
-    { label: "Split do topo — aguardando distribute", value: mor(status.topSplitMor) },
-    { label: "Swapper A — precisa withdraw", value: mor(status.swapperAWarehouseMor), flag: status.swapperAWarehouseMor > 0 ? "warn" : undefined },
-    { label: "Swapper A — pronto pra swap", value: mor(status.swapperAMor) },
-    { label: "Swapper B — pronto pra swap", value: `${status.swapperBWeth.toLocaleString("pt-BR", { maximumFractionDigits: 6 })} WETH` },
+  // USD hints — null when the price feed is down (0) or the amount is dust, so we
+  // never show a distracting "$0.00" next to an empty hop.
+  const mUsd = (n: number) => (status.morPriceUsd > 0 && n > 0 ? usd(n * status.morPriceUsd) : null);
+  const eUsd = (n: number) => (status.ethPriceUsd > 0 && n > 0 ? usd(n * status.ethPriceUsd) : null);
+
+  const rows: { label: string; value: string; sub?: string | null; flag?: "warn" | "ok" }[] = [
+    { label: "Reward da subnet (a reivindicar)", value: mor(status.subnetRewardMor), sub: mUsd(status.subnetRewardMor) },
+    { label: "Split do topo — aguardando distribute", value: mor(status.topSplitMor), sub: mUsd(status.topSplitMor) },
+    { label: "Swapper A — precisa withdraw", value: mor(status.swapperAWarehouseMor), sub: mUsd(status.swapperAWarehouseMor), flag: status.swapperAWarehouseMor > 0 ? "warn" : undefined },
+    { label: "Swapper A — pronto pra swap", value: mor(status.swapperAMor), sub: mUsd(status.swapperAMor) },
+    { label: "Swapper B — pronto pra swap", value: `${status.swapperBWeth.toLocaleString("pt-BR", { maximumFractionDigits: 6 })} WETH`, sub: eUsd(status.swapperBWeth) },
     { label: "Split final — aguardando distribute", value: usd(status.downstreamUsdc) },
     { label: "Gnars — precisa withdraw", value: usd(status.gnarsWarehouseUsdc), flag: status.gnarsWarehouseUsdc > 0 ? "warn" : undefined },
     { label: "Tesouro da Gnars — entregue", value: usd(status.gnarsUsdc), flag: "ok" },
@@ -107,6 +113,16 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
     status.topSplitMor + status.swapperAWarehouseMor + status.swapperAMor +
     status.swapperBWeth + status.downstreamUsdc + status.gnarsWarehouseUsdc;
 
+  // Eligibility guards — the real gate here is "is there anything to do at this
+  // hop". Admin subnet-reward claim has no time lock; it just needs reward > 0.
+  const EPS_MOR = 0.0001; // dust threshold in MOR
+  const EPS_USDC = 0.01; // dust threshold in USDC
+  const canClaim = status.subnetRewardMor > EPS_MOR;
+  const canAdvanceMor =
+    status.topSplitMor + status.swapperAWarehouseMor + status.sopaWarehouseMor > EPS_MOR;
+  const canAdvanceUsdc =
+    status.downstreamUsdc + status.gnarsWarehouseUsdc + status.sopaWarehouseUsdc > EPS_USDC;
+
   const btn = "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
@@ -116,12 +132,13 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
           <h2 className="text-lg font-semibold tracking-tight text-foreground">Pipeline MOR → USDC</h2>
           <p className="mt-1 max-w-2xl text-sm text-foreground-muted">
             Reivindica o MOR da subnet da Gnars e passa pelos splits + swappers pra Gnars DAO ficar com USDC e a
-            SOPA com a fatia dela. Só a <b className="text-foreground">haxixe.eth</b> roda o fluxo.
+            SOPA com a fatia dela. <b className="text-foreground">Reivindicar</b> é da haxixe.eth (admin da subnet);
+            <b className="text-foreground"> avançar</b> os fundos é permissionless — qualquer carteira ajuda.
           </p>
         </div>
         {account ? (
-          <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${isOwner ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>
-            {isOwner ? "haxixe conectada" : "carteira sem permissão"}
+          <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${isOwner ? "bg-success/15 text-success" : "bg-accent-bg text-accent"}`}>
+            {isOwner ? "haxixe conectada" : "pode avançar o fluxo"}
           </span>
         ) : (
           <button type="button" onClick={connect} className={`${btn} border border-accent-border bg-accent-bg text-accent hover:bg-accent/20`}>
@@ -139,7 +156,10 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
               {r.flag === "ok" && <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
               {r.label}
             </span>
-            <span className={`font-mono text-sm font-semibold tabular-nums ${r.flag === "warn" ? "text-warning" : r.flag === "ok" ? "text-success" : "text-foreground"}`}>{r.value}</span>
+            <span className="text-right">
+              <span className={`block font-mono text-sm font-semibold tabular-nums ${r.flag === "warn" ? "text-warning" : r.flag === "ok" ? "text-success" : "text-foreground"}`}>{r.value}</span>
+              {r.sub && <span className="block font-mono text-[11px] tabular-nums text-foreground-faint">≈ {r.sub}</span>}
+            </span>
           </div>
         ))}
       </div>
@@ -150,39 +170,47 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
         </p>
       )}
 
-      {/* Controls — only the owner sees them; everyone else keeps the read-only view above. */}
-      {isOwner ? (
+      {/* Controls. Advancing (distribute + withdraw) and the swaps are permissionless
+          — any connected wallet can push funds along; only Reivindicar (the admin
+          subnet claim) is gated to haxixe.eth. Non-connected keeps the read-only view. */}
+      {connected ? (
         <>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" onClick={claim} disabled={!!busy} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
-              {busy === "claim" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Reivindicar
-            </button>
-            <button type="button" onClick={advanceMor} disabled={!!busy} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
+            {isOwner && (
+              <button type="button" onClick={claim} disabled={!!busy || !canClaim} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
+                {busy === "claim" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Reivindicar
+              </button>
+            )}
+            <button type="button" onClick={advanceMor} disabled={!!busy || !canAdvanceMor} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
               {busy === "mor" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Avançar MOR
             </button>
             <a href={splitsUrl(PIPELINE.swapperA)} target="_blank" rel="noopener noreferrer" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground`}>
-              Swap A <ExternalLink className="h-3 w-3" />
+              Swap A{mUsd(status.swapperAMor) ? ` · ~${mUsd(status.swapperAMor)}` : ""} <ExternalLink className="h-3 w-3" />
             </a>
             <a href={splitsUrl(PIPELINE.swapperB)} target="_blank" rel="noopener noreferrer" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground`}>
-              Swap B <ExternalLink className="h-3 w-3" />
+              Swap B{eUsd(status.swapperBWeth) ? ` · ~${eUsd(status.swapperBWeth)}` : ""} <ExternalLink className="h-3 w-3" />
             </a>
-            <button type="button" onClick={advanceUsdc} disabled={!!busy} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
+            <button type="button" onClick={advanceUsdc} disabled={!!busy || !canAdvanceUsdc} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
               {busy === "usdc" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Avançar USDC
             </button>
           </div>
 
+          {!isOwner && (
+            <p className="mt-2 text-[11px] text-foreground-faint">
+              <b className="text-foreground-muted">Reivindicar</b> só a haxixe.eth (admin da subnet). Mas <b className="text-foreground-muted">Avançar MOR/USDC</b> e os swaps são permissionless — qualquer carteira pode empurrar os fundos adiante.
+            </p>
+          )}
+
           {err && <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{err}</p>}
           <p className="mt-3 text-[11px] text-foreground-faint">
-            Ordem: <b>Reivindicar</b> → <b>Avançar MOR</b> → <b>Swap A</b> → <b>Swap B</b> → <b>Avançar USDC</b>. Reivindicar/Avançar
-            rodam nativo (distribute + withdraw); os dois swaps abrem a UI de &quot;swap funds&quot; dos Splits (caminho testado).
+            Ordem: <b>Reivindicar</b> → <b>Avançar MOR</b> → <b>Swap A</b> → <b>Swap B</b> → <b>Avançar USDC</b>. Avançar roda
+            nativo (distribute + withdraw, permissionless); os dois swaps abrem a UI de &quot;swap funds&quot; dos Splits (caminho testado).
             ⚠️ = fundos creditados no Warehouse esperando um withdraw.
           </p>
         </>
       ) : (
         <p className="mt-4 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-[11px] text-foreground-faint">
-          {account
-            ? "Essa carteira não é a dona do pipeline — os controles do fluxo só aparecem pra haxixe.eth."
-            : "Só a haxixe.eth roda o fluxo. Conecte com ela pra ver os controles; o resto é leitura."}
+          Conecte a carteira pra empurrar o fluxo. <b className="text-foreground-muted">Avançar MOR/USDC</b> e os swaps são permissionless (qualquer carteira); só <b className="text-foreground-muted">Reivindicar</b> é da haxixe.eth. O resto é leitura.
         </p>
       )}
     </section>

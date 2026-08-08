@@ -98,7 +98,29 @@ export type PipelineStatus = {
   sopaWalletMor: number;
   /** MOR SOPA has staked into the Gnars subnet (compounding its cut back in). */
   sopaStakedMor: number;
+  /** USD price of MOR (0 if the price feed failed). */
+  morPriceUsd: number;
+  /** USD price of ETH/WETH (0 if the price feed failed). */
+  ethPriceUsd: number;
 };
+
+// MOR + ETH spot prices for the USD readouts. CoinGecko's public endpoint is
+// CORS-friendly, so this works both server-side (initial render) and in the
+// browser (the panel's refresh). Never throws — falls back to 0 so a dead feed
+// only blanks the USD hints, never the pipeline.
+async function getMorEthPrices(): Promise<{ morPriceUsd: number; ethPriceUsd: number }> {
+  try {
+    const res = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=morpheusai,ethereum&vs_currencies=usd",
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!res.ok) return { morPriceUsd: 0, ethPriceUsd: 0 };
+    const d = (await res.json()) as { morpheusai?: { usd?: number }; ethereum?: { usd?: number } };
+    return { morPriceUsd: d.morpheusai?.usd ?? 0, ethPriceUsd: d.ethereum?.usd ?? 0 };
+  } catch {
+    return { morPriceUsd: 0, ethPriceUsd: 0 };
+  }
+}
 
 export async function getPipelineStatus(): Promise<PipelineStatus> {
   const { mor, weth, usdc } = TOKENS;
@@ -125,6 +147,8 @@ export async function getPipelineStatus(): Promise<PipelineStatus> {
     .then((u) => (u as readonly bigint[])[2])
     .catch(() => BigInt(0));
 
+  const { morPriceUsd, ethPriceUsd } = await getMorEthPrices();
+
   const n = (v: bigint, d: number) => Number(formatUnits(clean(v), d));
   return {
     subnetRewardMor: n(reward, 18),
@@ -139,5 +163,7 @@ export async function getPipelineStatus(): Promise<PipelineStatus> {
     sopaWarehouseUsdc: n(whSopaUsdc, 6),
     sopaWalletMor: n(sopaWallet, 18),
     sopaStakedMor: n(sopaStaked, 18),
+    morPriceUsd,
+    ethPriceUsd,
   };
 }

@@ -296,7 +296,7 @@ treasury: {
         <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
           <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
           Operações MOR
-          <span className="text-xs font-normal text-foreground-faint">pipeline MOR→USDC · stake na subnet · só a haxixe.eth roda o fluxo</span>
+          <span className="text-xs font-normal text-foreground-faint">pipeline MOR→USDC · stake na subnet · avançar é permissionless, reivindicar é da haxixe.eth</span>
         </summary>
         <div className="mt-6 space-y-8">
           {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
