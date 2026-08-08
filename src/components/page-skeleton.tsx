@@ -12,7 +12,7 @@ import { Skeleton, SkeletonCard, SkeletonRegion, SkeletonText } from "@/componen
  * about the layout is worse than none: the eye settles on the wrong shape and
  * the real content feels like it jumped.
  */
-type Variant = "stats" | "tabs" | "list" | "board";
+type Variant = "stats" | "tabs" | "list";
 
 function Header({ actions = true }: { actions?: boolean }) {
   return (
@@ -80,29 +80,6 @@ function Body({ variant }: { variant: Variant }) {
             <Skeleton className="h-56 w-full" />
           </div>
         </SkeletonCard>
-      </div>
-    );
-  }
-
-  if (variant === "board") {
-    return (
-      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, col) => (
-          <div key={col} className="space-y-3">
-            <Skeleton round className="h-3 w-24" />
-            {Array.from({ length: 3 - (col % 2) }).map((_, i) => (
-              <SkeletonCard key={i} className="p-4">
-                <div className="space-y-3">
-                  <SkeletonText lines={2} />
-                  <div className="flex gap-2">
-                    <Skeleton round className="h-5 w-14" />
-                    <Skeleton round className="h-5 w-10" />
-                  </div>
-                </div>
-              </SkeletonCard>
-            ))}
-          </div>
-        ))}
       </div>
     );
   }

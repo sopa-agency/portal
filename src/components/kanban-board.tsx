@@ -51,6 +51,7 @@ import {
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
 import { MarkdownContent } from "@/components/markdown-content";
+import { KanbanBoardSkeleton } from "@/components/kanban-skeleton";
 import { BountyBadge, BountyPanel, ExecMeetingButton, taskKeyOf } from "@/components/bounty-panel";
 import { MemberModal, type TeamMember } from "@/components/team-view";
 import { solveIssueWithAgent, listCardNotes, addCardNote, deleteCardNote, type CardNote } from "@/app/actions/kanban";
@@ -2702,20 +2703,9 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
 
   // --- render ---
   if (loading) {
-    return (
-      <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-2" aria-label={t.kanban.loadingBoard}>
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="flex h-full min-h-64 min-w-64 flex-1 basis-80 animate-pulse flex-col rounded-xl border border-border bg-surface/60 p-2">
-            <div className="m-1 mb-3 h-4 w-24 rounded bg-foreground/[0.07]" />
-            <div className="space-y-2">
-              <div className="h-20 rounded-xl bg-foreground/[0.05]" />
-              <div className="h-14 rounded-xl bg-foreground/[0.05]" />
-              {i % 2 === 0 && <div className="h-20 rounded-xl bg-foreground/[0.05]" />}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
+    // Same component the route's loading.tsx paints, so the handoff from the
+    // server wait to this fetch is invisible instead of a second load.
+    return <KanbanBoardSkeleton label={t.kanban.loadingBoard} />;
   }
 
   if (error || !board) {
