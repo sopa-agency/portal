@@ -35,6 +35,7 @@ import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
 import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
+import { NativeSwapDeployPanel } from "@/components/native-swap-deploy-panel";
 import { SopaStakePanel } from "@/components/sopa-stake-panel";
 import { getPipelineStatus } from "@/lib/mor-pipeline";
 import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
@@ -300,6 +301,8 @@ treasury: {
         </summary>
         <div className="mt-6 space-y-8">
           {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
+          {/* TEMP: deploy + dry-run the native-swap flash filler (haxixe only). Delete after wiring the real Swap A/B buttons. */}
+          <NativeSwapDeployPanel />
           <SopaStakePanel />
         </div>
       </details>
