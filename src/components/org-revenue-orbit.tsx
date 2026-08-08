@@ -294,7 +294,7 @@ export function OrgRevenueOrbit({ orbit, support }: { orbit: SopaRevenueOrbit; s
           {/* ================= SOPA sun (center) ================= */}
           <circle cx={sunX} cy={sunY} r={sunR} className="fill-[var(--surface-elevated)]" stroke="var(--accent)" strokeWidth={2} />
           <circle cx={sunX} cy={sunY} r={sunR} fill="none" stroke="var(--accent)" strokeWidth={10} strokeOpacity={0.12} />
-          <text x={sunX} y={sunY - 22} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5 }}>TREASURY</text>
+          <text x={sunX} y={sunY - 22} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5 }}>SOPA REVENUE</text>
           <text x={sunX} y={sunY + 3} textAnchor="middle" className="fill-[var(--foreground)]" style={{ fontSize: 21, fontWeight: 700, fontFamily: "var(--font-mono)" }}>{usd(sunTotal)}</text>
           <text x={sunX} y={sunY + 22} textAnchor="middle" className="fill-[var(--foreground-faint)]" style={{ fontSize: 10, fontFamily: "var(--font-mono)" }}>
             {backersTotal > 0 ? `+ ${usd(backersTotal)} backing` : orbit.totalPendingToSopaUsd > 0 ? `+ ${usd(orbit.totalPendingToSopaUsd)} pending` : "SOPA"}
