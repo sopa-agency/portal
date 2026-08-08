@@ -3,6 +3,7 @@
 import { DollarSign } from "lucide-react";
 import type { OrgRevenue, OrgRevenueStream } from "@/lib/org-revenue";
 import { Sparkline, RevenueChart } from "@/components/revenue-charts";
+import { SplitClaimButton } from "@/components/split-claim-button";
 import { usd } from "@/lib/format";
 import { useT } from "@/components/locale-provider";
 import type { Dictionary } from "@/lib/i18n/dictionary";
@@ -121,6 +122,10 @@ function StreamRow({ stream, t }: { stream: OrgRevenueStream; t: Dictionary["tre
           <RevenueChart series={flow.series} />
         </div>
       )}
+
+      {/* Permissionless collect for revenue splits — self-hides when there's
+          nothing sitting in the split or the address isn't a readable split. */}
+      {stream.kind === "split" && <SplitClaimButton address={stream.address} chain={stream.chain} />}
 
       <div className="mt-1.5">
         <TrendChips stream={stream} />

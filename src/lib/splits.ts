@@ -32,6 +32,20 @@ export type SplitConfig = {
   shareFor: (owner: string) => number | null;
 };
 
+/**
+ * The exact PullSplit struct needed to call `distribute()` — it must hash to the
+ * config stored on-chain or the call reverts. Serialized as strings so it can
+ * cross the server→client boundary (a server action) and be rebuilt with BigInt.
+ */
+export type SplitDistributeConfig = {
+  address: string;
+  recipients: string[];
+  /** Raw allocations (out of totalAllocation), as decimal strings. */
+  allocations: string[];
+  totalAllocation: string;
+  distributionIncentive: number;
+};
+
 const BLOCKSCOUT: Record<string, string> = {
   base: "https://base.blockscout.com",
 };
@@ -54,29 +68,13 @@ const SPLIT_TUPLE = [
 type DecodedParam = { name: string; value: unknown };
 type LogItem = { decoded?: { method_call?: string; parameters?: DecodedParam[] } | null };
 
-/** Build a SplitConfig from raw recipients/allocations, or null if inconsistent. */
-function toSplitConfig(address: string, addrs: unknown[], allocs: unknown[], totalRaw: unknown): SplitConfig | null {
-  const total = Number(totalRaw);
-  if (!Number.isFinite(total) || total <= 0) return null;
-
-  const recipients: SplitRecipient[] = addrs.map((a, i) => ({
-    address: String(a),
-    share: Number(allocs[i] ?? 0) / total,
-  }));
-  if (recipients.some((r) => !Number.isFinite(r.share))) return null;
-
-  return {
-    address,
-    recipients,
-    shareFor: (owner) => {
-      const hit = recipients.find((r) => r.address.toLowerCase() === owner.toLowerCase());
-      return hit ? hit.share : null;
-    },
-  };
-}
+// The raw SplitUpdated tuple, decoded but not yet interpreted. Both the
+// share-view (SplitConfig) and the distribute-view (SplitDistributeConfig) are
+// built from this so the two readers can't drift.
+type SplitRaw = { addrs: string[]; allocs: bigint[]; total: bigint; incentive: number };
 
 /** Source 1 — Blockscout's decoded logs (newest-first). */
-async function readViaBlockscout(host: string, address: string): Promise<SplitConfig | null> {
+async function readViaBlockscout(host: string, address: string): Promise<SplitRaw | null> {
   const res = await fetch(`${host}/api/v2/addresses/${address}/logs`, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(9000),
@@ -90,13 +88,18 @@ async function readViaBlockscout(host: string, address: string): Promise<SplitCo
   const tuple = updated?.decoded?.parameters?.[0]?.value;
   if (!Array.isArray(tuple)) return null;
 
-  const [addrs, allocs, totalRaw] = tuple as [unknown, unknown, unknown];
+  const [addrs, allocs, totalRaw, incentiveRaw] = tuple as [unknown, unknown, unknown, unknown];
   if (!Array.isArray(addrs) || !Array.isArray(allocs)) return null;
-  return toSplitConfig(address, addrs, allocs, totalRaw);
+  return {
+    addrs: addrs.map(String),
+    allocs: allocs.map((a) => BigInt(String(a))),
+    total: BigInt(String(totalRaw)),
+    incentive: Number(incentiveRaw ?? 0),
+  };
 }
 
 /** Source 2 — raw `eth_getLogs`, decoded here (oldest-first, so take the last). */
-async function readViaRpc(chain: string, address: string): Promise<SplitConfig | null> {
+async function readViaRpc(chain: string, address: string): Promise<SplitRaw | null> {
   const rpcs = LOG_RPCS[chain] ?? [];
   for (const rpc of rpcs) {
     try {
@@ -118,8 +121,8 @@ async function readViaRpc(chain: string, address: string): Promise<SplitConfig |
 
       // eth_getLogs returns ascending block order; the last is the live config.
       const [cfg] = decodeAbiParameters(SPLIT_TUPLE, logs[logs.length - 1].data);
-      const [addrs, allocs, totalRaw] = cfg as unknown as [readonly string[], readonly bigint[], bigint];
-      return toSplitConfig(address, [...addrs], [...allocs], totalRaw);
+      const [addrs, allocs, total, incentive] = cfg as unknown as [readonly string[], readonly bigint[], bigint, number];
+      return { addrs: [...addrs], allocs: [...allocs], total, incentive: Number(incentive) };
     } catch {
       // try the next endpoint
     }
@@ -127,12 +130,8 @@ async function readViaRpc(chain: string, address: string): Promise<SplitConfig |
   return null;
 }
 
-/**
- * Read a split's recipients + allocations. Returns null when the address isn't a
- * readable v2 split (unverified proxy, wrong chain, no event) — callers must
- * treat that as "unknown", never as a default share.
- */
-export async function getSplitConfig(address: string, chain: string | null): Promise<SplitConfig | null> {
+/** Read the live SplitUpdated tuple, Blockscout first then RPC. */
+async function readSplitRaw(address: string, chain: string | null): Promise<SplitRaw | null> {
   const key = chain ?? "base";
   const host = BLOCKSCOUT[key];
   if (host) {
@@ -144,4 +143,52 @@ export async function getSplitConfig(address: string, chain: string | null): Pro
     }
   }
   return readViaRpc(key, address);
+}
+
+/**
+ * Read a split's recipients + allocations. Returns null when the address isn't a
+ * readable v2 split (unverified proxy, wrong chain, no event) — callers must
+ * treat that as "unknown", never as a default share.
+ */
+export async function getSplitConfig(address: string, chain: string | null): Promise<SplitConfig | null> {
+  const raw = await readSplitRaw(address, chain);
+  if (!raw) return null;
+  const total = Number(raw.total);
+  if (!Number.isFinite(total) || total <= 0) return null;
+
+  const recipients: SplitRecipient[] = raw.addrs.map((a, i) => ({
+    address: a,
+    share: Number(raw.allocs[i] ?? BigInt(0)) / total,
+  }));
+  if (recipients.some((r) => !Number.isFinite(r.share))) return null;
+
+  return {
+    address,
+    recipients,
+    shareFor: (owner) => {
+      const hit = recipients.find((r) => r.address.toLowerCase() === owner.toLowerCase());
+      return hit ? hit.share : null;
+    },
+  };
+}
+
+/**
+ * Read the exact struct needed to call `distribute()` on a PullSplit. Returns
+ * null when the address isn't a readable v2 split. Values are strings so the
+ * result can cross a server action; rebuild BigInts on the client.
+ */
+export async function getSplitDistributeConfig(
+  address: string,
+  chain: string | null,
+): Promise<SplitDistributeConfig | null> {
+  const raw = await readSplitRaw(address, chain);
+  if (!raw || raw.addrs.length === 0 || raw.addrs.length !== raw.allocs.length) return null;
+  if (raw.total <= BigInt(0)) return null;
+  return {
+    address,
+    recipients: raw.addrs,
+    allocations: raw.allocs.map((a) => a.toString()),
+    totalAllocation: raw.total.toString(),
+    distributionIncentive: raw.incentive,
+  };
 }
