@@ -2,6 +2,8 @@ import "server-only";
 import { getOrgRevenue } from "@/lib/org-revenue";
 import { getSplitConfig } from "@/lib/splits";
 import { getMorBuilderReward } from "@/lib/mor-builder";
+import { getPipelineStatus, PIPELINE } from "@/lib/mor-pipeline";
+import { fetchOnchainRevenue } from "@/lib/revenue-onchain";
 import { getCommunityVaults } from "@/lib/community-vaults";
 import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 import { SOPA_SAFE } from "@/lib/superfluid";
@@ -158,9 +160,26 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
     // For a MOR builder pool, read the current on-chain reward and estimate SOPA's
     // cut (reverts → 0 while the pool is fresh, so this stays $0 until it accrues).
     let rewardUsd = 0;
+    // The MOR pipeline has already REALIZED value into SOPA that the accrued-reward
+    // estimate misses: USDC delivered via the downstream split (its SOPA share) +
+    // the MOR SOPA holds/restaked (its 10% top-split cut). Count both as realized.
+    let realizedToSopaUsd = 0;
+    let grossUsd = 0;
+    let method: OrbitFlow["method"] = null;
     if (d.morPoolId) {
-      const r = await getMorBuilderReward(d.morPoolId).catch(() => null);
+      const [r, ps, downRealized, downCfg] = await Promise.all([
+        getMorBuilderReward(d.morPoolId).catch(() => null),
+        getPipelineStatus().catch(() => null),
+        fetchOnchainRevenue(PIPELINE.downstreamSplit, "base").catch(() => null),
+        getSplitConfig(PIPELINE.downstreamSplit, "base").catch(() => null),
+      ]);
       rewardUsd = r?.rewardUsd ?? 0;
+      grossUsd = downRealized?.revenueUsd ?? 0; // USDC that passed the final split
+      const sopaDownShare = downCfg?.shareFor(SOPA_SAFE) ?? 0.8;
+      const realizedUsdc = grossUsd * sopaDownShare;
+      const morCapturedUsd = ps ? (ps.sopaStakedMor + ps.sopaWalletMor) * ps.morPriceUsd : 0;
+      realizedToSopaUsd = realizedUsdc + morCapturedUsd;
+      if (realizedToSopaUsd > 0) method = "split";
     }
     const estimatedToSopaUsd = rewardUsd > 0 ? rewardUsd * d.sopaShare : undefined;
     const splitOut = d.splitOut
@@ -171,10 +190,10 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
       label: d.label,
       address: d.address,
       chain: d.chain,
-      method: null,
+      method,
       sopaShare: d.sopaShare,
-      grossUsd: 0,
-      realizedToSopaUsd: 0,
+      grossUsd,
+      realizedToSopaUsd,
       splitBalanceUsd: 0,
       pendingToSopaUsd: 0,
       declared: true,
@@ -183,9 +202,12 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
     };
     const existing = projects.find((p) => p.name.toLowerCase() === d.project.toLowerCase());
     if (existing) {
-      if (!existing.flows.some((f) => f.key === flow.key)) existing.flows.push(flow);
+      if (!existing.flows.some((f) => f.key === flow.key)) {
+        existing.flows.push(flow);
+        existing.realizedToSopaUsd += realizedToSopaUsd;
+      }
     } else {
-      projects.push({ name: d.project, logoUrl: d.logoUrl, realizedToSopaUsd: 0, pendingToSopaUsd: 0, flows: [flow] });
+      projects.push({ name: d.project, logoUrl: d.logoUrl, realizedToSopaUsd, pendingToSopaUsd: 0, flows: [flow] });
     }
   }
 
