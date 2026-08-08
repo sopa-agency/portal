@@ -54,21 +54,42 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
 
   const refresh = () => getPipelineStatus().then(setStatus).catch(() => {});
 
-  // Run a sequence of writes (each awaited to receipt), then refresh status.
+  // Run a sequence of writes, then refresh status. Smart / 7702-delegated wallets
+  // are quirky: some broadcast the tx but still return an "invalid parameters"
+  // (-32602) error, and some return a userOp-style hash our public RPC can't
+  // resolve as a standard receipt. Neither means failure — only a user rejection
+  // (4001) is a real stop. So we soft-handle those and let the on-chain status
+  // refresh be the source of truth, instead of showing a scary false error.
   async function run(id: string, calls: { address: string; abi: readonly unknown[]; fn: string; args: readonly unknown[] }[]) {
     if (!account) return;
     setBusy(id);
     setErr(null);
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum!;
       const from = getAddress(account);
-      // Send a raw eth_sendTransaction ({from,to,data}) and let the wallet fill
-      // gas/fees/nonce — most compatible with injected wallets (viem's writeContract
-      // adds fields some wallet RPCs reject, esp. for a 7702-delegated EOA).
       for (const c of calls) {
         const data = encodeFunctionData({ abi: c.abi, functionName: c.fn, args: c.args } as Parameters<typeof encodeFunctionData>[0]);
-        const hash = (await eth.request({ method: "eth_sendTransaction", params: [{ from, to: getAddress(c.address), data }] })) as `0x${string}`;
-        await pub.waitForTransactionReceipt({ hash });
+        let hash: string | undefined;
+        try {
+          hash = (await eth.request({ method: "eth_sendTransaction", params: [{ from, to: getAddress(c.address), data }] })) as string;
+        } catch (e) {
+          const code = (e as { code?: number }).code;
+          const msg = ((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "").toLowerCase();
+          if (code === 4001 || msg.includes("reject") || msg.includes("denied")) throw e; // user said no
+          // "invalid parameters" (-32602) from a smart/7702 wallet that likely
+          // broadcast anyway — wait for the effect to land, then move on.
+          if (code === -32602 || msg.includes("invalid param")) {
+            await sleep(8000);
+            continue;
+          }
+          throw e; // a genuine, unexpected failure — surface it
+        }
+        if (typeof hash === "string" && /^0x[0-9a-f]{64}$/i.test(hash)) {
+          await pub.waitForTransactionReceipt({ hash: hash as `0x${string}` }).catch(() => sleep(8000));
+        } else {
+          await sleep(8000); // non-standard (userOp) hash — give it time to land
+        }
       }
       await refresh();
     } catch (e) {
