@@ -34,6 +34,7 @@ import { getStakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
+import { MorFlowDiagram } from "@/components/mor-flow-diagram";
 import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
 import { NativeSwapDeployPanel } from "@/components/native-swap-deploy-panel";
 import { SopaStakePanel } from "@/components/sopa-stake-panel";
@@ -300,6 +301,7 @@ treasury: {
           <span className="text-xs font-normal text-foreground-faint">pipeline MOR→USDC · stake na subnet · avançar é permissionless, reivindicar é da haxixe.eth</span>
         </summary>
         <div className="mt-6 space-y-8">
+          <MorFlowDiagram />
           {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
           {/* TEMP: deploy + dry-run the native-swap flash filler (haxixe only). Delete after wiring the real Swap A/B buttons. */}
           <NativeSwapDeployPanel />
