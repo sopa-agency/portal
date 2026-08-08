@@ -301,7 +301,6 @@ treasury: {
           <span className="text-xs font-normal text-foreground-faint">pipeline MOR→USDC · stake na subnet · avançar é permissionless, reivindicar é da haxixe.eth</span>
         </summary>
         <div className="mt-6 space-y-8">
-          <MorFlowDiagram />
           {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
           {/* TEMP: deploy + dry-run the native-swap flash filler (haxixe only). Delete after wiring the real Swap A/B buttons. */}
           <NativeSwapDeployPanel />
@@ -563,14 +562,17 @@ treasury: {
             ) : undefined
           }
           plan={
-            <FinancialPlan
-              liveStakedUsd={stakePosition?.valueUsd ?? 0}
-              liveApy={stakePosition?.apy ?? null}
-              monthlyCostsUsd={initialCosts
-                .filter((c) => c.active && c.projectSlug === project.slug)
-                .reduce((s, c) => s + c.monthlyUsd, 0)}
-              streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
-            />
+            <div className="space-y-8">
+              <MorFlowDiagram />
+              <FinancialPlan
+                liveStakedUsd={stakePosition?.valueUsd ?? 0}
+                liveApy={stakePosition?.apy ?? null}
+                monthlyCostsUsd={initialCosts
+                  .filter((c) => c.active && c.projectSlug === project.slug)
+                  .reduce((s, c) => s + c.monthlyUsd, 0)}
+                streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
+              />
+            </div>
           }
         />
       ) : (
