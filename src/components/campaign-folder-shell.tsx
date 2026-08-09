@@ -17,7 +17,13 @@ import {
 } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addCampaignCast, createDocument, deleteDocument } from "@/app/actions/campaigns";
+import {
+  addCampaignArtifact,
+  createDocument,
+  deleteDocument,
+  GENERATABLE_ARTIFACTS,
+  type GeneratableArtifactKind,
+} from "@/app/actions/campaigns";
 import { CampaignArtifactActions } from "@/components/campaign-artifact-actions";
 import { CampaignCarouselEditor } from "@/components/campaign-carousel-editor";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
@@ -98,19 +104,24 @@ export function CampaignFolderShell({
     });
   };
 
-  // Each click adds ANOTHER cast (never overwrites) so they can be scheduled
-  // separately. The action feeds the existing casts to the model so the new one
-  // takes a different angle.
-  const [castPending, startCast] = useTransition();
-  const [castError, setCastError] = useState<string | null>(null);
-  const handleAddCast = () => {
-    setCastError(null);
-    startCast(async () => {
-      const res = await addCampaignCast(campaignId);
+  // Generate ANOTHER artifact of a chosen type from the brief (never overwrites)
+  // so each can be scheduled separately. The action feeds the model the existing
+  // same-kind artifacts so the new one takes a different angle. One click per type.
+  const [genPending, startGen] = useTransition();
+  const [pendingKind, setPendingKind] = useState<GeneratableArtifactKind | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [genOpen, setGenOpen] = useState(false);
+  const handleGenerate = (kind: GeneratableArtifactKind) => {
+    setGenError(null);
+    setPendingKind(kind);
+    setGenOpen(false);
+    startGen(async () => {
+      const res = await addCampaignArtifact(campaignId, kind);
       if (res.ok) {
         setSelectedId(res.documentId);
         router.refresh();
-      } else setCastError(res.error);
+      } else setGenError(res.error);
+      setPendingKind(null);
     });
   };
 
@@ -149,18 +160,34 @@ export function CampaignFolderShell({
             New
           </button>
         </div>
-        <div className="px-2">
+        <div className="relative px-2">
           <button
             type="button"
-            onClick={handleAddCast}
-            disabled={castPending}
-            title="Gera mais um Farcaster cast a partir do briefing, com outro ângulo"
+            onClick={() => setGenOpen((v) => !v)}
+            disabled={genPending}
+            title="Gera um novo post a partir do briefing, com IA — escolha o tipo"
             className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
           >
-            {castPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-            {castPending ? "Gerando cast…" : "Novo cast"}
+            {genPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+            {genPending
+              ? `Gerando ${pendingKind ? GENERATABLE_ARTIFACTS.find((a) => a.kind === pendingKind)?.label : "post"}…`
+              : "Gerar post ▾"}
           </button>
-          {castError && <p className="mt-1 text-[10px] text-danger">{castError}</p>}
+          {genOpen && !genPending && (
+            <div className="absolute left-2 right-2 z-20 mt-1 overflow-hidden rounded-md border border-border bg-surface shadow-lg">
+              {GENERATABLE_ARTIFACTS.map((a) => (
+                <button
+                  key={a.kind}
+                  type="button"
+                  onClick={() => handleGenerate(a.kind)}
+                  className="block w-full px-2.5 py-1.5 text-left text-[11px] text-foreground-muted transition hover:bg-accent-bg hover:text-foreground"
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {genError && <p className="mt-1 text-[10px] text-danger">{genError}</p>}
         </div>
         <ul className="space-y-1">
           {enriched.map((doc) => {
