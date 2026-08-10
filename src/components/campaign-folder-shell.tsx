@@ -23,9 +23,8 @@ import {
   createDocument,
   deleteDocument,
   setCampaignDocSchedule,
-  GENERATABLE_ARTIFACTS,
-  type GeneratableArtifactKind,
 } from "@/app/actions/campaigns";
+import { GENERATABLE_ARTIFACTS, type GeneratableArtifactKind } from "@/lib/campaign-artifacts";
 import { CampaignCalendar, type CalendarAsset } from "@/components/campaign-calendar";
 import { CampaignArtifactActions } from "@/components/campaign-artifact-actions";
 import { CampaignCarouselEditor } from "@/components/campaign-carousel-editor";
