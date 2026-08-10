@@ -211,6 +211,25 @@ model OutreachContact {
   @@index([campaignId, status])
 }
 
+// Crypto-media / press contacts for a campaign's Press Blast (send the press
+// release to outlets like Bankless, BeInCrypto). Standalone (no relation) to keep
+// the Campaign model untouched.
+model PressContact {
+  id          String    @id @default(cuid())
+  campaignId  String
+  outlet      String
+  email       String
+  status      String    @default("pending") // pending | sent | failed
+  sentAt      DateTime?
+  error       String?
+  projectSlug String    @default("skatehive")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([campaignId, email])
+  @@index([campaignId])
+}
+
 model Briefing {
   id          String   @id @default(cuid())
   agentSlug   String

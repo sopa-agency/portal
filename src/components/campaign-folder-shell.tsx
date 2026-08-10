@@ -26,6 +26,7 @@ import {
 } from "@/app/actions/campaigns";
 import { GENERATABLE_ARTIFACTS, type GeneratableArtifactKind } from "@/lib/campaign-artifacts";
 import { CampaignCalendar, type CalendarAsset } from "@/components/campaign-calendar";
+import { PressBlastPanel } from "@/components/press-blast-panel";
 import { CampaignArtifactActions } from "@/components/campaign-artifact-actions";
 import { CampaignCarouselEditor } from "@/components/campaign-carousel-editor";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
@@ -361,6 +362,9 @@ export function CampaignFolderShell({
             initialName={selected.name}
             initialContent={selected.content}
           />
+        )}
+        {/press release/i.test(selected.name) && (
+          <PressBlastPanel campaignId={campaignId} documentId={selected.id} />
         )}
       </div>
         </div>
