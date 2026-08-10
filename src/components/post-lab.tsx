@@ -133,6 +133,7 @@ export function PostLab({
   hasRepo,
   cardStyles = [],
   canCreate = false,
+  initialText = "",
 }: {
   brand: LabBrand;
   calendarEvents: CalendarExtra[];
@@ -143,12 +144,14 @@ export function PostLab({
   cardStyles?: ("holo" | "pixel" | "gold" | "bounty" | "skatecard")[];
   /** Show the calendar's hover "+" to create a post on a day (Post Creator enabled). */
   canCreate?: boolean;
+  /** Pre-fill the composer (e.g. a campaign piece's caption via ?caption=). */
+  initialText?: string;
 }) {
   const router = useRouter();
   const [view, setView] = useState<"compose" | "calendar">("compose");
   const [mode, setMode] = useState<Mode>("single");
   const [submitting, setSubmitting] = useState(false);
-  const [baseText, setBaseText] = useState("");
+  const [baseText, setBaseText] = useState(initialText);
   const [media, setMedia] = useState<Media[]>([]);
   const [mediaOverrides, setMediaOverrides] = useState<Record<string, Media[]>>({}); // per-channel media
   const [mediaTarget, setMediaTarget] = useState<string>("all"); // where the next upload lands: "all" | network id

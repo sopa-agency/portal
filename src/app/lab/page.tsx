@@ -6,9 +6,15 @@ import { PostLab, type LabBrand } from "@/components/post-lab";
 
 export const dynamic = "force-dynamic";
 
-export default async function LabPage() {
+export default async function LabPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ caption?: string }>;
+}) {
   const project = await getActiveProject();
   if (!project.lab) notFound();
+
+  const { caption } = await searchParams;
 
   // Real unified calendar (IG posts + scheduled tweets + nested projects).
   const cal = await listUnifiedCalendar().catch(() => null);
@@ -48,6 +54,7 @@ export default async function LabPage() {
       hasRepo={(project.repos?.length ?? 0) > 0}
       cardStyles={[...cardStyles]}
       canCreate={!!project.postCreator}
+      initialText={typeof caption === "string" ? caption.slice(0, 2000) : ""}
     />
   );
 }

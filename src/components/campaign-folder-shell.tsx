@@ -281,6 +281,17 @@ export function CampaignFolderShell({
       </aside>
 
       <div className="min-w-0 space-y-4">
+        {selected.kind !== "brief" && (
+          <a
+            href={`/lab?caption=${encodeURIComponent(selected.content.slice(0, 1500))}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Abre o studio com a legenda desta peça pra montar a imagem"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20"
+          >
+            <Images className="h-3.5 w-3.5" /> Criar imagem
+          </a>
+        )}
         {selected.kind === "brief" ? (
           <>
             <CampaignGenerateBar campaignId={campaignId} />
