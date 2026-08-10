@@ -95,6 +95,7 @@ export default async function CampaignFolderPage({
           isMain: doc.isMain,
           updatedAt: doc.updatedAt,
           postedAt: doc.postedAt,
+          scheduledFor: doc.scheduledFor,
         }))}
         brand={brand}
       />

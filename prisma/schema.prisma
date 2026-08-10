@@ -180,6 +180,7 @@ model CampaignDocument {
   isMain     Boolean   @default(false)
   postedAt   DateTime?
   postedTo   String?
+  scheduledFor DateTime? // campaign calendar: planned publish day for this asset
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

@@ -2,6 +2,7 @@
 
 import {
   BookOpenText,
+  CalendarDays,
   Coins,
   FileText,
   Flame,
@@ -21,9 +22,11 @@ import {
   addCampaignArtifact,
   createDocument,
   deleteDocument,
+  setCampaignDocSchedule,
   GENERATABLE_ARTIFACTS,
   type GeneratableArtifactKind,
 } from "@/app/actions/campaigns";
+import { CampaignCalendar, type CalendarAsset } from "@/components/campaign-calendar";
 import { CampaignArtifactActions } from "@/components/campaign-artifact-actions";
 import { CampaignCarouselEditor } from "@/components/campaign-carousel-editor";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
@@ -45,6 +48,7 @@ type CampaignDocument = {
   isMain: boolean;
   updatedAt: Date;
   postedAt: Date | null;
+  scheduledFor: Date | null;
 };
 
 const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail; tone: string }> = {
@@ -73,14 +77,14 @@ export function CampaignFolderShell({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const enriched = useMemo(
-    () =>
-      documents.map((d) => ({
-        ...d,
-        kind: classifyCampaignDocument(d.name, d.isMain),
-      })),
-    [documents],
-  );
+  const enriched = useMemo(() => {
+    // Brief first, then EN artifacts, then the "(PT)" translations stacked at the
+    // bottom. Sort is stable, so order within each group is preserved.
+    const rank = (d: CampaignDocument) => (d.isMain ? -1 : /\(pt\)/i.test(d.name) ? 1 : 0);
+    return documents
+      .map((d) => ({ ...d, kind: classifyCampaignDocument(d.name, d.isMain) }))
+      .sort((a, b) => rank(a) - rank(b));
+  }, [documents]);
 
   const [selectedId, setSelectedId] = useState<string | null>(() => enriched[0]?.id ?? null);
   const selected = enriched.find((d) => d.id === selectedId) ?? enriched[0] ?? null;
@@ -140,13 +144,54 @@ export function CampaignFolderShell({
     });
   };
 
+  const [view, setView] = useState<"files" | "calendar">("files");
+  const [schedPending, startSched] = useTransition();
+  const handleSchedule = (id: string, iso: string | null) => {
+    startSched(async () => {
+      await setCampaignDocSchedule(id, iso);
+      router.refresh();
+    });
+  };
+  const calAssets: CalendarAsset[] = enriched
+    .filter((d) => !d.isMain)
+    .map((d) => ({ id: d.id, name: d.name, kind: d.kind, tone: KIND_META[d.kind].tone, scheduledFor: d.scheduledFor }));
+
   if (!selected) {
     return <p className="text-sm text-foreground-subtle">This campaign has no documents yet.</p>;
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="space-y-2">
+    <div className="space-y-4">
+      <div className="inline-flex gap-0.5 rounded-lg border border-border bg-surface p-0.5 text-xs">
+        <button
+          type="button"
+          onClick={() => setView("files")}
+          className={`rounded-md px-3 py-1 font-medium transition ${view === "files" ? "bg-surface-elevated text-foreground" : "text-foreground-muted hover:text-foreground"}`}
+        >
+          Arquivos
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("calendar")}
+          className={`inline-flex items-center gap-1 rounded-md px-3 py-1 font-medium transition ${view === "calendar" ? "bg-surface-elevated text-foreground" : "text-foreground-muted hover:text-foreground"}`}
+        >
+          <CalendarDays className="h-3.5 w-3.5" /> Calendário
+        </button>
+      </div>
+
+      {view === "calendar" ? (
+        <CampaignCalendar
+          assets={calAssets}
+          onSchedule={handleSchedule}
+          onOpen={(id) => {
+            setSelectedId(id);
+            setView("files");
+          }}
+          busy={schedPending}
+        />
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
+          <aside className="space-y-2">
         <div className="flex items-center justify-between px-2">
           <p className="text-[10px] uppercase tracking-[0.2em] text-foreground-subtle">Files</p>
           <button
@@ -319,6 +364,8 @@ export function CampaignFolderShell({
           />
         )}
       </div>
+        </div>
+      )}
     </div>
   );
 }

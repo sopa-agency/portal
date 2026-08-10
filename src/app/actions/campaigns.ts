@@ -262,6 +262,25 @@ export async function deleteDocument(
   }
 }
 
+/** Set (or clear, with null) an asset's planned publish day for the campaign calendar. */
+export async function setCampaignDocSchedule(
+  documentId: string,
+  isoDate: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const doc = await prisma.campaignDocument.findUnique({ where: { id: documentId }, select: { campaignId: true } });
+    if (!doc) return { ok: false, error: "Document not found." };
+    await prisma.campaignDocument.update({
+      where: { id: documentId },
+      data: { scheduledFor: isoDate ? new Date(isoDate) : null },
+    });
+    revalidatePath(`/campaign-creator/${doc.campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function updateDocumentContent(documentId: string, content: string) {
   const doc = await prisma.campaignDocument.update({
     where: { id: documentId },
