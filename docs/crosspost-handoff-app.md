@@ -33,7 +33,7 @@ o texto em inglês independente do idioma dele.
 
 | `type` | quando | campos do `metadata` a usar |
 |---|---|---|
-| `crosspost_rejected` | curador recusou | `note` — o motivo, entre aspas, no idioma em que foi escrito |
+| `crosspost_rejected` | curador recusou | `note` — **opcional, pode vir `null`** — o motivo, entre aspas, no idioma em que foi escrito |
 | `crosspost_scheduled` | aprovado com data futura (>15 min) | `scheduled_for` — ISO 8601, renderizar no fuso e locale do usuário |
 | `crosspost_published` | post entrou no ar | `ig_permalink` — também vai no campo `link` |
 | `crosspost_failed` | o portal desistiu de publicar | nenhum; avisar que dá pra pedir de novo |
@@ -46,7 +46,7 @@ outros três são novos.
 
 ### Sugestão de texto (pt-BR)
 
-- **rejected** — "Seu cross-post não foi selecionado" / «{note}»
+- **rejected** — "Seu cross-post não foi selecionado" / «{note}» — **com `note` nulo ou vazio, renderize só o título** (ou "A curadoria não levou esse dessa vez"), nunca aspas vazias. Exigir justificativa se mostrou desnecessário pra curadoria, então recusa sem texto é o caso comum, não a exceção.
 - **scheduled** — "Cross-post aprovado" / "Vai ao ar em {scheduled_for}"
 - **published** — "Seu cross-post está no ar" / "Toca pra ver no Instagram"
 - **failed** — "Não consegui publicar seu cross-post" / "Pode pedir de novo"

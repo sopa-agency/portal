@@ -255,7 +255,7 @@ export async function updateQueuePayload(
 
 export async function rejectQueueItem(
   id: string,
-  opts: { curatorHandle: string; note: string },
+  opts: { curatorHandle: string; note?: string },
 ): Promise<{ ok: true } | { ok: false; error: string; stale?: boolean }> {
   const sb = getUserbaseClient();
   if (!sb) return { ok: false, error: "Supabase do userbase não configurado." };
@@ -282,8 +282,8 @@ export async function rejectQueueItem(
 
   if (row.user_id) {
     // The app translates from `type` + `metadata`; the English strings are only
-    // a fallback, and `note` is shown to the author in whatever language the
-    // curator wrote it.
+    // a fallback, and `note` — opcional — is shown to the author in whatever
+    // language the curator wrote it. Sem nota, sobra só o texto genérico.
     await sendNotice(id, "rejected", {
       userId: row.user_id,
       type: "crosspost_rejected",
