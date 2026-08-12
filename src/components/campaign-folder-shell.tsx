@@ -3,6 +3,8 @@
 import {
   BookOpenText,
   CalendarDays,
+  ClipboardCheck,
+  ClipboardCopy,
   Coins,
   FileText,
   Flame,
@@ -40,6 +42,7 @@ import { CampaignEmailEditor } from "@/components/campaign-email-editor";
 import { CampaignOutreachPanel } from "@/components/campaign-outreach-panel";
 import { DEFAULT_EMAIL_BRAND } from "@/lib/campaign-email";
 import { CampaignGenerateBar } from "@/components/campaign-generate-bar";
+import { buildClaudeDesignPrompt } from "@/lib/campaign-design-prompt";
 
 type CampaignDocument = {
   id: string;
@@ -95,6 +98,26 @@ export function CampaignFolderShell({
 
   const getContent = (doc: typeof enriched[number]) =>
     localContent[doc.id] ?? doc.content;
+
+  // Build a Claude Design (claude.ai/design) prompt from this campaign's pieces
+  // and copy it — turns the per-piece copy into one paste-ready image-gen brief,
+  // so the campaign→images step stops being hand-written each time.
+  const [promptCopied, setPromptCopied] = useState(false);
+  const handleCopyDesignPrompt = async () => {
+    const prompt = buildClaudeDesignPrompt({
+      brandName: brand?.displayName,
+      accent: brand?.accent,
+      documents: enriched.map((d) => ({ name: d.name, content: getContent(d), kind: d.kind })),
+    });
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (e.g. insecure context) — surface the text to copy by hand.
+      window.prompt("Copie o prompt para o Claude Design:", prompt);
+    }
+  };
 
   const handleNew = () => {
     const name = window.prompt("Name the document", "Untitled document");
@@ -233,6 +256,21 @@ export function CampaignFolderShell({
             </div>
           )}
           {genError && <p className="mt-1 text-[10px] text-danger">{genError}</p>}
+        </div>
+        <div className="px-2">
+          <button
+            type="button"
+            onClick={handleCopyDesignPrompt}
+            title="Monta um prompt com as peças desta campanha e copia — cole no Claude Design (claude.ai/design) para gerar as imagens"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground"
+          >
+            {promptCopied ? (
+              <ClipboardCheck className="h-3 w-3 text-success" />
+            ) : (
+              <ClipboardCopy className="h-3 w-3" />
+            )}
+            {promptCopied ? "Prompt copiado!" : "Prompt p/ Claude Design"}
+          </button>
         </div>
         <ul className="space-y-1">
           {enriched.map((doc) => {
