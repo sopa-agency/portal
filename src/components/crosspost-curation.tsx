@@ -524,11 +524,11 @@ function Detail({
             htmlFor="crosspost-note"
             className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground-subtle"
           >
-            Motivo da recusa
+            Motivo da recusa (opcional)
           </label>
           <p className="text-[11px] text-foreground-faint">
-            O autor recebe uma notificação com esse texto entre aspas, no idioma em que você
-            escrever.
+            Se escrever, o autor recebe uma notificação com esse texto entre aspas, no idioma em
+            que você escrever. Em branco, ele só é avisado de que a curadoria não levou esse.
           </p>
           <textarea
             id="crosspost-note"
@@ -542,7 +542,7 @@ function Detail({
             <button
               type="button"
               onClick={doReject}
-              disabled={busyReject || !note.trim()}
+              disabled={busyReject}
               className="inline-flex items-center gap-1.5 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger hover:bg-danger/20 disabled:opacity-40"
             >
               {busyReject ? (

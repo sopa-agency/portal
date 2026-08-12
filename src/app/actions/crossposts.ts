@@ -248,15 +248,15 @@ export async function approveInstagramCrossPost(
   return { ok: true, scheduledFor: when.toISOString() };
 }
 
+/**
+ * Recusar. O motivo é opcional: exigir justificativa só travava a curadoria, e
+ * o autor é avisado da recusa com ou sem texto.
+ */
 export async function rejectCrossPost(
   id: string,
-  note: string,
+  note?: string,
 ): Promise<{ ok: true } | { ok: false; error: string; stale?: boolean }> {
   const g = await gate();
   if (!g.ok) return g;
-  const trimmed = note.trim();
-  if (!trimmed) {
-    return { ok: false, error: "Escreva um motivo — o autor recebe ele na notificação." };
-  }
-  return rejectQueueItem(id, { curatorHandle: g.who.username, note: trimmed });
+  return rejectQueueItem(id, { curatorHandle: g.who.username, note: (note ?? "").trim() });
 }
