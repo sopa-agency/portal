@@ -297,8 +297,8 @@ treasury: {
       <details className="group border-t border-border pt-8">
         <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
           <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
-          Operações MOR
-          <span className="text-xs font-normal text-foreground-faint">pipeline MOR→USDC · stake na subnet · avançar é permissionless, reivindicar é da haxixe.eth</span>
+          {t.treasury.ops.mor}
+          <span className="text-xs font-normal text-foreground-faint">{t.treasury.ops.morHint}</span>
         </summary>
         <div className="mt-6 space-y-8">
           {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
@@ -326,8 +326,8 @@ treasury: {
         <details className="group border-t border-border pt-8">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
             <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
-            Atividade do multisig
-            <span className="text-xs font-normal text-foreground-faint">orçamentos de bounty · fila de propostas</span>
+            {t.treasury.ops.multisig}
+            <span className="text-xs font-normal text-foreground-faint">{t.treasury.ops.multisigHint}</span>
           </summary>
           <div className="mt-6 space-y-8">
             <MultisigBudgets budgets={budgets} />

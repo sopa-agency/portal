@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { FixedCostsPanel, type CostGroupMeta } from "@/components/fixed-costs-panel";
 import type { FixedCostDTO } from "@/lib/fixed-costs";
+import { useT } from "@/components/locale-provider";
 
 // The dedicated "Custos" tab: the fixed-costs panel with a per-project sub-selector
 // on top. "Tudo" shows every project (and the combined runway); picking a project
@@ -20,12 +21,13 @@ export function CostsTab({
   usdBrl: number;
   canEdit: boolean;
 }) {
+  const t = useT().treasury.costs;
   const [sel, setSel] = useState("all");
   const isAll = sel === "all";
   const selGroup = groups.find((g) => g.slug === sel);
   const shownGroups = isAll ? groups : selGroup ? [selGroup] : groups;
   const shownCosts = isAll ? initialCosts : initialCosts.filter((c) => c.projectSlug === sel);
-  const tabs = [{ slug: "all", name: "Tudo" }, ...groups.map((g) => ({ slug: g.slug, name: g.name }))];
+  const tabs = [{ slug: "all", name: t.tabAll }, ...groups.map((g) => ({ slug: g.slug, name: g.name }))];
 
   return (
     <div className="space-y-5">
@@ -46,7 +48,7 @@ export function CostsTab({
               {t.name}
             </button>
           ))}
-          <span className="ml-1 text-[11px] text-foreground-faint">custos e runway do projeto selecionado</span>
+          <span className="ml-1 text-[11px] text-foreground-faint">{t.tabHint}</span>
         </div>
       )}
       {/* key remounts the panel so its internal cost state re-seeds with the filter */}

@@ -2,6 +2,7 @@ import { Coins, ExternalLink } from "lucide-react";
 import type { SafeBudget } from "@/lib/safe-tx";
 import { safeAppChainPrefix } from "@/lib/safe-tx";
 import { TokenLogo } from "@/components/token-logo";
+import { getDictionary } from "@/lib/i18n/server";
 
 export type ProjectBudget = {
   slug: string;
@@ -41,8 +42,9 @@ const budgetTotal = (b: ProjectBudget) => b.chains.reduce((s, ch) => s + reduceC
  * Highlighted "operational budget" view — the project's bounty multisig(s) and
  * their spendable ETH + USDC per chain — shown separately from the DAO treasury.
  */
-export function MultisigBudgets({ budgets }: { budgets: ProjectBudget[] }) {
+export async function MultisigBudgets({ budgets }: { budgets: ProjectBudget[] }) {
   if (budgets.length === 0) return null;
+  const t = (await getDictionary()).treasury.budget;
   const total = budgets.reduce((s, b) => s + budgetTotal(b), 0);
 
   return (
@@ -52,8 +54,8 @@ export function MultisigBudgets({ budgets }: { budgets: ProjectBudget[] }) {
           <Coins className="h-4 w-4" />
         </span>
         <div>
-          <h2 className="text-sm font-semibold leading-none text-foreground">Orçamento de bounties</h2>
-          <p className="mt-1 text-[11px] leading-none text-foreground-faint">multisig operacional · só ETH + USDC</p>
+          <h2 className="text-sm font-semibold leading-none text-foreground">{t.title}</h2>
+          <p className="mt-1 text-[11px] leading-none text-foreground-faint">{t.hint}</p>
         </div>
         {total > 0 && <span className="ml-auto text-lg font-bold tabular-nums text-foreground">{usd(total)}</span>}
       </div>
@@ -72,7 +74,7 @@ export function MultisigBudgets({ budgets }: { budgets: ProjectBudget[] }) {
               </div>
 
               {chains.length === 0 ? (
-                <p className="text-[11px] text-foreground-faint">sem ETH ou USDC</p>
+                <p className="text-[11px] text-foreground-faint">{t.empty}</p>
               ) : (
                 <div className="space-y-3">
                   {chains.map((ch) => (
@@ -85,7 +87,7 @@ export function MultisigBudgets({ budgets }: { budgets: ProjectBudget[] }) {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-accent hover:underline"
-                            title="Abrir no Safe"
+                            title={t.openInSafe}
                           >
                             <ExternalLink className="h-2.5 w-2.5" />
                           </a>

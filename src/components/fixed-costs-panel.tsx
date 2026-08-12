@@ -13,6 +13,10 @@ import {
 } from "@/lib/fixed-costs";
 import { createFixedCost, updateFixedCost, deleteFixedCost, setMonthlyActual, clearMonthlyActual } from "@/app/actions/fixed-costs";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useLocale } from "@/components/locale-provider";
+import type { Dictionary, Locale } from "@/lib/i18n/dictionary";
+
+type CostsT = Dictionary["treasury"]["costs"];
 
 // ---------------------------------------------------------------------------
 // Formatting
@@ -29,13 +33,13 @@ const fmtAmount = (n: number, c: Currency) =>
     maximumFractionDigits: n < 100 ? 2 : 0,
   });
 
-const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(COST_CATEGORIES.map((c) => [c.value, c.label]));
+const intlLocale = (locale: Locale) => (locale === "pt" ? "pt-BR" : "en-US");
 
-/** "2026-06" → "jun/26" (pt-BR short). */
-function monthLabel(month: string): string {
+/** "2026-06" → "jun/26" (short month name in the reader's language). */
+function monthLabel(month: string, locale: Locale): string {
   const [y, m] = month.split("-").map(Number);
   if (!y || !m) return month;
-  const name = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" });
+  const name = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(intlLocale(locale), { month: "short", timeZone: "UTC" });
   return `${name.replace(".", "")}/${String(y).slice(2)}`;
 }
 
@@ -112,6 +116,8 @@ export function FixedCostsPanel({
 }) {
   const [costs, setCosts] = useState<FixedCostDTO[]>(initialCosts);
   const { confirm, confirmUI } = useConfirm();
+  const { locale, t: dict } = useLocale();
+  const t = dict.treasury.costs;
 
   const bySlug = useMemo(() => {
     const m: Record<string, FixedCostDTO[]> = {};
@@ -138,18 +144,16 @@ export function FixedCostsPanel({
           <TrendingDown className="h-4 w-4" />
         </span>
         <div>
-          <h2 className="text-sm font-semibold leading-none text-foreground">Custos fixos & runway</h2>
-          <p className="mt-1 text-[11px] leading-none text-foreground-faint">
-            média mensal por custo vs. o tesouro disponível
-          </p>
+          <h2 className="text-sm font-semibold leading-none text-foreground">{t.title}</h2>
+          <p className="mt-1 text-[11px] leading-none text-foreground-faint">{t.hint}</p>
         </div>
       </div>
 
       {/* Combined KPIs */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <Kpi icon={<Wallet className="h-4 w-4" />} label="Tesouro" value={usd(totalTreasury)} />
-        <Kpi icon={<TrendingDown className="h-4 w-4" />} label="Queima / mês" value={usd(totalBurn, 0)} />
-        <RunwayKpi months={totalMonths} />
+        <Kpi icon={<Wallet className="h-4 w-4" />} label={t.kpiTreasury} value={usd(totalTreasury)} />
+        <Kpi icon={<TrendingDown className="h-4 w-4" />} label={t.kpiBurn} value={usd(totalBurn, 0)} />
+        <RunwayKpi months={totalMonths} t={t} />
       </div>
 
       <div className="space-y-4">
@@ -164,6 +168,8 @@ export function FixedCostsPanel({
             onUpsert={upsert}
             onRemove={remove}
             confirm={confirm}
+            t={t}
+            locale={locale}
           />
         ))}
       </div>
@@ -184,7 +190,7 @@ function Kpi({ icon, label, value }: { icon: React.ReactNode; label: string; val
   );
 }
 
-function RunwayKpi({ months: m }: { months: number | null }) {
+function RunwayKpi({ months: m, t }: { months: number | null; t: CostsT }) {
   const tone = runwayTone(m);
   const pct = m === null ? 100 : Math.max(4, Math.min(100, (m / 24) * 100));
   return (
@@ -193,10 +199,10 @@ function RunwayKpi({ months: m }: { months: number | null }) {
         <span className="text-foreground-faint">
           <CalendarClock className="h-4 w-4" />
         </span>
-        <p className="text-[11px] uppercase tracking-wider">Runway</p>
+        <p className="text-[11px] uppercase tracking-wider">{t.runway}</p>
       </div>
       <p className={`mt-1.5 text-2xl font-bold tabular-nums ${tone.text}`}>
-        {fmtMonths(m)} <span className="text-sm font-medium text-foreground-muted">{m === null ? "" : "meses"}</span>
+        {fmtMonths(m)} <span className="text-sm font-medium text-foreground-muted">{m === null ? "" : t.months}</span>
       </p>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border">
         <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${pct}%` }} />
@@ -218,6 +224,8 @@ function ProjectCosts({
   onUpsert,
   onRemove,
   confirm,
+  t,
+  locale,
 }: {
   meta: CostGroupMeta;
   costs: FixedCostDTO[];
@@ -227,6 +235,8 @@ function ProjectCosts({
   onUpsert: (c: FixedCostDTO) => void;
   onRemove: (id: string) => void;
   confirm: (o: { title: string; message?: string; confirmLabel?: string }) => Promise<boolean>;
+  t: CostsT;
+  locale: Locale;
 }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -245,30 +255,31 @@ function ProjectCosts({
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-foreground">{meta.name}</h3>
           <p className="mt-0.5 text-[11px] text-foreground-faint">
-            {usd(meta.treasuryUsd)} no tesouro · {usd(burnUsd, 0)}/mês
+            {t.inTreasury(usd(meta.treasuryUsd))} · {usd(burnUsd, 0)}
+            {t.monthSuffix}
           </p>
         </div>
         <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums ${tone.ring} ${tone.text}`}>
-          {fmtMonths(m)} {m === null ? "sem queima" : "meses"}
+          {fmtMonths(m)} {m === null ? t.noBurn : t.months}
         </span>
       </div>
 
       {costs.length === 0 && !adding ? (
         <p className="rounded-xl border border-dashed border-border px-3 py-4 text-center text-xs text-foreground-faint">
-          Nenhum custo fixo cadastrado.
+          {t.empty}
         </p>
       ) : (
         <div className="-mx-1 overflow-x-auto">
           <table className="w-full min-w-[640px] border-collapse text-sm">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-foreground-subtle">
-                <th className="px-2 py-1.5 text-left font-semibold">Custo</th>
+                <th className="px-2 py-1.5 text-left font-semibold">{t.colCost}</th>
                 {cols.map((mo) => (
                   <th key={mo} className={`px-2 py-1.5 text-right font-semibold ${mo === currentMonth ? "text-accent" : ""}`}>
-                    {monthLabel(mo)}
+                    {monthLabel(mo, locale)}
                   </th>
                 ))}
-                <th className="px-2 py-1.5 text-right font-semibold text-foreground-muted">Média/mês</th>
+                <th className="px-2 py-1.5 text-right font-semibold text-foreground-muted">{t.colAverage}</th>
                 {canEdit && <th className="w-px px-2 py-1.5" />}
               </tr>
             </thead>
@@ -282,21 +293,21 @@ function ProjectCosts({
                         {c.variable && (
                           <span
                             className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-accent-bg px-1.5 py-0.5 text-[10px] font-semibold text-accent"
-                            title="Custo variável — valor real editado por mês"
+                            title={t.variableTitle}
                           >
-                            <Zap className="h-2.5 w-2.5" /> variável
+                            <Zap className="h-2.5 w-2.5" /> {t.variable}
                           </span>
                         )}
                         {c.category && (
                           <span className="shrink-0 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">
-                            {CATEGORY_LABEL[c.category] ?? c.category}
+                            {t.categories[c.category] ?? c.category}
                           </span>
                         )}
                       </div>
                       <p className="mt-0.5 text-[10px] text-foreground-faint">
                         {c.variable
-                          ? `plano ${fmtAmount(c.amount, c.currency)}/mês`
-                          : `${fmtAmount(c.amount, c.currency)}${c.cadence === "yearly" ? "/ano" : "/mês"}`}
+                          ? t.planPerMonth(fmtAmount(c.amount, c.currency))
+                          : `${fmtAmount(c.amount, c.currency)}${c.cadence === "yearly" ? t.yearSuffix : t.monthSuffix}`}
                         {c.notes ? ` · ${c.notes}` : ""}
                       </p>
                     </td>
@@ -308,13 +319,15 @@ function ProjectCosts({
                         isCurrent={mo === currentMonth}
                         editable={c.variable && canEdit}
                         onClick={() => setCell({ costId: c.id, month: mo })}
+                        t={t}
+                        locale={locale}
                       />
                     ))}
                     <td className="px-2 py-2 text-right align-top">
                       <span className="text-sm font-semibold tabular-nums text-foreground">{cellUsd(c.monthlyUsd)}</span>
                       {c.variable && (
                         <span className="block text-[10px] text-foreground-faint">
-                          {c.avgCount > 0 ? `méd ${c.avgCount}m` : "estimativa"}
+                          {c.avgCount > 0 ? t.avgMonths(c.avgCount) : t.estimate}
                         </span>
                       )}
                     </td>
@@ -323,13 +336,14 @@ function ProjectCosts({
                         <div className="flex items-center justify-end gap-0.5">
                           <CostActions
                             cost={c}
+                            t={t}
                             onChange={onUpsert}
                             onEdit={() => setEditingId(editingId === c.id ? null : c.id)}
                             onDelete={async () => {
                               const ok = await confirm({
-                                title: "Remover custo?",
-                                message: `"${c.label}" sairá do cálculo de runway.`,
-                                confirmLabel: "Remover",
+                                title: t.removeTitle,
+                                message: t.removeMessage(c.label),
+                                confirmLabel: t.remove,
                               });
                               if (!ok) return;
                               const res = await deleteFixedCost(c.id);
@@ -347,6 +361,7 @@ function ProjectCosts({
                           projectSlug={meta.slug}
                           initial={c}
                           usdBrl={usdBrl}
+                          t={t}
                           onCancel={() => setEditingId(null)}
                           onSaved={(saved) => {
                             onUpsert(saved);
@@ -363,6 +378,8 @@ function ProjectCosts({
                           cost={c}
                           month={cell.month}
                           usdBrl={usdBrl}
+                          t={t}
+                          locale={locale}
                           onClose={() => setCell(null)}
                           onChange={(u) => {
                             onUpsert(u);
@@ -377,7 +394,7 @@ function ProjectCosts({
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-border">
-                <td className="px-2 py-2 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">Queima</td>
+                <td className="px-2 py-2 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">{t.burn}</td>
                 {cols.map((mo) => (
                   <td
                     key={mo}
@@ -400,6 +417,7 @@ function ProjectCosts({
             <CostForm
               projectSlug={meta.slug}
               usdBrl={usdBrl}
+              t={t}
               onCancel={() => setAdding(false)}
               onSaved={(saved) => {
                 onUpsert(saved);
@@ -413,7 +431,7 @@ function ProjectCosts({
             onClick={() => setAdding(true)}
             className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-2 text-xs font-medium text-foreground-muted transition-colors hover:border-accent-border hover:text-accent"
           >
-            <Plus className="h-3.5 w-3.5" /> Adicionar custo
+            <Plus className="h-3.5 w-3.5" /> {t.add}
           </button>
         ))}
     </div>
@@ -426,21 +444,26 @@ function MonthCell({
   isCurrent,
   editable,
   onClick,
+  t,
+  locale,
 }: {
   cost: FixedCostDTO;
   month: string;
   isCurrent: boolean;
   editable: boolean;
   onClick: () => void;
+  t: CostsT;
+  locale: Locale;
 }) {
   const { usd: v, actual } = monthValue(cost, month);
   const isReal = cost.variable && actual !== null;
   const isCredit = isReal && v < 0;
   const unpaid = isReal && actual!.paid === false;
+  const label = monthLabel(month, locale);
   const title = editable
     ? [
-        isReal ? `${monthLabel(month)} — real (clique p/ editar)` : `${monthLabel(month)} — lançar valor real`,
-        unpaid ? "PENDENTE (não pago)" : null,
+        isReal ? t.cellEdit(label) : t.cellLog(label),
+        unpaid ? t.cellUnpaid : null,
         actual?.note || null,
       ].filter(Boolean).join(" · ")
     : undefined;
@@ -455,7 +478,7 @@ function MonthCell({
           editable ? "cursor-pointer hover:bg-surface-elevated hover:ring-1 hover:ring-accent-border" : "cursor-default"
         } ${isCredit ? "font-semibold text-success" : isReal ? "font-semibold text-foreground" : "text-foreground-faint"}`}
       >
-        {unpaid && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-label="pendente" />}
+        {unpaid && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-label={t.pending} />}
         {isReal ? cellUsd(v) : v > 0 ? cellUsd(v) : "—"}
       </button>
     </td>
@@ -467,11 +490,13 @@ function CostActions({
   onChange,
   onEdit,
   onDelete,
+  t,
 }: {
   cost: FixedCostDTO;
   onChange: (c: FixedCostDTO) => void;
   onEdit: () => void;
   onDelete: () => void;
+  t: CostsT;
 }) {
   const [pending, start] = useTransition();
   return (
@@ -485,7 +510,7 @@ function CostActions({
             if (res.ok) onChange(res.cost);
           })
         }
-        title={cost.active ? "Pausar (excluir do runway)" : "Reativar"}
+        title={cost.active ? t.pause : t.reactivate}
         className="rounded-md p-1.5 text-foreground-faint transition-colors hover:bg-surface-elevated hover:text-foreground"
       >
         {cost.active ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
@@ -493,7 +518,7 @@ function CostActions({
       <button
         type="button"
         onClick={onEdit}
-        title="Editar custo"
+        title={t.edit}
         className="rounded-md p-1.5 text-foreground-faint transition-colors hover:bg-surface-elevated hover:text-foreground"
       >
         <Pencil className="h-3.5 w-3.5" />
@@ -501,7 +526,7 @@ function CostActions({
       <button
         type="button"
         onClick={onDelete}
-        title="Remover"
+        title={t.remove}
         className="rounded-md p-1.5 text-foreground-faint transition-colors hover:bg-danger/10 hover:text-danger"
       >
         <Trash2 className="h-3.5 w-3.5" />
@@ -523,12 +548,16 @@ function MonthActualEditor({
   usdBrl,
   onClose,
   onChange,
+  t,
+  locale,
 }: {
   cost: FixedCostDTO;
   month: string;
   usdBrl: number;
   onClose: () => void;
   onChange: (c: FixedCostDTO) => void;
+  t: CostsT;
+  locale: Locale;
 }) {
   const monthActual = cost.actuals.find((a) => a.month === month) ?? null;
   // Pre-fill: this month's actual → most recent actual → plan base estimate.
@@ -562,16 +591,14 @@ function MonthActualEditor({
 
   return (
     <div className="space-y-2 rounded-xl border border-accent-border bg-accent-bg/40 p-3">
-      <p className="text-[11px] font-semibold text-foreground">
-        Valor real de {monthLabel(month)} — {cost.label}
-      </p>
+      <p className="text-[11px] font-semibold text-foreground">{t.actualTitle(monthLabel(month, locale), cost.label)}</p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <input
           autoFocus
           value={amount}
           onChange={(e) => setAmount(e.target.value.replace(/[^0-9.\-]/g, "").replace(/(?!^)-/g, ""))}
           inputMode="text"
-          placeholder="Valor (negativo = refund)"
+          placeholder={t.amountPlaceholder}
           className={`${inputCls} tabular-nums`}
         />
         <select value={currency} onChange={(e) => setCurrency(e.target.value as Currency)} className={inputCls}>
@@ -581,14 +608,14 @@ function MonthActualEditor({
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Nota (ex: overage, refund)"
+          placeholder={t.notePlaceholder}
           className={`${inputCls} col-span-2 sm:col-span-1`}
         />
       </div>
 
       <label className="flex w-fit cursor-pointer items-center gap-2 text-[11px] text-foreground-muted">
         <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--color-accent)]" />
-        Pago {paid ? "" : "— pendente"}
+        {t.paid} {paid ? "" : t.unpaidSuffix}
       </label>
 
       {error && <p className="text-[11px] text-danger">{error}</p>}
@@ -597,17 +624,17 @@ function MonthActualEditor({
         <p className="text-[11px] text-foreground-faint">
           {valid ? (
             <>
-              ≈ <span className="font-semibold tabular-nums text-foreground-muted">{usd(previewUsd)}/mês</span>
+              ≈ <span className="font-semibold tabular-nums text-foreground-muted">{usd(previewUsd)}{t.monthSuffix}</span>
               {Math.abs(deltaUsd) >= 0.5 && (
                 <span className={deltaUsd > 0 ? "text-danger" : "text-success"}>
                   {" "}
                   ({deltaUsd > 0 ? "+" : "−"}
-                  {usd(Math.abs(deltaUsd))} vs plano)
+                  {usd(Math.abs(deltaUsd))} {t.vsPlan})
                 </span>
               )}
             </>
           ) : (
-            "informe o valor da fatura"
+            t.needInvoice
           )}
         </p>
         <div className="flex items-center gap-1.5">
@@ -616,10 +643,10 @@ function MonthActualEditor({
               type="button"
               onClick={revert}
               disabled={pending}
-              title="Reverter para a estimativa do plano"
+              title={t.revertTitle}
               className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-40"
             >
-              <RotateCcw className="h-3 w-3" /> Estimativa
+              <RotateCcw className="h-3 w-3" /> {t.revert}
             </button>
           )}
           <button
@@ -627,7 +654,7 @@ function MonthActualEditor({
             onClick={onClose}
             className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
-            Cancelar
+            {t.cancel}
           </button>
           <button
             type="button"
@@ -635,7 +662,7 @@ function MonthActualEditor({
             disabled={pending || !valid}
             className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent/90 disabled:opacity-40"
           >
-            {pending ? "Salvando…" : "Salvar mês"}
+            {pending ? t.saving : t.saveMonth}
           </button>
         </div>
       </div>
@@ -653,12 +680,14 @@ function CostForm({
   usdBrl,
   onCancel,
   onSaved,
+  t,
 }: {
   projectSlug: string;
   initial?: FixedCostDTO;
   usdBrl: number;
   onCancel: () => void;
   onSaved: (c: FixedCostDTO) => void;
+  t: CostsT;
 }) {
   const [draft, setDraft] = useState<DraftState>(
     initial
@@ -708,7 +737,7 @@ function CostForm({
         autoFocus
         value={draft.label}
         onChange={(e) => set("label", e.target.value)}
-        placeholder="Ex: Vercel Pro, salário designer…"
+        placeholder={t.labelPlaceholder}
         className={inputCls}
       />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -716,7 +745,7 @@ function CostForm({
           value={draft.amount}
           onChange={(e) => set("amount", e.target.value.replace(/[^0-9.]/g, ""))}
           inputMode="decimal"
-          placeholder={draft.variable ? "Valor do plano" : "Valor"}
+          placeholder={draft.variable ? t.planAmountPlaceholder : t.amountPlaceholderPlain}
           className={`${inputCls} tabular-nums`}
         />
         <select value={draft.currency} onChange={(e) => set("currency", e.target.value as Currency)} className={inputCls}>
@@ -724,11 +753,11 @@ function CostForm({
           <option value="BRL">BRL R$</option>
         </select>
         {draft.variable ? (
-          <div className={`${inputCls} flex items-center text-foreground-faint`}>Mensal</div>
+          <div className={`${inputCls} flex items-center text-foreground-faint`}>{t.monthly}</div>
         ) : (
           <select value={draft.cadence} onChange={(e) => set("cadence", e.target.value as Cadence)} className={inputCls}>
-            <option value="monthly">Mensal</option>
-            <option value="yearly">Anual</option>
+            <option value="monthly">{t.monthly}</option>
+            <option value="yearly">{t.yearly}</option>
           </select>
         )}
         <select
@@ -736,10 +765,10 @@ function CostForm({
           onChange={(e) => set("category", e.target.value as CostCategory | "")}
           className={inputCls}
         >
-          <option value="">Categoria</option>
+          <option value="">{t.category}</option>
           {COST_CATEGORIES.map((c) => (
             <option key={c.value} value={c.value}>
-              {c.label}
+              {t.categories[c.value]}
             </option>
           ))}
         </select>
@@ -747,7 +776,7 @@ function CostForm({
       <input
         value={draft.notes}
         onChange={(e) => set("notes", e.target.value)}
-        placeholder="Notas (opcional)"
+        placeholder={t.notesPlaceholder}
         className={inputCls}
       />
       <label className="flex cursor-pointer items-center gap-2 text-[11px] text-foreground-muted">
@@ -758,7 +787,7 @@ function CostForm({
           className="h-3.5 w-3.5 accent-[var(--color-accent)]"
         />
         <Zap className="h-3 w-3 text-accent" />
-        Varia por mês (ex: Vercel/Pinata — plano + overage). O valor base é a estimativa; o real é editado mês a mês.
+        {t.variesLabel}
       </label>
 
       {error && <p className="text-[11px] text-danger">{error}</p>}
@@ -767,11 +796,11 @@ function CostForm({
         <p className="text-[11px] text-foreground-faint">
           {previewUsd > 0 ? (
             <>
-              ≈ <span className="font-semibold tabular-nums text-foreground-muted">{usd(previewUsd)}/mês</span>
-              {draft.currency === "BRL" && <span> · câmbio {usdBrl.toFixed(2)}</span>}
+              ≈ <span className="font-semibold tabular-nums text-foreground-muted">{usd(previewUsd)}{t.monthSuffix}</span>
+              {draft.currency === "BRL" && <span> {t.fx(usdBrl.toFixed(2))}</span>}
             </>
           ) : (
-            "informe um valor"
+            t.needAmount
           )}
         </p>
         <div className="flex items-center gap-1.5">
@@ -780,7 +809,7 @@ function CostForm({
             onClick={onCancel}
             className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
-            Cancelar
+            {t.cancel}
           </button>
           <button
             type="button"
@@ -788,7 +817,7 @@ function CostForm({
             disabled={pending || !draft.label.trim() || !(amountNum > 0)}
             className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent/90 disabled:opacity-40"
           >
-            {pending ? "Salvando…" : initial ? "Salvar" : "Adicionar"}
+            {pending ? t.saving : initial ? t.save : t.addAction}
           </button>
         </div>
       </div>
