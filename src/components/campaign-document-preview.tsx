@@ -194,7 +194,7 @@ function MediaCards({ images, max, note }: { images: string[]; max?: number; not
             key={i}
             src={src}
             alt=""
-            className="max-h-44 w-full rounded-xl border border-white/10 object-cover"
+            className="max-h-80 w-full rounded-xl border border-white/10 bg-black/40 object-contain"
           />
         ))}
       </div>
