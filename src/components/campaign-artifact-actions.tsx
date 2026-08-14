@@ -29,6 +29,7 @@ import type { CampaignDocumentKind } from "@/components/campaign-document-previe
 import { CampaignMagPublishDialog } from "@/components/campaign-mag-publish-dialog";
 import { ParagraphPublishDialog } from "@/components/paragraph-publish-dialog";
 import { DiscordChannelSelect } from "@/components/discord-channel-picker";
+import { FarcasterChannelSelect } from "@/components/farcaster-channel-picker";
 
 type Props = {
   documentId: string;
@@ -87,6 +88,7 @@ export function CampaignArtifactActions({
   const [paragraphOpen, setParagraphOpen] = useState(false);
   const [paragraphDone, setParagraphDone] = useState<{ url: string; published: boolean; emailed: boolean } | null>(null);
   const [discordChannel, setDiscordChannel] = useState<string | null>(null); // per-send channel override
+  const [farcasterChannel, setFarcasterChannel] = useState<string | null>(null); // per-send Farcaster channel override
 
   // --- schedule (queues a LabScheduledPost the scheduler publishes later) ---
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -143,7 +145,11 @@ export function CampaignArtifactActions({
     if (!window.confirm(`Publish this ${label} post now?`)) return;
     setSendStatus(null);
     startSend(async () => {
-      const res = await sendCampaignArtifact(documentId, kind === "discord" ? discordChannel ?? undefined : undefined);
+      const res = await sendCampaignArtifact(
+        documentId,
+        kind === "discord" ? discordChannel ?? undefined : undefined,
+        kind === "farcaster" ? farcasterChannel ?? undefined : undefined,
+      );
       setSendStatus(res);
       if (res.ok) setPostedAt(new Date());
     });
@@ -258,9 +264,12 @@ export function CampaignArtifactActions({
           </button>
         )}
 
-        {/* Discord: pick the channel for this send (defaults to the project's). */}
+        {/* Discord / Farcaster: pick the channel for this send (defaults to the project's). */}
         {kind === "discord" && (
           <DiscordChannelSelect value={discordChannel} onChange={setDiscordChannel} />
+        )}
+        {kind === "farcaster" && (
+          <FarcasterChannelSelect value={farcasterChannel} onChange={setFarcasterChannel} />
         )}
 
         {/* hive / farcaster / discord — auto-publish via server action */}

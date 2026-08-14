@@ -120,6 +120,7 @@ export async function publishSnapToHive(
 export async function publishCastToFarcaster(
   text: string,
   project?: ProjectConfig,
+  channelIdOverride?: string,
 ): Promise<PublishResult> {
   try {
     const prefix = project?.agent?.gatewayEnvPrefix;
@@ -137,8 +138,8 @@ export async function publishCastToFarcaster(
     }
     if (!text?.trim()) return { ok: false, error: "Tweet text is empty" };
 
-    // Use project Farcaster channel if available, otherwise fall back to legacy.
-    const channelId = project?.farcaster.channel ?? FC_CHANNEL_ID;
+    // Per-send override (channel picker) wins; else project channel; else legacy.
+    const channelId = channelIdOverride?.trim().replace(/^\//, "") || project?.farcaster.channel || FC_CHANNEL_ID;
 
     const urlMatches = text.match(/https?:\/\/[^\s)]+[^\s.,;:!?)]/g) ?? [];
     const priority = (u: string): number => {
