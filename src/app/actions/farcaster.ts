@@ -20,9 +20,14 @@ export async function searchFarcasterChannels(q: string): Promise<
   const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
   if (!session) return { ok: false, error: "Unauthorized." };
 
+  // Channel search is a READ-ONLY, signer-agnostic query, so it uses the generic
+  // NEYNAR_API_KEY (any valid key works) — NOT the project's signer-bound
+  // `<PREFIX>_NEYNAR_API_KEY`, which is a per-app publish key that can 401 on
+  // read endpoints (e.g. GNARS_NEYNAR_API_KEY is publish-only). Falls back to the
+  // project key only if the generic one is unset.
   const prefix = project.agent.gatewayEnvPrefix;
-  const apiKey = process.env[`${prefix}_NEYNAR_API_KEY`] || process.env.NEYNAR_API_KEY;
-  if (!apiKey) return { ok: false, error: `Neynar não configurado — defina ${prefix}_NEYNAR_API_KEY.` };
+  const apiKey = process.env.NEYNAR_API_KEY || process.env[`${prefix}_NEYNAR_API_KEY`];
+  if (!apiKey) return { ok: false, error: `Neynar não configurado — defina NEYNAR_API_KEY.` };
 
   const defaultId = project.farcaster.channel ?? "";
   const query = q.trim();
