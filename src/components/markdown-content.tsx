@@ -63,6 +63,18 @@ export function MarkdownContent({
             <h3 className="mt-3 text-base font-semibold text-foreground">{children}</h3>
           ),
           p: ({ children }) => <p className="text-foreground-muted">{children}</p>,
+          // Inline images (e.g. photos in long-form mag posts). Without this they
+          // render as an unconstrained default <img> — a 1920px hero overflows the
+          // container. Matches MediaCards: contained (never cropped), tokenized.
+          img: ({ src, alt }) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={typeof src === "string" ? src : ""}
+              alt={alt ?? ""}
+              loading="lazy"
+              className="my-4 max-h-[32rem] w-full rounded-xl border border-border bg-surface object-contain"
+            />
+          ),
           a: ({ href, children }) => {
             // A #N reference we have board data for → hover card instead of a
             // plain link. Unknown numbers / other links fall back to a link.
