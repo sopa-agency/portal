@@ -272,7 +272,7 @@ export function CampaignFolderShell({
             {promptCopied ? "Prompt copiado!" : "Prompt p/ Claude Design"}
           </button>
         </div>
-        <ul className="space-y-1">
+        <ul className="max-h-[45vh] space-y-1 overflow-y-auto pr-1 lg:max-h-none lg:overflow-visible lg:pr-0">
           {enriched.map((doc) => {
             const meta = KIND_META[doc.kind];
             const Icon = doc.isMain ? Star : meta.icon;

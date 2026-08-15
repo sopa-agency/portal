@@ -133,7 +133,8 @@ export function CampaignCalendar({
           </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-1">
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className="grid min-w-[560px] grid-cols-7 gap-1">
           {WEEKDAYS.map((wd) => (
             <div key={wd} className="pb-1 text-center text-[10px] font-medium text-foreground-faint">
               {wd}
@@ -186,6 +187,7 @@ export function CampaignCalendar({
               </div>
             );
           })}
+        </div>
         </div>
       </div>
       {busy && <p className="text-[11px] text-foreground-faint">salvando…</p>}
