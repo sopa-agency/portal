@@ -123,12 +123,12 @@ export async function publishCastToFarcaster(
   channelIdOverride?: string,
 ): Promise<PublishResult> {
   try {
-    const prefix = project?.agent?.gatewayEnvPrefix;
-    // Per-project Neynar app: the signer must be used with ITS OWN api key
-    // (a signer created under one Neynar app is invalid under another's key).
-    const apiKey =
-      (prefix && process.env[`${prefix}_NEYNAR_API_KEY`]) ||
-      process.env.NEYNAR_API_KEY;
+    // Publish with the SAME Neynar app that MINTS signers (farcaster-sponsor's
+    // engineApiKey): FARCASTER_SPONSOR_API_KEY || NEYNAR_API_KEY. All portal
+    // signers (sponsor-QR + SIWN) live under that generic app. The old
+    // per-project key (`<PREFIX>_NEYNAR_API_KEY`) pointed at a separate app that
+    // doesn't own the signer — so gnars, whose own app key is dead (401), failed.
+    const apiKey = process.env.FARCASTER_SPONSOR_API_KEY?.trim() || process.env.NEYNAR_API_KEY;
     // Signer = identity: resolve from DB (Settings → Connect Farcaster) first,
     // then the per-project/global env var. brandEnv never crosses brands.
     const resolved = await resolveFarcasterSigner(project);

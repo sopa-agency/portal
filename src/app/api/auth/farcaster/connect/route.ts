@@ -27,10 +27,10 @@ export async function POST(req: NextRequest) {
   const signerUuid = body?.signer_uuid?.trim();
   if (!signerUuid) return NextResponse.json({ error: "signer_uuid ausente." }, { status: 400 });
 
-  // The signer was created under THIS project's Neynar app, so verify with its
-  // own key (signer is invalid under another app's key).
-  const prefix = project.agent.gatewayEnvPrefix;
-  const apiKey = (prefix && process.env[`${prefix}_NEYNAR_API_KEY`]) || process.env.NEYNAR_API_KEY;
+  // Verify with the SAME generic/sponsor app that mints + publishes signers
+  // (farcaster-sponsor's engineApiKey). The per-project key can be a dead app
+  // (e.g. gnars, whose GNARS_NEYNAR_API_KEY 401s), which would block the connect.
+  const apiKey = process.env.FARCASTER_SPONSOR_API_KEY?.trim() || process.env.NEYNAR_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "NEYNAR_API_KEY não configurada." }, { status: 500 });
 
   // Verify the signer is real + approved under our app.
