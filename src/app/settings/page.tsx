@@ -12,6 +12,8 @@ import { isTrailParticipant } from "@/lib/farcaster-trail-config";
 import { TrailAdmin } from "@/components/trail-admin";
 import { listTrailAccounts } from "@/app/actions/trail-admin";
 import { sponsorConfigured } from "@/lib/farcaster-sponsor";
+import { FarcasterProjectConnect } from "@/components/farcaster-project-connect";
+import { resolveFarcasterSigner } from "@/lib/farcaster-signer";
 import { SettingsTabs, type SettingsTab } from "@/components/settings-tabs";
 import { KanbanFxToggle } from "@/components/kanban-fx-toggle";
 import { BrainExplorer } from "@/components/brain-explorer";
@@ -75,6 +77,15 @@ export default async function SettingsPage() {
 
   // Per-member Farcaster connection (QR) — only on trail portals.
   const showMyFarcaster = isTrailParticipant(project.slug);
+
+  // Brand Farcaster connect (QR). "connected" reflects a DB-approved signer
+  // (from this QR flow / SIWN), not the legacy env signer — so a project on the
+  // env path still sees the connect button. Routes are admin-gated.
+  const brandFc = await resolveFarcasterSigner(project).catch(() => null);
+  const brandFcConnect = {
+    connected: brandFc?.source === "db",
+    handle: brandFc?.source === "db" ? brandFc.username ?? null : null,
+  };
   const myFarcaster = showMyFarcaster ? await getMyFarcaster().catch(() => null) : null;
 
   // Trail registry admin — SOPA global admins only.
@@ -83,6 +94,11 @@ export default async function SettingsPage() {
   const connectionsSection = (
     <div className="space-y-6">
       {showMyFarcaster && myFarcaster ? <MyFarcasterCard initial={myFarcaster} /> : null}
+      <FarcasterProjectConnect
+        projectName={project.name}
+        sponsorReady={sponsorConfigured()}
+        initial={brandFcConnect}
+      />
       <KanbanFxToggle />
       <ConnectionsView
         projectName={project.name}
