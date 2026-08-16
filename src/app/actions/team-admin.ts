@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE, GLOBAL_ALLOWLIST } from "@/lib/auth";
 import { getActiveProject, getAllProjects, getProject } from "@/projects/index";
-import { authorize, getRoles, ensureSeeded, ROLES, GLOBAL_SLUG, type Role } from "@/lib/team-access";
+import { authorize, getRoles, withSeeded, ROLES, GLOBAL_SLUG, type Role } from "@/lib/team-access";
 import type { AggregatedItem } from "@/lib/github-project";
 import { loadCardMeta } from "@/lib/card-meta";
 import { compareByPriority } from "@/lib/kanban-priority";
@@ -60,12 +60,13 @@ export async function setMemberRole(username: string, role: Role): Promise<{ ok:
   if (!ROLES.includes(role)) return { ok: false, error: "Cargo inválido." };
   const u = clean(username);
   if (!u) return { ok: false, error: "Usuário inválido." };
-  await ensureSeeded(g.project);
-  await prisma.teamMember.upsert({
-    where: { projectSlug_username: { projectSlug: g.project.slug, username: u } },
-    update: { role },
-    create: { projectSlug: g.project.slug, username: u, role, addedBy: g.who.username },
-  });
+  await withSeeded(g.project, (tx) =>
+    tx.teamMember.upsert({
+      where: { projectSlug_username: { projectSlug: g.project.slug, username: u } },
+      update: { role },
+      create: { projectSlug: g.project.slug, username: u, role, addedBy: g.who.username },
+    }),
+  );
   return { ok: true };
 }
 
@@ -79,8 +80,9 @@ export async function removeMember(username: string): Promise<{ ok: true } | { o
   const u = clean(username);
   if (u === g.who.username.toLowerCase()) return { ok: false, error: "Você não pode remover a si mesmo." };
   if (GLOBAL_ALLOWLIST.includes(u)) return { ok: false, error: "Admins globais são removidos pela alternância de admin global." };
-  await ensureSeeded(g.project);
-  await prisma.teamMember.deleteMany({ where: { projectSlug: g.project.slug, username: u } });
+  await withSeeded(g.project, (tx) =>
+    tx.teamMember.deleteMany({ where: { projectSlug: g.project.slug, username: u } }),
+  );
   return { ok: true };
 }
 
@@ -266,12 +268,13 @@ export async function setPortalAccess(projectSlug: string, username: string, rol
   if (!r.ok) return r;
   const u = clean(username);
   if (!u) return { ok: false, error: "Usuário inválido." };
-  await ensureSeeded(r.project);
-  await prisma.teamMember.upsert({
-    where: { projectSlug_username: { projectSlug, username: u } },
-    update: { role },
-    create: { projectSlug, username: u, role, addedBy: g.who.username },
-  });
+  await withSeeded(r.project, (tx) =>
+    tx.teamMember.upsert({
+      where: { projectSlug_username: { projectSlug, username: u } },
+      update: { role },
+      create: { projectSlug, username: u, role, addedBy: g.who.username },
+    }),
+  );
   return { ok: true };
 }
 
@@ -283,8 +286,7 @@ export async function removePortalAccess(projectSlug: string, username: string):
   if (!r.ok) return r;
   const u = clean(username);
   if (GLOBAL_ALLOWLIST.includes(u)) return { ok: false, error: "Admin global fixo no código." };
-  await ensureSeeded(r.project);
-  await prisma.teamMember.deleteMany({ where: { projectSlug, username: u } });
+  await withSeeded(r.project, (tx) => tx.teamMember.deleteMany({ where: { projectSlug, username: u } }));
   return { ok: true };
 }
 

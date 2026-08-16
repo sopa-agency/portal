@@ -28,8 +28,13 @@ export async function withDbRetry<T>(fn: () => Promise<T>, tries = 4): Promise<T
       return await fn();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // P2028 / "Transaction already closed" is the interactive-transaction
+      // flavour of the same cold-start stall: only withSeeded uses transactions,
+      // and its body is idempotent, so replaying it is safe.
       const transient =
-        /P1001|P1017|Can't reach database server|Connection (terminated|reset|closed)|ECONNRESET|ETIMEDOUT|server has closed the connection|Timed out fetching a new connection/i.test(msg);
+        /P1001|P1017|P2028|Can't reach database server|Connection (terminated|reset|closed)|ECONNRESET|ETIMEDOUT|server has closed the connection|Timed out fetching a new connection|Transaction (already closed|not found|API error)/i.test(
+          msg,
+        );
       if (!transient || i === tries - 1) throw err;
       lastErr = err;
       // 0.3s, 0.9s, 1.5s … gives Neon time to wake from suspend.

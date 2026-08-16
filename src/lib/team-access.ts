@@ -1,5 +1,6 @@
 import "server-only";
-import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { prisma, withDbRetry } from "@/lib/prisma";
 import { verifySessionToken, isAllowed, GLOBAL_ALLOWLIST, type SessionPayload } from "@/lib/auth";
 import type { ProjectConfig } from "@/projects/types";
 
@@ -70,23 +71,59 @@ export async function authorize(
   return a.allowed ? { username: s.username, role: a.role!, global: a.global } : null;
 }
 
+/** Prisma client or an open interactive transaction — both accept model calls. */
+type Db = Prisma.TransactionClient | typeof prisma;
+
 /**
  * Seed a project's TeamMember rows from the static allowlist on first write, so
  * flipping the project to "DB authoritative" never locks out existing config
  * members. No-op once the project has any rows. Also seeds the global-admin rows.
+ *
+ * MUST run in the same transaction as the write that triggers it — see
+ * withSeeded. The first row written to a project is what makes getAccess treat
+ * the DB as authoritative, so a write that lands while the seed doesn't locks
+ * every config member out of the portal (this happened to gnars on 2026-08-15:
+ * one added member, thirteen locked out).
  */
-export async function ensureSeeded(project: ProjectConfig): Promise<void> {
-  const count = await prisma.teamMember.count({ where: { projectSlug: project.slug } });
+export async function ensureSeeded(project: ProjectConfig, db: Db = prisma): Promise<void> {
+  const count = await db.teamMember.count({ where: { projectSlug: project.slug } });
   if (count === 0) {
-    await prisma.teamMember.createMany({
+    await db.teamMember.createMany({
       data: project.allowlist.map((u) => ({ projectSlug: project.slug, username: u.toLowerCase(), role: "member" })),
       skipDuplicates: true,
     });
   }
-  await prisma.teamMember.createMany({
+  await db.teamMember.createMany({
     data: GLOBAL_ALLOWLIST.map((u) => ({ projectSlug: GLOBAL_SLUG, username: u.toLowerCase(), role: "admin" })),
     skipDuplicates: true,
   });
+}
+
+/**
+ * Run a TeamMember write with the project's seed, atomically: either both land
+ * or neither does. Retries the pair on transient DB errors (a cold pooler
+ * failing mid-way is the one way the seed and the write could ever diverge);
+ * every step is idempotent, so replaying the transaction is safe.
+ *
+ * The timeouts are explicit because Prisma's defaults (maxWait 2s, timeout 5s)
+ * are tight for this body: up to four round trips through the Supabase pgBouncer
+ * pooler, and the first-write path adds a createMany of the whole allowlist.
+ * Blowing the default budget would raise P2028 — a failure mode the non-atomic
+ * code simply couldn't have.
+ */
+export async function withSeeded<T>(
+  project: ProjectConfig,
+  write: (db: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return withDbRetry(() =>
+    prisma.$transaction(
+      async (tx) => {
+        await ensureSeeded(project, tx);
+        return write(tx);
+      },
+      { maxWait: 15_000, timeout: 30_000 },
+    ),
+  );
 }
 
 /** Effective roles for a set of usernames on a project (for the roster/UI). */
