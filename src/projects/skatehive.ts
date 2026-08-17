@@ -84,6 +84,9 @@ const skatehive: ProjectConfig = {
   },
   repos: [
     "SkateHive/skatehive3.0",
+    // App React Native + Expo. Entra no Repo-to-Social pra virar post o que
+    // enviamos no mobile. Depois do skatehive3.0 porque repos[0] é o "da casa".
+    "SkateHive/mobileapp",
     // Privado. Entra aqui pro board do portal: chip de repo, toggle de PRs e
     // assignees. Fica depois do skatehive3.0 porque repos[0] é o repo "da casa"
     // usado na home.
