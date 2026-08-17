@@ -17,6 +17,7 @@ import {
   getPipelineStatus, type PipelineStatus,
 } from "@/lib/mor-pipeline";
 import { getSwapMinOut } from "@/app/actions/mor-swap";
+import { proposeMorRestake } from "@/app/actions/mor-restake";
 import { useLocale } from "@/components/locale-provider";
 import { rich } from "@/components/rich-text";
 
@@ -36,6 +37,26 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
   const [account, setAccount] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Restake = propose (not execute). Server builds the Safe batch and hands back
+  // the queue link; a SOPA owner signs it in the Safe UI. No wallet needed here.
+  const [restaking, setRestaking] = useState(false);
+  const [restake, setRestake] = useState<{ url: string; amount: string } | null>(null);
+  const [restakeErr, setRestakeErr] = useState<string | null>(null);
+
+  async function proposeRestake() {
+    setRestaking(true);
+    setRestakeErr(null);
+    setRestake(null);
+    try {
+      const res = await proposeMorRestake();
+      if (res.ok) setRestake({ url: res.url, amount: res.amount });
+      else setRestakeErr(res.error);
+    } catch {
+      setRestakeErr("Falha ao propor o restake.");
+    } finally {
+      setRestaking(false);
+    }
+  }
 
   const isOwner = account != null && account.toLowerCase() === PIPELINE.owner.toLowerCase();
   const connected = account != null;
@@ -228,6 +249,45 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
         <p className="mt-2 text-[11px] text-foreground-faint">
           {t.nothingInFlight}
         </p>
+      )}
+
+      {/* Restake da fatia da SOPA (os 10% de MOR). Propõe UM batch pro Safe da SOPA
+          — withdraw do Warehouse + approve + deposit na subnet — e devolve o link
+          pra assinar. Não executa nada; só enfileira. Sem carteira conectada. */}
+      {status.sopaWarehouseMor + status.sopaWalletMor > EPS_MOR && (
+        <div className="mt-4 rounded-xl border border-accent-border bg-accent-bg/40 p-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">
+                Restake da SOPA · {mor(status.sopaWarehouseMor + status.sopaWalletMor)}
+              </p>
+              <p className="mt-0.5 text-[11px] text-foreground-muted">
+                Propõe pro Safe da SOPA: sacar do Warehouse + stake na subnet da Gnars. Você assina no Safe.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={proposeRestake}
+              disabled={restaking}
+              className={`${btn} border border-accent-border bg-accent-bg text-accent hover:bg-accent/20`}
+            >
+              {restaking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} Restake
+            </button>
+          </div>
+          {restake && (
+            <a
+              href={restake.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-xs font-semibold text-success transition hover:bg-success/20"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Proposta criada ({restake.amount} MOR) — assinar no Safe <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+          {restakeErr && (
+            <p className="mt-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] text-danger">{restakeErr}</p>
+          )}
+        </div>
       )}
 
       {/* Controls. Advancing (distribute + withdraw) and the swaps are permissionless
