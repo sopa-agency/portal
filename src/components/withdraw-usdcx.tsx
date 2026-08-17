@@ -4,6 +4,8 @@ import { useCallback, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, getAddress, formatUnits, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { ArrowUpFromLine, Loader2, Wallet, ExternalLink } from "lucide-react";
+import { useT } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 
 // A payee unwraps (downgrades) their streamed USDCx → plain USDC, into their own
 // wallet. USDCx is a Superfluid Super Token: it can't be spent/sold directly, so
@@ -40,6 +42,8 @@ async function ensureBase(eth: Eth) {
 }
 
 export function WithdrawUsdcx() {
+  const dict = useT().treasury;
+  const t = dict.withdraw;
   const [account, setAccount] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
@@ -62,7 +66,7 @@ export function WithdrawUsdcx() {
     setErr(null);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error("Nenhuma carteira detectada. Instale MetaMask/Rabby e recarregue.");
+      if (!eth) throw new Error(dict.wallet.none);
       const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
       await ensureBase(eth);
       const who = getAddress(accs[0]);
@@ -78,14 +82,14 @@ export function WithdrawUsdcx() {
     setErr(null);
     setTx(null);
     const value = Number(amount);
-    if (!Number.isFinite(value) || value <= 0) return setErr("Digite um valor maior que zero.");
-    if (balance != null && value > balance + 1e-9) return setErr("Você não tem esse tanto de USDCx.");
+    if (!Number.isFinite(value) || value <= 0) return setErr(dict.wallet.amountPositive);
+    if (balance != null && value > balance + 1e-9) return setErr(t.notEnough);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum!;
       await ensureBase(eth);
       const wallet = createWalletClient({ account: getAddress(account), chain: base, transport: custom(eth) });
       const c = pub();
-      setBusy("Sacando…");
+      setBusy(t.busy);
       const h = await wallet.writeContract({
         address: getAddress(USDCX),
         abi: ABI,
@@ -97,7 +101,7 @@ export function WithdrawUsdcx() {
       setAmount("");
       await refresh(account);
     } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Falhou.");
+      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? dict.wallet.failed);
     } finally {
       setBusy(null);
     }
@@ -106,12 +110,10 @@ export function WithdrawUsdcx() {
   return (
     <section className="rounded-2xl border border-border bg-surface p-5">
       <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-        <ArrowUpFromLine className="h-4 w-4 text-accent" /> Sacar pra USDC
+        <ArrowUpFromLine className="h-4 w-4 text-accent" /> {t.title}
       </h2>
       <p className="mt-1.5 max-w-xl text-xs text-foreground-subtle">
-        Seu pagamento chega como <b>USDCx</b> (o dólar “embrulhado” do stream), que não dá pra gastar direto. Aqui você
-        <b> desembrulha pra USDC normal</b> na hora, direto na sua carteira — sem sair do portal e sem custódia: a transação
-        sai da <b>sua</b> carteira.
+        {rich(t.body)}
       </p>
 
       {!account ? (
@@ -120,12 +122,12 @@ export function WithdrawUsdcx() {
           onClick={connect}
           className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:brightness-110"
         >
-          <Wallet className="h-4 w-4" /> Conectar minha carteira
+          <Wallet className="h-4 w-4" /> {dict.wallet.connectMine}
         </button>
       ) : (
         <div className="mt-3 space-y-2.5">
           <div className="text-xs text-foreground-muted">
-            Na carteira: <b className="font-mono tabular-nums text-foreground">{balance == null ? "…" : fmt(balance)}</b> USDCx
+            {t.inWallet} <b className="font-mono tabular-nums text-foreground">{balance == null ? "…" : fmt(balance)}</b> USDCx
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-elevated px-3 py-2">
             <input
@@ -133,7 +135,7 @@ export function WithdrawUsdcx() {
               placeholder="0.00"
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(",", "."))}
-              aria-label="Valor de USDCx a sacar"
+              aria-label={t.amountLabel}
               className="w-full min-w-0 bg-transparent font-mono text-sm tabular-nums text-foreground outline-none"
             />
             <span className="text-xs text-foreground-faint">USDCx</span>
@@ -154,10 +156,10 @@ export function WithdrawUsdcx() {
             className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent/20 px-3 py-2 text-xs font-semibold text-accent hover:bg-accent/30 disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {busy ?? "Sacar (USDCx → USDC)"}
+            {busy ?? t.action}
           </button>
           <p className="text-[10px] text-foreground-faint">
-            Conectado como {account.slice(0, 6)}…{account.slice(-4)} · vira USDC 1:1 na sua carteira. O stream continua pingando depois.
+            {t.footer(`${account.slice(0, 6)}…${account.slice(-4)}`)}
           </p>
         </div>
       )}
@@ -170,7 +172,7 @@ export function WithdrawUsdcx() {
           rel="noreferrer"
           className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
         >
-          Ver transação <ExternalLink className="h-3 w-3" />
+          {dict.wallet.viewTx} <ExternalLink className="h-3 w-3" />
         </a>
       )}
     </section>

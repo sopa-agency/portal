@@ -10,6 +10,8 @@
 import { useState } from "react";
 import { createPublicClient, http, getAddress, encodeDeployData, encodeFunctionData, isAddress, type Address } from "viem";
 import { base } from "viem/chains";
+import { useT } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 import { Loader2, Plug, Rocket, ExternalLink, AlertTriangle, Zap } from "lucide-react";
 import { PIPELINE } from "@/lib/mor-pipeline";
 import { FLASH_FILLER_ABI, FLASH_FILLER_BYTECODE, FLASH_FILLER_ROUTER, FLASH_FILLER_HOPS } from "@/lib/flash-filler-artifact";
@@ -26,6 +28,8 @@ const softParams = (e: unknown) => {
 };
 
 export function NativeSwapDeployPanel() {
+  const dict = useT().treasury;
+  const t = dict.mor;
   const [account, setAccount] = useState<string | null>(null);
   const [filler, setFiller] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem(LS_KEY) ?? "" : ""));
   const [busy, setBusy] = useState<string | null>(null);
@@ -39,7 +43,7 @@ export function NativeSwapDeployPanel() {
     setErr(null);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error("Nenhuma carteira detectada.");
+      if (!eth) throw new Error(t.noWalletShort);
       const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
       const cid = (await eth.request({ method: "eth_chainId" })) as string;
       if (cid !== "0x2105") await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }).catch(() => {});
@@ -71,7 +75,7 @@ export function NativeSwapDeployPanel() {
         setLog("Enviado (hash de userOp) — cole o endereço do contrato abaixo.");
       }
     } catch (e) {
-      if (softParams(e)) setLog("A carteira reclamou de params mas provavelmente transmitiu — confere no basescan e cola o endereço.");
+      if (softParams(e)) setLog(t.softParams);
       else setErr(errMsg(e));
     } finally {
       setBusy(null);
@@ -94,7 +98,7 @@ export function NativeSwapDeployPanel() {
       if (/^0x[0-9a-f]{64}$/i.test(hash)) await pub.waitForTransactionReceipt({ hash: hash as `0x${string}` }).catch(() => {});
       setLog(`${hop.label} — confere o resultado no basescan.`);
     } catch (e) {
-      if (softParams(e)) setLog(`${hop.label}: carteira reclamou de params mas provavelmente transmitiu — confere no basescan.`);
+      if (softParams(e)) setLog(t.softParamsHop(hop.label));
       else setErr(errMsg(e));
     } finally {
       setBusy(null);
@@ -108,21 +112,20 @@ export function NativeSwapDeployPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-            <Zap className="h-4 w-4 text-warning" /> Swap nativo — deploy + teste
-            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning">TEMPORÁRIO</span>
+            <Zap className="h-4 w-4 text-warning" /> {t.deployTitle}
+            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning">{t.deployTemp}</span>
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-foreground-muted">
-            Deploya o <b className="text-foreground">SwapperFlashFiller</b> (fork-testado) e testa um fill ao vivo com <b className="text-foreground">minOut=0</b> —
-            o principal não corre risco (a tx reverte se o UniV3 não cobrir o preço do swapper; pior caso é surplus 0). Surplus vai pra SOPA. Depois de funcionar, fio os botões reais e apago esta aba.
+            {rich(t.deployHint)}
           </p>
         </div>
         {account ? (
           <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${isOwner ? "bg-success/15 text-success" : "bg-danger/15 text-danger"}`}>
-            {isOwner ? "haxixe conectada" : "carteira errada"}
+            {isOwner ? t.ownerConnected : t.wrongWallet}
           </span>
         ) : (
           <button type="button" onClick={connect} className={`${btn} border border-accent-border bg-accent-bg text-accent hover:bg-accent/20`}>
-            <Plug className="h-3.5 w-3.5" /> Conectar
+            <Plug className="h-3.5 w-3.5" /> {t.connectShort}
           </button>
         )}
       </div>
@@ -131,15 +134,15 @@ export function NativeSwapDeployPanel() {
         <div className="mt-4 space-y-4">
           {/* Step 1 — deploy */}
           <div className="rounded-xl border border-border bg-surface p-3.5">
-            <div className="mb-2 text-xs font-semibold text-foreground">1 · Deploy do filler</div>
+            <div className="mb-2 text-xs font-semibold text-foreground">{t.deployStep}</div>
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={deploy} disabled={!!busy} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
-                {busy === "deploy" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />} Deployar
+                {busy === "deploy" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />} {t.deployAction}
               </button>
               <input
                 value={filler}
                 onChange={(e) => { setFiller(e.target.value.trim()); if (isAddress(e.target.value.trim())) localStorage.setItem(LS_KEY, e.target.value.trim()); }}
-                placeholder="endereço do filler deployado (0x…)"
+                placeholder={t.fillerPlaceholder}
                 className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2.5 py-2 font-mono text-[11px] text-foreground placeholder:text-foreground-faint"
               />
               {fillerOk && (
@@ -152,15 +155,15 @@ export function NativeSwapDeployPanel() {
 
           {/* Step 2 — dry-run fills */}
           <div className="rounded-xl border border-border bg-surface p-3.5">
-            <div className="mb-2 text-xs font-semibold text-foreground">2 · Testar fill (precisa do endereço acima)</div>
+            <div className="mb-2 text-xs font-semibold text-foreground">{t.fillStep}</div>
             <div className="flex flex-wrap gap-2">
               {Object.entries(FLASH_FILLER_HOPS).map(([k, hop]) => (
                 <button key={k} type="button" onClick={() => fill(hop)} disabled={!!busy || !fillerOk} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
-                  {busy === hop.swapper ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} Fill {hop.label}
+                  {busy === hop.swapper ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} {t.fill(hop.label)}
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-foreground-faint">Só roda se houver saldo do token de entrada no swapper. minOut=0 (dry-run) · surplus → SOPA {short(PIPELINE.sopa)}.</p>
+            <p className="mt-2 text-[11px] text-foreground-faint">{t.fillNote(short(PIPELINE.sopa))}</p>
           </div>
 
           {log && <p className="rounded-lg border border-border bg-surface-elevated px-3 py-2 font-mono text-[11px] text-foreground-muted break-all">{log}</p>}
@@ -168,7 +171,7 @@ export function NativeSwapDeployPanel() {
         </div>
       ) : (
         <p className="mt-4 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-[11px] text-foreground-faint">
-          {account ? "Conecte com a haxixe.eth — só ela deploya/testa aqui." : "Conecte a haxixe.eth pra deployar e testar o swap nativo."}
+          {account ? t.connectOwner : t.connectOwnerIdle}
         </p>
       )}
     </section>

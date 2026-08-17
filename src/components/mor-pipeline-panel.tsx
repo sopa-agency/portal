@@ -17,14 +17,21 @@ import {
   getPipelineStatus, type PipelineStatus,
 } from "@/lib/mor-pipeline";
 import { getSwapMinOut } from "@/app/actions/mor-swap";
+import { useLocale } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 
 type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 const pub = createPublicClient({ chain: base, transport: http("https://base-rpc.publicnode.com") });
 const splitsUrl = (addr: string) => `https://explorer.splits.org/accounts/${addr}/?chainId=8453`;
-const mor = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: n >= 1 ? 3 : 6 })} MOR`;
-const usd = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+const morIn = (n: number, l: string) => `${n.toLocaleString(l, { maximumFractionDigits: n >= 1 ? 3 : 6 })} MOR`;
+const usdIn = (n: number, l: string) => n.toLocaleString(l, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
 export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
+  const { locale, t: dict } = useLocale();
+  const t = dict.treasury.mor;
+  const intlLocale = locale === "pt" ? "pt-BR" : "en-US";
+  const mor = (n: number) => morIn(n, intlLocale);
+  const usd = (n: number) => usdIn(n, intlLocale);
   const [status, setStatus] = useState<PipelineStatus>(initial);
   const [account, setAccount] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -37,7 +44,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
     setErr(null);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error("Nenhuma carteira detectada. Instale a MetaMask/Rabby e recarregue.");
+      if (!eth) throw new Error(dict.treasury.wallet.none);
       const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
       const cid = (await eth.request({ method: "eth_chainId" })) as string;
       if (cid !== "0x2105") {
@@ -49,7 +56,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
       }
       setAccount(getAddress(accs[0]));
     } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Falha ao conectar.");
+      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? dict.treasury.wallet.connectFailed);
     }
   }
 
@@ -94,7 +101,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
       }
       await refresh();
     } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Falha na transação.");
+      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? dict.treasury.wallet.txFailed);
     } finally {
       setBusy(null);
     }
@@ -123,9 +130,9 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
     setBusy(id);
     setErr(null);
     const q = await getSwapMinOut(hop).catch(() => null);
-    if (!q) { setErr("Falha ao cotar o swap."); setBusy(null); return; }
+    if (!q) { setErr(t.quoteFailed); setBusy(null); return; }
     if (BigInt(q.baseAmount || "0") <= BigInt(1)) {
-      setErr(`Swapper ${hop} vazio — nada pra trocar. Rode Avançar MOR primeiro.`);
+      setErr(t.swapperEmpty(hop));
       setBusy(null);
       return;
     }
@@ -147,14 +154,14 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
   const eUsd = (n: number) => (status.ethPriceUsd > 0 && n > 0 ? usd(n * status.ethPriceUsd) : null);
 
   const rows: { label: string; value: string; sub?: string | null; flag?: "warn" | "ok" }[] = [
-    { label: "Reward da subnet (a reivindicar)", value: mor(status.subnetRewardMor), sub: mUsd(status.subnetRewardMor) },
-    { label: "Split do topo — aguardando distribute", value: mor(status.topSplitMor), sub: mUsd(status.topSplitMor) },
-    { label: "Swapper A — precisa withdraw", value: mor(status.swapperAWarehouseMor), sub: mUsd(status.swapperAWarehouseMor), flag: status.swapperAWarehouseMor > 0 ? "warn" : undefined },
-    { label: "Swapper A — pronto pra swap", value: mor(status.swapperAMor), sub: mUsd(status.swapperAMor) },
-    { label: "Swapper B — pronto pra swap", value: `${status.swapperBWeth.toLocaleString("pt-BR", { maximumFractionDigits: 6 })} WETH`, sub: eUsd(status.swapperBWeth) },
-    { label: "Split final — aguardando distribute", value: usd(status.downstreamUsdc) },
-    { label: "Gnars — precisa withdraw", value: usd(status.gnarsWarehouseUsdc), flag: status.gnarsWarehouseUsdc > 0 ? "warn" : undefined },
-    { label: "Tesouro da Gnars — entregue", value: usd(status.gnarsUsdc), flag: "ok" },
+    { label: t.rowSubnetReward, value: mor(status.subnetRewardMor), sub: mUsd(status.subnetRewardMor) },
+    { label: t.rowTopSplit, value: mor(status.topSplitMor), sub: mUsd(status.topSplitMor) },
+    { label: t.rowSwapperAWarehouse, value: mor(status.swapperAWarehouseMor), sub: mUsd(status.swapperAWarehouseMor), flag: status.swapperAWarehouseMor > 0 ? "warn" : undefined },
+    { label: t.rowSwapperAReady, value: mor(status.swapperAMor), sub: mUsd(status.swapperAMor) },
+    { label: t.rowSwapperBReady, value: `${status.swapperBWeth.toLocaleString(intlLocale, { maximumFractionDigits: 6 })} WETH`, sub: eUsd(status.swapperBWeth) },
+    { label: t.rowFinalSplit, value: usd(status.downstreamUsdc) },
+    { label: t.rowGnarsWarehouse, value: usd(status.gnarsWarehouseUsdc), flag: status.gnarsWarehouseUsdc > 0 ? "warn" : undefined },
+    { label: t.rowGnarsDelivered, value: usd(status.gnarsUsdc), flag: "ok" },
   ];
 
   // "In flight" = anything sitting between the claim and the final delivery. When
@@ -179,24 +186,22 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
     <section className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">Pipeline MOR → USDC</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.pipelineTitle}</h2>
           <p className="mt-1 max-w-2xl text-sm text-foreground-muted">
-            Reivindica o MOR da subnet da Gnars e passa pelos splits + swappers pra Gnars DAO ficar com USDC e a
-            SOPA com a fatia dela. <b className="text-foreground">Reivindicar</b> é da haxixe.eth (admin da subnet);
-            <b className="text-foreground"> avançar</b> os fundos é permissionless — qualquer carteira ajuda.
+            {rich(t.pipelineHint)}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={doRefresh} disabled={busy === "refresh"} title="Atualizar saldos" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground`}>
+          <button type="button" onClick={doRefresh} disabled={busy === "refresh"} title={t.refresh} className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground`}>
             <RefreshCw className={`h-3.5 w-3.5 ${busy === "refresh" ? "animate-spin" : ""}`} />
           </button>
           {account ? (
             <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${isOwner ? "bg-success/15 text-success" : "bg-accent-bg text-accent"}`}>
-              {isOwner ? "haxixe conectada" : "pode avançar o fluxo"}
+              {isOwner ? t.ownerConnected : t.canAdvance}
             </span>
           ) : (
             <button type="button" onClick={connect} className={`${btn} border border-accent-border bg-accent-bg text-accent hover:bg-accent/20`}>
-              <Plug className="h-3.5 w-3.5" /> Conectar carteira
+              <Plug className="h-3.5 w-3.5" /> {dict.treasury.wallet.connect}
             </button>
           )}
         </div>
@@ -221,7 +226,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
 
       {inFlight < 0.001 && (
         <p className="mt-2 text-[11px] text-foreground-faint">
-          Nada em trânsito agora — o reward da subnet acima é o que está acumulado pra reivindicar; o resto do pipeline está limpo.
+          {t.nothingInFlight}
         </p>
       )}
 
@@ -233,11 +238,11 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
           <div className="mt-4 flex flex-wrap gap-2">
             {isOwner && (
               <button type="button" onClick={claim} disabled={!!busy || !canClaim} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
-                {busy === "claim" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Reivindicar
+                {busy === "claim" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t.claim}
               </button>
             )}
             <button type="button" onClick={advanceMor} disabled={!!busy || !canAdvanceMor} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
-              {busy === "mor" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Avançar MOR
+              {busy === "mor" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t.advanceMor}
             </button>
             <span className="inline-flex items-center gap-1">
               {isOwner && (
@@ -245,7 +250,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
                   {busy === "swapA" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} Swap A{mUsd(status.swapperAMor) ? ` · ~${mUsd(status.swapperAMor)}` : ""}
                 </button>
               )}
-              <a href={splitsUrl(PIPELINE.swapperA)} target="_blank" rel="noopener noreferrer" title="Fallback: abrir no explorer dos Splits" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground ${isOwner ? "px-2" : ""}`}>
+              <a href={splitsUrl(PIPELINE.swapperA)} target="_blank" rel="noopener noreferrer" title={t.swapFallbackTitle} className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground ${isOwner ? "px-2" : ""}`}>
                 {isOwner ? <ExternalLink className="h-3 w-3" /> : <>Swap A{mUsd(status.swapperAMor) ? ` · ~${mUsd(status.swapperAMor)}` : ""} <ExternalLink className="h-3 w-3" /></>}
               </a>
             </span>
@@ -255,32 +260,29 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
                   {busy === "swapB" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} Swap B{eUsd(status.swapperBWeth) ? ` · ~${eUsd(status.swapperBWeth)}` : ""}
                 </button>
               )}
-              <a href={splitsUrl(PIPELINE.swapperB)} target="_blank" rel="noopener noreferrer" title="Fallback: abrir no explorer dos Splits" className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground ${isOwner ? "px-2" : ""}`}>
+              <a href={splitsUrl(PIPELINE.swapperB)} target="_blank" rel="noopener noreferrer" title={t.swapFallbackTitle} className={`${btn} border border-border bg-surface-elevated text-foreground-muted hover:text-foreground ${isOwner ? "px-2" : ""}`}>
                 {isOwner ? <ExternalLink className="h-3 w-3" /> : <>Swap B{eUsd(status.swapperBWeth) ? ` · ~${eUsd(status.swapperBWeth)}` : ""} <ExternalLink className="h-3 w-3" /></>}
               </a>
             </span>
             <button type="button" onClick={advanceUsdc} disabled={!!busy || !canAdvanceUsdc} className={`${btn} border border-border-strong bg-surface-elevated text-foreground hover:bg-foreground/5`}>
-              {busy === "usdc" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Avançar USDC
+              {busy === "usdc" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t.advanceUsdc}
             </button>
           </div>
 
           {!isOwner && (
             <p className="mt-2 text-[11px] text-foreground-faint">
-              <b className="text-foreground-muted">Reivindicar</b> só a haxixe.eth (admin da subnet). Mas <b className="text-foreground-muted">Avançar MOR/USDC</b> e os swaps são permissionless — qualquer carteira pode empurrar os fundos adiante.
+              {rich(t.notOwnerNote)}
             </p>
           )}
 
           {err && <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{err}</p>}
           <p className="mt-3 text-[11px] text-foreground-faint">
-            Ordem: <b>Reivindicar</b> → <b>Avançar MOR</b> → <b>Swap A</b> → <b>Swap B</b> → <b>Avançar USDC</b>. Avançar roda
-            nativo (distribute + withdraw, permissionless). <b>Swap A/B</b> agora rodam nativo pelo nosso filler (só a haxixe) com minOut
-            protegido — o ícone <ExternalLink className="inline h-3 w-3" /> ao lado abre a UI dos Splits como fallback.
-            ⚠️ = fundos creditados no Warehouse esperando um withdraw.
+            {rich(t.order)}
           </p>
         </>
       ) : (
         <p className="mt-4 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-[11px] text-foreground-faint">
-          Conecte a carteira pra empurrar o fluxo. <b className="text-foreground-muted">Avançar MOR/USDC</b> e os swaps são permissionless (qualquer carteira); só <b className="text-foreground-muted">Reivindicar</b> é da haxixe.eth. O resto é leitura.
+          {rich(t.connectNote)}
         </p>
       )}
     </section>

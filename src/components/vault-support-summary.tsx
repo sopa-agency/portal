@@ -1,4 +1,5 @@
 import { PiggyBank, ArrowRight } from "lucide-react";
+import { getDictionary } from "@/lib/i18n/server";
 
 // Header for the Apoiar tab: the deposit→earn→split step pills and the 4-stat
 // strip. Server component — every number is live, nothing to hydrate. Colors are
@@ -32,7 +33,7 @@ function Stat({
   );
 }
 
-export function VaultSupportSummary({
+export async function VaultSupportSummary({
   depositedUsd,
   apy,
   liveYieldUsd,
@@ -46,23 +47,23 @@ export function VaultSupportSummary({
   sopaEarnedUsd: number;
   feeToSopa: number;
 }) {
+  const t = (await getDictionary()).treasury.vault;
   const feePct = Math.round(feeToSopa * 100);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight text-foreground">Apoiar o payroll</h2>
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">{t.summaryTitle}</h2>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-foreground-muted">
-            Deposite num cofre e continue rendendo. Uma parte dos juros vai pro tesouro da SOPA e paga o time — o principal segue
-            seu, e você saca quando quiser. Não é doação: é o rendimento que é compartilhado, não o depósito.
+            {t.summaryHint}
           </p>
         </div>
         {/* Deposita → Rende → Divide */}
         <div className="flex flex-shrink-0 items-center gap-2">
           {[
-            { n: 1, label: "Deposita", cls: "border-accent-border bg-accent-bg text-accent" },
-            { n: 2, label: "Rende", cls: "border-success/30 bg-success/10 text-success" },
-            { n: 3, label: `Divide ${feePct}/${100 - feePct}`, cls: "border-border bg-surface text-foreground-muted" },
+            { n: 1, label: t.stepDeposit, cls: "border-accent-border bg-accent-bg text-accent" },
+            { n: 2, label: t.stepEarn, cls: "border-success/30 bg-success/10 text-success" },
+            { n: 3, label: t.stepSplit(feePct), cls: "border-border bg-surface text-foreground-muted" },
           ].map((s, i, arr) => (
             <div key={s.n} className="flex items-center gap-2">
               <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 ${s.cls}`}>
@@ -78,16 +79,16 @@ export function VaultSupportSummary({
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="No cofre" value={usd(depositedUsd)} unit="USDC" />
+        <Stat label={t.statInVault} value={usd(depositedUsd)} unit="USDC" />
         <Stat
-          label="Rende ao ano"
+          label={t.statApy}
           value={apy != null ? `${(apy * 100).toFixed(2)}%` : "—"}
           unit={apy != null ? "APY" : undefined}
           tone="text-success"
           border="border-success/20"
         />
-        <Stat label="Rendido até agora" value={usd(liveYieldUsd, true)} />
-        <Stat label="Pra SOPA" value={usd(sopaEarnedUsd, true)} tone="text-accent" border="border-accent-border" />
+        <Stat label={t.statEarned} value={usd(liveYieldUsd, true)} />
+        <Stat label={t.statToSopa} value={usd(sopaEarnedUsd, true)} tone="text-accent" border="border-accent-border" />
       </div>
     </div>
   );

@@ -1,12 +1,16 @@
 import type { ReactNode } from "react";
 import { Wrench } from "lucide-react";
+import { getDictionary } from "@/lib/i18n/server";
 
 /**
  * "Not configured yet" page body with a numbered setup walkthrough — shown by
  * routes whose feature lacks config for the active project (Analytics,
  * Treasury, …) instead of hiding the nav item or returning 404.
+ *
+ * Server-only (both call sites are pages), so it reads the dictionary directly
+ * rather than through the client context.
  */
-export function SetupGuide({
+export async function SetupGuide({
   feature,
   intro,
   steps,
@@ -15,12 +19,13 @@ export function SetupGuide({
   intro: string;
   steps: { title: string; body: ReactNode }[];
 }) {
+  const t = await getDictionary();
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-warning/30 bg-warning/5 px-5 py-4">
         <p className="flex items-center gap-2 text-sm font-semibold text-warning">
           <Wrench className="h-4 w-4 shrink-0" aria-hidden />
-          {feature} ainda não está configurado para este portal
+          {t.ui.setupGuide.notConfigured(feature)}
         </p>
         <p className="mt-1 text-sm text-foreground-muted">{intro}</p>
       </div>
@@ -40,8 +45,7 @@ export function SetupGuide({
       </ol>
 
       <p className="text-[12px] text-foreground-faint">
-        Atalho: cola as informações pedidas acima num chat com o Claude no repositório do portal e
-        peça para configurar — ele edita o config, faz o deploy e o item passa a funcionar.
+        {t.ui.setupGuide.shortcut}
       </p>
     </div>
   );

@@ -1,5 +1,7 @@
 import { Users2, Flame } from "lucide-react";
 import type { VaultDepositor } from "@/lib/vault-depositors";
+import { getDictionary } from "@/lib/i18n/server";
+import { rich } from "@/components/rich-text";
 
 // Who is backing the vault. Server component — numbers come from the contract,
 // so there's nothing to hydrate; avatars are Hive PFPs (that endpoint always
@@ -7,7 +9,7 @@ import type { VaultDepositor } from "@/lib/vault-depositors";
 
 const usd = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < 100 ? 2 : 0 });
-const perMo = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n < 1 ? 4 : 2 })}/mês`;
+const perMo = (n: number, suffix: string) => `$${n.toLocaleString("en-US", { maximumFractionDigits: n < 1 ? 4 : 2 })}${suffix}`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 function Avatar({ handle, address, ring }: { handle: string | null; address: string; ring: string }) {
@@ -32,7 +34,7 @@ function Avatar({ handle, address, ring }: { handle: string | null; address: str
   );
 }
 
-export function VaultDepositors({
+export async function VaultDepositors({
   depositors,
   apy,
   feeToSopa,
@@ -44,6 +46,9 @@ export function VaultDepositors({
   feeToSopa: number;
 }) {
   if (depositors.length === 0) return null;
+  const dict = (await getDictionary()).treasury;
+  const t = dict.vault;
+  const mo = (n: number) => perMo(n, dict.wallet.perMonth);
 
   const backers = depositors.filter((d) => !d.isDeadDeposit);
   const total = backers.reduce((s, d) => s + d.assets, 0);
@@ -54,14 +59,14 @@ export function VaultDepositors({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h3 className="flex items-center gap-2.5 text-lg font-semibold tracking-tight text-foreground">
-            <Users2 className="h-[19px] w-[19px] text-accent" /> Quem está apoiando
+            <Users2 className="h-[19px] w-[19px] text-accent" /> {t.backersTitle}
           </h3>
           <p className="mt-2 text-sm leading-relaxed text-foreground-muted">
-            Cada um pode sacar o que é seu quando quiser — o que é compartilhado é só o rendimento.
+            {t.backersHint}
           </p>
         </div>
         <div className="text-right">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground-faint">Depositado</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground-faint">{t.deposited}</div>
           <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-foreground">{usd(total)}</div>
         </div>
       </div>
@@ -82,8 +87,8 @@ export function VaultDepositors({
               </div>
               {/* recebe de volta — desktop only */}
               <div className="hidden text-xs text-foreground-muted lg:block">
-                recebe de volta{" "}
-                <span className="font-mono font-semibold text-success">{keptMonthly != null ? perMo(keptMonthly) : "—"}</span>
+                {t.getsBack}{" "}
+                <span className="font-mono font-semibold text-success">{keptMonthly != null ? mo(keptMonthly) : "—"}</span>
               </div>
               {/* share bar — desktop only */}
               <div className="hidden items-center gap-2.5 lg:flex">
@@ -100,15 +105,14 @@ export function VaultDepositors({
 
       {monthly != null && monthly > 0 && (
         <p className="mt-4 text-xs text-foreground-muted">
-          Nesse ritmo o cofre rende <b className="tabular-nums text-foreground">{perMo(monthly)}</b> —{" "}
-          <b className="tabular-nums text-accent">{perMo(monthly * feeToSopa)}</b> pro tesouro da SOPA, o resto pra quem depositou.
+          {rich(t.pace(mo(monthly), mo(monthly * feeToSopa)))}
         </p>
       )}
 
       {depositors.some((d) => d.isDeadDeposit) && (
         <p className="mt-3 flex items-center gap-2 text-xs text-foreground-faint">
           <Flame className="h-3.5 w-3.5" />
-          O depósito inicial queimado (proteção do cofre) não aparece na lista — ele não é de ninguém.
+          {t.deadDeposit}
         </p>
       )}
     </section>

@@ -68,11 +68,11 @@ export function TreasuryBriefingButton({ briefing }: { briefing: Briefing }) {
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
-              aria-label="Estado do tesouro"
+              aria-label={t.dialogLabel}
             >
               <header className="flex items-start gap-4 border-b border-border p-5">
                 <div className="min-w-0 flex-1">
-                  <h2 className="text-base font-semibold tracking-tight text-foreground">Como estamos</h2>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">{t.heading}</h2>
                   <p className="mt-1 text-sm text-foreground-muted">
                     <Prose text={briefing.headline} />
                   </p>
@@ -80,7 +80,7 @@ export function TreasuryBriefingButton({ briefing }: { briefing: Briefing }) {
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  aria-label="Fechar"
+                  aria-label={t.close}
                   className="shrink-0 rounded-md p-1 text-foreground-faint transition-colors hover:bg-surface-elevated hover:text-foreground"
                 >
                   <X className="h-4 w-4" />
@@ -111,7 +111,7 @@ export function TreasuryBriefingButton({ briefing }: { briefing: Briefing }) {
               </div>
 
               <footer className="border-t border-border px-5 py-3 text-[11px] text-foreground-faint">
-                Números ao vivo, lidos agora da blockchain e do banco — os mesmos que os cards da página mostram.
+                {t.footer}
               </footer>
             </div>
           </div>,

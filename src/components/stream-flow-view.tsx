@@ -1,6 +1,7 @@
 "use client";
 
 import { usd, pct } from "@/lib/format";
+import { useT } from "@/components/locale-provider";
 
 // Animated flow view of the payroll stream: a source (the pool) with money
 // "flowing" along connectors to each member, thickness + label by their share.
@@ -19,6 +20,7 @@ export function StreamFlowView({
   streaming: boolean;
   monthlyUsd: number | null;
 }) {
+  const t = useT().treasury;
   const active = members.filter((m) => m.units > 0);
   if (active.length === 0) return null;
 
@@ -33,15 +35,15 @@ export function StreamFlowView({
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-surface p-5">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">Fluxo do pagamento</h2>
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.flow.title}</h2>
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${streaming ? "bg-success/15 text-success" : "bg-foreground/10 text-foreground-muted"}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${streaming ? "bg-success" : "bg-foreground-faint"}`} />
-          {streaming ? "streaming ao vivo" : "parado"}
+          {streaming ? t.flow.live : t.flow.stopped}
         </span>
       </div>
 
       <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, height: H }} role="img" aria-label="Fluxo de pagamento por membro">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, height: H }} role="img" aria-label={t.flow.svgLabel}>
           {/* Connectors + flowing particles */}
           {active.map((m, i) => {
             const y = 24 + i * rowH + (rowH - 24) / 2;
@@ -74,7 +76,7 @@ export function StreamFlowView({
             <circle cx={srcX} cy={srcY} r={34} className="fill-[var(--accent-bg)]" stroke="var(--accent)" strokeWidth={2} />
             <text x={srcX} y={srcY - 3} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700 }}>POOL</text>
             <text x={srcX} y={srcY + 12} textAnchor="middle" className="fill-[var(--foreground)]" style={{ fontSize: 11, fontWeight: 700 }}>
-              {monthlyUsd != null ? `${usd(monthlyUsd)}/mês` : "—"}
+              {monthlyUsd != null ? `${usd(monthlyUsd)}${t.wallet.perMonth}` : "—"}
             </text>
           </g>
 
@@ -89,7 +91,7 @@ export function StreamFlowView({
                 <text x={dstX} y={y + 4} textAnchor="middle" style={{ fontSize: 10, fontWeight: 700, fill: color }}>{initials(m.label)}</text>
                 <text x={dstX + 22} y={y - 2} className="fill-[var(--foreground)]" style={{ fontSize: 12, fontWeight: 600 }}>{m.label}</text>
                 <text x={dstX + 22} y={y + 12} className="fill-[var(--foreground-faint)]" style={{ fontSize: 11 }}>
-                  {pct(share * 100)}{monthlyUsd != null ? ` · ${usd(monthlyUsd * share)}/mês` : ""}
+                  {pct(share * 100)}{monthlyUsd != null ? ` · ${usd(monthlyUsd * share)}${t.wallet.perMonth}` : ""}
                 </text>
               </g>
             );

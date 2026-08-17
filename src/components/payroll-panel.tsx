@@ -12,6 +12,7 @@ import {
 import { useConfirm } from "@/components/confirm-dialog";
 import { pct } from "@/lib/format";
 import { chartColorAt as colorAt } from "@/lib/chart-colors";
+import { useT } from "@/components/locale-provider";
 
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
@@ -66,6 +67,7 @@ function WeightsEditor({
   onSave: (weights: { id: string; units: number }[]) => void;
   onCancel: () => void;
 }) {
+  const t = useT().treasury.payroll;
   // Enter with the current split expressed as 0–100 weights (so sliders read as %).
   const [w, setW] = useState<Record<string, number>>(() => {
     const total = members.reduce((s, m) => s + m.units, 0);
@@ -89,14 +91,14 @@ function WeightsEditor({
     <div className="space-y-4 rounded-xl border border-accent-border bg-accent-bg/30 p-4">
       <div className="flex items-center justify-between">
         <h4 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-          <SlidersHorizontal className="h-4 w-4 text-accent" /> Dividir pesos
+          <SlidersHorizontal className="h-4 w-4 text-accent" /> {t.divide}
         </h4>
         <button
           type="button"
           onClick={equalize}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"
         >
-          <Scale className="h-3.5 w-3.5" /> Igualar
+          <Scale className="h-3.5 w-3.5" /> {t.equalize}
         </button>
       </div>
 
@@ -114,7 +116,7 @@ function WeightsEditor({
               value={w[m.id] ?? 0}
               onChange={(e) => setW((prev) => ({ ...prev, [m.id]: Number(e.target.value) }))}
               className="h-1.5 min-w-0 flex-1 cursor-pointer accent-accent"
-              aria-label={`Peso de ${m.label}`}
+              aria-label={t.weightOf(m.label)}
             />
             <input
               type="number"
@@ -130,7 +132,7 @@ function WeightsEditor({
       </div>
 
       <div className="flex items-center justify-between border-t border-border pt-3">
-        <span className="font-mono text-[11px] text-foreground-faint">Σ {sum} units → fatias somam 100%</span>
+        <span className="font-mono text-[11px] text-foreground-faint">{t.sumUnits(sum)}</span>
         <div className="flex gap-1.5">
           <button
             type="button"
@@ -138,7 +140,7 @@ function WeightsEditor({
             disabled={busy}
             className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground-muted hover:border-border-strong disabled:opacity-50"
           >
-            <X className="h-3.5 w-3.5" /> Cancelar
+            <X className="h-3.5 w-3.5" /> {t.cancel}
           </button>
           <button
             type="button"
@@ -146,7 +148,7 @@ function WeightsEditor({
             disabled={busy || sum === 0}
             className="inline-flex items-center gap-1 rounded-md bg-accent/20 px-2.5 py-1.5 text-[11px] font-semibold text-accent hover:bg-lime-400/30 disabled:opacity-50"
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Salvar pesos
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {t.saveWeights}
           </button>
         </div>
       </div>
@@ -170,12 +172,13 @@ function MemberForm({
   onSave: (d: Draft) => void;
   onCancel: () => void;
 }) {
+  const t = useT().treasury.payroll;
   const [d, setD] = useState<Draft>(initial);
   return (
     <div className="space-y-2 rounded-lg border border-accent-border bg-accent-bg/40 p-2.5">
       {roster && roster.length > 0 && (
         <select
-          aria-label="Escolher um membro já cadastrado no time"
+          aria-label={t.pickRoster}
           value=""
           onChange={(e) => {
             const r = roster.find((x) => x.username === e.target.value);
@@ -183,10 +186,10 @@ function MemberForm({
           }}
           className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         >
-          <option value="">— escolher do time —</option>
+          <option value="">{t.pickPlaceholder}</option>
           {roster.map((r) => (
             <option key={r.username} value={r.username}>
-              @{r.username}{r.address ? " · carteira ✓" : ""}
+              @{r.username}{r.address ? t.hasWallet : ""}
             </option>
           ))}
         </select>
@@ -195,24 +198,24 @@ function MemberForm({
         <input
           value={d.label}
           onChange={(e) => setD({ ...d, label: e.target.value })}
-          aria-label="Nome ou handle do membro"
-          placeholder="Nome / handle"
+          aria-label={t.nameLabel}
+          placeholder={t.namePlaceholder}
           className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
         <input
           value={d.units}
           onChange={(e) => setD({ ...d, units: e.target.value })}
           inputMode="numeric"
-          aria-label="Peso do membro (units)"
-          placeholder="peso (units)"
+          aria-label={t.unitsLabel}
+          placeholder={t.unitsPlaceholder}
           className="w-28 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs tabular-nums text-foreground focus:border-border-strong focus:outline-none"
         />
       </div>
       <input
         value={d.address}
         onChange={(e) => setD({ ...d, address: e.target.value })}
-        aria-label="Carteira EVM do membro (Base)"
-        placeholder="0x… carteira EVM (Base)"
+        aria-label={t.addressLabel}
+        placeholder={t.addressPlaceholder}
         spellCheck={false}
         className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 font-mono text-[11px] text-foreground focus:border-border-strong focus:outline-none"
       />
@@ -223,7 +226,7 @@ function MemberForm({
           disabled={busy}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground-muted hover:border-border-strong disabled:opacity-50"
         >
-          <X className="h-3.5 w-3.5" /> Cancelar
+          <X className="h-3.5 w-3.5" /> {t.cancel}
         </button>
         <button
           type="button"
@@ -231,7 +234,7 @@ function MemberForm({
           disabled={busy}
           className="inline-flex items-center gap-1 rounded-md bg-accent/20 px-2.5 py-1.5 text-[11px] font-semibold text-accent hover:bg-lime-400/30 disabled:opacity-50"
         >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Salvar
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {t.save}
         </button>
       </div>
     </div>
@@ -250,6 +253,7 @@ export function PayrollPanel({
   canEdit: boolean;
   roster?: PayrollRosterOption[];
 }) {
+  const t = useT().treasury.payroll;
   const [members, setMembers] = useState<PayrollMemberDTO[]>(initial);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -293,11 +297,9 @@ export function PayrollPanel({
   const doDelete = async (id: string) => {
     const m = members.find((x) => x.id === id);
     const okToDelete = await confirm({
-      title: "Remover membro?",
-      message: m
-        ? `${m.label} sai do payroll. As units dele voltam pro bolo e as fatias se redistribuem.`
-        : "O membro sai do payroll e as fatias se redistribuem.",
-      confirmLabel: "Remover",
+      title: t.removeTitle,
+      message: m ? t.removeMessage(m.label) : t.removeMessageGeneric,
+      confirmLabel: t.remove,
     });
     if (!okToDelete) return;
     start(async () => {
@@ -322,7 +324,7 @@ export function PayrollPanel({
     <section className="rounded-2xl border border-border bg-surface p-5">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-          <Users2 className="h-4 w-4 text-accent" /> O time e as fatias
+          <Users2 className="h-4 w-4 text-accent" /> {t.title}
         </h2>
         {canEdit && idle && (
           <div className="flex gap-1.5">
@@ -332,7 +334,7 @@ export function PayrollPanel({
                 onClick={() => setDividing(true)}
                 className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground-muted hover:border-border-strong hover:text-foreground"
               >
-                <SlidersHorizontal className="h-3.5 w-3.5" /> Dividir pesos
+                <SlidersHorizontal className="h-3.5 w-3.5" /> {t.divide}
               </button>
             )}
             <button
@@ -340,13 +342,13 @@ export function PayrollPanel({
               onClick={() => setAdding(true)}
               className="inline-flex items-center gap-1 rounded-md bg-accent/20 px-2.5 py-1.5 text-[11px] font-semibold text-accent hover:bg-lime-400/30"
             >
-              <Plus className="h-3.5 w-3.5" /> Adicionar membro
+              <Plus className="h-3.5 w-3.5" /> {t.add}
             </button>
           </div>
         )}
       </div>
       <p className="mb-3 text-xs text-foreground-subtle">
-        Quem recebe, a carteira e o peso de cada um. A fatia é o peso dividido pelo total — arraste em “Dividir pesos” e os valores por mês se ajustam sozinhos.
+        {t.hint}
       </p>
 
       {err && <p className="mb-2 text-[11px] text-danger">{err}</p>}
@@ -372,7 +374,7 @@ export function PayrollPanel({
 
       {members.length === 0 && idle ? (
         <p className="py-6 text-center text-xs text-foreground-faint">
-          Nenhum membro ainda.{canEdit ? " Adicione o primeiro (você mesmo, com 100 units, pra testar)." : ""}
+          {t.empty}{canEdit ? t.emptyAdd : ""}
         </p>
       ) : (
         <ul className="space-y-1.5">
@@ -394,7 +396,7 @@ export function PayrollPanel({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="truncate text-sm font-medium text-foreground">{m.label}</span>
-                    {!m.active && <span className="rounded-full bg-foreground/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-foreground-muted">inativo</span>}
+                    {!m.active && <span className="rounded-full bg-foreground/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-foreground-muted">{t.inactive}</span>}
                   </div>
                   <a
                     href={`https://basescan.org/address/${m.address}`}
@@ -415,7 +417,7 @@ export function PayrollPanel({
                     <button
                       type="button"
                       onClick={() => doUpdate(m.id, { active: !m.active })}
-                      title={m.active ? "Desativar" : "Ativar"}
+                      title={m.active ? t.deactivate : t.activate}
                       className="rounded-md p-1 text-foreground-faint hover:text-foreground"
                     >
                       {m.active ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
@@ -423,7 +425,7 @@ export function PayrollPanel({
                     <button
                       type="button"
                       onClick={() => setEditId(m.id)}
-                      aria-label="Editar"
+                      aria-label={t.edit}
                       className="rounded-md p-1 text-foreground-faint hover:text-foreground"
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -431,7 +433,7 @@ export function PayrollPanel({
                     <button
                       type="button"
                       onClick={() => doDelete(m.id)}
-                      aria-label="Remover"
+                      aria-label={t.remove}
                       className="rounded-md p-1 text-foreground-faint hover:text-danger"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -446,8 +448,8 @@ export function PayrollPanel({
 
       {idle && totalUnits > 0 && (
         <div className="mt-3 flex items-center justify-between border-t border-border pt-2 text-xs">
-          <span className="text-foreground-muted">{activeMembers.length} ativos</span>
-          <span className="font-mono tabular-nums text-foreground-muted">Σ {totalUnits} units = 100%</span>
+          <span className="text-foreground-muted">{t.activeCount(activeMembers.length)}</span>
+          <span className="font-mono tabular-nums text-foreground-muted">{t.totalUnits(totalUnits)}</span>
         </div>
       )}
       {confirmUI}

@@ -5,6 +5,8 @@ import { Radio, Users2, Wallet } from "lucide-react";
 import { usd, usdTiny, pct, daysTone, toneText } from "@/lib/format";
 import { chartColorAt } from "@/lib/chart-colors";
 import { ReadFailed } from "@/components/data-state";
+import { useT } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 
 // Membros tab shell (from the Claude Design redesign): two sub-views —
 // "Painel · ao vivo" (what's happening, for anyone) and "Controles · admin"
@@ -68,6 +70,7 @@ function Stat({ label, value, sub, hint, tone = "text-foreground" }: { label: st
 
 /** "Quem recebe o quê" — the payee list with live share and per-month value. */
 function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[]; monthlyUsd: number | null; connectSlot?: ReactNode }) {
+  const t = useT().treasury;
   const active = members.filter((m) => m.units > 0);
   const total = active.reduce((s, m) => s + m.units, 0);
   if (!active.length) return null;
@@ -76,18 +79,18 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
   return (
     <section className="rounded-2xl border border-border bg-surface p-5">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">Quem recebe o quê</h2>
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.members.whoTitle}</h2>
         <span className="text-xs text-foreground-faint">
-          {active.length} membros ·{" "}
-          <span title="Peso = a fatia de cada um. A fatia é o peso dividido pelo total." className="cursor-help underline decoration-dotted">
-            {total} pesos
+          {t.members.memberCount(active.length)} ·{" "}
+          <span title={t.members.weightsTitle} className="cursor-help underline decoration-dotted">
+            {t.members.weights(total)}
           </span>
         </span>
       </div>
 
       {notConnected > 0 && (
         <div className="mb-3 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-foreground">
-          {notConnected} {notConnected === 1 ? "membro ainda não conectou a carteira" : "membros ainda não conectaram a carteira"} — a fatia deles acumula, mas não pinga em tempo real. É um clique, uma vez só.
+          {t.members.notConnected(notConnected)}
           {connectSlot && <div className="mt-2">{connectSlot}</div>}
         </div>
       )}
@@ -109,7 +112,7 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
                   m.connected ? "bg-success/15 text-success" : "bg-foreground/10 text-foreground-muted"
                 }`}
               >
-                {m.connected ? "recebendo" : "acumulando"}
+                {m.connected ? t.members.receiving : t.members.accruing}
               </span>
               <div className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-border sm:block">
                 <div className="h-full rounded-full" style={{ width: `${Math.max(share, 2)}%`, backgroundColor: color }} />
@@ -117,14 +120,14 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
               <div className="w-12 shrink-0 text-right">
                 <div className="text-sm font-semibold tabular-nums text-foreground">{pct(share)}</div>
                 <div className="text-[10px] tabular-nums text-foreground-faint">
-                  {monthlyUsd != null ? `${usd((monthlyUsd * share) / 100)}/mês` : "—"}
+                  {monthlyUsd != null ? `${usd((monthlyUsd * share) / 100)}${t.wallet.perMonth}` : "—"}
                 </div>
               </div>
               <div className="w-24 shrink-0 border-l border-border pl-2 text-right">
-                <div className="text-[10px] uppercase tracking-wider text-foreground-faint">acumulado</div>
+                <div className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.members.accrued}</div>
                 <div className="text-sm font-semibold tabular-nums text-success">{usdTiny(m.receivedUsd ?? 0)}</div>
                 <div className="text-[10px] tabular-nums text-foreground-faint">
-                  {(m.claimedUsd ?? 0) > 0 ? `${usdTiny(m.claimedUsd ?? 0)} sacado` : "nada sacado"}
+                  {(m.claimedUsd ?? 0) > 0 ? t.members.withdrawn(usdTiny(m.claimedUsd ?? 0)) : t.members.nothingWithdrawn}
                 </div>
               </div>
             </li>
@@ -168,6 +171,8 @@ export function MembersTab({
   /** Ordered admin steps: [title, node][] — rendered as numbered cards. */
   steps: { title: string; node: ReactNode }[];
 }) {
+  const dict = useT().treasury;
+  const t = dict.members;
   const [tab, setTab] = useState<"painel" | "controles">("painel");
   const connectedCount = members.filter((m) => m.units > 0 && m.connected).length;
   const activeCount = members.filter((m) => m.units > 0).length;
@@ -177,7 +182,7 @@ export function MembersTab({
       {/* Sub-tabs */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-1 rounded-xl border border-border bg-surface p-1">
-          {([["painel", "Painel · ao vivo", Radio], ["controles", "Controles · admin", Users2]] as const).map(([id, label, Icon]) =>
+          {([["painel", t.tabLive, Radio], ["controles", t.tabAdmin, Users2]] as const).map(([id, label, Icon]) =>
             id === "controles" && !canEdit ? null : (
               <button
                 key={id}
@@ -194,24 +199,20 @@ export function MembersTab({
             ),
           )}
         </div>
-        <span className="text-[11px] text-foreground-faint">Painel = o que está acontecendo · Controles = o que você pode fazer</span>
+        <span className="text-[11px] text-foreground-faint">{t.tabsHint}</span>
       </div>
 
       {tab === "painel" ? (
         <div className="space-y-5">
           {streamFailed && (
-            <ReadFailed>
-              Não consegui ler o estado do stream agora (a rede pública engasgou). Os números abaixo podem estar defasados — recarregue em instantes.
-            </ReadFailed>
+            <ReadFailed>{t.readFailed}</ReadFailed>
           )}
           {/* The payroll rails are fully wired, but the rate can be so small that
               the panel reads as a production payroll when it is really a dry run.
               Say so out loud instead of letting the bars imply otherwise. */}
           {streaming && monthlyUsd != null && monthlyUsd > 0 && monthlyUsd < 5 && (
             <p className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
-              <b>Vazão simbólica.</b> O stream está fluindo de verdade — quem está conectado à pool recebe direto na carteira, em tempo
-              real. Mas a {usd(monthlyUsd)}/mês dividido entre o time dá centavos por pessoa: é um teste de vazão, não um salário. As
-              barras abaixo mostram como está sendo dividido. Pra remunerar de verdade, suba a vazão em Controles → stream.
+              {rich(t.symbolic(usd(monthlyUsd)))}
             </p>
           )}
 
@@ -219,16 +220,16 @@ export function MembersTab({
 
           {/* At-a-glance numbers, in plain words */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label="Pagando" value={monthlyUsd != null ? usd(monthlyUsd) : "—"} sub="/mês" tone={streaming ? "text-foreground" : "text-foreground-muted"} />
+            <Stat label={t.paying} value={monthlyUsd != null ? usd(monthlyUsd) : "—"} sub={dict.wallet.perMonth} tone={streaming ? "text-foreground" : "text-foreground-muted"} />
             <Stat
-              label="Reserva dura"
-              hint="Quanto tempo o pagamento continua com a reserva atual, sem repor nada."
+              label={t.bufferLasts}
+              hint={t.bufferLastsHint}
               value={runwayDays == null ? "—" : `${Math.floor(runwayDays)}`}
-              sub={runwayDays == null ? undefined : " dias"}
+              sub={runwayDays == null ? undefined : t.daysSuffix}
               tone={toneText[daysTone(runwayDays)]}
             />
-            <Stat label="Na reserva" hint="O dinheiro já convertido, pronto pra pingar no time." value={usd(bufferUsd)} />
-            <Stat label="Recebendo ao vivo" value={`${connectedCount}`} sub={`/${activeCount}`} tone={connectedCount === activeCount && activeCount > 0 ? "text-success" : "text-warning"} />
+            <Stat label={t.inBuffer} hint={t.inBufferHint} value={usd(bufferUsd)} />
+            <Stat label={t.receivingLive} value={`${connectedCount}`} sub={`/${activeCount}`} tone={connectedCount === activeCount && activeCount > 0 ? "text-success" : "text-warning"} />
           </div>
 
           {withdraw}
@@ -238,7 +239,7 @@ export function MembersTab({
       ) : (
         <div className="space-y-5">
           <p className="rounded-xl border border-border bg-surface-elevated p-3 text-xs text-foreground-muted">
-            Cada ação vira uma proposta na carteira multisig — os signatários aprovam antes de executar. Siga os passos na ordem.
+            {t.stepsHint}
           </p>
           {steps.map((s, i) => (
             <section key={s.title} className="space-y-2">

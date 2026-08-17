@@ -8,6 +8,8 @@
 import { useState } from "react";
 import { PIPELINE } from "@/lib/mor-pipeline";
 import { Check, ExternalLink, ArrowDown, GitBranch, Bot } from "lucide-react";
+import { useT } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 
 const FILLER = "0x40b2F18912FF46Dc826F522B9cbdb0224739aa66";
 const scan = (a: string) => `https://basescan.org/address/${a}`;
@@ -70,6 +72,7 @@ ARCHITECTURE (Base mainnet addresses are the live SOPA/Gnars ones — for a new 
 To stand up a NEW project's pipeline: register its own Builders subnet; deploy two 0xSplits Swappers (UniV3 oracle pointing at your-token/WETH and WETH/USDC pools) via the SwapperFactory; wire a top split (MOR X%/Y%) and a downstream split (USDC treasury%/SOPA%); deploy the SwapperFlashFiller; build the panel from the reads above.`;
 
 export function MorFlowDiagram() {
+  const t = useT().treasury.mor;
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -85,42 +88,41 @@ export function MorFlowDiagram() {
     <section className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">Como funciona o fluxo MOR</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.diagramTitle}</h2>
           <p className="mt-1 max-w-2xl text-sm text-foreground-muted">
-            A Gnars ganha <b className="text-foreground">MOR</b> por ser builder na Morpheus. O fluxo transforma esse MOR em
-            <b className="text-foreground"> USDC</b> no tesouro, passando por splits e swappers. Cada caixa é um contrato — clica pra ver on-chain.
+            {rich(t.diagramHint)}
           </p>
         </div>
         <button
           type="button"
           onClick={copy}
           className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20"
-          title="Copia um prompt que explica como replicar este fluxo (pra colar num agente)"
+          title={t.copyPromptTitle}
         >
           {copied ? <Check className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
-          {copied ? "Copiado!" : "Prompt p/ agente"}
+          {copied ? t.copied : t.copyPrompt}
         </button>
       </div>
 
       <div className="mx-auto mt-5 max-w-xl">
-        <Node title="Subnet Morpheus (Builders)" desc="Emite MOR pra Gnars por participar como builder." addr={PIPELINE.builders} href={scan(PIPELINE.builders)} />
-        <Arrow label="claim — só a haxixe.eth (admin)" />
-        <Node title="Split do topo" desc="Divide o MOR: 90% pro swap, 10% direto pra SOPA." addr={PIPELINE.topSplit} href={splitsUrl(PIPELINE.topSplit)} tone="split" />
+        <Node title={t.nodeSubnet} desc={t.nodeSubnetDesc} addr={PIPELINE.builders} href={scan(PIPELINE.builders)} />
+        <Arrow label={t.arrowClaim} />
+        <Node title={t.nodeTopSplit} desc={t.nodeTopSplitDesc} addr={PIPELINE.topSplit} href={splitsUrl(PIPELINE.topSplit)} tone="split" />
         <Branch pct="10%" to="SOPA" token="MOR" addr={PIPELINE.sopa} href={scan(PIPELINE.sopa)} />
-        <Arrow label="90% · distribute + withdraw (permissionless)" />
-        <Node title="Swapper A — MOR → WETH" desc="Vende o MOR por WETH. Nosso Filler faz o swap na Uniswap e paga o preço do oracle." addr={PIPELINE.swapperA} href={scan(PIPELINE.swapperA)} tone="swap" />
+        <Arrow label={t.arrowDistribute} />
+        <Node title={t.nodeSwapperA} desc={t.nodeSwapperADesc} addr={PIPELINE.swapperA} href={scan(PIPELINE.swapperA)} tone="swap" />
         <div className="ml-6 mt-1 flex items-center gap-2 rounded-lg border border-dashed border-warning/40 bg-warning/5 px-2.5 py-1.5 text-[11px]">
           <Bot className="h-3.5 w-3.5 text-warning" />
-          <span className="text-foreground-muted">Filler (nosso contrato)</span>
+          <span className="text-foreground-muted">{t.filler}</span>
           <a href={scan(FILLER)} target="_blank" rel="noopener noreferrer" className="ml-auto font-mono text-[10px] text-foreground-faint hover:text-accent">{short(FILLER)}</a>
         </div>
         <Arrow />
-        <Node title="Swapper B — WETH → USDC" desc="Vende o WETH por USDC (dólar digital)." addr={PIPELINE.swapperB} href={scan(PIPELINE.swapperB)} tone="swap" />
-        <Arrow label="distribute + withdraw" />
-        <Node title="Split final" desc="Divide o USDC: 80% SOPA, 20% tesouro da Gnars." addr={PIPELINE.downstreamSplit} href={splitsUrl(PIPELINE.downstreamSplit)} tone="split" />
-        <Branch pct="20%" to="Tesouro Gnars" token="USDC" addr={PIPELINE.gnarsTreasury} href={scan(PIPELINE.gnarsTreasury)} />
+        <Node title={t.nodeSwapperB} desc={t.nodeSwapperBDesc} addr={PIPELINE.swapperB} href={scan(PIPELINE.swapperB)} tone="swap" />
+        <Arrow label={t.arrowDistributeShort} />
+        <Node title={t.nodeFinalSplit} desc={t.nodeFinalSplitDesc} addr={PIPELINE.downstreamSplit} href={splitsUrl(PIPELINE.downstreamSplit)} tone="split" />
+        <Branch pct="20%" to={t.gnarsTreasury} token="USDC" addr={PIPELINE.gnarsTreasury} href={scan(PIPELINE.gnarsTreasury)} />
         <Arrow label="80%" />
-        <Node title="SOPA (tesouro)" desc="Recebe a fatia da SOPA em USDC." addr={PIPELINE.sopa} href={scan(PIPELINE.sopa)} tone="out" />
+        <Node title={t.nodeSopa} desc={t.nodeSopaDesc} addr={PIPELINE.sopa} href={scan(PIPELINE.sopa)} tone="out" />
       </div>
     </section>
   );

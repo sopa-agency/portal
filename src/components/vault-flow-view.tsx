@@ -1,6 +1,7 @@
 "use client";
 
 import type { VaultDepositor } from "@/lib/vault-depositors";
+import { useT } from "@/components/locale-provider";
 
 // Animated flow of the vault's yield: one source (the yield the pot earns in
 // Moonwell) splitting to the SOPA treasury (the performance fee) and back to
@@ -33,6 +34,8 @@ export function VaultFlowView({
   /** SOPA's accumulated performance fee so far, USDC. */
   sopaEarned: number;
 }) {
+  const dict = useT().treasury;
+  const t = dict.vault;
   const backers = depositors.filter((d) => !d.isDeadDeposit && d.assets > 0);
   if (backers.length === 0) return null;
 
@@ -51,7 +54,7 @@ export function VaultFlowView({
   // rest in proportion to their deposit. Shares sum to 1. `earned` is the real
   // amount realized so far (SOPA = its fee shares; each backer = position − principal).
   const recipients: Recipient[] = [
-    { key: "sopa", label: "Tesouro SOPA", handle: null, yieldShare: feeToSopa, earned: sopaEarned, color: "var(--accent)", isSopa: true },
+    { key: "sopa", label: t.sopaTreasury, handle: null, yieldShare: feeToSopa, earned: sopaEarned, color: "var(--accent)", isSopa: true },
     ...backers.map((d, i) => ({
       key: d.address,
       label: d.label ?? short(d.address),
@@ -85,27 +88,27 @@ export function VaultFlowView({
     <section className="overflow-hidden rounded-2xl border border-border bg-surface p-5 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">Fluxo do rendimento</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.flowTitle}</h2>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-foreground-muted">
-            O que o cofre rende na Moonwell se divide: {pct(feeToSopa * 100)} pro tesouro da SOPA e o resto volta pra quem depositou.
+            {t.flowHint(pct(feeToSopa * 100))}
           </p>
         </div>
         <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-success">
           <span className="vfv-pulse h-[7px] w-[7px] rounded-full bg-success" />
-          rendendo ao vivo
+          {t.flowLive}
         </span>
       </div>
 
       {/* Realized so far — the accumulated total, said out loud above the flow. */}
       <div className="mt-4 inline-flex items-center gap-3 rounded-xl border border-success/20 bg-success/[0.06] px-4 py-2.5">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">Rendido até agora</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground-faint">{t.earnedSoFar}</span>
         <span className="font-mono text-lg font-semibold tabular-nums text-success">{acc(earnedTotal)}</span>
         <span className="h-4 w-px bg-border" />
-        <span className="font-mono text-xs text-foreground-muted">{acc(sopaEarned)} <span className="text-foreground-faint">pra SOPA</span></span>
+        <span className="font-mono text-xs text-foreground-muted">{acc(sopaEarned)} <span className="text-foreground-faint">{t.toSopaShort}</span></span>
       </div>
 
       <div className="mt-5 overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 600 }} role="img" aria-label="Fluxo do rendimento do cofre">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 600 }} role="img" aria-label={t.flowSvgLabel}>
           <defs>
             <linearGradient id="vfv-gold" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.15" />
@@ -164,12 +167,12 @@ export function VaultFlowView({
           {/* Source node — the vault */}
           <circle cx={srcX} cy={srcY} r={srcR} className="fill-[var(--surface-elevated)]" stroke="var(--accent)" strokeWidth={2} />
           <circle cx={srcX} cy={srcY} r={srcR} fill="none" stroke="var(--accent)" strokeWidth={8} strokeOpacity={0.12} />
-          <text x={srcX} y={srcY - 20} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5 }}>COFRE</text>
+          <text x={srcX} y={srcY - 20} textAnchor="middle" className="fill-[var(--accent)]" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5 }}>{t.vaultNode}</text>
           <text x={srcX} y={srcY + 6} textAnchor="middle" className="fill-[var(--foreground)]" style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--font-mono)" }}>
             {usd(totalDeposited)}
           </text>
           <text x={srcX} y={srcY + 26} textAnchor="middle" className="fill-[var(--foreground-faint)]" style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}>
-            {yieldMonthly != null ? `${usd(yieldMonthly)}/mês` : "rende…"}
+            {yieldMonthly != null ? `${usd(yieldMonthly)}${dict.wallet.perMonth}` : t.earning}
           </text>
 
           {/* Endpoint nodes with avatars + labels */}
@@ -205,10 +208,10 @@ export function VaultFlowView({
                   {r.label}
                 </text>
                 <text x={nodeX + 34} y={y + 11} className="fill-[var(--foreground-muted)]" style={{ fontSize: 13 }}>
-                  {pct(r.yieldShare * 100)} do rendimento{amt != null ? ` · ${usd(amt)}/mês` : ""}
+                  {t.shareOfYield(pct(r.yieldShare * 100))}{amt != null ? ` · ${usd(amt)}${dict.wallet.perMonth}` : ""}
                 </text>
                 <text x={nodeX + 34} y={y + 29} style={{ fontSize: 13, fontWeight: 600, fill: acColor, fontFamily: "var(--font-mono)" }}>
-                  acumulado {acc(r.earned)}
+                  {t.accumulated(acc(r.earned))}
                 </text>
               </g>
             );
@@ -218,13 +221,12 @@ export function VaultFlowView({
 
       {feeLags && earnedTotal > 0 && (
         <p className="mt-1 text-[11px] text-foreground-faint">
-          A taxa da SOPA é cobrada aos poucos (a cada movimentação do cofre), então o acumulado dela aparece atrás do ganho dos
-          depositantes até a próxima cobrança — no fim, a divisão fecha em {pct(feeToSopa * 100)}.
+          {t.feeLags(pct(feeToSopa * 100))}
         </p>
       )}
       {yieldMonthly == null && (
         <p className="mt-1 text-[11px] text-foreground-faint">
-          Os valores em $/mês aparecem quando a Morpho indexar o APY do cofre. As fatias já estão corretas.
+          {t.apyPendingNote}
         </p>
       )}
 

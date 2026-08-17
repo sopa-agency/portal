@@ -3,6 +3,8 @@
 import { Gauge, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { usd } from "@/lib/format";
 import { ReadFailed } from "@/components/data-state";
+import { useT } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 
 // The sustainability "ruler": is the yield covering the stream, and how much
 // runway does the USDCx buffer give? Plus the guided action — harvest yield
@@ -21,13 +23,14 @@ export function StreamSustainability({
   /** Pool exists but the stream read failed → show a read-failed state, not "parado". */
   failed?: boolean;
 }) {
+  const t = useT().treasury.sustainability;
   if (failed) {
     return (
       <section className="rounded-2xl border border-border bg-surface p-5">
         <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-          <Gauge className="h-4 w-4 text-accent" /> Isso é sustentável?
+          <Gauge className="h-4 w-4 text-accent" /> {t.title}
         </h2>
-        <ReadFailed>Não consegui ler o estado do stream agora (a rede pública engasgou). Recarregue em instantes.</ReadFailed>
+        <ReadFailed>{t.readFailed}</ReadFailed>
       </section>
     );
   }
@@ -43,17 +46,17 @@ export function StreamSustainability({
   const runwayColor = runwayDays == null ? "var(--border)" : runwayDays < 14 ? "var(--danger)" : runwayDays < 45 ? "var(--warning)" : "var(--success)";
 
   const verdict = !streaming
-    ? { tone: "muted", icon: Gauge, text: "Pagamento parado — ligue a torneira nos Controles pra começar a pagar." }
+    ? { tone: "muted", icon: Gauge, text: t.verdictStopped }
     : sustainable
-      ? { tone: "success", icon: CheckCircle2, text: "Sustentável: o rendimento do cofre cobre o pagamento. O principal fica intacto — pra sempre." }
-      : { tone: "danger", icon: AlertTriangle, text: "Atenção: o pagamento consome mais que o rendimento. Reduza a torneira ou guarde mais no cofre — senão o principal encolhe." };
+      ? { tone: "success", icon: CheckCircle2, text: t.verdictOk }
+      : { tone: "danger", icon: AlertTriangle, text: t.verdictDanger };
   const Vi = verdict.icon;
   const vColor = verdict.tone === "success" ? "text-success" : verdict.tone === "danger" ? "text-danger" : "text-foreground-muted";
 
   return (
     <section className="rounded-2xl border border-border bg-surface p-5">
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-        <Gauge className="h-4 w-4 text-accent" /> Isso é sustentável?
+        <Gauge className="h-4 w-4 text-accent" /> {t.title}
       </h2>
 
       {/* Verdict */}
@@ -67,8 +70,8 @@ export function StreamSustainability({
       {/* Yield vs burn */}
       <div className="mb-4">
         <div className="mb-1 flex items-center justify-between text-xs">
-          <span className="text-foreground-muted">Rendimento <span className="font-semibold text-success">{yieldMonthly != null ? usd(yieldMonthly) : "—"}</span></span>
-          <span className="text-foreground-muted">Pagamento <span className="font-semibold text-foreground">{usd(burnMonthly)}</span></span>
+          <span className="text-foreground-muted">{t.yield} <span className="font-semibold text-success">{yieldMonthly != null ? usd(yieldMonthly) : "—"}</span></span>
+          <span className="text-foreground-muted">{t.payment} <span className="font-semibold text-foreground">{usd(burnMonthly)}</span></span>
         </div>
         <div className="relative h-2.5 overflow-hidden rounded-full bg-border">
           <div
@@ -77,7 +80,7 @@ export function StreamSustainability({
           />
         </div>
         <p className="mt-1 text-[11px] text-foreground-faint">
-          {coverage == null ? "Sem pagamento ativo." : coverage >= 1 ? `O rendimento cobre ${Math.round(coverage * 100)}% do pagamento — a sobra recompõe o principal.` : `O rendimento cobre só ${Math.round(coverage * 100)}% do pagamento. Pra ser sustentável pra sempre, a barra precisa encher.`}
+          {coverage == null ? t.noStream : coverage >= 1 ? t.covers(Math.round(coverage * 100)) : t.coversPartial(Math.round(coverage * 100))}
         </p>
       </div>
 
@@ -85,12 +88,12 @@ export function StreamSustainability({
           e neutra + "—", nunca a barra verde cheia (que leria como "runway infinito"). */}
       <div className="mb-4">
         <div className="mb-1 flex items-center justify-between text-xs">
-          <span className="text-foreground-muted">Reserva dura</span>
+          <span className="text-foreground-muted">{t.bufferLasts}</span>
           <span
             className={`font-semibold tabular-nums ${runwayDays == null ? "text-foreground-faint" : ""}`}
             style={runwayDays == null ? undefined : { color: runwayColor }}
           >
-            {runwayDays == null ? "—" : `${Math.floor(runwayDays)}d`} · na reserva {usd(bufferUsdcx)}
+            {runwayDays == null ? "—" : `${Math.floor(runwayDays)}d`} {t.inBuffer(usd(bufferUsdcx))}
           </span>
         </div>
         <div className="relative h-3 rounded-full bg-border">
@@ -98,8 +101,8 @@ export function StreamSustainability({
             <div className="h-full rounded-full transition-all" style={{ width: `${(rw / CAP) * 100}%`, backgroundColor: runwayColor }} />
           )}
           {/* threshold ticks */}
-          <div className="absolute top-0 h-3 w-px bg-danger/60" style={{ left: `${(14 / CAP) * 100}%` }} title="14 dias" />
-          <div className="absolute top-0 h-3 w-px bg-warning/60" style={{ left: `${(45 / CAP) * 100}%` }} title="45 dias" />
+          <div className="absolute top-0 h-3 w-px bg-danger/60" style={{ left: `${(14 / CAP) * 100}%` }} title={t.days(14)} />
+          <div className="absolute top-0 h-3 w-px bg-warning/60" style={{ left: `${(45 / CAP) * 100}%` }} title={t.days(45)} />
         </div>
         <div className="mt-1 flex justify-between text-[9px] text-foreground-faint">
           <span>0</span><span>14d</span><span>45d</span><span>90d+</span>
@@ -107,7 +110,7 @@ export function StreamSustainability({
       </div>
 
       <p className="text-[11px] text-foreground-faint">
-        Pra ajustar a vazão, colher rendimento ou ligar o piloto automático, vá em <b>Controles → Ligar o pagamento</b>.
+        {rich(t.footer)}
       </p>
     </section>
   );

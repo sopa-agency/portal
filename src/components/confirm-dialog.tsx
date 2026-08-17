@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useDialogA11y } from "@/hooks/use-dialog-a11y";
+import { useT } from "@/components/locale-provider";
 
 export type ConfirmOptions = {
   title: string;
@@ -43,6 +44,7 @@ export function useConfirm() {
 }
 
 function ConfirmDialog({ opts, onResolve }: { opts: ConfirmOptions; onResolve: (value: boolean) => void }) {
+  const tt = useT().ui.confirm;
   const panelRef = useRef<HTMLDivElement>(null);
   const danger = opts.danger ?? true;
   useDialogA11y(panelRef, () => onResolve(false));
@@ -78,7 +80,7 @@ function ConfirmDialog({ opts, onResolve }: { opts: ConfirmOptions; onResolve: (
             onClick={() => onResolve(false)}
             className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
-            {opts.cancelLabel ?? "Cancelar"}
+            {opts.cancelLabel ?? tt.cancel}
           </button>
           <button
             type="button"
@@ -89,7 +91,7 @@ function ConfirmDialog({ opts, onResolve }: { opts: ConfirmOptions; onResolve: (
                 : "bg-accent text-accent-foreground hover:bg-accent/90"
             }`}
           >
-            {opts.confirmLabel ?? "Confirmar"}
+            {opts.confirmLabel ?? tt.confirm}
           </button>
         </div>
       </div>

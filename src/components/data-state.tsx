@@ -32,14 +32,18 @@ export function NotConfigured({ children }: { children: ReactNode }) {
 
 /** The honest guard, generalized: a read failed, so we show copy, not a wrong
     number. Mirrors the vault card's original wording so the whole page speaks
-    with one voice. */
+    with one voice.
+
+    The fallback copy is English on purpose: this module is imported by server
+    components too, so it can't call `useT()`. Callers that render inside a
+    client tree pass `t.ui.state.readFailed` (or their own, more specific line). */
 export function ReadFailed({ children }: { children?: ReactNode }) {
   return (
     <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <span>
         {children ??
-          "Não consegui ler esse dado agora (a rede pública engasgou). Recarregue em instantes — prefiro não mostrar número nenhum a mostrar um errado."}
+          "Couldn't read this right now (the public network choked). Reload in a moment — I'd rather show no number than a wrong one."}
       </span>
     </div>
   );
@@ -47,5 +51,5 @@ export function ReadFailed({ children }: { children?: ReactNode }) {
 
 /** Inline spinner for a client-fetched value that hasn't landed yet. */
 export function LoadingDots() {
-  return <Loader2 className="inline h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="carregando" />;
+  return <Loader2 className="inline h-3.5 w-3.5 animate-spin text-foreground-faint" aria-label="loading" />;
 }

@@ -11,9 +11,10 @@ import {
 } from "@/app/actions/sopa-jobs";
 import { useConfirm } from "@/components/confirm-dialog";
 import { usd } from "@/lib/format";
+import { useLocale, useT } from "@/components/locale-provider";
 
-const fmtDate = (iso: string) =>
-  new Date(`${iso}T00:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+const fmtDate = (iso: string, intlLocale: string) =>
+  new Date(`${iso}T00:00:00`).toLocaleDateString(intlLocale, { day: "2-digit", month: "short", year: "numeric" });
 
 export type OnchainShare = {
   key: string;
@@ -48,6 +49,7 @@ function JobForm({
   onSave: (d: Draft) => void;
   onCancel: () => void;
 }) {
+  const t = useT().treasury.agency;
   const [d, setD] = useState<Draft>(initial);
   return (
     <div className="space-y-2 rounded-lg border border-accent-border bg-accent-bg/40 p-2.5">
@@ -55,15 +57,15 @@ function JobForm({
         <input
           value={d.client}
           onChange={(e) => setD({ ...d, client: e.target.value })}
-          aria-label="Cliente ou job"
-          placeholder="Cliente / job (ex: Venice bot)"
+          aria-label={t.clientLabel}
+          placeholder={t.clientPlaceholder}
           className="min-w-0 flex-1 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
         <input
           value={d.amountUsd}
           onChange={(e) => setD({ ...d, amountUsd: e.target.value })}
           inputMode="decimal"
-          aria-label="Valor recebido em USD"
+          aria-label={t.amountLabel}
           placeholder="USD"
           className="w-24 rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs tabular-nums text-foreground focus:border-border-strong focus:outline-none"
         />
@@ -71,26 +73,26 @@ function JobForm({
       <div className="flex flex-wrap gap-2">
         <input
           type="date"
-          aria-label="Data do job"
+          aria-label={t.dateLabel}
           value={d.occurredOn}
           onChange={(e) => setD({ ...d, occurredOn: e.target.value })}
           className="rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         />
         <select
-          aria-label="Situação do pagamento"
+          aria-label={t.statusLabel}
           value={d.status}
           onChange={(e) => setD({ ...d, status: e.target.value as JobStatus })}
           className="rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
         >
-          <option value="paid">Pago</option>
-          <option value="pending">A receber</option>
+          <option value="paid">{t.statusPaid}</option>
+          <option value="pending">{t.statusPending}</option>
         </select>
       </div>
       <input
         value={d.description}
         onChange={(e) => setD({ ...d, description: e.target.value })}
-        aria-label="Descrição ou escopo (opcional)"
-        placeholder="Descrição / escopo (opcional)"
+        aria-label={t.descriptionLabel}
+        placeholder={t.descriptionPlaceholder}
         className="w-full rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground focus:border-border-strong focus:outline-none"
       />
       <div className="flex justify-end gap-1.5">
@@ -100,7 +102,7 @@ function JobForm({
           disabled={busy}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground-muted hover:border-border-strong disabled:opacity-50"
         >
-          <X className="h-3.5 w-3.5" /> Cancelar
+          <X className="h-3.5 w-3.5" /> {t.cancel}
         </button>
         <button
           type="button"
@@ -108,7 +110,7 @@ function JobForm({
           disabled={busy}
           className="inline-flex items-center gap-1 rounded-md bg-accent/20 px-2.5 py-1.5 text-[11px] font-semibold text-accent hover:bg-lime-400/30 disabled:opacity-50"
         >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Salvar
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {t.save}
         </button>
       </div>
     </div>
@@ -126,6 +128,9 @@ export function SopaRevenuePanel({
   canEdit: boolean;
   onchainShare: OnchainShare[];
 }) {
+  const { locale, t: dict } = useLocale();
+  const t = dict.treasury.agency;
+  const intlLocale = locale === "pt" ? "pt-BR" : "en-US";
   const [jobs, setJobs] = useState<SopaJobDTO[]>(initialJobs);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -176,9 +181,9 @@ export function SopaRevenuePanel({
   const doDelete = async (id: string) => {
     const j = jobs.find((x) => x.id === id);
     const okToDelete = await confirm({
-      title: "Remover job?",
-      message: j ? `“${j.client}” (${usd(j.amountUsd)}) sai da receita da SOPA.` : "O job sai da receita da SOPA.",
-      confirmLabel: "Remover",
+      title: t.removeTitle,
+      message: j ? t.removeMessage(j.client, usd(j.amountUsd)) : t.removeMessageGeneric,
+      confirmLabel: t.remove,
     });
     if (!okToDelete) return;
     start(async () => {
@@ -194,20 +199,20 @@ export function SopaRevenuePanel({
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-            <Briefcase className="h-4 w-4 text-accent" /> Receita da SOPA
+            <Briefcase className="h-4 w-4 text-accent" /> {t.title}
           </h2>
           <p className="mt-0.5 text-xs text-foreground-subtle">
-            Receita da agência: jobs de clientes + a fatia on-chain dos swap splits das marcas.
+            {t.hint}
           </p>
         </div>
         <div className="flex gap-5 text-right">
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">Recebido</div>
+            <div className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.received}</div>
             <div className="text-base font-semibold text-success">{usd(realizedTotal)}</div>
           </div>
           {jobsPending > 0 && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-foreground-faint">A receber</div>
+              <div className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.receivable}</div>
               <div className="text-base font-semibold text-warning">{usd(jobsPending)}</div>
             </div>
           )}
@@ -218,11 +223,10 @@ export function SopaRevenuePanel({
       {onchainShare.length > 0 && (
         <div className="rounded-2xl border border-border bg-surface p-4">
           <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
-            <Link2 className="h-3.5 w-3.5" /> Participação on-chain nos swaps
+            <Link2 className="h-3.5 w-3.5" /> {t.onchainTitle}
           </h3>
           <p className="mb-2.5 text-[11px] text-foreground-faint">
-            A taxa de cada swap cai num split contract que divide entre a SOPA e o tesouro da marca. As fatias abaixo são lidas do
-            próprio contrato — não são um valor assumido.
+            {t.onchainHint}
           </p>
           <ul className="space-y-2.5">
             {onchainShare.map((o) => (
@@ -234,11 +238,11 @@ export function SopaRevenuePanel({
                   </span>
                   <span className="shrink-0 tabular-nums">
                     {o.sopaShare == null ? (
-                      <span className="text-warning">divisão não lida</span>
+                      <span className="text-warning">{t.unreadShare}</span>
                     ) : (
                       <>
                         <span className="font-semibold text-success">{usd(o.realizedUsd * o.sopaShare)}</span>
-                        <span className="ml-1.5 text-[10px] text-foreground-faint">de {usd(o.realizedUsd)} distribuídos</span>
+                        <span className="ml-1.5 text-[10px] text-foreground-faint">{t.outOf(usd(o.realizedUsd))}</span>
                       </>
                     )}
                   </span>
@@ -262,14 +266,13 @@ export function SopaRevenuePanel({
               </li>
             ))}
             <li className="flex items-center justify-between gap-3 border-t border-border pt-1.5 text-xs">
-              <span className="font-medium text-foreground-muted">Subtotal on-chain</span>
+              <span className="font-medium text-foreground-muted">{t.subtotal}</span>
               <span className="shrink-0 font-semibold tabular-nums text-success">{usd(shareTotal)}</span>
             </li>
           </ul>
           {unreadable > 0 && (
             <p className="mt-2 text-[11px] text-warning">
-              {unreadable === 1 ? "1 split não teve" : `${unreadable} splits não tiveram`} a divisão lida on-chain e{" "}
-              {unreadable === 1 ? "ficou" : "ficaram"} fora do subtotal — melhor faltar do que chutar.
+              {t.unreadable(unreadable)}
             </p>
           )}
         </div>
@@ -279,8 +282,8 @@ export function SopaRevenuePanel({
       <div className="rounded-2xl border border-border bg-surface p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-foreground-subtle">
-            <Briefcase className="h-3.5 w-3.5" /> Jobs · {usd(jobsPaid)}
-            {jobsPending > 0 && <span className="text-warning"> +{usd(jobsPending)} a receber</span>}
+            <Briefcase className="h-3.5 w-3.5" /> {t.jobs} · {usd(jobsPaid)}
+            {jobsPending > 0 && <span className="text-warning">{t.jobsPending(usd(jobsPending))}</span>}
           </h3>
           {canEdit && !adding && editId === null && (
             <button
@@ -288,7 +291,7 @@ export function SopaRevenuePanel({
               onClick={() => setAdding(true)}
               className="inline-flex items-center gap-1 rounded-md bg-accent/20 px-2.5 py-1.5 text-[11px] font-semibold text-accent hover:bg-lime-400/30"
             >
-              <Plus className="h-3.5 w-3.5" /> Adicionar job
+              <Plus className="h-3.5 w-3.5" /> {t.addJob}
             </button>
           )}
         </div>
@@ -303,7 +306,7 @@ export function SopaRevenuePanel({
 
         {jobs.length === 0 && !adding ? (
           <p className="py-6 text-center text-xs text-foreground-faint">
-            Nenhum job ainda.{canEdit ? " Adicione o primeiro (ex: Venice bot)." : ""}
+            {t.empty}{canEdit ? t.emptyAdd : ""}
           </p>
         ) : (
           <ul className="space-y-1.5">
@@ -336,11 +339,11 @@ export function SopaRevenuePanel({
                           j.status === "paid" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"
                         }`}
                       >
-                        {j.status === "paid" ? "pago" : "a receber"}
+                        {j.status === "paid" ? t.paid : t.pending}
                       </span>
                     </div>
                     {j.description && <p className="truncate text-[11px] text-foreground-subtle">{j.description}</p>}
-                    <p className="text-[10px] text-foreground-faint">{fmtDate(j.occurredOn)}</p>
+                    <p className="text-[10px] text-foreground-faint">{fmtDate(j.occurredOn, intlLocale)}</p>
                   </div>
                   <span
                     className={`shrink-0 text-sm font-semibold tabular-nums ${
@@ -354,7 +357,7 @@ export function SopaRevenuePanel({
                       <button
                         type="button"
                         onClick={() => setEditId(j.id)}
-                        aria-label="Editar job"
+                        aria-label={t.editJob}
                         className="rounded-md p-1 text-foreground-faint hover:text-foreground"
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -362,7 +365,7 @@ export function SopaRevenuePanel({
                       <button
                         type="button"
                         onClick={() => doDelete(j.id)}
-                        aria-label="Remover job"
+                        aria-label={t.removeJob}
                         className="rounded-md p-1 text-foreground-faint hover:text-danger"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

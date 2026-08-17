@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { Landmark, Wallet, Repeat, Cog, Infinity as InfinityIcon, Shield, Users2, LineChart, ListChecks } from "lucide-react";
 import { StakingCalculator } from "@/components/staking-calculator";
+import { useLocale } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 
 // SOPA financial plan — a study/proposal for turning the net liquid treasury
 // into a self-sustaining (endowment) model on Base. Read-only reference for the
@@ -244,15 +246,6 @@ const C: Record<Lang, Copy> = {
 };
 
 // Render a string with **bold** and *italic* segments into JSX.
-function rich(s: string): ReactNode {
-  const parts = s.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
-  return parts.map((p, i) => {
-    if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="text-foreground">{p.slice(2, -2)}</strong>;
-    if (p.startsWith("*") && p.endsWith("*")) return <em key={i}>{p.slice(1, -1)}</em>;
-    return p;
-  });
-}
-
 function Eyebrow({ n, icon: Icon, children }: { n: string; icon?: typeof Landmark; children: ReactNode }) {
   return (
     <div className="mb-3 flex items-center gap-2.5">
@@ -287,7 +280,10 @@ export function FinancialPlan({
   monthlyCostsUsd?: number;
   streamMonthlyUsd?: number;
 } = {}) {
-  const [lang, setLang] = useState<Lang>("pt");
+  // The study keeps its own PT/EN switch (it is a long document someone may want
+  // to read in the other language), but it opens in the portal's language.
+  const { locale } = useLocale();
+  const [lang, setLang] = useState<Lang>(locale);
   const t = C[lang];
 
   return (

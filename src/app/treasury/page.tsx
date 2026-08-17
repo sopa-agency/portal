@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/page-header";
 import { LiveBadge } from "@/components/live-badge";
-import { getDictionary } from "@/lib/i18n/server";
+import { getDictionary, getLocale } from "@/lib/i18n/server";
 import { SetupGuide, CodeBlock } from "@/components/setup-guide";
 import { TreasuryViews } from "@/components/treasury-views";
 import { TreasuryRefresh } from "@/components/treasury-refresh";
@@ -61,6 +61,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { ChevronRight } from "lucide-react";
+import { rich } from "@/components/rich-text";
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
@@ -76,20 +77,11 @@ export default async function TreasuryPage() {
         />
         <SetupGuide
           feature="Treasury"
-          intro={`Para mostrar o tesouro do ${project.name}, o portal só precisa saber quais carteiras acompanhar — as fontes de dados são públicas (Zapper, RPC da Base, Hive, CoinGecko), sem chave nenhuma.`}
+          intro={t.treasury.setup.intro(project.name)}
           steps={[
+            { title: t.treasury.setup.step1, body: t.treasury.setup.step1Body },
             {
-              title: "Levante os endereços do tesouro",
-              body: (
-                <>
-                  Carteiras EVM (multisig, treasury contract, hot wallet — Ethereum ou Base) e/ou
-                  contas Hive da comunidade. Qualquer combinação funciona; cada carteira vira um
-                  card com saldo ao vivo.
-                </>
-              ),
-            },
-            {
-              title: "Adicione o bloco treasury no config do projeto",
+              title: t.treasury.setup.step2,
               body: (
                 <CodeBlock>{`// src/projects/${project.slug}.ts
 treasury: {
@@ -97,20 +89,12 @@ treasury: {
     { label: "Treasury Multisig", address: "0x..." },
   ],
   hiveAccounts: [
-    { label: "Conta da comunidade", account: "nome-da-conta" },
+    { label: "Community account", account: "account-name" },
   ],
 },`}</CodeBlock>
               ),
             },
-            {
-              title: "Deploy",
-              body: (
-                <>
-                  Build + deploy e pronto — o item some deste estado e mostra os saldos. Sem env
-                  vars: os dados vêm de APIs públicas com cache de 5 minutos.
-                </>
-              ),
-            },
+            { title: t.treasury.setup.step3, body: t.treasury.setup.step3Body },
           ]}
         />
       </div>
@@ -419,7 +403,7 @@ treasury: {
           subnetPendingMor: pipelineStatus.subnetRewardMor,
         }
       : undefined,
-  });
+  }, await getLocale());
 
   return (
     <div className="space-y-8">
@@ -484,9 +468,8 @@ treasury: {
                   />
                   {!poolAddress && (
                     <NotConfigured>
-                      <b className="font-semibold text-foreground">Pool de pagamento ainda não criada.</b> Crie e assine no Safe
-                      (Controles → criar a pool). Depois disso o status ao vivo aparece aqui: taxa mensal, reserva, runway e quem
-                      está conectado.
+                      {rich(t.treasury.pool.missing)}
+                      {t.treasury.pool.missingBody}
                     </NotConfigured>
                   )}
                 </>
@@ -514,14 +497,14 @@ treasury: {
               }
               steps={[
                 ...(stakePosition
-                  ? [{ title: "Guardar dinheiro rendendo", node: <StakingPanel position={stakePosition} canEdit={!!session} /> }]
+                  ? [{ title: t.treasury.members.stepStake, node: <StakingPanel position={stakePosition} canEdit={!!session} /> }]
                   : []),
-                ...(!poolAddress && session ? [{ title: "Criar a pool de pagamento", node: <CreatePoolButton /> }] : []),
-                { title: "Definir o time e as fatias", node: <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} /> },
+                ...(!poolAddress && session ? [{ title: t.treasury.members.stepCreatePool, node: <CreatePoolButton /> }] : []),
+                { title: t.treasury.members.stepTeam, node: <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} /> },
                 ...(poolAddress
                   ? [
                       {
-                        title: "Ligar o pagamento",
+                        title: t.treasury.members.stepTurnOn,
                         node: (
                           <StreamActions
                             canEdit={!!session}

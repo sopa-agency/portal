@@ -9,6 +9,8 @@
 import { useState, useCallback } from "react";
 import { createPublicClient, http, getAddress, parseUnits, formatUnits, encodeFunctionData, type Address } from "viem";
 import { base } from "viem/chains";
+import { useT } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 import { Loader2, Plug } from "lucide-react";
 import { PIPELINE, TOKENS } from "@/lib/mor-pipeline";
 
@@ -30,6 +32,8 @@ const buildersStake = [
 const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 4 });
 
 export function SopaStakePanel() {
+  const dict = useT().treasury;
+  const t = dict.mor;
   const [account, setAccount] = useState<string | null>(null);
   const [balance, setBalance] = useState(0);
   const [staked, setStaked] = useState(0);
@@ -52,7 +56,7 @@ export function SopaStakePanel() {
     setErr(null);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error("Nenhuma carteira detectada. Instale a MetaMask/Rabby e recarregue.");
+      if (!eth) throw new Error(dict.wallet.none);
       const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
       const cid = (await eth.request({ method: "eth_chainId" })) as string;
       if (cid !== "0x2105") {
@@ -66,7 +70,7 @@ export function SopaStakePanel() {
       setAccount(a);
       read(a);
     } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Falha ao conectar.");
+      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? dict.wallet.connectFailed);
     }
   }
 
@@ -104,7 +108,7 @@ export function SopaStakePanel() {
       await send(PIPELINE.builders, encodeFunctionData({ abi: buildersStake, functionName: "withdraw", args: [PIPELINE.subnetId, parseUnits(String(staked), 18)] }));
       await read(account);
     } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Falha ao sacar (lock de 7 dias?).");
+      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? t.withdrawFailed);
     } finally { setBusy(null); }
   }
 
@@ -112,15 +116,14 @@ export function SopaStakePanel() {
     <section className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">Stakear MOR na subnet da Gnars</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.stakeTitle}</h2>
           <p className="mt-1 max-w-2xl text-sm text-foreground-muted">
-            Reinveste o MOR da SOPA de volta na subnet da Gnars. Approve + deposit de uma carteira conectada na Base;
-            o principal continua seu, sacável depois do lock de 7 dias.
+            {t.stakeHint}
           </p>
         </div>
         {!account && (
           <button type="button" onClick={connect} className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20">
-            <Plug className="h-3.5 w-3.5" /> Conectar carteira
+            <Plug className="h-3.5 w-3.5" /> {dict.wallet.connect}
           </button>
         )}
       </div>
@@ -129,18 +132,18 @@ export function SopaStakePanel() {
         <>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-border bg-surface-elevated p-3">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">MOR na carteira</div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">{t.walletMor}</div>
               <div className="mt-0.5 font-mono text-lg font-bold tabular-nums text-foreground">{fmt(balance)}</div>
             </div>
             <div className="rounded-xl border border-border bg-surface-elevated p-3">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Seu stake</div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">{t.yourStake}</div>
               <div className="mt-0.5 font-mono text-lg font-bold tabular-nums text-foreground">{fmt(staked)}</div>
             </div>
           </div>
 
           {balance <= 0 && staked <= 0 && (
             <p className="mt-3 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-[11px] text-foreground-faint">
-              Sem MOR nessa carteira ainda. O MOR chega quando o pipeline paga a fatia da SOPA (10% no topo) — depois é só stakear aqui.
+              {t.noMor}
             </p>
           )}
 
@@ -148,22 +151,22 @@ export function SopaStakePanel() {
             <input
               type="number"
               inputMode="decimal"
-              placeholder="MOR pra stakear"
+              placeholder={t.stakePlaceholder}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground outline-none focus:border-border-strong"
             />
-            <button type="button" onClick={() => setAmount(String(balance))} disabled={balance <= 0} className="shrink-0 rounded-lg border border-border px-2.5 text-xs font-semibold text-foreground-muted transition hover:text-foreground disabled:opacity-40">Máx</button>
+            <button type="button" onClick={() => setAmount(String(balance))} disabled={balance <= 0} className="shrink-0 rounded-lg border border-border px-2.5 text-xs font-semibold text-foreground-muted transition hover:text-foreground disabled:opacity-40">{t.max}</button>
             <button type="button" onClick={stake} disabled={!!busy || !amount} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-4 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-40">
-              {busy === "stake" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Stakear
+              {busy === "stake" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t.stake}
             </button>
           </div>
 
           {staked > 0 && (
             <div className="mt-3 flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2">
-              <span className="text-xs text-foreground-muted">Saque seus <b className="text-foreground">{fmt(staked)} MOR</b> (depois do lock de 7 dias)</span>
+              <span className="text-xs text-foreground-muted">{rich(t.withdrawStake(fmt(staked)))}</span>
               <button type="button" onClick={withdraw} disabled={!!busy} className="inline-flex items-center gap-1.5 rounded-lg border border-border-strong px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-foreground/5 disabled:opacity-40">
-                {busy === "withdraw" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Sacar
+                {busy === "withdraw" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t.withdraw}
               </button>
             </div>
           )}

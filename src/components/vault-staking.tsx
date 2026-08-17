@@ -2,6 +2,8 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 import { createPublicClient, createWalletClient, custom, http, formatUnits, parseUnits, getAddress, erc20Abi } from "viem";
 import { base } from "viem/chains";
 import { PiggyBank, Loader2, Wallet, ExternalLink, AlertTriangle, ArrowDownToLine, ArrowUpFromLine, TrendingUp } from "lucide-react";
@@ -43,6 +45,8 @@ async function ensureBase(eth: Eth) {
 }
 
 function VaultCard({ info }: { info: VaultInfo }) {
+  const dict = useT().treasury;
+  const t = dict.vault;
   const { vault } = info;
   const router = useRouter();
   const [account, setAccount] = useState<string | null>(null);
@@ -82,7 +86,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
     setErr(null);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error("Nenhuma carteira detectada. Instale MetaMask/Rabby e recarregue.");
+      if (!eth) throw new Error(dict.wallet.none);
       const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
       await ensureBase(eth);
       const who = getAddress(accs[0]);
@@ -98,7 +102,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
     setErr(null);
     setTx(null);
     const value = Number(amount);
-    if (!Number.isFinite(value) || value <= 0) return setErr("Digite um valor maior que zero.");
+    if (!Number.isFinite(value) || value <= 0) return setErr(dict.wallet.amountPositive);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum!;
       await ensureBase(eth);
@@ -116,7 +120,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
           args: [getAddress(account), vaultAddr],
         });
         if (allowance < assets) {
-          setBusy("Aprovando…");
+          setBusy(t.approving);
           const ah = await wallet.writeContract({
             address: getAddress(vault.asset),
             abi: erc20Abi,
@@ -125,7 +129,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
           });
           await c.waitForTransactionReceipt({ hash: ah });
         }
-        setBusy("Depositando…");
+        setBusy(t.depositing);
         const h = await wallet.writeContract({
           address: vaultAddr,
           abi: VAULT_ABI,
@@ -135,7 +139,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
         await c.waitForTransactionReceipt({ hash: h });
         setTx(h);
       } else {
-        setBusy("Sacando…");
+        setBusy(t.withdrawing);
         // Withdrawing the whole position: redeem ALL shares. withdraw(assets)
         // rounds shares up and can revert at the exact max; redeem(shares) can't.
         const full = position != null && value >= position - 1e-6;
@@ -160,7 +164,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
       await refresh(account);
       router.refresh();
     } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Falhou.");
+      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? dict.wallet.failed);
     } finally {
       setBusy(null);
     }
@@ -177,7 +181,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
         <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-accent-border bg-accent-bg text-accent">
           <PiggyBank className="h-5 w-5" />
         </span>
-        <h3 className="text-lg font-bold text-foreground">Cofre {vault.label}</h3>
+        <h3 className="text-lg font-bold text-foreground">{t.cardTitle(vault.label)}</h3>
         <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-1 text-xs font-medium text-foreground-muted">
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#6E86FF" }} /> Moonwell
         </span>
@@ -200,8 +204,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
           <div className="flex gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              Não consegui ler a configuração deste cofre agora (a rede pública engasgou). Recarregue em instantes — prefiro não
-              mostrar número nenhum a mostrar um errado.
+              {t.readFailed}
             </span>
           </div>
         ) : info.paysSopa ? (
@@ -212,22 +215,21 @@ function VaultCard({ info }: { info: VaultInfo }) {
               <span className="rounded-full bg-foreground/20" style={{ flex: (1 - info.fee) * 100 }} />
             </div>
             <div className="mb-2 flex items-center justify-between text-[10px] font-semibold tracking-wide">
-              <span className="text-accent">{Math.round(info.fee * 100)}% → TESOURO SOPA</span>
-              <span className="text-foreground-muted">{Math.round((1 - info.fee) * 100)}% → VOCÊ</span>
+              <span className="text-accent">{Math.round(info.fee * 100)}% {t.toTreasury}</span>
+              <span className="text-foreground-muted">{Math.round((1 - info.fee) * 100)}% {t.toYou}</span>
             </div>
-            <span>
-              <b className="text-foreground">{Math.round(info.fee * 100)}% dos juros</b> deste cofre vão pro tesouro da SOPA e financiam o
-              payroll. Os outros {Math.round((1 - info.fee) * 100)}% ficam com você. Seu depósito continua seu — dá pra sacar quando quiser.
-            </span>
+            <span>{rich(t.splitExplainer(Math.round(info.fee * 100)))}</span>
           </>
         ) : (
           <div className="flex gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              <b>Este cofre não é da SOPA.</b> A taxa de {Math.round(info.fee * 100)}% vai pra{" "}
-              <code className="font-mono">{info.feeRecipient.slice(0, 6)}…{info.feeRecipient.slice(-4)}</code>, não pro tesouro —
-              depositar aqui <b>não financia o payroll</b>. Você rende normalmente; a SOPA não ganha nada. Só muda quando a SOPA
-              publicar o cofre dela.
+              {rich(
+                t.notSopa(
+                  Math.round(info.fee * 100),
+                  `${info.feeRecipient.slice(0, 6)}…${info.feeRecipient.slice(-4)}`,
+                ),
+              )}
             </span>
           </div>
         )}
@@ -235,16 +237,16 @@ function VaultCard({ info }: { info: VaultInfo }) {
 
       <div className="mt-5 flex flex-wrap gap-4 text-xs text-foreground-muted">
         <span>
-          No cofre: <b className="font-mono tabular-nums text-foreground">{fmt(info.totalAssets, 0)}</b> {vault.assetSymbol}
+          {t.inVault} <b className="font-mono tabular-nums text-foreground">{fmt(info.totalAssets, 0)}</b> {vault.assetSymbol}
         </span>
         {account && (
           <>
             <span>
-              Você tem lá:{" "}
+              {t.yourPosition}{" "}
               <b className="font-mono tabular-nums text-foreground">{position == null ? "…" : fmt(position, 4)}</b> {vault.assetSymbol}
             </span>
             <span>
-              Na carteira:{" "}
+              {t.inWallet}{" "}
               <b className="font-mono tabular-nums text-foreground">{walletBal == null ? "…" : fmt(walletBal, 4)}</b> {vault.assetSymbol}
             </span>
           </>
@@ -257,7 +259,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
           onClick={connect}
           className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:brightness-110"
         >
-          <Wallet className="h-4 w-4" /> Conectar carteira
+          <Wallet className="h-4 w-4" /> {dict.wallet.connect}
         </button>
       ) : (
         <div className="mt-4 space-y-2.5">
@@ -273,7 +275,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
                 }`}
               >
                 {m === "deposit" ? <ArrowDownToLine className="h-3.5 w-3.5" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
-                {m === "deposit" ? "Depositar" : "Sacar"}
+                {m === "deposit" ? t.deposit : t.withdrawAction}
               </button>
             ))}
           </div>
@@ -305,11 +307,11 @@ function VaultCard({ info }: { info: VaultInfo }) {
             className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent/20 px-3 py-2 text-xs font-semibold text-accent hover:bg-accent/30 disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {busy ?? (mode === "deposit" ? `Depositar ${vault.assetSymbol}` : `Sacar ${vault.assetSymbol}`)}
+            {busy ?? (mode === "deposit" ? t.depositAsset(vault.assetSymbol) : t.withdrawAsset(vault.assetSymbol))}
           </button>
 
           <p className="text-[10px] text-foreground-faint">
-            Conectado como {account.slice(0, 6)}…{account.slice(-4)} · a transação sai da sua carteira, o portal não custodia nada.
+            {t.noCustody(`${account.slice(0, 6)}…${account.slice(-4)}`)}
           </p>
         </div>
       )}
@@ -322,7 +324,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
           rel="noreferrer"
           className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
         >
-          Ver transação <ExternalLink className="h-3 w-3" />
+          {dict.wallet.viewTx} <ExternalLink className="h-3 w-3" />
         </a>
       )}
         </div>
@@ -333,7 +335,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
             have, and this page's contract is to never show a number we didn't
             observe. */}
         <div className="hidden flex-col justify-center bg-surface-elevated p-6 lg:flex">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground-faint">Rende ao ano</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground-faint">{t.apyLabel}</div>
           <div className="mt-2.5 flex items-baseline gap-2">
             <span className="font-mono text-5xl font-semibold leading-none tracking-tight text-success">
               {info.apy != null ? `${(info.apy * 100).toFixed(2)}%` : "—"}
@@ -342,7 +344,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
           </div>
           <div className="mt-3 flex items-center gap-1.5 text-xs text-success">
             <TrendingUp className="h-3.5 w-3.5" />
-            {info.apy != null ? "variável · no cofre da Moonwell" : "aguardando índice da Moonwell · variável"}
+            {info.apy != null ? t.apyVariable : t.apyPending}
           </div>
         </div>
       </div>
@@ -351,6 +353,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
 }
 
 export function VaultStaking({ vaults }: { vaults: VaultInfo[] }) {
+  const t = useT().treasury.vault;
   if (vaults.length === 0) return null;
   const anyPaysSopa = vaults.some((v) => v.paysSopa);
 
@@ -361,10 +364,7 @@ export function VaultStaking({ vaults }: { vaults: VaultInfo[] }) {
       {!anyPaysSopa && (
         <div className="flex gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            <b>Ainda não existe cofre da SOPA.</b> Os cofres abaixo são de terceiros: você rende, mas a taxa vai pro curador deles e
-            nada chega no payroll. Isso só muda quando a SOPA publicar o próprio cofre e apontar o destinatário da taxa pro Safe.
-          </span>
+          <span>{rich(t.noSopaVault)}</span>
         </div>
       )}
 
