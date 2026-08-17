@@ -1272,6 +1272,142 @@ const en = {
       },
     },
   },
+  /**
+   * About — the SOPA deck. Copy, not chrome: this screen IS its text, so the
+   * whole thing lives here rather than in the component. Slide order is fixed
+   * by the component; each entry below is one slide's worth of words.
+   */
+  about: {
+    /** The dot rail on the right — one short word per slide. */
+    rail: {
+      cover: "Cover",
+      model: "Model",
+      tiers: "Tiers",
+      structure: "Structure",
+      team: "Team",
+      next: "Next",
+    },
+    nav: {
+      previous: "Previous slide",
+      next: "Next slide",
+      restart: "Back to the start",
+      goTo: (label: string) => `Go to ${label}`,
+      /** Announced to screen readers as each slide comes into view. */
+      position: (n: number, total: number) => `Slide ${n} of ${total}`,
+    },
+    cover: {
+      eyebrow: (year: number) => `Structural decisions · ${year}`,
+      tagline: "A dev + marketing agency operating across portals.",
+      /** Split so the pun word can carry the accent colour inline. */
+      body: {
+        before: "Every ",
+        accent: "soup",
+        after:
+          " starts with ingredients that, on their own, don't make a meal. SOPA is the pot: projects, people and skills go in loose and come out as something that feeds the whole team. A collective kitchen for building and growing together — warm, simple, made to share.",
+      },
+      scrollHint: "scroll to navigate",
+    },
+    model: {
+      eyebrow: "The model",
+      title: "Service + participation + referral.",
+      cards: [
+        {
+          k: "Service",
+          v: "Dev and marketing delivered as a service — clear scope, team and cadence.",
+        },
+        {
+          k: "Participation",
+          v: "A slice sized by how deep the involvement goes, aligned with the project's outcome.",
+        },
+        {
+          k: "Referral",
+          v: "Whoever brings the project in participates — ¼ of every engagement goes to the referral.",
+        },
+      ],
+    },
+    tiers: {
+      eyebrow: "Capture × involvement",
+      title: "Three engagement tiers.",
+      /** Bar labels under each tier's headline percentage. */
+      referralLabel: "referral",
+      agencyLabel: "agency",
+      /** Read out by the split bar for anyone who can't see it. */
+      barLabel: (total: string, referral: string, agency: string) =>
+        `${total} total — ${referral} referral, ${agency} agency`,
+      items: [
+        {
+          n: "01",
+          name: "One-off",
+          total: "20%",
+          referral: "5%",
+          agency: "15%",
+          involvement: "One closed vertical — dev OR marketing — on a defined scope.",
+          capture: "Direct demand or referral.",
+        },
+        {
+          n: "02",
+          name: "Operation",
+          total: "30%",
+          referral: "7.5%",
+          agency: "22.5%",
+          involvement: "Dev + marketing running continuously, with a dedicated team.",
+          capture: "Relationship, recurring project.",
+        },
+        {
+          n: "03",
+          name: "Engine",
+          total: "40%",
+          referral: "10%",
+          agency: "30%",
+          involvement: "SOPA runs the project end to end — it is the main engine.",
+          capture: "Co-building / incubation.",
+        },
+      ],
+      /** The one rule the three cards above have in common. */
+      footnote: {
+        before: "Fixed at the proportion ",
+        strong: "¼ referral · ¾ agency",
+        after: " — it scales with the tier as involvement deepens.",
+      },
+    },
+    structure: {
+      eyebrow: "Structure",
+      title: "Organised operation, separate books.",
+      cards: [
+        {
+          k: "LTDA",
+          v: "A company for operating and invoicing — predictable contracts and invoices.",
+        },
+        { k: "Accounting", v: "The agency's cash accounted for and organised month by month." },
+        {
+          k: "Separation",
+          v: "SOPA's cash is distinct from the treasuries it operates for the projects.",
+        },
+      ],
+    },
+    team: {
+      eyebrow: "Team",
+      title: "One owner per front.",
+      roles: [
+        { role: "Dev lead", scope: "Architecture, infra and technical delivery across portals." },
+        { role: "Marketing lead", scope: "Strategy, content and cadence for each project." },
+        { role: "Design / Creative", scope: "Visual identity, assets and narrative." },
+        { role: "Community / Social", scope: "Daily presence and relationship with the base." },
+        { role: "Ops / Finance", scope: "Invoicing, accounting and contracts." },
+        { role: "Business Development", scope: "Capture, referrals and new projects." },
+      ],
+    },
+    next: {
+      eyebrow: "Decisions to close",
+      title: "What we decide now.",
+      steps: [
+        "Lock the 3 tiers and the split (referral ¼ · agency ¾).",
+        "Incorporate the LTDA and get the accounting organised.",
+        "Assign the roles — one owner per front.",
+        "Define how a project comes in, and how it upgrades tier.",
+      ],
+    },
+  },
 };
 
 const pt: typeof en = {
@@ -2386,6 +2522,131 @@ const pt: typeof en = {
         month: "Funcionário do Mês",
         lastMonth: "Funcionário do Mês Passado",
       },
+    },
+  },
+  about: {
+    rail: {
+      cover: "Capa",
+      model: "Modelo",
+      tiers: "Tiers",
+      structure: "Estrutura",
+      team: "Time",
+      next: "Próximos",
+    },
+    nav: {
+      previous: "Slide anterior",
+      next: "Próximo slide",
+      restart: "Voltar ao início",
+      goTo: (label: string) => `Ir para ${label}`,
+      position: (n: number, total: number) => `Slide ${n} de ${total}`,
+    },
+    cover: {
+      eyebrow: (year: number) => `Decisões estruturais · ${year}`,
+      tagline: "Agência de dev + marketing operando entre portais.",
+      body: {
+        before: "Toda ",
+        accent: "sopa",
+        after:
+          " começa com ingredientes que, sozinhos, não viram refeição. A SOPA é a panela: projetos, pessoas e habilidades entram soltos e saem como algo que alimenta o time todo. Uma cozinha coletiva pra construir e crescer junto — quente, simples e feita pra dividir.",
+      },
+      scrollHint: "role para navegar",
+    },
+    model: {
+      eyebrow: "O modelo",
+      title: "Serviço + participação + indicação.",
+      cards: [
+        {
+          k: "Serviço",
+          v: "Dev e marketing entregues como serviço — escopo, time e cadência claros.",
+        },
+        {
+          k: "Participação",
+          v: "Uma fatia por nível de envolvimento, alinhada ao resultado do projeto.",
+        },
+        {
+          k: "Indicação",
+          v: "Quem traz o projeto participa — ¼ de cada engajamento vai para a indicação.",
+        },
+      ],
+    },
+    tiers: {
+      eyebrow: "Captação × envolvimento",
+      title: "Três tiers de engajamento.",
+      referralLabel: "indicação",
+      agencyLabel: "agência",
+      barLabel: (total: string, referral: string, agency: string) =>
+        `${total} no total — ${referral} indicação, ${agency} agência`,
+      items: [
+        {
+          n: "01",
+          name: "Pontual",
+          total: "20%",
+          referral: "5%",
+          agency: "15%",
+          involvement: "Um vertical fechado — dev OU marketing — em escopo definido.",
+          capture: "Demanda direta ou indicação.",
+        },
+        {
+          n: "02",
+          name: "Operação",
+          total: "30%",
+          referral: "7,5%",
+          agency: "22,5%",
+          involvement: "Dev + marketing rodando de forma contínua, time dedicado.",
+          capture: "Relacionamento, projeto recorrente.",
+        },
+        {
+          n: "03",
+          name: "Motor",
+          total: "40%",
+          referral: "10%",
+          agency: "30%",
+          involvement: "SOPA toca o projeto ponta a ponta, é o motor principal.",
+          capture: "Co-construção / incubação.",
+        },
+      ],
+      footnote: {
+        before: "Split fixo na proporção ",
+        strong: "¼ indicação · ¾ agência",
+        after: " — escala junto com o tier conforme o envolvimento aumenta.",
+      },
+    },
+    structure: {
+      eyebrow: "Estrutura",
+      title: "Operação organizada, contas separadas.",
+      cards: [
+        {
+          k: "LTDA",
+          v: "Empresa para operação e faturamento — contratos e notas previsíveis.",
+        },
+        { k: "Contabilidade", v: "Caixa da agência contabilizado e organizado mês a mês." },
+        {
+          k: "Separação",
+          v: "O caixa da SOPA é distinto dos tesouros que ela opera para os projetos.",
+        },
+      ],
+    },
+    team: {
+      eyebrow: "Time",
+      title: "Um dono por frente.",
+      roles: [
+        { role: "Dev lead", scope: "Arquitetura, infra e entrega técnica entre portais." },
+        { role: "Marketing lead", scope: "Estratégia, conteúdo e cadência de cada projeto." },
+        { role: "Design / Criação", scope: "Identidade visual, peças e narrativa." },
+        { role: "Comunidade / Social", scope: "Presença diária e relacionamento com a base." },
+        { role: "Operações / Financeiro", scope: "Faturamento, contabilidade e contratos." },
+        { role: "Business Development", scope: "Captação, indicações e novos projetos." },
+      ],
+    },
+    next: {
+      eyebrow: "Decisões a fechar",
+      title: "O que decidimos agora.",
+      steps: [
+        "Fechar os 3 tiers e o split (indicação ¼ · agência ¾).",
+        "Constituir a LTDA e organizar a contabilidade.",
+        "Atribuir os papéis — um dono por frente.",
+        "Definir o processo de entrada e de upgrade de tier de um projeto.",
+      ],
     },
   },
 };
