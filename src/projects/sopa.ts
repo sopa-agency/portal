@@ -67,6 +67,13 @@ const sopa: ProjectConfig = {
   // (read-only). Reelflip's board drops out automatically now that the project
   // is unregistered — no need to disable the whole aggregate.
   kanbanAggregate: true,
+  // SOPA's OWN board (org sopa-agency, Project #1 "SOPA · Reorg & Ops"). Wiring
+  // it here makes it one of the sources the aggregate pulls in — so SOPA's own
+  // ops/reorg tasks show on the SOPA Kanban alongside every portal's board.
+  githubProject: {
+    org: "sopa-agency",
+    number: 1,
+  },
   treasury: {
     ethWallets: [
       // SOPA's own multisig (Safe on Base).
