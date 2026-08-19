@@ -34,3 +34,23 @@ export async function crossPostPublisherHealth(
     ? "ready"
     : "unconfigured";
 }
+
+export type SchedulerHealth = {
+  /** ISO of the Mac worker's last heartbeat tick, or null if it never ticked. */
+  lastTickAt: string | null;
+  /** Minutes since that tick, or null when there's none. */
+  agoMinutes: number | null;
+  /** Mac is publishing (ticked within the grace window). When false, the Vercel
+   *  cron fallback is carrying the scheduler — or nothing is, if that's off too. */
+  macAlive: boolean;
+};
+
+/** Read the scheduler heartbeat for the home-page indicator: is the Mac worker
+ *  alive, and when did it last tick. Prisma-only (safe for a server component). */
+export async function getSchedulerHealth(now: number = Date.now()): Promise<SchedulerHealth> {
+  const lease = await prisma.schedulerLease.findUnique({ where: { id: "singleton" } });
+  const t = lease?.lastMacTickAt ?? null;
+  if (!t) return { lastTickAt: null, agoMinutes: null, macAlive: false };
+  const agoMs = now - t.getTime();
+  return { lastTickAt: t.toISOString(), agoMinutes: Math.round(agoMs / 60000), macAlive: agoMs <= MAC_LEASE_GRACE_MS };
+}

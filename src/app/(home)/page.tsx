@@ -33,6 +33,7 @@ import { getMemberTasks, type MemberTask } from "@/app/actions/team-admin";
 import { MyTasks } from "@/components/my-tasks";
 import { NextActionsBand, type NextAction } from "@/components/next-actions-band";
 import { getProjectIssueIndex } from "@/lib/issue-index";
+import { SchedulerHealth } from "@/components/scheduler-health";
 
 // Direction B home (from the Claude Design handoff): summary band with the
 // at-a-glance numbers up top, then Morning brief and Socials SIDE BY SIDE —
@@ -154,6 +155,7 @@ export default async function Home() {
     return (
       <div className="space-y-7">
         <PageHeader eyebrow={`Daily · ${today}`} title="SOPA" description="Resumo de next actions de todos os portais." />
+        <SchedulerHealth />
         {forYou ? <ForYou username={forYou.username} tasks={forYou.tasks} mentions={forYou.mentions} /> : null}
         <MeetingCoordination actions={openActions} projectNames={projectNames} today={today} />
         <SopaBriefing groups={groups} today={today} />
@@ -295,6 +297,8 @@ export default async function Home() {
         }
         actions={<RegenerateBriefingButton />}
       />
+
+      <SchedulerHealth />
 
       <HomeTabs
         briefTabs={briefTabs}
