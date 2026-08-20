@@ -1,0 +1,1248 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Runtime: the pooled connection (Supabase pgBouncer :6543 / Neon -pooler) —
+  // safe for Vercel serverless. Migrations use the direct connection (:5432).
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model RepoToSocialConfig {
+  id                  String            @id @default("singleton")
+  repoUrl             String            @default("https://github.com/SkateHive/skatehive3.0")
+  prompt              String            @default("You are a social media manager for SkateHive, a community-owned skateboarding platform built on Hive. Turn the following commits into short, hype tweets that highlight what shipped for skaters. Keep tone casual and skater-friendly. Return a JSON array of strings, one tweet per item, no commentary.")
+  agentId             String?
+  lastWorkerHeartbeat DateTime?
+  updatedAt           DateTime          @updatedAt
+  runs                RepoToSocialRun[]
+}
+
+model RepoToSocialRun {
+  id              String             @id @default(cuid())
+  configId        String
+  config          RepoToSocialConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  status          String
+  jobStatus       String?
+  editorialStatus String             @default("drafted")
+  inputSummary    String?
+  statusMessage   String?
+  commits         Json?
+  tweets          Json?
+  tweetStates     Json?
+  error           String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  publishedAt     DateTime?
+  claimedAt       DateTime?
+  startedAt       DateTime           @default(now())
+  durationMs      Int?
+  createdAt       DateTime           @default(now())
+
+  comments TweetComment[]
+  votes    TweetVote[]
+}
+
+model TweetComment {
+  id         String   @id @default(cuid())
+  runId      String
+  tweetIndex Int
+  author     String
+  body       String
+  createdAt  DateTime @default(now())
+
+  run RepoToSocialRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, tweetIndex])
+}
+
+model TweetVote {
+  id         String   @id @default(cuid())
+  runId      String
+  tweetIndex Int
+  voter      String
+  value      Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  run RepoToSocialRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, tweetIndex, voter])
+  @@index([runId, tweetIndex])
+}
+
+// Marketing Suggestions — sister pipeline to RepoToSocial, but instead of
+// reading commits, the worker pulls SkateHive community signals (top Hive
+// posts, top creators, the day's marketing briefing) and asks the same
+// OpenClaw `skatehive-marketing` agent to draft tweets/snaps celebrating
+// the community.
+model MarketingSuggestionConfig {
+  id                  String                   @id @default("singleton")
+  prompt              String                   @db.Text
+  useTopPosts         Boolean                  @default(true)
+  useBriefing         Boolean                  @default(true)
+  useTopCreators      Boolean                  @default(true)
+  freePromptHint      String                   @default("")
+  agentId             String?
+  /// Hive community tag for this tenant's feed, e.g. "hive-173115".
+  hiveCommunity       String?
+  /// Hive frontend base URL for post links, e.g. "https://skatehive.app".
+  hiveFrontend        String?
+  lastWorkerHeartbeat DateTime?
+  updatedAt           DateTime                 @updatedAt
+  runs                MarketingSuggestionRun[]
+}
+
+model MarketingSuggestionRun {
+  id              String                    @id @default(cuid())
+  configId        String
+  config          MarketingSuggestionConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  status          String
+  jobStatus       String?
+  editorialStatus String                    @default("drafted")
+  inputSummary    String?
+  statusMessage   String?
+  // freePrompt: optional theme/focus typed by the user when enqueuing the run.
+  freePrompt      String?                   @db.Text
+  // inputs: JSON snapshot of the material the worker fed to the agent
+  // ({ topPosts: [...], topCreators: [...], briefingPreamble: "..." }).
+  // Kept on the run for auditability.
+  inputs          Json?
+  tweets          Json?
+  tweetStates     Json?
+  error           String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  publishedAt     DateTime?
+  claimedAt       DateTime?
+  startedAt       DateTime                  @default(now())
+  durationMs      Int?
+  createdAt       DateTime                  @default(now())
+
+  comments MarketingTweetComment[]
+  votes    MarketingTweetVote[]
+}
+
+model MarketingTweetComment {
+  id         String   @id @default(cuid())
+  runId      String
+  tweetIndex Int
+  author     String
+  body       String
+  createdAt  DateTime @default(now())
+
+  run MarketingSuggestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, tweetIndex])
+}
+
+model MarketingTweetVote {
+  id         String   @id @default(cuid())
+  runId      String
+  tweetIndex Int
+  voter      String
+  value      Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  run MarketingSuggestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, tweetIndex, voter])
+  @@index([runId, tweetIndex])
+}
+
+model Campaign {
+  id         String             @id @default(cuid())
+  name       String
+  // Tenant owner. Defaults to "skatehive" so pre-multi-tenant rows backfill to
+  // the original project; createCampaign always sets it explicitly.
+  projectSlug String            @default("skatehive")
+  archivedAt DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  documents  CampaignDocument[]
+  // When seeded from an Instagram post: the source carousel media URLs (ordered)
+  // and the original permalink, so artifact generation can embed the images into
+  // the Hive snap / Farcaster cast / Hive mag post drafts.
+  sourceMediaUrls Json?
+  sourcePermalink String?
+  outreachContacts OutreachContact[]
+
+  @@index([projectSlug, archivedAt, updatedAt(sort: Desc)])
+}
+
+model CampaignDocument {
+  id         String    @id @default(cuid())
+  campaignId String
+  campaign   Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name       String    @default("Brief")
+  content    String    @default("")
+  isMain     Boolean   @default(false)
+  postedAt   DateTime?
+  postedTo   String?
+  scheduledFor DateTime? // campaign calendar: planned publish day for this asset
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([campaignId, updatedAt(sort: Desc)])
+}
+
+// Per-recipient outreach tracking for controlled email delivery (see
+// src/app/actions/outreach.ts). One row per (campaign, email): the audience is
+// enqueued as "pending", sent in manual daily-controlled batches, and each row
+// records its own status so the same person is NEVER re-emailed within a
+// campaign. "responded" is set when a contacted skater posts on Hive again.
+// Applied via targeted SQL (db:push drifts on this DB) — scripts/create-outreach-table.cjs.
+model OutreachContact {
+  id           String    @id @default(cuid())
+  campaignId   String
+  campaign     Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  email        String
+  hiveUsername String?
+  status       String    @default("pending") // pending | sent | responded | bounced | skipped | opted_out
+  sentAt       DateTime?
+  respondedAt  DateTime?
+  error        String?
+  projectSlug  String    @default("skatehive")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([campaignId, email])
+  @@index([campaignId, status])
+}
+
+// Crypto-media / press contacts for a campaign's Press Blast (send the press
+// release to outlets like Bankless, BeInCrypto). Standalone (no relation) to keep
+// the Campaign model untouched.
+model PressContact {
+  id          String    @id @default(cuid())
+  campaignId  String
+  outlet      String
+  email       String
+  status      String    @default("pending") // pending | sent | failed
+  sentAt      DateTime?
+  error       String?
+  projectSlug String    @default("skatehive")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([campaignId, email])
+  @@index([campaignId])
+}
+
+model Briefing {
+  id          String   @id @default(cuid())
+  agentSlug   String
+  date        String // ISO date (YYYY-MM-DD) for the briefing day
+  language    String   @default("pt")
+  body        String   @db.Text
+  generatedBy String? // "cron" | "manual" | actor username
+  generatedAt DateTime @default(now())
+
+  @@unique([agentSlug, date])
+  @@index([agentSlug, generatedAt(sort: Desc)])
+}
+
+model BriefingPromptOverride {
+  agentSlug String   @id
+  body      String   @db.Text
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+// Persisted AI social insights — one row per (project, platform), overwritten
+// on every regeneration so the latest insight survives navigation.
+model SocialInsight {
+  id          String   @id @default(cuid())
+  projectSlug String
+  platform    String
+  body        String   @db.Text
+  generatedBy String?
+  generatedAt DateTime @default(now())
+
+  @@unique([projectSlug, platform])
+}
+
+// Persisted AI analytics insights — one row per project, overwritten on every
+// regeneration so the latest insight survives navigation.
+model AnalyticsInsight {
+  id           String   @id @default(cuid())
+  projectSlug  String   @unique
+  body         String   @db.Text
+  generatedBy  String?
+  generatedAt  DateTime @default(now())
+}
+
+// Human corrections on AI insights / morning briefings. Each note is grouped by
+// `scope` (e.g. "analytics:gnars", "social:gnars:instagram", "briefing:gnars-marketing")
+// and injected into that panel's prompt on the NEXT generation so the team can
+// steer the output ("don't call a 50-min-old post an underperformer", etc).
+model InsightFeedback {
+  id        String   @id @default(cuid())
+  scope     String
+  note      String   @db.Text
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([scope, createdAt(sort: Desc)])
+}
+
+// Instagram post drafts and published posts for the Post Creator feature.
+// One row per draft/post, scoped to a project slug.
+// Newsletter subscription preferences for campaign email blasts. Keyed by
+// lowercase email. OPT-OUT model: a userbase email with no row here is
+// included in blasts; the unsubscribe link (and later the frontend checkbox)
+// writes subscribed=false. Lives in OUR db (not Supabase) so the portal owns
+// the migration and the unsubscribe endpoint.
+model NewsletterPref {
+  email       String   @id
+  subscribed  Boolean  @default(true)
+  source      String? // "unsubscribe-link" | "frontend-checkbox" | "manual"
+  projectSlug String   @default("skatehive")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model InstagramPost {
+  id              String    @id @default(cuid())
+  projectSlug     String
+  type            String    @default("IMAGE") // IMAGE | CAROUSEL | REELS
+  title           String? // short internal name for the post — identifies the draft in lists (not sent to IG)
+  caption         String    @default("") @db.Text
+  mediaUrls       Json? // ordered array of public media URLs
+  status          String    @default("draft") // draft | scheduled | publishing | published | failed
+  attempts        Int       @default(0) // publish attempts so far — scheduler retries transient failures up to a cap
+  reviewed        Boolean   @default(false) // a teammate marked this draft reviewed
+  igMediaId       String? // published IG media id
+  permalink       String? // published post permalink
+  error           String?
+  createdBy       String?
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  firstComment    String?   @db.Text // auto-posted as first comment after publish
+  collaborators   Json? // array of IG usernames (max 3); must accept in-app
+  aspectRatio     String? // "1:1" | "4:5" | "1.91:1" | "9:16" — preview reference only
+  // Scheduling + manual-posting fields
+  scheduledFor    DateTime? // when to auto-publish (or remind for manual)
+  publishMode     String    @default("auto") // "auto" | "manual"
+  userTags        Json? // [{username, x, y}] — IMAGE only; x/y clamped 0..1
+  coverUrl        String? // REELS cover image URL → Graph API cover_url (wins over thumbOffsetMs)
+  thumbOffsetMs   Int? // REELS cover frame offset in ms → Graph API thumb_offset
+  musicNote       String? // music/audio note — manual only (not sent to API)
+  brandedPartner  String? // paid partnership @brand — manual only (not sent to API)
+  locationNote    String? // location name — manual only (not sent to API)
+  studioDoc       Json? // Zine Studio editable carousel doc — rehydrates the studio when reloading this post
+  /// Set when this post came from the cross-post curation queue: the id of the
+  /// `userbase_crosspost_queue` row in the SkateHive app's Supabase. After
+  /// publishing, the scheduler writes the result back to that row so the author
+  /// sees "published" in the app. Applied via targeted SQL (db:push drifts here).
+  crossPostQueueId String?
+
+  @@index([projectSlug, status, updatedAt(sort: Desc)])
+  @@index([status, scheduledFor]) // for scheduler tick queries
+}
+
+// Periodic follower-count snapshots used to compute 7-day deltas on the
+// Socials dashboard. One row per (project, platform) capture; written at most
+// once every 6 hours by the metrics API route.
+//
+// ---------------------------------------------------------------------------
+// SchedulerLease — single-row lease/heartbeat for the scheduled-post
+// autopublisher. The Mac PM2 worker's tick refreshes `lastMacTickAt` on every
+// run (server-side). The Vercel fallback cron only publishes when this is stale
+// (Mac down), so normal posting stays on the Mac (residential IP) and Vercel is
+// a safety net.
+model SchedulerLease {
+  id            String    @id @default("singleton")
+  lastMacTickAt DateTime?
+  /// Last tick from a publishing host that HAD CROSSPOST_DATABASE_URL set.
+  /// The curation UI runs on Vercel and can't see the Mac's env, so the Mac
+  /// reports it here: stale while lastMacTickAt is fresh means the publisher
+  /// can't write results back, and an approved cross-post would go live with
+  /// the author never notified. Applied via targeted SQL (db:push drifts here).
+  crossPostReadyAt DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
+model SocialMetricSnapshot {
+  id          String   @id @default(cuid())
+  projectSlug String
+  platform    String
+  followers   Int
+  capturedAt  DateTime @default(now())
+
+  @@index([projectSlug, platform, capturedAt])
+}
+
+// Coworker-editable contacts per portal member (email, Telegram, Farcaster,
+// Instagram, X, …). One row per (project, member, platform label); overrides
+// the static teamContacts entry with the same label in src/projects/*.ts.
+// Any allowlisted member of the portal can edit any member's contacts.
+model TeamMemberContact {
+  id          String   @id @default(cuid())
+  projectSlug String
+  username    String
+  label       String
+  value       String
+  /** opt-in explícito pra sair no site público. Default false: e-mail, telefone
+   *  e carteira NUNCA vazam por omissão. */
+  public      Boolean  @default(false)
+  updatedBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectSlug, username, label])
+}
+
+// Bounty payout setup per portal: which Safe + chain + token bounties pay from.
+// The proposer (SAFE_PROPOSER_PRIVATE_KEY) must be a delegate of this Safe.
+model BountyConfig {
+  projectSlug  String   @id
+  safeAddress  String
+  chainId      Int      @default(8453) // Base
+  tokenAddress String? // null = native ETH; else ERC-20 address
+  tokenSymbol  String   @default("ETH")
+  tokenDecimals Int     @default(18)
+  updatedBy    String?
+  updatedAt    DateTime @updatedAt
+}
+
+// Portal-side comments on a Kanban card — works for ANY card (incl. drafts,
+// which have no GitHub issue to comment on). Keyed by the board item id.
+model CardNote {
+  id          String   @id @default(cuid())
+  projectSlug String
+  cardKey     String // GitHub Project item id (stable within a board)
+  author      String // portal username
+  body        String
+  createdAt   DateTime @default(now())
+
+  @@index([projectSlug, cardKey, createdAt])
+}
+
+// A saved design-studio template (the whole carousel doc) — reusable per project.
+model StudioTemplate {
+  id          String   @id @default(cuid())
+  projectSlug String
+  name        String
+  kind        String   @default("design") // design | spot
+  doc         Json // the serialized Carousel { meta, cards }
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectSlug, name])
+  @@index([projectSlug])
+}
+
+// Default Discord channel a project posts to (overrides the env DISCORD_CHANNEL_ID).
+// Same bot/guild can serve several portals (SOPA ↔ Reelflip) on different channels.
+model DiscordChannelConfig {
+  projectSlug String   @id
+  channelId   String
+  channelName String?
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── Curation-trail account registry ───────────────────────────────────────
+// Every account that participates in the trail, of three kinds:
+//   company — brand accounts (skatehive, gnars, reelflip): auto-engage
+//   agent   — brand bots (bobgnarley): auto-engage
+//   member  — team people (sopa): auto-UPVOTE only; replies stay manual
+// Self-contained: stores the signer/handle + which credential to use, so the
+// worker reads this table instead of a hardcoded list. Managed from admin UI.
+model TrailAccount {
+  id            String   @id @default(cuid())
+  kind          String   // company | agent | member
+  label         String   // display name
+  ownerSlug     String?  // brand this belongs to (company/agent) or member's portal
+  enabled       Boolean  @default(true)
+
+  // Farcaster identity + which Neynar app key signs for it
+  fid           Int?
+  fcSignerUuid  String?
+  fcApiKeyEnv   String?  @default("NEYNAR_API_KEY") // env var holding the signer's app key
+
+  // Hive identity + posting credential
+  hiveAccount   String?
+  hiveKeyEnv    String?  // env var with the posting key (company/agent)
+  hiveKeyEnc    String?  // encrypted posting key (member) — see lib/secret-box
+
+  // engagement prefs
+  autoLike      Boolean  @default(true)  // Farcaster like / Hive upvote on partner posts
+  hiveVoteWeight Int     @default(10000) // 0..10000 = 0..100% (member-tunable in settings)
+  watch         Boolean  @default(true)  // detect THIS account's posts as trail triggers
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([kind, label])
+  @@index([ownerSlug])
+}
+
+// ─── Farcaster cross-account curation trail ────────────────────────────────
+// When one of our brand accounts posts a top-level cast, the others auto-LIKE
+// it and (HITL) reply with an on-brand comment. One row per detected cast.
+model FarcasterTrailCast {
+  hash         String   @id // unique post id — Farcaster: cast hash; Hive: "hive:author/permlink"
+  platform     String   @default("farcaster") // farcaster | hive
+  authorFid    Int? // Farcaster only
+  authorSlug   String // which of our portals posted it
+  authorHandle String? // display handle / hive author
+  text         String
+  url          String? // link to the post
+  embedsJson   String? // raw embeds for context
+  /** Mídia normalizada pro feed do site: [{type:"image"|"video", url}] — do
+   *  Farcaster vem dos embeds, do Hive é extraída do markdown. */
+  mediaJson    String?
+  /** Moderação do feed público: escondido não sai no site (a linha continua). */
+  hidden       Boolean  @default(false)
+  /** snap | blog | cast — gravado na captura, onde dá pra ver o pai do post.
+   *  Derivar do permlink não funciona: snap de membro tem UUID, e quem denuncia
+   *  é o parent_author (peak.snaps). */
+  kind         String?
+  /** comunidade do Hive: hive-124838 = Snaps, hive-173115 = SkateHive */
+  community    String?
+  postedAt     DateTime
+  detectedAt   DateTime @default(now())
+
+  actions      FarcasterTrailAction[]
+
+  @@index([authorSlug])
+  @@index([detectedAt])
+}
+
+// One action per (cast × acting account × kind). Likes run automatically;
+// replies are human-in-the-loop (AI draft → review → post).
+model FarcasterTrailAction {
+  id          String   @id @default(cuid())
+  castHash    String
+  actorSlug   String // the portal doing the like/reply
+  kind        String // "like" | "reply"
+  status      String   @default("pending") // pending | done | skipped | failed
+  draft       String? // AI-generated reply draft (kind=reply)
+  postedText  String? // what was actually posted
+  resultRef   String? // reaction id / reply cast hash
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cast        FarcasterTrailCast @relation(fields: [castHash], references: [hash], onDelete: Cascade)
+
+  @@unique([castHash, actorSlug, kind])
+  @@index([actorSlug, status])
+}
+
+// Per-post boost pacing: the boost is released GRADUALLY, proportional to the
+// post's REAL upvote growth, so it feels organic. baselineVotes = real votes
+// when detected; released = boost upvotes cast so far; budget = subset size.
+model TrailBoostTarget {
+  castHash      String   @id // "hive:author/permlink"
+  baselineVotes Int      @default(0) // real votes at detection
+  budget        Int      @default(40) // max boost upvotes to release
+  released      Int      @default(0) // boost upvotes cast so far
+  status        String   @default("active") // active | done
+  mode          String   @default("organic") // organic = paced to real likes · direct = random intervals, like-independent
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+}
+
+// Portal-owned priority for a Kanban card: 1🔥..5🔥 "priority points" the team
+// sets in the UI to organize the whole app (briefing, agenda, sorting) by one
+// consistent scale. Higher = more important. Keyed by the GitHub Project item id
+// so it works on any card, including drafts (which can't carry GitHub fields).
+model CardPriority {
+  itemId      String    @id
+  priority    Int       @default(0) // 1 (lowest) .. 5 (highest); 0 = unset
+  deadline    DateTime? // optional due date for the card
+  owner       String? // GitHub login of the task OWNER (ultimate responsible)
+  reviewers   String[]  @default([]) // GitHub logins requested to REVIEW the card (like git reviewers)
+  projectSlug String?
+  updatedBy   String?
+  updatedAt   DateTime  @updatedAt
+}
+
+// Per-member skill ratings (0–100 per category) for the team radar chart.
+// Keyed by Hive username; skills is a { categoryKey: value } JSON map.
+model MemberSkills {
+  username  String   @id
+  skills    Json     @default("{}")
+  bio       String?  @db.Text
+  // ── Perfil público, consumido pelo site da SOPA via /api/sopa/site-data ──
+  /** como a pessoa se apresenta: ["dev", "web3", "criativo"] */
+  roles     String[] @default([])
+  /** agrupamento editorial do diretório — ver TERRITORIES em lib/member-profile */
+  territory String?
+  location  String?
+  languages String?
+  /** ano em que entrou no coletivo */
+  since     Int?
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+// Posts the auto-boost-on-vote rule has already handled, so the hourly cron
+// never double-processes one. A sentinel row (castHash = "__init__") marks that
+// the first-run backfill happened — posts seen on that run are recorded as
+// boosted=false (skipped) so only NEW likes get boosted going forward.
+model AutoBoostSeen {
+  castHash  String   @id // "hive:author/permlink" (or "__init__")
+  kind      String // snap | blog | init
+  boosted   Boolean  @default(false)
+  voter     String   @default("") // trigger account whose like fired it
+  createdAt DateTime @default(now())
+}
+
+// Pool B: community-key boost upvotes. When a COMPANY posts on Hive, a random
+// rotating subset of the SkateHive userbase posting keys (userbase_hive_keys,
+// decrypted with USERBASE_KEY_ENCRYPTION_SECRET) upvotes it at a low weight,
+// spread over time. One row per (company post × userbase voter).
+model TrailUserbaseBoost {
+  id           String   @id @default(cuid())
+  castHash     String // the company Hive post: "hive:author/permlink"
+  hiveUsername String // the userbase account doing the upvote
+  weight       Int      @default(1000) // 0..10000 = 0..100%
+  status       String   @default("pending") // pending | done | failed | skipped
+  error        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([castHash, hiveUsername])
+  @@index([status])
+}
+
+// A Farcaster signer a TEAM MEMBER approved via the Settings QR flow (managed
+// signer sponsored by FARCASTER_SPONSOR_*). One per portal member — lets the
+// person join the curation trail with their own account, approving in their
+// own Warpcast (never sharing a recovery phrase).
+model FarcasterMemberSigner {
+  username    String   @id // portal member (Hive username)
+  signerUuid  String
+  fid         Int?
+  handle      String? // their Farcaster handle once approved
+  status      String   @default("pending") // pending | approved | revoked
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// A Farcaster signer approved by the brand's account via Sign In With Neynar
+// (SIWN). One per portal. Lets a portal admin connect Farcaster from Settings
+// (no env edit / redeploy) — social-publish reads this as a fallback to the
+// per-project NEYNAR_SIGNER_UUID env var.
+model FarcasterSigner {
+  projectSlug String   @id
+  signerUuid  String
+  fid         Int?
+  username    String? // Farcaster handle that approved the signer
+  status      String   @default("approved") // approved | revoked
+  connectedBy String? // portal username who clicked Connect
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// A Kanban task turned into a bounty, paid from the project's Safe (BountyConfig).
+model Bounty {
+  id           String   @id @default(cuid())
+  projectSlug  String
+  taskKey      String // GitHub item contentId / url — stable handle for the task
+  title        String
+  amount       String // human amount — must fit the Safe's live balance of this token
+  chainId      Int      @default(8453) // 8453 Base | 1 Ethereum — which chain pays
+  tokenSymbol  String
+  tokenAddress String? // null = native ETH; else an ERC-20 the Safe actually holds
+  tokenDecimals Int     @default(18)
+  status       String   @default("open") // open | proposed | paid | cancelled
+  payeeAddress String?
+  safeTxHash   String?
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([projectSlug, taskKey])
+  @@index([projectSlug])
+}
+
+// External auth identity (OAuth) → team member (Hive username). Lets people sign
+// in with GitHub/Google and resolve to their portal membership/role.
+model AuthIdentity {
+  id         String   @id @default(cuid())
+  provider   String // "github" | "google"
+  providerId String // github login (lowercased) / google sub
+  username   String // mapped team member (Hive username)
+  email      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([provider, providerId])
+  @@index([username])
+}
+
+// Login activity per user (last seen + count), recorded on successful sign-in.
+// One row per username, regardless of which portal they logged into.
+model MemberActivity {
+  username         String   @id
+  lastLoginAt      DateTime
+  lastLoginProject String?
+  loginCount       Int      @default(0)
+  // Whether the Hive account has a profile picture, resolved at login and kept
+  // here so the root layout — which renders on EVERY page — never has to call
+  // an external API to draw the sidebar avatar. Null = never resolved (rows
+  // that predate this, or a login where the Hive lookup failed).
+  hasAvatar        Boolean?
+  updatedAt        DateTime @updatedAt
+}
+
+// Team membership + role per portal. projectSlug "*" = a GLOBAL admin (access to
+// every portal). role ∈ "admin" | "member" | "viewer". This is the DB source of
+// truth for access/roles; the static project.allowlist is a seed/fallback.
+model TeamMember {
+  id          String   @id @default(cuid())
+  projectSlug String // "*" = global (all portals)
+  username    String
+  role        String   @default("member")
+  addedBy     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectSlug, username])
+  @@index([username])
+}
+
+// Async chat jobs — the floating chat's big-task safety net. The route keeps
+// working after the SSE connection drops and stores the reply here; the
+// client polls until done. Rows are short-lived working state.
+model ChatJob {
+  id          String   @id @default(cuid())
+  projectSlug String
+  sessionId   String   @default("")
+  status      String   @default("running") // running | done | error
+  reply       String?  @db.Text
+  error       String?
+  // Links to the AgentJob doing the work (queue transport). Lets the client's
+  // poll bridge to the worker's result even after the inline server function
+  // hits the Vercel 290s ceiling — heavy/code tasks finish on the Mac worker.
+  agentJobId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug, createdAt(sort: Desc)])
+}
+
+// Briefing regeneration jobs — the portal (Vercel) assembles the prompt and
+// enqueues here; the Mac mini worker (which can reach the local gateway at
+// 127.0.0.1) runs it and writes the result into Briefing. Sidesteps the
+// unreliable Vercel→Tailscale-funnel path entirely (TLS handshake drops).
+model BriefingJob {
+  id          String    @id @default(cuid())
+  agentSlug   String
+  projectSlug String
+  language    String    @default("pt")
+  prompt      String    @db.Text
+  status      String    @default("queued") // queued | running | done | error
+  error       String?
+  lockedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}
+
+// Generic agent-call queue. Vercel can't reach the agent gateway over the
+// Tailscale funnel (TLS handshake drops), so any feature that needs an agent
+// reply enqueues an AgentJob with the prompt; the Mac-mini agent-worker (where
+// the gateway is a local 127.0.0.1 call) runs it and writes `result` back.
+// callOpenClaw() routes through this transparently when running on Vercel, so
+// callers keep their `Promise<string>` contract — they just wait on the worker.
+model AgentJob {
+  id        String    @id @default(cuid())
+  agentSlug String
+  prompt    String    @db.Text
+  timeoutMs Int       @default(285000)
+  status    String    @default("queued") // queued | running | done | error
+  result    String?   @db.Text
+  error     String?
+  lockedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}
+
+// Brain workspace file-op queue. Same problem as AgentJob: the Brain page on
+// Vercel can't reach the brain-file-server over the Tailscale funnel. So
+// workspace operations (tree/read/write/delete) enqueue a BrainOpJob; the Mac
+// brain-queue-worker relays it to the local brain-file-server (127.0.0.1) and
+// writes the JSON response into `result`. Fast local fs ops, so this drains in
+// well under a second. Used only when BRAIN_TRANSPORT=queue (default on Vercel).
+model BrainOpJob {
+  id        String    @id @default(cuid())
+  op        String    // tree | read | write | delete
+  agentId   String
+  relPath   String?
+  content   String?   @db.Text
+  status    String    @default("queued") // queued | running | done | error
+  result    String?   @db.Text // JSON-encoded response payload
+  error     String?
+  lockedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}
+
+// SOPA editable boards — backs both the org-chart flowchart (board="orgchart",
+// a tree via parentId) and the portfolio (board="portfolio", flat cards). One
+// row per card/node. Shared, team-editable; scoped by the `board` discriminator.
+model SopaBoard {
+  id        String   @id @default(cuid())
+  board     String   // "orgchart" | "portfolio"
+  parentId  String?  // org-chart tree edge; null = root (SOPA) or flat card
+  title     String
+  body      String?  @db.Text // free-form card details
+  meta      Json? // optional extras (links, tags, accent…)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([board, parentId])
+}
+
+// Lab-scheduled cross-network posts. The Lab enqueues non-Instagram channels
+// here (IG keeps using InstagramPost); the scheduler's publishDueLabPosts picks
+// due rows and publishes via publishLabChannel. One row per channel.
+model LabScheduledPost {
+  id          String    @id @default(cuid())
+  projectSlug String
+  network     String // hive | farcaster | binance | discord | hive_mag | email
+  text        String    @db.Text
+  scheduledFor DateTime
+  status      String    @default("scheduled") // scheduled | publishing | published | failed
+  resultUrl   String?
+  error       String?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([projectSlug, status])
+}
+
+// Team meetings shown on the weekly calendar (SOPA "Reuniões"). Single events;
+// `weekly` repeats the same weekday/time every week from startsAt onward.
+model Meeting {
+  id          String   @id @default(cuid())
+  projectSlug String
+  title       String
+  startsAt    DateTime
+  endsAt      DateTime
+  notes       String?  @db.Text
+  forProject  String? // which project this meeting is about (slug); attendees scoped to it
+  emailBody   String?  @db.Text // AI-improved / edited invite email body
+  kind        String   @default("plan") // "plan" (planning) | "exec" (execution, has owners)
+  owners      String[] @default([]) // emails of the responsible owners (exec meetings)
+  color       String? // accent hex for the event block
+  weekly      Boolean  @default(false)
+  attendees   String[] @default([]) // emails invited to the meeting
+  googleEventId String? // id of the mirrored event on the primary Google Calendar
+  googleEventUrl String? // htmlLink to view the event in Google Calendar
+  // Post-meeting layer: the raw transcript, an AI/edited summary (the "ata"),
+  // an optional HackMD link to the published ata, and the extracted action
+  // items (JSON: see MeetingActionItem in src/lib/meeting-actions.ts). Action
+  // items track the GitHub card they spawned so the loop closes (done = card
+  // closed) and re-running never duplicates.
+  transcript  String?  @db.Text
+  summary     String?  @db.Text
+  summaryUrl  String? // HackMD (or other) published-ata URL
+  actionItems Json     @default("[]")
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  occurrences MeetingOccurrence[]
+
+  @@index([projectSlug, startsAt])
+}
+
+// One dated instance of a Meeting (a weekly series has many; a one-off has one).
+// The ata lives HERE, per occurrence: HackMD holds the canonical prose (hackmdUrl),
+// the portal caches the summary + keeps the machine-usable actionItems (they drive
+// Kanban cards / briefing), and googleEventId points at the specific Calendar
+// instance whose description carries the ata link.
+model MeetingOccurrence {
+  id            String   @id @default(cuid())
+  meetingId     String
+  projectSlug   String
+  occurredOn    DateTime // the date/time of this specific occurrence
+  googleEventId String? // the Calendar INSTANCE id whose description holds the link
+  hackmdUrl     String? // canonical ata (HackMD)
+  transcript    String?  @db.Text
+  summary       String?  @db.Text // cached prose (HackMD is canonical)
+  actionItems   Json     @default("[]")
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, occurredOn])
+  @@index([projectSlug, occurredOn])
+}
+
+// Point-in-time USD balance of a tracked revenue address (org-chart card). One
+// row per (card, address) per snapshot run (~daily via the scheduler cron), so
+// the UI can show the RATE revenue accrues (Δ7d / Δ30d + a sparkline), not just
+// the current balance.
+model RevenueSnapshot {
+  id       String   @id @default(cuid())
+  cardId   String
+  address  String // lowercased 0x…
+  chain    String? // EVM chain key, or null = all chains
+  label    String? // stream label at snapshot time (for display)
+  totalUsd Float
+  takenAt  DateTime @default(now())
+
+  @@index([cardId, takenAt])
+  @@index([address, takenAt])
+}
+
+// A post from the @reelflip Instagram, mirrored for the public reelflip.com
+// magazine. Media is pinned to IPFS (Pinata) so the page survives IG's expiring
+// CDN URLs. `media` is a JSON array of { kind: "image"|"video", url, poster? }.
+model ReelflipPost {
+  id        String   @id @default(cuid())
+  igId      String   @unique
+  caption   String?  @db.Text
+  mediaType String // IMAGE | VIDEO | CAROUSEL_ALBUM
+  permalink String?
+  postedAt  DateTime
+  coverUrl  String // durable (Pinata) primary visual for the magazine page
+  media     Json     @default("[]")
+  order     Int      @default(0)
+  syncedAt  DateTime @default(now())
+
+  @@index([order])
+}
+
+// A team member's calendar feed (iCal/ICS URL) for availability overlay.
+model SharedCalendar {
+  id          String   @id @default(cuid())
+  projectSlug String
+  name        String
+  icsUrl      String   @db.Text
+  color       String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug])
+}
+
+// A recurring fixed cost for a project (infra, salaries, tooling, services).
+// Normalized to a monthly USD burn so it can be compared against the live
+// treasury balance to derive runway. `amount` is stored in `currency`; yearly
+// costs are divided by 12 for the monthly burn.
+model FixedCost {
+  id          String   @id @default(cuid())
+  projectSlug String
+  label       String
+  amount      Float // in `currency` — for variable costs this is the plan base / estimate
+  currency    String   @default("USD") // USD | BRL
+  cadence     String   @default("monthly") // monthly | yearly
+  category    String? // infra | salary | tooling | service | other
+  notes       String?
+  active      Boolean  @default(true)
+  // Variable costs (Vercel, Pinata…) bill a flat plan but spike on quota
+  // overage. `amount` is the pre-filled estimate; the real value per month is
+  // logged in FixedCostActual and is what the runway uses for the current month.
+  variable    Boolean  @default(false)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  actuals FixedCostActual[]
+
+  @@index([projectSlug])
+}
+
+// The actual billed amount of a (variable) fixed cost in a given month —
+// manually edited as the real invoice lands. One row per cost per month.
+model FixedCostActual {
+  id        String    @id @default(cuid())
+  costId    String
+  cost      FixedCost @relation(fields: [costId], references: [id], onDelete: Cascade)
+  month     String // "YYYY-MM"
+  amount    Float // real billed amount; may be negative (refund/credit)
+  currency  String    @default("USD") // USD | BRL
+  note      String?
+  paid      Boolean   @default(true) // whether this month's invoice was actually paid
+  createdBy String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([costId, month])
+  @@index([costId])
+}
+
+// SOPA agency revenue from client jobs (e.g. the Venice bot gig). Unlike the
+// brands' on-chain auction/split income, agency revenue is job-based and entered
+// by hand: client, amount, when, and whether it's been paid. Summed on the SOPA
+// treasury alongside the agency's on-chain share of the brand swap splits.
+model SopaJob {
+  id          String   @id @default(cuid())
+  projectSlug String   @default("sopa")
+  client      String // who the job was for (e.g. "Venice bot")
+  description String? // scope of the work
+  amountUsd   Float
+  status      String   @default("paid") // paid | pending
+  occurredOn  DateTime // date the job was done / invoiced
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug])
+}
+
+// How the treasury is earmarked. The money is ONE pot (staked in the vault,
+// earning) — these are labels on top of it, not separate wallets: how much of
+// the pot is meant for salaries (the stream), operating costs, and free budget.
+// Percentages of the total; the UI compares them against what each bucket
+// actually needs (stream rate, fixed costs) so over/under-funding is visible.
+model TreasuryAllocation {
+  id           String   @id @default(cuid())
+  projectSlug  String   @unique
+  salariosPct  Int      @default(50)
+  custosPct    Int      @default(15)
+  orcamentoPct Int      @default(35)
+  updatedBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Payroll stream members — the registry behind SOPA's Superfluid distribution
+// pool. Each member has a wallet + `units` (the weight); their live share is
+// units ÷ total active units. The portal is the source of truth the team
+// references when configuring the on-chain pool in the Safe (the portal itself
+// doesn't move funds).
+model PayrollMember {
+  id          String   @id @default(cuid())
+  projectSlug String   @default("sopa")
+  label       String // name / handle
+  address     String // 0x… receiving wallet
+  units       Int      @default(0) // weight; share = units ÷ Σ active units
+  active      Boolean  @default(true)
+  addedBy     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectSlug])
+}
+
+// Accumulated pool of Instagram handles to suggest as post collaborators — an
+// autocomplete source built from the userbase IG identities, people who comment
+// on our posts, and accounts we've actually collaborated with. (The Graph API
+// can't list followers, so we grow our own list.) One shared pool per UMBRELLA
+// (parent company, e.g. "reelflip"); `brands` records which member portals
+// surfaced each lead so brands share leads but still see the origin.
+// Ranked "leading" by collabCount → commentCount → recency.
+model IgCollaborator {
+  id           String   @id @default(cuid())
+  umbrella     String // parent company, e.g. "reelflip" | "blockwire"
+  username     String // IG handle, lowercase, no leading @
+  brands       Json     @default("[]") // project slugs that surfaced this lead
+  fromUserbase Boolean  @default(false) // present in the SkateHive userbase
+  commentCount Int      @default(0) // times seen commenting on our posts
+  collabCount  Int      @default(0) // times tagged as a collaborator on a post
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([umbrella, username])
+  @@index([umbrella])
+  @@map("ig_collaborator")
+}
+
+// Editorial magazine — the portal curates which Hive posts (and their order)
+// make up the online magazine, replacing the website's raw "latest 20 community
+// posts" flipbook. A published issue is served (read-only) at
+// /api/magazine/current for the public site to render.
+model MagazineIssue {
+  id          String    @id @default(cuid())
+  projectSlug String
+  number      Int
+  title       String
+  coverUrl    String?
+  status      String    @default("draft") // draft | published
+  publishedAt DateTime?
+  updatedBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  posts       MagazineIssuePost[]
+
+  @@unique([projectSlug, number])
+  @@index([projectSlug, status])
+}
+
+model MagazineIssuePost {
+  id       String        @id @default(cuid())
+  issueId  String
+  issue    MagazineIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author   String // Hive author
+  permlink String // Hive permlink
+  order    Int           @default(0) // flipbook order
+  blurb    String? // optional cover-line / editorial note
+  featured Boolean       @default(false)
+
+  @@unique([issueId, author, permlink])
+  @@index([issueId, order])
+}
+
+// Versioned, admin-curated homepage config for the SkateHive media magazine
+// homepage (/home on skatehive3.0). One JSON doc per version; latest published
+// wins. Drafts are seeded from the live config, previewed via previewToken, and
+// flipped to published. Applied via targeted SQL (db:push drifts on this DB).
+model HomepageConfig {
+  id           String    @id @default(cuid())
+  projectSlug  String
+  version      Int // monotonic, like MagazineIssue.number
+  status       String    @default("draft") // draft | published
+  data         Json // HomepageConfigDoc (see src/lib/homepage-config.ts)
+  previewToken String?   @unique // capability token for the sk3 preview mode
+  publishedAt  DateTime?
+  updatedBy    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([projectSlug, version])
+  @@index([projectSlug, status])
+}
+
+// Briefs submitted from the PUBLIC SOPA site's contact form (site-sopa, separate
+// repo). Written by /api/sopa/brief, which is open to the internet — treat every
+// field as untrusted input. Created via targeted SQL (db:push drifts on this DB):
+// scripts/create-sopa-brief-table.cjs
+model SopaBrief {
+  id        String   @id @default(cuid())
+  name      String
+  contact   String // email or @handle — how they want to be reached
+  /** what the project is — multi-select on the form */
+  types     String[]
+  budget    String?
+  deadline  String?
+  message   String   @db.Text
+  /** true once someone on the team has picked it up */
+  handled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// Ledger of cross-post notifications the portal owes the author.
+//
+// The queue and the notifications live in the SkateHive app's Supabase, reached
+// over PostgREST — which has no multi-statement transactions. So "flip the row
+// AND tell the author" can't be atomic there, and the two halves can split: a
+// rejection nobody hears about, or an author told twice.
+//
+// This table restores the guarantee from the portal's own DB, where we DO have
+// transactions. The unique constraint is the whole mechanism: claiming a notice
+// is what grants the right to send it, so a retry can never send twice. Rows
+// left unconfirmed are retried by the scheduler's reconcile pass.
+model CrossPostNotice {
+  id      String @id @default(cuid())
+  /// Row id in the app's `userbase_crosspost_queue`.
+  queueId String
+  /// rejected | scheduled | published | failed
+  kind    String
+  /// Payload to send, so a retry doesn't have to reconstruct it.
+  payload Json
+  /// Null until the app confirmed the insert. Non-null means done, never resend.
+  sentAt    DateTime?
+  attempts  Int      @default(0)
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([queueId, kind])
+  @@index([sentAt])
+}
+
+// ---------------------------------------------------------------------------
+// TikTok — OAuth credentials + the publishing queue.
+//
+// Unlike Meta (long-lived Page tokens in env vars), TikTok issues per-user
+// tokens: the access token lasts 24h and the refresh token 365 days AND ROLLS
+// on every refresh, so the newly-returned refresh_token must overwrite the old
+// one. That can't live in .env — hence this table, mirroring the FarcasterSigner
+// pattern (one row per portal, connected from Settings).
+//
+// Created via targeted SQL (db:push drifts on this DB):
+// scripts/create-tiktok-tables.cjs
+// ---------------------------------------------------------------------------
+model TikTokAccount {
+  projectSlug      String   @id
+  openId           String // stable per-user id scoped to our client key
+  unionId          String?
+  username         String? // @handle, from creator_info
+  displayName      String?
+  avatarUrl        String?
+  scope            String // comma-separated granted scopes
+  accessToken      String   @db.Text
+  accessExpiresAt  DateTime
+  refreshToken     String   @db.Text
+  refreshExpiresAt DateTime
+  /**
+   * Set when TikTok's audit has approved the app for public posting. Until
+   * then every publish is forced to SELF_ONLY — unaudited clients can only
+   * post privately, so sending PUBLIC_TO_EVERYONE would just fail.
+   */
+  audited          Boolean  @default(false)
+  status           String   @default("connected") // connected | revoked
+  connectedBy      String? // portal username who clicked Connect
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// One queued TikTok video. Flow: draft → review (someone approves) → scheduled
+// → publishing → published. `reviewed` is the human gate: the scheduler only
+// picks up rows that a teammate approved, so nothing auto-publishes unreviewed.
+model TikTokPost {
+  id             String    @id @default(cuid())
+  projectSlug    String
+  title          String? // short internal name — identifies the draft in lists
+  caption        String    @default("") @db.Text // TikTok "title" — max 2200 UTF-16 runes
+  videoUrl       String? // public URL of the source video (Pinata/IPFS)
+  coverTimeMs    Int? // frame offset used as the cover (video_cover_timestamp_ms)
+  /**
+   * PUBLIC_TO_EVERYONE | MUTUAL_FOLLOW_FRIENDS | FOLLOWER_OF_CREATOR | SELF_ONLY
+   * — constrained by privacy_level_options from creator_info.
+   */
+  privacy        String    @default("SELF_ONLY")
+  disableComment Boolean   @default(false)
+  disableDuet    Boolean   @default(false)
+  disableStitch  Boolean   @default(false)
+  /**
+   * Paid partnership / own-brand promotion — TikTok requires the disclosure
+   * toggles to be sent explicitly when the post is commercial content.
+   */
+  brandContent   Boolean   @default(false)
+  brandOrganic   Boolean   @default(false)
+  isAigc         Boolean   @default(false)
+  status         String    @default("draft") // draft | scheduled | publishing | published | failed
+  reviewed       Boolean   @default(false) // a teammate approved it for publishing
+  reviewedBy     String?
+  scheduledFor   DateTime?
+  attempts       Int       @default(0)
+  publishId      String? // TikTok publish_id — used to poll status
+  shareUrl       String? // public URL once published
+  error          String?
+  createdBy      String?
+  publishedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([projectSlug, status, updatedAt(sort: Desc)])
+  @@index([status, scheduledFor]) // scheduler tick queries
+}

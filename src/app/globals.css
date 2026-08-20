@@ -1,0 +1,1114 @@
+@import "tailwindcss";
+
+/* Class-based dark mode (overrides Tailwind v4's default prefers-color-scheme).
+   We toggle the `dark` class on <html> via ThemeProvider. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Theme tokens — used by components via tailwind utilities like
+   bg-background, text-foreground, border-border, etc. Both light and dark
+   sets are explicitly defined; nothing relies on prefers-color-scheme. */
+
+:root {
+  /* Light theme (default) */
+  --background: #fafaf9;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --foreground: #0a0a0a;
+  --foreground-muted: #525252;
+  --foreground-subtle: #737373;
+  --foreground-faint: #a3a3a3;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --accent: #5b9c00; /* darker lime that works on light bg */
+  --accent-foreground: #ffffff;
+  --accent-bg: rgba(91, 156, 0, 0.1);
+  --accent-border: rgba(91, 156, 0, 0.3);
+  --danger: #b91c1c;
+  --warning: #b45309;
+  --success: #15803d;
+  /* Categorical slots for the treasury allocation chart. Each mode gets its own
+     step from the same hues (not an automatic flip) — both runs pass the
+     lightness band, chroma floor, CVD separation and 3:1 contrast checks. */
+  --viz-1: #10a37f;
+  --viz-2: #d97706;
+  --viz-3: #4f46e5;
+  /* Segmented control (tab switcher). A tinted track with a raised thumb, which
+     is the one treatment that reads on a near-white page: the old translucent
+     accent pill was 10% olive over white — almost nothing. Light lifts the
+     thumb with a shadow; dark lifts it with lightness instead, since shadows
+     are invisible on a dark ground. */
+  --segment-track: #ebebe7;
+  --segment-thumb: #ffffff;
+  --segment-thumb-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.07),
+    0 2px 5px rgba(0, 0, 0, 0.05);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
+  /* Loading placeholders: a base tint plus the highlight that sweeps over it. */
+  --skeleton-base: rgba(0, 0, 0, 0.06);
+  --skeleton-sheen: rgba(0, 0, 0, 0.11);
+}
+
+.dark {
+  --background: #09090b;
+  --surface: #18181b;
+  --surface-elevated: #1f1f23;
+  --foreground: #f4f4f5;
+  --foreground-muted: #a1a1aa;
+  --foreground-subtle: #8a8a93; /* lifted from #71717a so 11–13px metadata clears WCAG AA on surfaces */
+  --foreground-faint: #52525b;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --accent: #a3e635; /* lime-400 — vivid on dark bg */
+  --accent-foreground: #0a0a0a;
+  --accent-bg: rgba(163, 230, 53, 0.1);
+  --accent-border: rgba(163, 230, 53, 0.3);
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --success: #4ade80;
+  --viz-1: #10a37f;
+  --viz-2: #d97706;
+  --viz-3: #6366f1;
+  --segment-track: #131316;
+  --segment-thumb: #2a2a30;
+  --segment-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+  --skeleton-base: rgba(255, 255, 255, 0.07);
+  --skeleton-sheen: rgba(255, 255, 255, 0.14);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
+  --color-foreground-faint: var(--foreground-faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-bg: var(--accent-bg);
+  --color-accent-border: var(--accent-border);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-viz-1: var(--viz-1);
+  --color-viz-2: var(--viz-2);
+  --color-viz-3: var(--viz-3);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Tailwind v4 dropped the default cursor:pointer on buttons. Restore it for all
+   interactive controls so clickable UI (incl. copy chips) feels clickable.
+   In @layer base so Tailwind utilities (cursor-grab, cursor-default, …) still win. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── Step-transition animations (post-creator stepped flow) ── */
+@keyframes step-enter-forward {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes step-enter-back {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.step-enter-forward {
+  animation: step-enter-forward 0.2s ease-out both;
+}
+
+.step-enter-back {
+  animation: step-enter-back 0.2s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-enter-forward,
+  .step-enter-back {
+    animation: none;
+  }
+}
+
+/* ── Loading placeholders ───────────────────────────────────────────────────
+   One shimmer for the whole app. The sweep is a background-position animation
+   on a wide gradient, so it costs no layout and never moves the element. */
+@keyframes skeleton-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background-color: var(--skeleton-base);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--skeleton-sheen) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+  }
+}
+
+/* ── Language switch: the flag turns like a card ────────────────────────────
+   Two faces on one plane, the back pre-rotated half a turn and both with their
+   backsides hidden, so exactly one flag is ever visible. The perspective lives
+   on the button: without it the turn is a flat squash instead of a rotation. */
+.lang-toggle {
+  perspective: 320px;
+}
+
+.lang-flip {
+  position: relative;
+  display: block;
+  height: 20px;
+  width: 20px;
+  transform-style: preserve-3d;
+  /* Slightly past a half turn and back — the overshoot is what makes it feel
+     like a flicked coin rather than a slider moving between two stops. */
+  transition: transform 620ms cubic-bezier(0.34, 1.32, 0.64, 1);
+}
+
+.lang-flip[data-locale="pt"] {
+  transform: rotateY(180deg);
+}
+
+.lang-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  /* Rounds the shadow to the flag itself, which is a circle inside a square. */
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgb(0 0 0 / 0.18);
+}
+
+.lang-face-back {
+  transform: rotateY(180deg);
+}
+
+/* At rest the flag is the only saturated thing in a row of monochrome icons,
+   which made it louder than a piece of app chrome should be. Held back a
+   little until you reach for it, so the full colour is part of the
+   interaction instead of a permanent claim on your attention.
+
+   The filter goes on the <svg>, NOT on .lang-flip: filter forces
+   transform-style back to flat, which would kill the card turn outright. */
+.lang-toggle svg {
+  filter: saturate(0.7);
+  transition: filter 260ms ease;
+}
+
+.lang-toggle:hover svg,
+.lang-toggle:focus-visible svg {
+  filter: saturate(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lang-toggle svg {
+    transition: none;
+  }
+}
+
+/* Press feedback on the whole mark, independent of the turn. */
+.lang-toggle:active .lang-flip {
+  scale: 0.92;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lang-flip {
+    transition: none;
+  }
+  .lang-toggle:active .lang-flip {
+    scale: 1;
+  }
+}
+
+/* ── Theme switch: circular reveal ──────────────────────────────────────────
+   The default cross-fade is disabled so the old theme just sits still while the
+   new one is clipped in by the growing circle animated in theme-provider.tsx. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 2;
+}
+
+/* ── Disclosure: a row that opens in place (Kanban's "Pessoas" filter) ───────
+   Height can't be transitioned to `auto`, so the row is a grid whose single
+   track goes 0fr → 1fr — that DOES interpolate, and the inner element clips
+   what doesn't fit yet. The row stays mounted so closing animates too; `inert`
+   (set by the component) keeps the collapsed chips out of tab order and off
+   the a11y tree, which `overflow: hidden` alone would not do.
+
+   The negative margin cancels ONE of the flex parent's two gaps around a
+   zero-height item, so a closed row occupies exactly the space of no row at
+   all — and because it interpolates alongside the track, the board slides
+   instead of jumping the last 1rem. It assumes a `gap-4` parent; a caller that
+   wants the open row tighter than that sets --disclosure-open-mt. */
+.disclosure-row {
+  display: grid;
+  grid-template-rows: 0fr;
+  /* The default cancels one gap of a `gap-4` flex parent. A caller whose parent
+     has no gap (a plain card, say) sets --disclosure-closed-mt: 0, or the
+     collapsed row eats 1rem of whatever sits above it. */
+  margin-top: var(--disclosure-closed-mt, -1rem);
+  opacity: 0;
+  transition:
+    grid-template-rows 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    margin-top 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    opacity 140ms ease;
+}
+
+.disclosure-row[data-open="true"] {
+  grid-template-rows: 1fr;
+  margin-top: var(--disclosure-open-mt, 0rem);
+  opacity: 1;
+  /* Fade in over the whole open so the chips don't land before the row has
+     room for them; on close they leave first and the row follows. */
+  transition:
+    grid-template-rows 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    margin-top 240ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    opacity 200ms ease;
+}
+
+/* The clipping box. Padding cancelled by an equal negative margin costs no
+   layout but keeps the clip a couple of pixels off the content, so a focus
+   ring on the first or last chip isn't shaved once the row is open. */
+.disclosure-row > * {
+  min-height: 0;
+  overflow: hidden;
+  margin: -2px;
+  padding: 2px;
+}
+
+/* ── Live badge: the dot that says the data is being read right now ──────────
+   A ring expanding out of a solid dot. It's decoration for a claim the copy
+   already makes, so it stops entirely under reduced motion rather than
+   degrading — a pulsing dot is exactly the kind of movement that setting is
+   asking us to drop. */
+@keyframes live-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: currentColor;
+  animation: live-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* ── Login scene ────────────────────────────────────────────────────────────
+   The only screen a visitor sees before anything else, so it is also the only
+   place the product gets to make a first impression. Every colour here is the
+   portal's own --accent, so the scene brands itself per project with no second
+   palette to maintain.
+
+   Intensity is carried by `opacity` on the elements rather than by alpha mixed
+   into the colours. That keeps the accent a plain solid everywhere, which
+   matters because the minifier can't evaluate color-mix() over two variables:
+   it falls back to the raw accent, and a page-sized blob of undiluted brand
+   colour is not a graceful degradation.
+
+   Light mode gets its own numbers rather than a dimmed copy of the dark ones.
+   The app's light surfaces are white on near-white with an 8%-black border,
+   which reads flat; here the card earns its depth from a real shadow, so both
+   modes feel equally considered. */
+:root {
+  --auth-grid: rgba(0, 0, 0, 0.05);
+  --auth-aura-a-opacity: 0.26;
+  --auth-aura-b-opacity: 0.13;
+  --auth-sheen-opacity: 0.7;
+  --auth-spot-opacity: 0.09;
+  --auth-logo-opacity: 0.16;
+  --auth-card: #ffffff;
+  --auth-card-border: rgba(0, 0, 0, 0.09);
+  /* A long, soft shadow is what separates the card from a white page — light
+     mode has no darker surface to fall back on the way dark mode does. */
+  --auth-card-shadow: 0 24px 70px -28px rgba(15, 23, 42, 0.34), 0 2px 6px -3px rgba(15, 23, 42, 0.1);
+}
+
+.dark {
+  --auth-grid: rgba(255, 255, 255, 0.045);
+  --auth-aura-a-opacity: 0.3;
+  --auth-aura-b-opacity: 0.15;
+  --auth-sheen-opacity: 0.85;
+  --auth-spot-opacity: 0.14;
+  --auth-logo-opacity: 0.22;
+  --auth-card: var(--surface);
+  --auth-card-border: rgba(255, 255, 255, 0.1);
+  --auth-card-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.85);
+}
+
+.auth-scene {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--background);
+}
+
+/* Fine grid, faded out towards the edges so it reads as texture rather than as
+   a table. Static on purpose: the auras carry the movement, and two things
+   drifting at once looks restless. */
+.auth-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image:
+    linear-gradient(var(--auth-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--auth-grid) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(ellipse 65% 55% at 50% 45%, #000 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 65% 55% at 50% 45%, #000 35%, transparent 100%);
+}
+
+/* The blur is what turns a hard circle of brand colour into light on a wall. */
+.auth-aura {
+  position: absolute;
+  z-index: -1;
+  border-radius: 9999px;
+  background: var(--accent);
+  filter: blur(72px);
+  will-change: transform;
+}
+
+/* Two blobs on different clocks and easings — with one, the loop is obvious. */
+.auth-aura-a {
+  top: -12%;
+  left: 50%;
+  height: 30rem;
+  width: 30rem;
+  margin-left: -15rem;
+  opacity: var(--auth-aura-a-opacity);
+  animation: auth-drift-a 24s ease-in-out infinite alternate;
+}
+
+.auth-aura-b {
+  bottom: -18%;
+  left: 50%;
+  height: 26rem;
+  width: 26rem;
+  margin-left: -13rem;
+  opacity: var(--auth-aura-b-opacity);
+  animation: auth-drift-b 31s ease-in-out infinite alternate;
+}
+
+@keyframes auth-drift-a {
+  from {
+    transform: translate3d(-8%, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(9%, 6%, 0) scale(1.14);
+  }
+}
+
+@keyframes auth-drift-b {
+  from {
+    transform: translate3d(7%, 4%, 0) scale(1.08);
+  }
+  to {
+    transform: translate3d(-9%, -5%, 0) scale(0.94);
+  }
+}
+
+/* The angle has to be a registered property or it can't be interpolated — an
+   unregistered custom property is just a string to the animation engine. Where
+   @property is unsupported the arc simply sits still, which still looks
+   deliberate. */
+@property --auth-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.auth-card {
+  position: relative;
+  background: var(--auth-card);
+  border: 1px solid var(--auth-card-border);
+  box-shadow: var(--auth-card-shadow);
+}
+
+/* Travelling highlight ON the border. The two-layer mask punches out the middle
+   so the conic gradient survives only in the 1px ring; the static border below
+   stays visible the whole way round, and this rides over it. */
+.auth-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--auth-angle),
+    transparent 0deg,
+    var(--accent) 22deg,
+    transparent 64deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: var(--auth-sheen-opacity);
+  pointer-events: none;
+  animation: auth-sheen 9s linear infinite;
+}
+
+@keyframes auth-sheen {
+  to {
+    --auth-angle: 360deg;
+  }
+}
+
+/* Pointer spotlight. --mx/--my are written by the form on pointer move; before
+   the first move it sits at the top centre, which is where the eye already is. */
+.auth-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(16rem circle at var(--mx, 50%) var(--my, 0%), var(--accent), transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 450ms ease;
+}
+
+.auth-card:hover::after,
+.auth-card:focus-within::after {
+  opacity: var(--auth-spot-opacity);
+}
+
+/* Content has to out-stack both pseudo-elements. */
+.auth-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-logo {
+  position: relative;
+}
+
+/* Grounds the mark on a flat white card, where a bare logo floats. The negative
+   z-index keeps it behind the image — a positioned pseudo-element would
+   otherwise paint over the non-positioned <img> it is meant to sit under. */
+.auth-logo::before {
+  content: "";
+  position: absolute;
+  inset: -55%;
+  z-index: -1;
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--accent), transparent 70%);
+  opacity: var(--auth-logo-opacity);
+}
+
+/* Buttons lift towards the pointer instead of only changing colour. */
+.auth-action {
+  transition:
+    transform 180ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    box-shadow 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.auth-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  /* --accent-border is the per-project accent already carrying alpha. */
+  box-shadow: 0 10px 22px -14px var(--accent-border);
+}
+
+.auth-action:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-aura,
+  .auth-card::before {
+    animation: none;
+  }
+  .auth-action:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ── Calendar palette ───────────────────────────────────────────────────────
+   Event colours are stored in the database as hex, and the six the picker
+   offers were chosen for a dark grid: 400-level tints that glow on near-black
+   and go pale and low-contrast on white. Rather than migrate stored data, each
+   stored colour is a SLOT, and the slot resolves to the right shade per theme —
+   light mode gets the 700-level version of the same hue, so a "pink meeting"
+   stays pink in both without anyone re-picking anything.
+
+   The soft pair is the chip fill. It is a flat rgba rather than an alpha over
+   the solid so that the fill can be lighter in light mode (12%) than in dark
+   (16%), which is what keeps the text on top readable in both. */
+:root {
+  --evt-1: #4d7c0f;
+  --evt-1-soft: rgba(77, 124, 15, 0.12);
+  --evt-2: #0369a1;
+  --evt-2-soft: rgba(3, 105, 161, 0.12);
+  --evt-3: #be185d;
+  --evt-3-soft: rgba(190, 24, 93, 0.12);
+  --evt-4: #b45309;
+  --evt-4-soft: rgba(180, 83, 9, 0.12);
+  --evt-5: #7e22ce;
+  --evt-5-soft: rgba(126, 34, 206, 0.12);
+  --evt-6: #047857;
+  --evt-6-soft: rgba(4, 120, 87, 0.12);
+  /* Grid rules. The old hour lines were the border token at 50% — 4% black on
+     white, which is invisible; the grid has to be legible to be a grid. */
+  --cal-line: rgba(0, 0, 0, 0.07);
+  --cal-line-strong: rgba(0, 0, 0, 0.11);
+  --cal-outside: rgba(0, 0, 0, 0.025);
+}
+
+.dark {
+  --evt-1: #a3e635;
+  --evt-1-soft: rgba(163, 230, 53, 0.16);
+  --evt-2: #38bdf8;
+  --evt-2-soft: rgba(56, 189, 248, 0.16);
+  --evt-3: #f472b6;
+  --evt-3-soft: rgba(244, 114, 182, 0.16);
+  --evt-4: #fbbf24;
+  --evt-4-soft: rgba(251, 191, 36, 0.16);
+  --evt-5: #c084fc;
+  --evt-5-soft: rgba(192, 132, 252, 0.16);
+  --evt-6: #34d399;
+  --evt-6-soft: rgba(52, 211, 153, 0.16);
+  --cal-line: rgba(255, 255, 255, 0.06);
+  --cal-line-strong: rgba(255, 255, 255, 0.1);
+  --cal-outside: rgba(255, 255, 255, 0.02);
+}
+
+/* An empty half-hour is a button; it should say so before you click it. */
+.cal-slot {
+  transition: background-color 140ms ease;
+}
+
+.cal-slot:hover {
+  background-color: var(--accent-bg);
+}
+
+.cal-slot-hint {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.cal-slot:hover .cal-slot-hint {
+  opacity: 1;
+}
+
+.cal-event {
+  transition:
+    transform 140ms cubic-bezier(0.22, 0.75, 0.28, 1),
+    box-shadow 140ms ease,
+    filter 140ms ease;
+}
+
+.cal-event:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -8px rgb(0 0 0 / 0.35);
+  filter: brightness(1.06);
+  z-index: 20;
+}
+
+/* The segmented Day/Week/Month control: one pill that slides between three
+   equal cells, instead of three backgrounds blinking on and off. */
+.seg-indicator {
+  transition: transform 260ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+/* The date range re-mounts on every navigation (React key), so this plays each
+   time — it tells you WHICH way you moved, which arrows alone don't. */
+@keyframes cal-range-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--range-from, 6px));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.cal-range {
+  animation: cal-range-in 240ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+/* ── Modal: fade the ground, lift the panel ─────────────────────────────────
+   Both halves stay mounted through the close so the exit animates; the owner
+   drops them from the tree once the transition is done. */
+.dialog-backdrop {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.dialog-backdrop[data-open="true"] {
+  opacity: 1;
+}
+
+.dialog-panel {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  transition:
+    opacity 180ms ease,
+    transform 240ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+.dialog-panel[data-open="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cal-event:hover {
+    transform: none;
+  }
+  .cal-range {
+    animation: none;
+  }
+  .seg-indicator {
+    transition: none;
+  }
+  .dialog-panel,
+  .dialog-panel[data-open="true"] {
+    transform: none;
+    transition: opacity 120ms ease;
+  }
+}
+
+/* ── Tab panels ─────────────────────────────────────────────────────────────
+   Switching tabs used to swap content instantly, which reads as a page reload
+   rather than a change of view. Keyed on the tab id, so this replays on each
+   switch. Opacity and a few pixels only — no layout animation, because these
+   panels are tall and animating their height would be motion sickness. */
+@keyframes tab-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tab-panel {
+  animation: tab-panel-in 220ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+/* ── Segmented tab switcher ─────────────────────────────────────────────────
+   One thumb travels from the old tab to the new one instead of a highlight
+   blinking out here and in there. The movement is what carries the meaning:
+   you keep hold of the thing you were looking at while it becomes the next
+   thing. Position comes from JS measuring the active button (--seg-x/--seg-w)
+   because the tabs are text-width, not a fixed grid.
+
+   The easing overshoots by a hair (the 1.02) so the thumb settles rather than
+   stops dead — it's what separates "animated" from "physical". */
+.segmented {
+  position: relative;
+  isolation: isolate;
+  background: var(--segment-track);
+}
+
+.segmented-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  z-index: -1;
+  height: calc(100% - 0.5rem);
+  width: var(--seg-w, 0);
+  transform: translate(var(--seg-x, 0), -50%);
+  border-radius: 0.5rem;
+  background: var(--segment-thumb);
+  box-shadow: var(--segment-thumb-shadow);
+}
+
+/* No transition until the first measurement has landed, or the thumb would
+   fly in from the left edge on every page load. */
+.segmented[data-ready="true"] .segmented-thumb {
+  transition:
+    transform 380ms cubic-bezier(0.32, 1.02, 0.35, 1),
+    width 380ms cubic-bezier(0.32, 1.02, 0.35, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented[data-ready="true"] .segmented-thumb {
+    transition: none;
+  }
+}
+
+/* ── Chart entrances ────────────────────────────────────────────────────────
+   The line draws itself left to right, once, and the wash fades in behind it
+   a beat later. Two reasons it earns its place: it points the eye at the
+   direction time runs, and it marks the moment new data lands when the period
+   changes — the same job the reduced-opacity hold does for the rest of the
+   card. `pathLength: 1` normalises the dash maths, so a 7-day and a 90-day
+   series take exactly the same time. */
+@keyframes chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes chart-fill {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.1;
+  }
+}
+
+.chart-line {
+  stroke-dasharray: 1;
+  animation: chart-draw 700ms cubic-bezier(0.33, 0.9, 0.35, 1) both;
+}
+
+.chart-area {
+  opacity: 0.1;
+  animation: chart-fill 420ms ease 260ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-line,
+  .chart-area {
+    animation: none;
+  }
+  .chart-line {
+    stroke-dasharray: none;
+  }
+}
+
+/* ── Underline tabs (home: Morning brief ∥ Socials) ─────────────────────────
+   Same idea as the segmented thumb, drawn as a rule instead of a pill: the
+   line travels between tabs so the eye follows one object rather than watching
+   a border blink from one word to another. Geometry from JS, same reason —
+   tabs are text-width. */
+.underline-tabs {
+  position: relative;
+}
+
+.underline-tabs-thumb {
+  position: absolute;
+  bottom: -1px; /* sits on the container's border, not above it */
+  left: 0;
+  height: 2px;
+  /* Its own names, not the segmented control's: custom properties inherit, so
+     a segmented control nested inside these tabs would pick up this list's
+     geometry for a frame before its own effect ran. */
+  width: var(--tab-w, 0);
+  transform: translateX(var(--tab-x, 0));
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.underline-tabs[data-ready="true"] .underline-tabs-thumb {
+  transition:
+    transform 340ms cubic-bezier(0.32, 1.02, 0.35, 1),
+    width 340ms cubic-bezier(0.32, 1.02, 0.35, 1);
+}
+
+/* Progressive enhancement: each tab carries a plain CSS bottom border so the
+   active one is marked on the first paint and with JS off. The moment the
+   measured thumb exists, that border steps aside — both sit on the container's
+   border line, so the handover is invisible. */
+.underline-tabs[data-ready="true"] [role="tab"] {
+  border-bottom-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .underline-tabs[data-ready="true"] .underline-tabs-thumb {
+    transition: none;
+  }
+}
+
+/* ── Inbox rows that leave once handled ─────────────────────────────────────
+   A row that vanishes the instant you act on it reads as "did that work?".
+   These hold their place for a beat in a done state, then collapse — the grid
+   trick from .disclosure-row, since height doesn't interpolate to auto. */
+.row-leaving {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 240ms ease;
+}
+
+.row-leaving[data-leaving="true"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.row-leaving > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-panel {
+    animation: none;
+  }
+  .row-leaving {
+    transition: opacity 150ms ease;
+  }
+}
+
+/* ── Popover: a panel anchored to its trigger (Kanban's "PRs" list) ──────────
+   Absolutely positioned, so nothing reflows and only paint properties move.
+   Kept mounted for the same reason as above; `visibility` is what actually
+   takes it out of hit-testing, and its transition is a zero-length step
+   DELAYED to the end of the close so the fade is still visible on the way
+   out. `inert` handles focus and screen readers. */
+.popover-panel {
+  transform-origin: top right;
+  opacity: 0;
+  /* --pop-y is the direction it comes from: negative drops in from above the
+     trigger, positive rises in from below it. AnchoredPopover flips the sign
+     when it has to open upwards. */
+  transform: translateY(var(--pop-y, -6px)) scale(0.97);
+  visibility: hidden;
+  transition:
+    opacity 130ms ease,
+    transform 130ms ease-in,
+    visibility 0s linear 130ms;
+}
+
+.popover-panel[data-open="true"] {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  /* Slight overshoot on the way in — the panel arrives rather than appears. */
+  transition:
+    opacity 150ms ease,
+    transform 210ms cubic-bezier(0.2, 1.12, 0.4, 1),
+    visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure-row,
+  .disclosure-row[data-open="true"],
+  .popover-panel,
+  .popover-panel[data-open="true"] {
+    /* Opacity only: no travel, no size animation — but the panel still has to
+       stop hit-testing when closed, so visibility keeps its step. */
+    transform: none;
+    transition:
+      opacity 100ms ease,
+      visibility 0s;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Studio (vendored from r4topunk/reelflip-studio) — token bridge + brand fonts.
+   The studio's shadcn-style UI expects the full shadcn variable set; we map it
+   onto the portal tokens, so both themes work without touching vendored code.
+   The artwork canvas itself uses fixed brand colors (lib/studio/tokens.ts). */
+
+@font-face {
+  font-family: "TOOM";
+  src: url("/studio/fonts/TOOM-Regular.otf") format("opentype");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "TOOM";
+  src: url("/studio/fonts/TOOM-Bold-Italic.otf") format("opentype");
+  font-weight: 700;
+}
+@font-face {
+  font-family: "Bazinga";
+  src: url("/studio/fonts/Bazinga-Regular.otf") format("opentype");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "MADE GoodTime Grotesk";
+  src: url("/studio/fonts/MADE-GoodTime-Grotesk.otf") format("opentype");
+  font-weight: 400;
+}
+/* SkateHive brand display font (spot template in the Studio). */
+@font-face {
+  font-family: "Joystix";
+  src: url("/studio/fonts/joystix.woff2") format("woff2"),
+    url("/studio/fonts/joystix.otf") format("opentype");
+  font-weight: 400;
+  font-display: swap;
+}
+/* Gnars brand display font (from gnars.com's OG template). */
+@font-face {
+  font-family: "Ken Pixel";
+  src: url("/og-assets/kenpixel.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --card: var(--surface-elevated);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface-elevated);
+  --popover-foreground: var(--foreground);
+  --primary: var(--accent);
+  --primary-foreground: var(--background);
+  --secondary: var(--surface-elevated);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-elevated);
+  --muted-foreground: var(--foreground-muted);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--background);
+  --input: var(--border);
+  --ring: var(--accent);
+  --selection: var(--accent);
+  --radius: 0.625rem;
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--accent);
+  --sidebar-primary: var(--accent);
+  --sidebar-primary-foreground: var(--background);
+  --sidebar-accent: var(--surface-elevated);
+  --sidebar-accent-foreground: var(--foreground);
+}
+
+@theme inline {
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-selection: var(--selection);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* ── Kanban card game FX: top-priority cards catch fire, overdue cards freeze ──
+   Effects live on a dedicated overlay (CardFx) — flames/sparks + the electric
+   border are canvas-drawn; only the icicle shape is CSS. */
+.kb-icicle {
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  background: linear-gradient(to bottom, rgba(248,252,255,.98), rgba(186,230,253,.92) 45%, rgba(56,189,248,.85));
+}

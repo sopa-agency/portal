@@ -1,0 +1,11 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Reelflip">
+  <defs>
+    <linearGradient id="reelflip-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#reelflip-bg)"/>
+  <path d="M26 21.5c0-1.6 1.74-2.59 3.11-1.77l17.2 10.5c1.32.81 1.32 2.73 0 3.54l-17.2 10.5C27.74 45.09 26 44.1 26 42.5v-21Z" fill="#ffffff"/>
+  <circle cx="20" cy="32" r="3.2" fill="#ffffff" fill-opacity="0.9"/>
+</svg>
