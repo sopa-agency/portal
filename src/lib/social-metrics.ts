@@ -431,7 +431,7 @@ async function fetchInstagramMetrics(
 ): Promise<ChannelMetrics> {
   // Identity credentials: never fall back across brands (see brand-env.ts).
   const token = brandEnv(project, "INSTAGRAM_ACCESS_TOKEN");
-  const igid = brandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID");
+  const igid = brandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID") ?? project.instagram?.businessAccountId;
 
   if (!token || !igid) {
     return {

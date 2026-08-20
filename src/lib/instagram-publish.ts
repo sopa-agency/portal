@@ -19,7 +19,7 @@ function resolveIgCredentials(project: ProjectConfig): {
 } {
   // Identity credentials: never fall back across brands (see brand-env.ts).
   const token = brandEnv(project, "INSTAGRAM_ACCESS_TOKEN") ?? null;
-  const igid = brandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID") ?? null;
+  const igid = brandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID") ?? project.instagram?.businessAccountId ?? null;
   return { token, igid };
 }
 

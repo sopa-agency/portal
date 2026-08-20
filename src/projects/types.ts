@@ -105,6 +105,22 @@ export type ProjectConfig = {
     /** Optional: env key suffix for the signer UUID (reads ${prefix}_NEYNAR_SIGNER_UUID) */
     signerEnvKey?: string;
   };
+  // ---------------------------------------------------------------------------
+  // Non-secret integration IDs. These are public identifiers (not credentials),
+  // so they live in code as the default; the matching `${PREFIX}_<KEY>` env var
+  // still overrides when set. The SECRET half of each integration (bot token,
+  // access token, secret key) stays in env only.
+  // ---------------------------------------------------------------------------
+  /** Discord channel the briefing/crosspost bot targets (secret: DISCORD_BOT_TOKEN). */
+  discord?: { channelId?: string };
+  /** Instagram Graph API business-account id (secret: INSTAGRAM_ACCESS_TOKEN). */
+  instagram?: { businessAccountId?: string };
+  /** Google Drive folder id for the brand's asset context (secret: GOOGLE_SERVICE_ACCOUNT_JSON). */
+  googleDrive?: { folderId?: string };
+  /** thirdweb public client id (secret: THIRDWEB_SECRET_KEY). */
+  thirdweb?: { clientId?: string };
+  /** Facebook page id + crosspost opt-in (secret: reuses INSTAGRAM_ACCESS_TOKEN / Meta token). */
+  facebook?: { pageId?: string; crosspost?: boolean };
   /** Default GitHub repos for Repo-to-Social, formatted as "owner/name" */
   repos: string[];
   /**

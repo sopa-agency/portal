@@ -96,7 +96,7 @@ export async function listDriveFolder(
   const resolvedFolderId =
     folderId ??
     process.env[`${prefix}_GOOGLE_DRIVE_FOLDER_ID`] ??
-    process.env.GOOGLE_DRIVE_FOLDER_ID;
+    process.env.GOOGLE_DRIVE_FOLDER_ID ?? project.googleDrive?.folderId;
 
   // Check service account availability first so we can surface the SA email
   const saResult = getServiceAccountJson(project);
@@ -347,7 +347,7 @@ export async function getDriveBrandContext(project: ProjectConfig): Promise<stri
   try {
     const prefix = project.agent.gatewayEnvPrefix;
     const folderId =
-      process.env[`${prefix}_GOOGLE_DRIVE_FOLDER_ID`] ?? process.env.GOOGLE_DRIVE_FOLDER_ID;
+      process.env[`${prefix}_GOOGLE_DRIVE_FOLDER_ID`] ?? process.env.GOOGLE_DRIVE_FOLDER_ID ?? project.googleDrive?.folderId;
 
     // Not configured for this project — silently return empty.
     if (!folderId) return "";

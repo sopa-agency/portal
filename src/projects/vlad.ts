@@ -41,6 +41,9 @@ const vlad: ProjectConfig = {
   farcaster: {
     channel: "vlad", // TODO(vlad): confirm channel (or drop if unused).
   },
+  // Non-secret integration IDs (secrets stay in VLAD_* env). Override via env.
+  instagram: { businessAccountId: "17841400639362790" },
+  facebook: { pageId: "1172659325935854" },
   repos: [],
   socials: [
     {

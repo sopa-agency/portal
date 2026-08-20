@@ -205,7 +205,7 @@ async function postHiveComment(
   castHash: string, // "hive:author/permlink"
   body: string,
 ): Promise<{ ok: true; url: string; ref: string } | { ok: false; error: string }> {
-  const account = brandEnv(project, "HIVE_POSTING_ACCOUNT");
+  const account = brandEnv(project, "HIVE_POSTING_ACCOUNT") ?? project?.hive.account;
   const key = brandEnv(project, "HIVE_POSTING_KEY");
   if (!account || !key) return { ok: false, error: "Hive não conectado neste portal (falta posting key)." };
 

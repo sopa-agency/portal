@@ -854,7 +854,7 @@ export async function listThirdwebUsers(): Promise<ThirdwebUsersResult> {
   const project = await getActiveProject();
   const prefix = project.agent.gatewayEnvPrefix;
   const secret = process.env[`${prefix}_THIRDWEB_SECRET_KEY`]?.trim();
-  const clientId = process.env[`${prefix}_THIRDWEB_CLIENT_ID`]?.trim();
+  const clientId = process.env[`${prefix}_THIRDWEB_CLIENT_ID`]?.trim() ?? project.thirdweb?.clientId;
   if (!secret || !clientId) return { configured: false };
 
   try {

@@ -124,7 +124,7 @@ export async function listSnapsForCuration(force = false): Promise<
     .slice(0, 40);
 
   const hashes = snaps.map((s) => castHashOf(s.author, s.permlink));
-  const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT");
+  const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT") ?? g.project?.hive.account;
   const [targets, replied] = await Promise.all([
     prisma.trailBoostTarget.findMany({ where: { castHash: { in: hashes } } }).catch(() => []),
     account ? repliedTargets(account, snaps.map((s) => ({ author: s.author, permlink: s.permlink }))) : Promise.resolve(new Map<string, string>()),
@@ -181,7 +181,7 @@ export async function listBlogPostsForCuration(): Promise<
 
   const frontend = g.project.hive.frontend;
   const hashes = raw.map((p) => castHashOf(p.author, p.permlink));
-  const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT");
+  const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT") ?? g.project?.hive.account;
   const [targets, replied] = await Promise.all([
     prisma.trailBoostTarget.findMany({ where: { castHash: { in: hashes } } }).catch(() => []),
     account ? repliedTargets(account, raw.map((p) => ({ author: p.author, permlink: p.permlink }))) : Promise.resolve(new Map<string, string>()),
@@ -353,7 +353,7 @@ export async function replyToSnap(
   const text = body.trim();
   if (!text) return { ok: false, error: "Resposta vazia." };
 
-  const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT");
+  const account = brandEnv(g.project, "HIVE_POSTING_ACCOUNT") ?? g.project?.hive.account;
   const key = brandEnv(g.project, "HIVE_POSTING_KEY");
   if (!account || !key) return { ok: false, error: "Hive não conectado neste portal (falta posting key)." };
 

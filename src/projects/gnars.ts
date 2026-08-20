@@ -48,6 +48,11 @@ const gnars: ProjectConfig = {
     // Gnars casts in the /gnars channel on Farcaster.
     channel: "gnars",
   },
+  // Non-secret integration IDs (secrets stay in GNARS_* env). Override via env.
+  discord: { channelId: "929970602087952394" },
+  instagram: { businessAccountId: "17841446426639704" },
+  googleDrive: { folderId: "1UYTtyG_dOPOSgAtuW-oLWR35hUv4CJbf" },
+  thirdweb: { clientId: "c29ceb3334b7028f121ce31838ccea2d" },
   repos: [
     "r4topunk/gnars-website",
   ],

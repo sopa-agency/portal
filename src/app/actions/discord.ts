@@ -22,7 +22,7 @@ export async function listDiscordChannels(): Promise<
   if (!token) return { ok: false, error: `Discord não configurado — defina ${project.agent.gatewayEnvPrefix}_DISCORD_BOT_TOKEN.` };
 
   const saved = await prisma.discordChannelConfig.findUnique({ where: { projectSlug: project.slug } }).catch(() => null);
-  const envId = brandEnv(project, "DISCORD_CHANNEL_ID") ?? null;
+  const envId = brandEnv(project, "DISCORD_CHANNEL_ID") ?? project.discord?.channelId ?? null;
   const currentId = saved?.channelId ?? envId;
 
   try {

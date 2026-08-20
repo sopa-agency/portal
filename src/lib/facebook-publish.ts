@@ -14,7 +14,8 @@ const GRAPH_API = "https://graph.facebook.com/v21.0";
 
 export function facebookCrosspostEnabled(project: ProjectConfig): boolean {
   const v = brandEnvByPrefix(project.agent.gatewayEnvPrefix, "FACEBOOK_CROSSPOST", "FACEBOOK_CROSSPOST");
-  return /^(1|true|yes)$/i.test(v ?? "");
+  if (v != null && v !== "") return /^(1|true|yes)$/i.test(v);
+  return project.facebook?.crosspost ?? false;
 }
 
 async function fbPost(
@@ -38,7 +39,7 @@ async function resolvePage(project: ProjectConfig): Promise<{ pageId: string; pa
   ).catch(() => null);
   if (!res || !res.ok) return null;
   const j = (await res.json().catch(() => null)) as { data?: Array<{ id: string; access_token?: string }> } | null;
-  const wantedId = process.env[`${project.agent.gatewayEnvPrefix}_FACEBOOK_PAGE_ID`];
+  const wantedId = process.env[`${project.agent.gatewayEnvPrefix}_FACEBOOK_PAGE_ID`] ?? project.facebook?.pageId;
   const page = wantedId ? j?.data?.find((p) => p.id === wantedId) : j?.data?.[0];
   if (!page?.id || !page.access_token) return null;
   return { pageId: page.id, pageToken: page.access_token };

@@ -132,7 +132,7 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
       });
     } else {
       const tokenPresent = hasBrandEnv(project, "INSTAGRAM_ACCESS_TOKEN");
-      const accountPresent = hasBrandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID");
+      const accountPresent = hasBrandEnv(project, "INSTAGRAM_BUSINESS_ACCOUNT_ID") || !!project.instagram?.businessAccountId;
       const igHandle = igSocial?.handle;
 
       if (tokenPresent && accountPresent) {
@@ -232,7 +232,7 @@ export function getPortalConnections(project: ProjectConfig): PortalConnection[]
   // ── Discord ───────────────────────────────────────────────────────────────
   {
     const discordToken = hasBrandEnv(project, "DISCORD_BOT_TOKEN");
-    const discordChannel = hasBrandEnv(project, "DISCORD_CHANNEL_ID");
+    const discordChannel = hasBrandEnv(project, "DISCORD_CHANNEL_ID") || !!project.discord?.channelId;
 
     if (discordToken && discordChannel) {
       connections.push({
@@ -521,7 +521,7 @@ export async function verifyDiscordConnection(
 ): Promise<{ status: ConnectionStatus; detail: string; botName?: string }> {
   const { brandEnv } = await import("@/lib/brand-env");
   const token = brandEnv(project, "DISCORD_BOT_TOKEN");
-  const channelId = brandEnv(project, "DISCORD_CHANNEL_ID");
+  const channelId = brandEnv(project, "DISCORD_CHANNEL_ID") ?? project.discord?.channelId;
 
   if (!token || !channelId) {
     return { status: "missing", detail: "No bot token configured." };

@@ -58,7 +58,7 @@ export async function publishSnapToHive(
 ): Promise<PublishResult> {
   try {
     // Identity credential: never falls back across brands (see brand-env.ts).
-    const account = brandEnv(project, "HIVE_POSTING_ACCOUNT");
+    const account = brandEnv(project, "HIVE_POSTING_ACCOUNT") ?? project?.hive.account;
     const key = brandEnv(project, "HIVE_POSTING_KEY");
     if (!account || !key) {
       return { ok: false, error: "HIVE_POSTING_ACCOUNT or HIVE_POSTING_KEY not set" };
@@ -420,7 +420,7 @@ export async function publishToDiscord(
       const saved = await prisma.discordChannelConfig.findUnique({ where: { projectSlug: project.slug } }).catch(() => null);
       channelId = saved?.channelId ?? null;
     }
-    if (!channelId) channelId = brandEnv(project, "DISCORD_CHANNEL_ID") ?? null;
+    if (!channelId) channelId = brandEnv(project, "DISCORD_CHANNEL_ID") ?? project?.discord?.channelId ?? null;
 
     if (!token || !channelId) {
       const p = prefix ?? "YOUR_PROJECT";

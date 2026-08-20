@@ -82,6 +82,11 @@ const skatehive: ProjectConfig = {
   farcaster: {
     channel: "skateboard",
   },
+  // Non-secret integration IDs (secrets stay in SKATEHIVE_* / bare env). Override via env.
+  discord: { channelId: "783245292375375873" },
+  instagram: { businessAccountId: "17841413667856971" },
+  googleDrive: { folderId: "1RlXhkN2EEINzcKKKWdOp6c-yL3a6VDk5" },
+  facebook: { crosspost: true },
   repos: [
     "SkateHive/skatehive3.0",
     // App React Native + Expo. Entra no Repo-to-Social pra virar post o que

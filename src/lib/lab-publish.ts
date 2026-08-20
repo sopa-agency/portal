@@ -26,7 +26,7 @@ function slugify(s: string): string {
 
 // Hive Magazine root post — long-form markdown posted to the community.
 async function publishHiveMag(text: string, project: ProjectConfig): Promise<PublishResult> {
-  const account = brandEnv(project, "HIVE_POSTING_ACCOUNT");
+  const account = brandEnv(project, "HIVE_POSTING_ACCOUNT") ?? project?.hive.account;
   const key = brandEnvByPrefix(project.agent.gatewayEnvPrefix, "HIVE_POSTING_KEY");
   const community = project.hive.community;
   if (!account || !key) return { ok: false, error: "Hive posting account/key not set." };

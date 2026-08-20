@@ -24,7 +24,7 @@ export async function getServerEmojis(): Promise<{ ok: boolean; emojis: ServerEm
   try {
     const project = await getActiveProject();
     const token = brandEnv(project, "DISCORD_BOT_TOKEN");
-    const channelId = brandEnv(project, "DISCORD_CHANNEL_ID");
+    const channelId = brandEnv(project, "DISCORD_CHANNEL_ID") ?? project.discord?.channelId;
     if (!token || !channelId) return { ok: true, emojis: [] };
 
     const headers = { Authorization: `Bot ${token}` };
