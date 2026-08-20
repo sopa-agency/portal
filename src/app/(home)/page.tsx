@@ -15,6 +15,7 @@ import { RegenerateBriefingButton } from "@/components/regenerate-briefing-butto
 import { ChannelStrategy } from "@/components/social-dashboard";
 import { HomeTabs, type SplitTab } from "@/components/home-split";
 import { loadLatestBriefing, todayIsoDate } from "@/lib/morning-briefing";
+import { getTeamEmails } from "@/lib/team-emails";
 import { fetchChannelMetrics } from "@/lib/social-metrics";
 import { listUnifiedCalendar } from "@/app/actions/post-creator";
 import { NextPosts } from "@/components/next-posts";
@@ -239,7 +240,7 @@ export default async function Home() {
         <MorningBriefing
           briefing={result.briefing}
           omitActions={hoisted}
-          teamEmails={project.teamEmails ?? []}
+          teamEmails={await getTeamEmails(project.slug)}
           projectName={project.name}
           githubRepo={project.repos[0]}
           postCreatorEnabled={!!project.postCreator}

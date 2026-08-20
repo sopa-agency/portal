@@ -6,6 +6,7 @@ import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getTeamEmails } from "@/lib/team-emails";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { feedbackScope, feedbackPromptBlock } from "@/lib/insight-feedback";
 import { getActiveProject } from "@/projects/index";
@@ -619,7 +620,7 @@ export async function sendBriefingEmail(
     const agent = project.briefingAgents.find((a) => a.slug === agentSlug);
     if (!agent) return { ok: false, error: `Unknown agent: ${agentSlug}` };
 
-    const recipients = project.teamEmails ?? [];
+    const recipients = await getTeamEmails(project.slug);
     if (recipients.length === 0) {
       return { ok: false, error: "No team emails configured for this project." };
     }
@@ -686,7 +687,7 @@ export async function getBriefingEmailMeta(
     }));
 
     return {
-      recipients: project.teamEmails ?? [],
+      recipients: await getTeamEmails(project.slug),
       configured,
       hasBriefing,
     };

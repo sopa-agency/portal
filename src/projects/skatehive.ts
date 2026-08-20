@@ -30,9 +30,7 @@ const skatehive: ProjectConfig = {
   ],
   teamContacts: {
     xvlad: [
-      { label: "Telegram", value: "@gnarlyvlad", url: "https://t.me/gnarlyvlad" },
       { label: "Farcaster", value: "@skateboard", url: "https://warpcast.com/skateboard" },
-      { label: "Email", value: "sktbrd.eth@gmail.com", url: "mailto:sktbrd.eth@gmail.com" },
     ],
     skatehive: [
       { label: "Instagram", value: "@skatehive", url: "https://instagram.com/skatehive" },
@@ -186,7 +184,6 @@ const skatehive: ProjectConfig = {
   prompts: {
     dir: "prompts/skatehive",
   },
-  teamEmails: ["sktbrd.eth@gmail.com"],
   githubProject: {
     org: "SkateHive",
     number: 1,

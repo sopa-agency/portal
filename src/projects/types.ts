@@ -324,7 +324,6 @@ export type ProjectConfig = {
    * "Email to team" action — sends the briefing by BCC to all addresses.
    * Omitting this (or leaving it empty) will disable the send action.
    */
-  teamEmails?: string[];
   /**
    * GitHub Projects V2 configuration. When set, the Kanban nav item is shown
    * and /kanban renders the board for this project. Gated like `analytics` —
