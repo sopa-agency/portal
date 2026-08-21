@@ -31,6 +31,7 @@ const http = require("node:http");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
+const { Readable } = require("node:stream");
 
 // Load .env.local / .env.development / .env — same pattern as other workers.
 for (const f of [".env.local", ".env.development", ".env"]) {
@@ -112,6 +113,56 @@ const BINARY_EXTS = new Set([
 
 // agentId whitelist: same format as OpenClaw agent ids.
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+// ---------------------------------------------------------------------------
+// Media proxy (/media) — PUBLIC, CORS-enabled, Range-passthrough IPFS proxy.
+//
+// This offloads the portal's same-origin video/image proxies (previously
+// /api/studio/video-proxy + /api/brain/image-proxy on Vercel) so no media
+// bytes stream through Vercel's bandwidth. The content is already public IPFS,
+// so this needs no shared secret — but it IS strictly host-whitelisted to
+// known IPFS gateways (no arbitrary-URL SSRF) and only proxies GET/HEAD.
+//
+// Exposed via Tailscale Funnel at /media → 127.0.0.1:18790 (funnel strips the
+// /media prefix, so the dispatcher keys on the presence of ?url= instead of a
+// fixed pathname). CORS is "*" (safe: anonymous, credential-less reads of
+// already-public content) so the editor canvas doesn't taint.
+// ---------------------------------------------------------------------------
+
+const MEDIA_HOSTS = new Set([
+  "ipfs.skatehive.app",
+  "gateway.pinata.cloud",
+  "magic.decentralized-content.com",
+  "ipfs.io",
+  "cloudflare-ipfs.com",
+  "w3s.link",
+]);
+
+// Fallback chain (matches lib/ipfs.ts): if the requested gateway 4xx/5xx/errors
+// on an /ipfs/<cid> URL, retry the same CID+path through these in order.
+const MEDIA_GATEWAYS = [
+  "https://magic.decentralized-content.com/ipfs/",
+  "https://gateway.pinata.cloud/ipfs/",
+];
+
+const MEDIA_CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+  "Access-Control-Allow-Headers": "Range, Content-Type",
+  "Access-Control-Expose-Headers":
+    "Content-Length, Content-Range, Accept-Ranges, Content-Type",
+  "Access-Control-Max-Age": "86400",
+};
+
+function isMediaHostAllowed(hostname) {
+  return MEDIA_HOSTS.has(hostname) || hostname.endsWith(".mypinata.cloud");
+}
+
+// Everything after "/ipfs/" in a gateway URL — the CID plus any sub-path.
+function ipfsPathFrom(parsed) {
+  const m = parsed.pathname.match(/\/ipfs\/(.+)$/);
+  return m ? m[1] + parsed.search : null;
+}
 
 // ---------------------------------------------------------------------------
 // Safety helpers — ported 1:1 from brain-workspace.ts
@@ -431,6 +482,96 @@ async function handleFileDelete(req, res, url, agentId) {
   log(req.method, url.pathname, agentId, 200);
 }
 
+async function handleMedia(req, res, url) {
+  // Preflight — media elements with crossOrigin="anonymous" usually skip this,
+  // but answer it anyway so a fetch() with a Range header works too.
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, MEDIA_CORS);
+    res.end();
+    log(req.method, "/media", null, 204);
+    return;
+  }
+
+  const target = url.searchParams.get("url");
+  if (!target) {
+    res.writeHead(400, { ...MEDIA_CORS, "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "url required" }));
+    log(req.method, "/media", null, 400);
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(target);
+  } catch {
+    res.writeHead(400, { ...MEDIA_CORS, "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "invalid url" }));
+    log(req.method, "/media", null, 400);
+    return;
+  }
+
+  if (parsed.protocol !== "https:" || !isMediaHostAllowed(parsed.hostname)) {
+    res.writeHead(400, { ...MEDIA_CORS, "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "host not allowed" }));
+    log(req.method, "/media", null, 400);
+    return;
+  }
+
+  // Try the requested URL first, then the gateway fallback chain by CID+path.
+  const tries = [parsed.toString()];
+  const ipfsPath = ipfsPathFrom(parsed);
+  if (ipfsPath) {
+    for (const g of MEDIA_GATEWAYS) {
+      const alt = g + ipfsPath;
+      if (!tries.includes(alt)) tries.push(alt);
+    }
+  }
+
+  const range = req.headers["range"];
+  let upstream = null;
+  let lastStatus = 0;
+  for (const t of tries) {
+    try {
+      const r = await fetch(t, {
+        headers: range ? { range } : undefined,
+        cache: "no-store",
+      });
+      if (r.ok || r.status === 206) {
+        upstream = r;
+        break;
+      }
+      lastStatus = r.status;
+    } catch {
+      lastStatus = 502;
+    }
+  }
+
+  if (!upstream) {
+    res.writeHead(502, { ...MEDIA_CORS, "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: `upstream ${lastStatus}` }));
+    log(req.method, "/media", null, 502);
+    return;
+  }
+
+  const outHeaders = { ...MEDIA_CORS };
+  for (const h of ["content-type", "content-length", "content-range", "accept-ranges"]) {
+    const v = upstream.headers.get(h);
+    if (v) outHeaders[h] = v;
+  }
+  if (!outHeaders["content-type"]) outHeaders["content-type"] = "application/octet-stream";
+  // IPFS is content-addressed — bytes behind a CID never change; cache hard.
+  outHeaders["cache-control"] = "public, max-age=31536000, immutable";
+
+  res.writeHead(upstream.status, outHeaders);
+  if (req.method === "HEAD" || !upstream.body) {
+    res.end();
+    log(req.method, "/media", null, upstream.status);
+    return;
+  }
+  res.on("finish", () => log(req.method, "/media", null, upstream.status));
+  Readable.fromWeb(upstream.body).pipe(res);
+}
+
 // ---------------------------------------------------------------------------
 // Main request dispatcher
 // ---------------------------------------------------------------------------
@@ -450,6 +591,17 @@ async function handleRequest(req, res) {
   // Health check — no secret required.
   if (req.method === "GET" && pathname === "/health") {
     handleHealth(req, res);
+    return;
+  }
+
+  // Media proxy — PUBLIC (no secret), keyed on the ?url= param rather than a
+  // fixed pathname because Tailscale Funnel strips the /media mount prefix
+  // before forwarding. SSRF-safe: handleMedia host-whitelists to IPFS gateways.
+  if (
+    (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") &&
+    url.searchParams.has("url")
+  ) {
+    await handleMedia(req, res, url);
     return;
   }
 

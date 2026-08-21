@@ -51,6 +51,7 @@ import {
   type CreatorCursor,
 } from "@/app/actions/skatehive-media";
 import { uploadMediaDirectClient } from "@/lib/upload-media-client";
+import { videoProxyUrl } from "@/lib/media-proxy";
 import { requestThumb, warmThumbnails, getCachedThumb } from "@/components/studio/thumb-cache";
 
 // ---------------------------------------------------------------------------
@@ -824,9 +825,7 @@ const fmt = (s: number) => {
 };
 
 const safeUrl = (url: string) =>
-  url.startsWith("blob:") || url.startsWith("/")
-    ? url
-    : `/api/studio/video-proxy?url=${encodeURIComponent(url)}`;
+  url.startsWith("blob:") || url.startsWith("/") ? url : videoProxyUrl(url);
 
 // --- thumbnail + waveform generation ----------------------------------------
 

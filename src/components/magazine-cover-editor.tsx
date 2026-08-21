@@ -18,12 +18,14 @@ import {
   X,
 } from "lucide-react";
 import { listMagazineImages, signMagazineCoverUpload, setMagazineIssueMeta } from "@/app/actions/magazine";
+import { imageProxyUrl } from "@/lib/media-proxy";
 
 type HiveImage = { url: string; title: string };
 type PickTab = "upload" | "drive" | "skatehive" | "url";
 // Remote (Hive / pasted-URL) images are cross-origin and would taint the export
-// canvas — route them through the same-origin proxy so toBlob still works.
-const magProxy = (u: string) => `/api/brain/image-proxy?url=${encodeURIComponent(u)}`;
+// canvas — route them through a CORS proxy so toBlob still works. Prefers the
+// off-Vercel Funnel (NEXT_PUBLIC_MEDIA_PROXY_URL) with a same-origin fallback.
+const magProxy = (u: string) => imageProxyUrl(u);
 
 // Feature-rich magazine cover studio (Thrasher-style): a base photo you crop,
 // art layers on top (frames/logos), and text elements (masthead + cover lines)
