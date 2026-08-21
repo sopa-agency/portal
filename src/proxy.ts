@@ -58,6 +58,28 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   //    so server components / actions can call getActiveProject() without
   //    re-parsing the host themselves.
   const host = req.headers.get("host");
+
+  // CUTOVER: the portals moved to *.sopa.team. Any legacy *.reelflip.com host
+  // 308-redirects to its sopa.team equivalent (path + query preserved). The
+  // Vercel fallback cron hits the deployment's *.vercel.app URL, not these
+  // custom domains, so it keeps running untouched.
+  const bareHost = (host ?? "").split(":")[0].toLowerCase();
+  if (bareHost === "reelflip.com" || bareHost.endsWith(".reelflip.com")) {
+    let target: string;
+    if (bareHost === "reelflip.com" || bareHost === "www.reelflip.com") {
+      target = "sopa.team";
+    } else {
+      const label = bareHost.slice(0, -".reelflip.com".length);
+      const BRANDS = new Set(["skatehive", "gnars", "vlad", "keepkey", "nogenta", "sopa"]);
+      target = BRANDS.has(label) ? `${label}.sopa.team` : "portal.sopa.team";
+    }
+    const dest = new URL(req.url);
+    dest.protocol = "https:";
+    dest.host = target;
+    dest.port = "";
+    return NextResponse.redirect(dest, 308);
+  }
+
   const slug = resolveProjectSlug(host);
   const requestHeaders = new Headers(req.headers);
   // Strip client-supplied trust headers up front — only THIS proxy may set them.
