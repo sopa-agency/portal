@@ -811,6 +811,19 @@ model SopaBoard {
   @@index([board, parentId])
 }
 
+// Human-readable ENS/label suggested for an address in the org-chart address
+// book. Keyed by lowercased address (an ENS name is the same across chains).
+// `verified` = the ENS forward-resolves to this address on Ethereum mainnet at
+// save time — an unverified suggestion is shown but flagged, never trusted.
+model AddressLabel {
+  address     String   @id // lowercased 0x…
+  ens         String
+  verified    Boolean  @default(false)
+  suggestedBy String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // Lab-scheduled cross-network posts. The Lab enqueues non-Instagram channels
 // here (IG keeps using InstagramPost); the scheduler's publishDueLabPosts picks
 // due rows and publishes via publishLabChannel. One row per channel.
