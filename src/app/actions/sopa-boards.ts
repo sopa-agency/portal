@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createPinataSignedUploadUrl } from "@/lib/social-publish";
+import { ensForwardResolves } from "@/lib/ens";
 import { getActiveProject } from "@/projects/index";
 
 // ---------------------------------------------------------------------------
@@ -431,4 +432,37 @@ export async function deleteCard(id: string): Promise<{ deleted: string[] }> {
   await prisma.sopaBoard.deleteMany({ where: { id: { in: toDelete } } });
   revalidatePath(target.board === "orgchart" ? "/org-chart" : "/portfolio");
   return { deleted: toDelete };
+}
+
+// ---------------------------------------------------------------------------
+// Address book — suggest an ENS/label for a tracked address. Verified means the
+// name forward-resolves to the address on mainnet at save time; an unverified
+// suggestion is still stored (and shown flagged), never silently trusted.
+// ---------------------------------------------------------------------------
+export type EnsSuggestion =
+  | { address: string; ens: string; verified: boolean }
+  | { error: string };
+
+export async function suggestAddressEns(address: string, ens: string): Promise<EnsSuggestion> {
+  await assertSopa();
+  const addr = address.trim().toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(addr)) return { error: "Endereço inválido." };
+
+  const name = ens.trim().toLowerCase();
+  if (!name) {
+    // Empty = clear the suggestion (fall back to auto reverse-resolution).
+    await prisma.addressLabel.deleteMany({ where: { address: addr } });
+    revalidatePath("/org-chart");
+    return { address: addr, ens: "", verified: false };
+  }
+  if (!name.includes(".")) return { error: "Informe um nome ENS (ex.: nome.eth)." };
+
+  const verified = await ensForwardResolves(name, addr);
+  const row = await prisma.addressLabel.upsert({
+    where: { address: addr },
+    create: { address: addr, ens: name, verified },
+    update: { ens: name, verified },
+  });
+  revalidatePath("/org-chart");
+  return { address: row.address, ens: row.ens, verified: row.verified };
 }
