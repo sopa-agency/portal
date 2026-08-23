@@ -45,7 +45,7 @@ const STABLE_SYMBOLS = new Set(["USDC", "USDT", "DAI", "USDBC", "EURC", "USDS"])
  *  We price tokens ourselves (stables = $1, ETH/WETH × `ethPrice`): the Safe
  *  Transaction Service has stopped populating `fiatBalance`, so trusting it
  *  rendered every budget as $0.00. `fiatBalance` is only a last-resort fallback. */
-export async function fetchSafeBudget(safeAddress: string, chainId: number, ethPrice = 0): Promise<SafeBudget | null> {
+export async function fetchSafeBudget(safeAddress: string, chainId: number, ethPrice: number | null = null): Promise<SafeBudget | null> {
   const tx = safeTxService(chainId);
   try {
     const r = await fetch(`${tx}/api/v1/safes/${getAddress(safeAddress)}/balances/?trusted=true`, {
@@ -59,7 +59,8 @@ export async function fetchSafeBudget(safeAddress: string, chainId: number, ethP
     const priceUsd = (symbol: string, native: boolean, bal: number, fiat?: string | null): number | null => {
       const sym = symbol.toUpperCase();
       if (STABLES.has(sym)) return bal; // stablecoins ≈ $1
-      if (native || sym === "WETH" || sym === "ETH") return ethPrice > 0 ? bal * ethPrice : null;
+      // No ETH price ⇒ null (USD unavailable), never bal * 0.
+      if (native || sym === "WETH" || sym === "ETH") return ethPrice != null && ethPrice > 0 ? bal * ethPrice : null;
       return fiat != null && fiat !== "" ? Number(fiat) : null; // unknown token → trust API if it has it
     };
     const rank = (t: SafeBudgetToken, native: boolean) => (native ? 0 : STABLES.has(t.symbol.toUpperCase()) ? 1 : 2);

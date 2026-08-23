@@ -30,22 +30,43 @@ const colorAt = (i: number) => PALETTE[i % PALETTE.length];
 // `usdUnknown` = this asset has a balance whose USD we can't price (rule 5). Its
 // quantity is real; the USD column shows "indisponível", and it never inflates
 // the USD total with a made-up price.
-type Asset = { symbol: string; chains: string[]; balance: number; valueUsd: number; usdUnknown: boolean };
+type Asset = {
+  symbol: string;
+  chains: string[];
+  balance: number;
+  valueUsd: number;
+  usdUnknown: boolean;
+  /** Indexer-supplied label — see lib/token-label.ts. Never rendered as a link. */
+  untrusted?: boolean;
+  hostileLabel?: boolean;
+};
 
 function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
   const map = new Map<string, Asset>();
-  const add = (symbol: string, chain: string, balance: number, valueUsd: number | null) => {
-    const k = symbol.toUpperCase();
-    const a = map.get(k) ?? { symbol, chains: [], balance: 0, valueUsd: 0, usdUnknown: false };
+  const add = (
+    symbol: string,
+    chain: string,
+    balance: number,
+    valueUsd: number | null,
+    untrusted = false,
+    hostileLabel = false,
+  ) => {
+    // The key carries `untrusted`, and that is load-bearing: anyone can deploy a
+    // token whose symbol is "USDC". Keying on the symbol alone would add the
+    // impostor's balance to the real USDC row and inflate the total. An
+    // untrusted token never shares a row with a trusted one.
+    const k = `${untrusted ? "u:" : "t:"}${symbol.toUpperCase()}`;
+    const a = map.get(k) ?? { symbol, chains: [], balance: 0, valueUsd: 0, usdUnknown: false, untrusted, hostileLabel };
     a.balance += balance;
     if (valueUsd == null) a.usdUnknown = true;
     else a.valueUsd += valueUsd;
+    if (hostileLabel) a.hostileLabel = true;
     if (!a.chains.includes(chain)) a.chains.push(chain);
     map.set(k, a);
   };
   for (const g of groups) {
     const prices = g.report.prices;
-    for (const w of g.report.evm) for (const t of w.tokens) add(t.symbol, t.chain, t.balance, t.valueUsd);
+    for (const w of g.report.evm) for (const t of w.tokens) add(t.symbol, t.chain, t.balance, t.valueUsd, t.untrusted, t.hostileLabel);
     for (const h of g.report.hive) {
       add("HIVE", "Hive", h.hive + h.hp, (h.hive + h.hp) * prices.hive);
       add("HBD", "Hive", h.hbd + h.hbdSavings, (h.hbd + h.hbdSavings) * prices.hbd);
@@ -55,6 +76,32 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
   return [...map.values()]
     .filter((a) => a.valueUsd > 0.5 || (a.usdUnknown && a.balance > 0))
     .sort((a, b) => b.valueUsd - a.valueUsd);
+}
+
+/**
+ * Marks a row whose name came from the chain, not from us.
+ *
+ * `hostile` is the loud version, for labels that read like an advert ("View
+ * Airdrops at …"). The point is the opposite of decoration: this portal wears a
+ * client's brand, so anything shown inside it looks endorsed by SOPA unless we
+ * say otherwise, in words, next to the thing.
+ */
+function UnverifiedTag({ hostile }: { hostile?: boolean }) {
+  return hostile ? (
+    <span
+      className="rounded-full border border-danger/40 bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-danger"
+      title="Nome escrito por quem criou o token, não pela SOPA. Não é um link e não deve ser seguido."
+    >
+      ⚠ não confie no nome
+    </span>
+  ) : (
+    <span
+      className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-foreground-faint"
+      title="Token encontrado na carteira pelo indexador. Nome e símbolo vêm do próprio contrato — a SOPA não verificou."
+    >
+      não verificado
+    </span>
+  );
 }
 
 type Segment = { label: string; valueUsd: number; color: string };
@@ -196,7 +243,10 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                 <Monogram symbol={a.symbol} color={color} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
+                    {/* Plain text, always. A token label is never an <a>, never
+                        a title-linkified string — see lib/token-label.ts. */}
                     <span className="text-sm font-semibold text-foreground">{a.symbol}</span>
+                    {a.untrusted && <UnverifiedTag hostile={a.hostileLabel} />}
                     {a.chains.map((c) => (
                       <span
                         key={c}
@@ -298,9 +348,14 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
         <div className="mt-4 space-y-2">
           {w.tokens.map((tk, i) => (
             <div key={`${tk.symbol}-${tk.chain}-${i}`} className="flex items-center justify-between gap-3 text-sm">
-              <span className="flex min-w-0 items-center gap-2">
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
                 <TokenLogo symbol={tk.symbol} color={colorAt(i)} size={20} />
-                <span className="font-medium text-foreground">{tk.symbol}</span>
+                {/* Text node only — no anchor, no linkify, no innerHTML. */}
+                <span className="min-w-0 truncate font-medium text-foreground">{tk.symbol}</span>
+                {tk.untrusted && <UnverifiedTag hostile={tk.hostileLabel} />}
+                {tk.name && tk.name !== tk.symbol && (
+                  <span className="min-w-0 truncate text-[11px] text-foreground-faint">{tk.name}</span>
+                )}
                 <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-foreground-faint">
                   {tk.chain}
                 </span>
