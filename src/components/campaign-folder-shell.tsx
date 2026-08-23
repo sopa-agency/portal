@@ -177,7 +177,7 @@ export function CampaignFolderShell({
   };
   const calAssets: CalendarAsset[] = enriched
     .filter((d) => !d.isMain)
-    .map((d) => ({ id: d.id, name: d.name, kind: d.kind, tone: KIND_META[d.kind].tone, scheduledFor: d.scheduledFor }));
+    .map((d) => ({ id: d.id, name: d.name, kind: d.kind, content: getContent(d), tone: KIND_META[d.kind].tone, scheduledFor: d.scheduledFor }));
 
   if (!selected) {
     return <p className="text-sm text-foreground-subtle">This campaign has no documents yet.</p>;

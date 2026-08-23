@@ -4,7 +4,7 @@
 // calendars. Reschedule or cancel right here; full text editing lives on the
 // source page (linked).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CalendarClock, ExternalLink, Loader2, Trash2, X } from "lucide-react";
 import type { CalendarExtra } from "@/app/actions/post-creator";
 import {
@@ -51,14 +51,6 @@ export function ScheduledPostDialog({
   const [busy, setBusy] = useState<"save" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const editable = (event.kind === "suggestion" || event.kind === "repo") && !!parsed;
   const foreign = isForeign(event, activeSlug);
   const originName = event.projectName ?? event.projectSlug;
@@ -94,6 +86,119 @@ export function ScheduledPostDialog({
   }
 
   return (
+    <ScheduledPostDialogShell
+      onClose={onClose}
+      icon={<SocialBrandIcon platform={event.platform} className="h-4 w-4 shrink-0" />}
+      label={
+        <>
+          Scheduled {event.platform} post
+          {foreign && (
+            <span className="ml-1.5 rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-subtle">
+              {originName}
+            </span>
+          )}
+        </>
+      }
+      preview={event.title}
+      note={
+        // Calendars are scoped to one project, so this should never show. If it
+        // does, the feed leaked another project's post — say so plainly rather
+        // than let someone reschedule it thinking it is theirs.
+        foreign ? (
+          <p className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+            This post belongs to the {originName} portal — it publishes on {originName}&apos;s
+            accounts, not this one. Open it there to change it.
+          </p>
+        ) : undefined
+      }
+    >
+      {editable ? (
+        <>
+          <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
+            Publish at
+          </label>
+          <input
+            type="datetime-local"
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
+          />
+          {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void reschedule()}
+              disabled={busy !== null}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-50"
+            >
+              {busy === "save" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CalendarClock className="h-3.5 w-3.5" />
+              )}
+              Reschedule
+            </button>
+            <button
+              type="button"
+              onClick={() => void cancelSchedule()}
+              disabled={busy !== null}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20 disabled:opacity-50"
+            >
+              {busy === "cancel" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              Cancel schedule
+            </button>
+            <a
+              href={sourceHref}
+              className="ml-auto inline-flex items-center gap-1 text-[11px] text-foreground-subtle hover:text-foreground"
+            >
+              edit text on the source page
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        </>
+      ) : (
+        <p className="mt-3 text-xs text-foreground-subtle">
+          Scheduled on the {originName} portal — open it there to edit.
+        </p>
+      )}
+    </ScheduledPostDialogShell>
+  );
+}
+
+/**
+ * Presentational shell shared by the scheduled-post dialogs (main calendar +
+ * campaign calendar): backdrop, card, Escape-to-close, header (icon + label +
+ * close) and the content preview box. Callers supply the icon, label, preview
+ * text, an optional note, and the action row as children.
+ */
+export function ScheduledPostDialogShell({
+  icon,
+  label,
+  preview,
+  note,
+  onClose,
+  children,
+}: {
+  icon: ReactNode;
+  label: ReactNode;
+  preview: string;
+  note?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
     <div
       role="dialog"
       aria-modal="true"
@@ -107,15 +212,8 @@ export function ScheduledPostDialog({
       >
         <div className="flex items-center justify-between gap-3">
           <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-            <SocialBrandIcon platform={event.platform} className="h-4 w-4 shrink-0" />
-            <span className="truncate">
-              Scheduled {event.platform} post
-              {foreign && (
-                <span className="ml-1.5 rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-subtle">
-                  {originName}
-                </span>
-              )}
-            </span>
+            {icon}
+            <span className="truncate">{label}</span>
           </h3>
           <button
             type="button"
@@ -128,72 +226,11 @@ export function ScheduledPostDialog({
         </div>
 
         <p className="mt-3 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-xl border border-border bg-surface px-3.5 py-3 text-sm leading-relaxed text-foreground">
-          {event.title || "(no text)"}
+          {preview || "(no text)"}
         </p>
 
-        {/* Calendars are scoped to one project, so this should never show. If it
-            does, the feed leaked another project's post — say so plainly rather
-            than let someone reschedule it thinking it is theirs. */}
-        {foreign && (
-          <p className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-warning">
-            This post belongs to the {originName} portal — it publishes on {originName}&apos;s
-            accounts, not this one. Open it there to change it.
-          </p>
-        )}
-
-        {editable ? (
-          <>
-            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-              Publish at
-            </label>
-            <input
-              type="datetime-local"
-              value={when}
-              onChange={(e) => setWhen(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
-            />
-            {error && <p className="mt-2 text-xs text-danger">{error}</p>}
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void reschedule()}
-                disabled={busy !== null}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background disabled:opacity-50"
-              >
-                {busy === "save" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CalendarClock className="h-3.5 w-3.5" />
-                )}
-                Reschedule
-              </button>
-              <button
-                type="button"
-                onClick={() => void cancelSchedule()}
-                disabled={busy !== null}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20 disabled:opacity-50"
-              >
-                {busy === "cancel" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3.5 w-3.5" />
-                )}
-                Cancel schedule
-              </button>
-              <a
-                href={sourceHref}
-                className="ml-auto inline-flex items-center gap-1 text-[11px] text-foreground-subtle hover:text-foreground"
-              >
-                edit text on the source page
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          </>
-        ) : (
-          <p className="mt-3 text-xs text-foreground-subtle">
-            Scheduled on the {originName} portal — open it there to edit.
-          </p>
-        )}
+        {note}
+        {children}
       </div>
     </div>
   );
