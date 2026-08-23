@@ -362,6 +362,12 @@ model SchedulerLease {
   /// can't write results back, and an approved cross-post would go live with
   /// the author never notified. Applied via targeted SQL (db:push drifts here).
   crossPostReadyAt DateTime?
+  /// One-run-per-hour claim for the cron's autopilot actions (auto-boost /
+  /// revenue snapshot / stream refill). A cron claims the hour by flipping this
+  /// forward via an atomic conditional UPDATE; a second cron (e.g. a duplicate
+  /// deployment) sees the hour already claimed and skips those actions. NOT the
+  /// publish lease — see the cron route comment for why they're separate.
+  lastActionsTickAt DateTime?
   updatedAt     DateTime  @updatedAt
 }
 
