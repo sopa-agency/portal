@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Copy, Check, ExternalLink, BadgeCheck, TriangleAlert, Globe } from "lucide-react";
-import { suggestAddressEns } from "@/app/actions/sopa-boards";
+import { useRouter } from "next/navigation";
+import { Copy, Check, ExternalLink, BadgeCheck, TriangleAlert, Globe, Plus, Trash2 } from "lucide-react";
+import { suggestAddressEns, addManualAddress, removeManualAddress } from "@/app/actions/sopa-boards";
 import type { AddressBookEntry } from "@/lib/address-book";
+
+const isAddr = (a: string) => /^0x[a-fA-F0-9]{40}$/.test(a.trim());
 
 const EXPLORER: Record<string, string> = {
   base: "https://basescan.org",
@@ -69,7 +72,14 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
   const [draft, setDraft] = useState(entry.ens ?? "");
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const link = linkFor(row);
+  const router = useRouter();
   const [pending, start] = useTransition();
+
+  const remove = () =>
+    start(async () => {
+      await removeManualAddress(row.address);
+      router.refresh();
+    });
 
   const submit = () => {
     const ens = draft.trim();
@@ -125,16 +135,31 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
       </td>
       <td className="py-2.5 pr-3">
         <div className="flex flex-wrap gap-1">
-          {row.chains.map((c) => (
-            <span key={c} className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">
-              {c}
-            </span>
-          ))}
-          {row.kinds.map((k) => (
-            <span key={k} className="rounded bg-accent-bg px-1.5 py-0.5 text-[10px] font-medium text-accent">
-              {k}
-            </span>
-          ))}
+          {row.deployedOn.length > 0
+            ? row.deployedOn.map((c) => (
+                <span
+                  key={c}
+                  title="contrato detectado nesta EVM"
+                  className="rounded bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success"
+                >
+                  {c}
+                </span>
+              ))
+            : row.chains.map((c) => (
+                <span key={c} className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">
+                  {c}
+                </span>
+              ))}
+          {row.kinds
+            .filter((k) => k !== "manual")
+            .map((k) => (
+              <span key={k} className="rounded bg-accent-bg px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                {k}
+              </span>
+            ))}
+          {row.manual && (
+            <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-faint">manual</span>
+          )}
         </div>
       </td>
       <td className="py-2.5 pr-3">
@@ -146,6 +171,9 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
           ))}
           {row.refs.length > 3 && (
             <span className="text-[10px] text-foreground-faint">+{row.refs.length - 3} mais</span>
+          )}
+          {row.refs.length === 0 && (
+            <span className="text-xs text-foreground-faint">{row.label || "adicionado à mão"}</span>
           )}
         </div>
       </td>
@@ -166,6 +194,17 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
           >
             {pending ? "…" : "salvar"}
           </button>
+          {row.manual && (
+            <button
+              type="button"
+              onClick={remove}
+              disabled={pending}
+              title="Remover contrato manual"
+              className="text-foreground-faint transition hover:text-danger disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
         {msg && <p className={`mt-1 text-[10px] ${msg.ok ? "text-success" : "text-warning"}`}>{msg.text}</p>}
       </td>
@@ -173,22 +212,65 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
   );
 }
 
+function AddContractForm() {
+  const router = useRouter();
+  const [addr, setAddr] = useState("");
+  const [label, setLabel] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const add = () =>
+    start(async () => {
+      setMsg(null);
+      const r = await addManualAddress(addr.trim(), label.trim() || undefined);
+      if (!r.ok) return setMsg(r.error);
+      setAddr("");
+      setLabel("");
+      router.refresh();
+    });
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3">
+      <Plus className="h-4 w-4 text-foreground-faint" />
+      <input
+        value={addr}
+        onChange={(e) => setAddr(e.target.value)}
+        placeholder="0x… endereço do contrato"
+        className="w-64 rounded-md border border-border bg-surface-elevated px-2 py-1 font-mono text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none"
+      />
+      <input
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        placeholder="rótulo (opcional)"
+        className="w-40 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none"
+      />
+      <button
+        type="button"
+        onClick={add}
+        disabled={pending || !isAddr(addr)}
+        className="rounded-md bg-accent-bg px-3 py-1 text-xs font-semibold text-accent transition hover:brightness-95 disabled:opacity-40"
+      >
+        {pending ? "…" : "adicionar contrato"}
+      </button>
+      {msg && <span className="text-[11px] text-warning">{msg}</span>}
+    </div>
+  );
+}
+
 export function AddressBook({ entries }: { entries: AddressBookEntry[] }) {
-  if (!entries.length) {
-    return (
-      <div className="rounded-xl border border-border bg-surface p-8 text-center text-sm text-foreground-muted">
-        Nenhum endereço rastreado ainda. Adicione revenue streams com endereço on-chain nos cards do org-chart.
-      </div>
-    );
-  }
   return (
     <div className="space-y-3">
       <p className="text-sm text-foreground-muted">
-        Todos os endereços on-chain que a org rastreia. O ENS é resolvido automaticamente (registro reverso on-chain);
-        você também pode <span className="text-foreground">sugerir</span> um nome — a gente <span className="text-foreground">verifica</span> se
-        ele resolve de volta pro endereço antes de confiar.
+        Todos os endereços on-chain que a org rastreia. As <span className="text-success">EVMs em verde</span> são onde o
+        contrato foi detectado (bytecode nas 8 principais). O ENS resolve sozinho (registro reverso); você pode{" "}
+        <span className="text-foreground">sugerir/editar</span> um nome (a gente verifica se ele aponta de volta) e{" "}
+        <span className="text-foreground">adicionar contratos</span> à mão.
       </p>
-      <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+      <AddContractForm />
+      {!entries.length ? (
+        <div className="rounded-xl border border-border bg-surface p-8 text-center text-sm text-foreground-muted">
+          Nenhum endereço ainda. Adicione um contrato acima, ou crie revenue streams com endereço nos cards do org-chart.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-border bg-surface">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead>
             <tr className="text-[11px] uppercase tracking-wide text-foreground-faint">
@@ -205,7 +287,8 @@ export function AddressBook({ entries }: { entries: AddressBookEntry[] }) {
             ))}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

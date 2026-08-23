@@ -817,8 +817,12 @@ model SopaBoard {
 // save time — an unverified suggestion is shown but flagged, never trusted.
 model AddressLabel {
   address     String   @id // lowercased 0x…
-  ens         String
+  ens         String   @default("")
   verified    Boolean  @default(false)
+  /** Free-text human label (used for manually-added addresses). */
+  label       String?
+  /** True = added by hand to the address book, not derived from a revenue stream. */
+  manual      Boolean  @default(false)
   suggestedBy String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
