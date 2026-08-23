@@ -61,6 +61,9 @@ export type SopaRevenueOrbit = {
   totalEstimatedToSopaUsd: number;
   grossTotalUsd: number;
   projects: OrbitProject[];
+  /** Set when the underlying org-revenue read FAILED — the UI must show this as
+   *  a failure, not an empty orbit. */
+  error?: string;
 };
 
 // Provisional revenue wiring that isn't a readable 0xSplits split yet — shown so
@@ -113,11 +116,11 @@ const DECLARED_INFLOWS: DeclaredInflow[] = [
 
 export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
   const empty: SopaRevenueOrbit = { totalRealizedToSopaUsd: 0, totalPendingToSopaUsd: 0, totalEstimatedToSopaUsd: 0, grossTotalUsd: 0, projects: [] };
-  const rev = await getOrgRevenue().catch(() => null);
-  if (!rev) return empty;
+  const rev = await getOrgRevenue().catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+  if (!rev.ok) return { ...empty, error: rev.error }; // DB down → flagged failure, not an empty orbit
 
   const projects: OrbitProject[] = [];
-  for (const p of rev.projects) {
+  for (const p of rev.data.projects) {
     // EVERY registered split, not only ones with realized revenue — the wiring
     // (project → SOPA at X%) is worth showing before the first distribution.
     const splits = p.streams.filter((s) => s.kind === "split");

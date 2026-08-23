@@ -48,6 +48,11 @@ export type OrgRevenue = {
   realizedTotalUsd: number;
 };
 
+// A read that FAILED is NOT "no revenue" — a down DB rendered as an empty org
+// chart reads to a client as "SOPA has nobody". The union forces every caller to
+// handle failure explicitly; the compiler no longer lets anyone fall back to [].
+export type OrgRevenueResult = { ok: true; data: OrgRevenue } | { ok: false; error: string };
+
 const keyOf = (chain: string | null, address: string) => `${chain ?? "all"}:${address.trim().toLowerCase()}`;
 const KINDS: Kind[] = ["manual", "wallet", "contract", "split"];
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -57,10 +62,14 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
  *   (by title ≈ name or slug) — so a brand portal's treasury shows just its own
  *   revenue. Omit for the SOPA org view (every tracked project, grouped).
  */
-export async function getOrgRevenue(only?: { name: string; slug: string }): Promise<OrgRevenue> {
-  const rows = await prisma.sopaBoard
-    .findMany({ where: { board: "orgchart" }, orderBy: [{ order: "asc" }, { createdAt: "asc" }] })
-    .catch(() => []);
+export async function getOrgRevenue(only?: { name: string; slug: string }): Promise<OrgRevenueResult> {
+  let rows;
+  try {
+    rows = await prisma.sopaBoard.findMany({ where: { board: "orgchart" }, orderBy: [{ order: "asc" }, { createdAt: "asc" }] });
+  } catch (e) {
+    // DB down → EXPLICIT failure, never an empty org chart masquerading as truth.
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 
   type Card = { cardId: string; name: string; logoUrl: string | null; streams: { label: string; kind: Kind; chain: string | null; address: string }[] };
   const cards: Card[] = [];
@@ -80,7 +89,7 @@ export async function getOrgRevenue(only?: { name: string; slug: string }): Prom
     if (only && norm(r.title) !== norm(only.name) && norm(r.title) !== norm(only.slug)) continue;
     cards.push({ cardId: r.id, name: r.title, logoUrl: typeof meta.logoUrl === "string" ? meta.logoUrl : null, streams });
   }
-  if (!cards.length) return { projects: [], balanceTotalUsd: 0, realizedTotalUsd: 0 };
+  if (!cards.length) return { ok: true, data: { projects: [], balanceTotalUsd: 0, realizedTotalUsd: 0 } };
 
   // One on-chain read per unique (chain,address) across all cards.
   const uniq = new Map<string, { chain: string | null; address: string }>();
@@ -93,8 +102,12 @@ export async function getOrgRevenue(only?: { name: string; slug: string }): Prom
     [...uniq.entries()].map(async ([k, t]) => {
       const [b, rr, fl] = await Promise.all([
         fetchAddressBalance(t.address, t.chain).catch((e) => ({ totalUsd: 0, tokens: [] as Token[], error: String(e) })),
-        fetchOnchainRevenue(t.address, t.chain).catch(() => null),
-        fetchAddressFlows(t.address, t.chain).catch(() => null),
+        // Per-stream enrichment (secondary to the balance). null stays a distinct
+        // "no data" — but LOG so a Blockscout/RPC failure is observable, not silent.
+        // (Making these fully explicit needs a Result refactor of revenue-onchain
+        //  itself — disproportionate for a null that's already distinguishable.)
+        fetchOnchainRevenue(t.address, t.chain).catch((e) => { console.error(`[org-revenue] realized failed ${t.address}`, e); return null; }),
+        fetchAddressFlows(t.address, t.chain).catch((e) => { console.error(`[org-revenue] flows failed ${t.address}`, e); return null; }),
       ]);
       bal.set(k, b);
       if (rr) real.set(k, rr);
@@ -106,7 +119,13 @@ export async function getOrgRevenue(only?: { name: string; slug: string }): Prom
   for (const c of cards) {
     const currentUsd: Record<string, number> = {};
     for (const s of c.streams) currentUsd[keyOf(s.chain, s.address)] = bal.get(keyOf(s.chain, s.address))?.totalUsd ?? 0;
-    const trends = await getRevenueTrends(c.cardId, currentUsd).catch(() => [] as RevenueTrend[]);
+    // Trends are Δ7d/Δ30d enrichment from the SAME DB the sopaBoard read above
+    // already guarded — so this fails only on a partial DB hiccup. LOG it; an
+    // absent trend renders as "no trend", never as a fabricated "flat".
+    const trends = await getRevenueTrends(c.cardId, currentUsd).catch((e) => {
+      console.error(`[org-revenue] trends failed ${c.cardId}`, e);
+      return [] as RevenueTrend[];
+    });
     const trendByKey = new Map(trends.map((t) => [t.key, t]));
 
     let balanceTotalUsd = 0;
@@ -135,8 +154,11 @@ export async function getOrgRevenue(only?: { name: string; slug: string }): Prom
   }
 
   return {
-    projects,
-    balanceTotalUsd: projects.reduce((s, p) => s + p.balanceTotalUsd, 0),
-    realizedTotalUsd: projects.reduce((s, p) => s + p.realizedTotalUsd, 0),
+    ok: true,
+    data: {
+      projects,
+      balanceTotalUsd: projects.reduce((s, p) => s + p.balanceTotalUsd, 0),
+      realizedTotalUsd: projects.reduce((s, p) => s + p.realizedTotalUsd, 0),
+    },
   };
 }
