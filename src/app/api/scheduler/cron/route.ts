@@ -31,6 +31,12 @@ export async function GET(req: Request) {
   const now = Date.now();
 
   // ── One-run-per-hour claim for the autopilot actions ───────────────────────
+  // CONDITIONAL GUARANTEE: this claim serialises via Postgres, so it only
+  // coordinates deploys that point at the SAME database. Two deploys on DIFFERENT
+  // databases each claim count=1 in their own DB and BOTH run — this coordinates
+  // nothing in that case. Whether that's happening is exactly the open Check-2
+  // (shared-DB) question; until it's confirmed, this guarantee is conditional.
+  //
   // auto-boost / revenue snapshot / stream refill must run ONCE per hour even
   // when several deployments carry this cron (during the repo consolidation BOTH
   // sopa-agency/portal and the sunset marketing-portal fire it hourly). Claim the
