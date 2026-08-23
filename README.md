@@ -5,13 +5,20 @@ operations: AI-drafted posts, campaign building, briefings, analytics, and a
 per-project "brain". One codebase serves many projects — each on its own
 subdomain, with its own theme, accounts, allowlist, and AI agent.
 
-> **History / naming.** This started as the SkateHive ops portal, then grew into
-> a reusable template under the **Reelflip** umbrella. Tenants today: **SkateHive**,
-> **Gnars**, **Reelflip**, **Nogenta** (skate editorial, B&W), **KeepKey**,
-> **ColetivoXV** (paused), and **SOPA** — the umbrella "agency" portal that sits
-> above the others (combined treasury + an editable org-chart, portfolio, and a
-> deck-style About). The repo is `multi-tenant-portal` (GitHub:
-> `SkateHive/marketing-portal`); SkateHive is just one tenant, not the product.
+> **Who owns this.** The portal is an asset of **SOPA agency**. The canonical
+> repo is **`sopa-agency/portal`** — it deploys to `*.sopa.team` from SOPA's own
+> Vercel team (`sopa1`). The old `SkateHive/marketing-portal` is the sunset
+> repo: its history was merged here in August 2026 and nothing new lands there.
+>
+> **SkateHive is a brand inside SOPA, not the owner of the product.** Same for
+> the others. Tenants today, each on its own subdomain: **SOPA** (the agency
+> portal that sits above the rest — combined treasury, editable org-chart,
+> portfolio, deck-style About), **SkateHive**, **Gnars**, **Nogenta** (skate
+> editorial, B&W), **Vlad**, **KeepKey**, and **SwapPro**.
+>
+> The **Reelflip** name still appears throughout the code (umbrella logic, the
+> `/home` public page, `*.reelflip.com` redirects). It is legacy — the umbrella
+> is SOPA now — and removing it is its own piece of work, not done here.
 
 ## Stack
 
@@ -28,10 +35,10 @@ subdomain, with its own theme, accounts, allowlist, and AI agent.
 Tenancy is resolved from the request **subdomain**:
 
 ```
-skatehive.portal.app  → slug "skatehive" → SkateHive ProjectConfig
-gnars.portal.app      → slug "gnars"     → Gnars ProjectConfig
-reelflip.portal.app   → slug "reelflip"  → Reelflip ProjectConfig
-localhost / apex      → PORTAL_DEFAULT_PROJECT (default "skatehive")
+skatehive.sopa.team  → slug "skatehive" → SkateHive ProjectConfig
+gnars.sopa.team      → slug "gnars"     → Gnars ProjectConfig
+swaps.sopa.team      → slug "swaps"     → SwapPro ProjectConfig
+localhost / apex     → PORTAL_DEFAULT_PROJECT
 ```
 
 1. `src/proxy.ts` (middleware) resolves the slug from the `Host` header and
@@ -92,8 +99,8 @@ queues** (Neon) that both sides share:
 The whole point of the template — a new brand is a config file, not a fork:
 
 1. **Create `src/projects/<slug>.ts`** exporting a `ProjectConfig`
-   (see `src/projects/types.ts` for the full shape, and `reelflip.ts` /
-   `skatehive.ts` / `gnars.ts` as references). Set the theme accent, `allowlist`
+   (see `src/projects/types.ts` for the full shape, `keepkey.ts` / `swaps.ts` as
+   the smallest references and `skatehive.ts` / `gnars.ts` as full ones). Set the theme accent, `allowlist`
    (Hive usernames), `hive`/`farcaster` accounts, `socials`, `briefingAgents`,
    the OpenClaw `agent`, and any `hiddenRoutes`.
 2. **Register it** in `src/projects/index.ts` (`PROJECT_REGISTRY`).
@@ -133,7 +140,7 @@ npm run worker:agent                  # AgentJob queue → chat/agent calls
 npm run worker:brain-queue            # BrainOpJob queue → /brain file ops
 ```
 
-On the Mac mini these run under **PM2** (`multi-tenant-portal-*`) alongside the
+On the Mac mini these run under **PM2** (`sopa-portal-*`, some still registered under the old `multi-tenant-portal-*` names) alongside the
 brain file server and presence relay; they bridge Vercel → local OpenClaw gateway.
 
 ## Environment
