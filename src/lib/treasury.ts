@@ -1,5 +1,6 @@
 import "server-only";
 import type { ProjectConfig } from "@/projects/types";
+import { sanitizeTokenLabel, labelLooksHostile, SYMBOL_MAX, NAME_MAX } from "@/lib/token-label";
 
 // ---------------------------------------------------------------------------
 // Treasury data — the SAME sources the native apps use:
@@ -19,6 +20,17 @@ export type EvmToken = {
   valueUsd: number | null;
   /** Optional UI note (e.g. "GDA pool claimable not included"). */
   note?: string;
+  /** TRUE when the symbol/name came from an indexer instead of our config —
+   *  i.e. attacker-controlled text. Already sanitised (see token-label.ts), but
+   *  the flag must survive to the UI: an untrusted row is never merged into a
+   *  trusted one and never rendered as a link. */
+  untrusted?: boolean;
+  /** Untrusted label that reads like an advert ("View Airdrops at …"). Shown
+   *  with an explicit "not verified" marker so brand context isn't mistaken for
+   *  endorsement. */
+  hostileLabel?: boolean;
+  /** Full name from the indexer, sanitised — for the row's second line. */
+  name?: string;
 };
 
 export type EvmWalletReport = {
@@ -63,21 +75,28 @@ export type TreasuryReport = {
 
 // --- prices -----------------------------------------------------------------
 
-export async function getPrices(): Promise<{ hive: number; hbd: number; eth: number }> {
+/** `eth` is NULL when CoinGecko didn't give us a price. It used to fall back to
+ *  0, which was the same bug class as a failed read showing as an empty wallet:
+ *  every ETH holding got valueUsd = balance * 0 = 0, and the dust filter then
+ *  deleted it from the page. Unknown is not zero — a null price makes the ETH
+ *  row show its quantity with "USD n/d" instead of vanishing. */
+export async function getPrices(): Promise<{ hive: number; hbd: number; eth: number | null }> {
   try {
     const res = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=hive,hive_dollar,ethereum&vs_currencies=usd",
       { next: { revalidate: 300, tags: ["treasury"] } },
     );
     const data = (await res.json()) as Record<string, { usd?: number }>;
+    const eth = data.ethereum?.usd;
     return {
       hive: data.hive?.usd ?? 0.21,
       hbd: data.hive_dollar?.usd ?? 1.0,
-      eth: data.ethereum?.usd ?? 0,
+      eth: typeof eth === "number" && eth > 0 ? eth : null,
     };
   } catch {
-    // Same fallbacks skatehive.app uses when CoinGecko is down.
-    return { hive: 0.21, hbd: 1.0, eth: 0 };
+    // HIVE/HBD keep the constants skatehive.app uses; ETH has no sane constant,
+    // so it stays unknown rather than becoming a made-up number.
+    return { hive: 0.21, hbd: 1.0, eth: null };
   }
 }
 
@@ -91,14 +110,17 @@ export async function getPrices(): Promise<{ hive: number; hbd: number; eth: num
 
 // ERC-4626 vaults the treasury parks USDC in. Without these, staking looks like
 // the money left the treasury: the balance drops and the total is simply wrong.
-// `maxWithdraw(owner)` gives the redeemable USDC (principal + accrued yield).
+// Read in ASSET terms via convertToAssets(balanceOf) — never the share balance;
+// see vaultPosition() for why maxWithdraw alone is not enough.
 type Erc4626Vault = { address: string; symbol: string; decimals: number };
 
 /** Extra known ERC-20s to also read for a SPECIFIC wallet (config-driven, e.g.
  *  the SOPA Safe's USDCx + $gnars). `usd: "one"` prices 1:1 (Super USDC);
  *  `usd: "none"` = balance known but NO trustworthy price → rule 5 (show the
- *  quantity, USD unavailable). A token name here is trusted config, not indexed
- *  spam — enumerating ALL tokens (which would leak scam tokens) is out of scope. */
+ *  quantity, USD unavailable). A token name here is TRUSTED — a human wrote it.
+ *  That is what separates these from enumerated tokens, whose names come from
+ *  the chain and are treated as hostile text (see fetchEnumeratedTokens). Only
+ *  trusted tokens may show a quantity with no price. */
 export type ExtraToken = { chain: string; address: string; symbol: string; decimals: number; usd: "one" | "none"; note?: string };
 
 type EvmChain = { key: string; rpcs: string[]; usdc: string; vaults?: Erc4626Vault[] };
@@ -145,38 +167,172 @@ async function rpcCall<T>(rpcs: string[], method: string, params: unknown[]): Pr
  *  caller CANNOT accidentally treat a failed read as an empty wallet. */
 export type ChainRead = { ok: true; tokens: EvmToken[] } | { ok: false; chain: string; error: string };
 
+// --- enumerated (untrusted) tokens -------------------------------------------
+// Blockscout v2, keyless — the same indexer revenue-onchain.ts already uses from
+// Vercel. This is the path the config-driven reader deliberately avoided,
+// because enumerating everything a wallet holds also enumerates everything
+// anyone airdropped into it. Measured on the SkateHive wallets: 27 and 50
+// ERC-20s, of which 1 and 1 are worth over fifty cents. The rest is spam, and
+// one of them is a phishing advert wearing a token's clothes.
+//
+// The filter below is therefore not a nicety bolted on after — it is the reason
+// this function is allowed to exist:
+//
+//   1. A RELIABLE PRICE IS REQUIRED. No exchange_rate from the indexer ⇒ the
+//      token is dropped. This is what keeps "View Airdrops at https://airdapp.net"
+//      off the page: scam tokens have no market. Note this is STRICTER than the
+//      rule for config-declared tokens, which may legitimately show a quantity
+//      with "USD n/d" (rule 5) — the difference is that a human vouched for those.
+//   2. The value must clear the same $0.50 dust floor as everything else.
+//   3. Whatever survives is still UNTRUSTED text: sanitised, length-capped,
+//      flagged, never a link, never merged into a trusted row.
+
+const BLOCKSCOUT_TOKENS_HOST: Record<string, string> = {
+  base: "base.blockscout.com",
+  ethereum: "eth.blockscout.com",
+  optimism: "optimism.blockscout.com",
+  arbitrum: "arbitrum.blockscout.com",
+};
+
+/** Min USD for an enumerated token to be worth a row. Same floor the rest of
+ *  the treasury uses — a scam token that somehow has a price still has to be
+ *  worth more than half a dollar to earn space. */
+const ENUMERATED_MIN_USD = 0.5;
+
+type BlockscoutTokenItem = {
+  value?: string;
+  token?: { symbol?: string; name?: string; decimals?: string | number; address?: string; exchange_rate?: string | null };
+};
+
+/**
+ * Every ERC-20 the indexer says `address` holds on one chain, reduced to the
+ * ones with a real, priced position. Returns [] on ANY failure: enumeration is
+ * an ENRICHMENT of the authoritative RPC read, so a flaky indexer must never
+ * turn into a failed chain or a missing balance. The trusted tokens are read
+ * over RPC regardless.
+ */
+async function fetchEnumeratedTokens(address: string, chainKey: string, skipAddresses: Set<string>): Promise<EvmToken[]> {
+  const host = BLOCKSCOUT_TOKENS_HOST[chainKey];
+  if (!host) return [];
+  try {
+    const res = await fetch(`https://${host}/api/v2/addresses/${address}/tokens?type=ERC-20`, {
+      signal: AbortSignal.timeout(9000),
+      next: { revalidate: 300, tags: ["treasury"] },
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { items?: BlockscoutTokenItem[] };
+    const out: EvmToken[] = [];
+    for (const item of json.items ?? []) {
+      const t = item.token ?? {};
+      const contract = (t.address ?? "").toLowerCase();
+      // Already read over RPC as a trusted token — the RPC value wins.
+      if (contract && skipAddresses.has(contract)) continue;
+
+      // (1) reliable price required
+      const rate = t.exchange_rate == null ? NaN : Number(t.exchange_rate);
+      if (!Number.isFinite(rate) || rate <= 0) continue;
+
+      const decimals = Number(t.decimals ?? 18);
+      const raw = Number(item.value ?? "0");
+      if (!Number.isFinite(decimals) || !Number.isFinite(raw) || raw <= 0) continue;
+      const balance = raw / 10 ** decimals;
+      const valueUsd = balance * rate;
+
+      // (2) dust floor
+      if (!(valueUsd >= ENUMERATED_MIN_USD)) continue;
+
+      // (3) the label is attacker-controlled until proven otherwise
+      const symbol = sanitizeTokenLabel(t.symbol, SYMBOL_MAX) || "?";
+      const name = sanitizeTokenLabel(t.name, NAME_MAX);
+      out.push({
+        symbol,
+        name: name || undefined,
+        chain: chainKey,
+        balance,
+        valueUsd,
+        untrusted: true,
+        hostileLabel: labelLooksHostile(symbol, name),
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** Native ETH + native USDC + staked USDC (+ configured extra tokens) held by
  *  `address` on one chain. A read failure returns ok:false — surfaced as a failed
  *  chain, NEVER counted as zero. */
-async function fetchChainBalances(address: string, chain: EvmChain, ethPrice: number, extra: ExtraToken[] = []): Promise<ChainRead> {
+async function fetchChainBalances(
+  address: string,
+  chain: EvmChain,
+  ethPrice: number | null,
+  extra: ExtraToken[] = [],
+  enumerate = false,
+): Promise<ChainRead> {
   const padded = address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
   const balOf = (to: string) => rpcCall<string>(chain.rpcs, "eth_call", [{ to, data: `0x70a08231${padded}` }, "latest"]);
   const chainExtra = extra.filter((e) => e.chain === chain.key);
   try {
-    const [ethHex, usdcHex, vaultHexes, extraHexes] = await Promise.all([
+    const [ethHex, usdcHex, vaultAssets, extraHexes] = await Promise.all([
       rpcCall<string>(chain.rpcs, "eth_getBalance", [address, "latest"]),
       balOf(chain.usdc),
-      // 0xce96cb77 = maxWithdraw(address): redeemable USDC (principal + yield).
-      Promise.all((chain.vaults ?? []).map((v) => rpcCall<string>(chain.rpcs, "eth_call", [{ to: v.address, data: `0xce96cb77${padded}` }, "latest"]))),
+      Promise.all((chain.vaults ?? []).map((v) => vaultPosition(chain, v, padded))),
       Promise.all(chainExtra.map((e) => balOf(e.address))),
     ]);
     const tokens: EvmToken[] = [];
     const eth = parseInt(ethHex, 16) / 1e18;
-    if (eth > 0) tokens.push({ symbol: "ETH", chain: chain.key, balance: eth, valueUsd: eth * ethPrice });
+    // No ETH price ⇒ valueUsd null (quantity shown, USD marked unavailable),
+    // never balance * 0.
+    if (eth > 0) tokens.push({ symbol: "ETH", chain: chain.key, balance: eth, valueUsd: ethPrice == null ? null : eth * ethPrice });
     const usdc = parseInt(usdcHex || "0x0", 16) / 1e6;
     if (usdc > 0) tokens.push({ symbol: "USDC", chain: chain.key, balance: usdc, valueUsd: usdc });
     (chain.vaults ?? []).forEach((v, i) => {
-      const assets = parseInt(vaultHexes[i] || "0x0", 16) / 10 ** v.decimals;
+      const assets = vaultAssets[i] / 10 ** v.decimals;
       if (assets > 0) tokens.push({ symbol: v.symbol, chain: chain.key, balance: assets, valueUsd: assets });
     });
     chainExtra.forEach((e, i) => {
       const b = parseInt(extraHexes[i] || "0x0", 16) / 10 ** e.decimals;
       if (b > 0) tokens.push({ symbol: e.symbol, chain: chain.key, balance: b, valueUsd: e.usd === "one" ? b : null, note: e.note });
     });
+    if (enumerate) {
+      // Everything above came from RPC and is authoritative — don't let the
+      // indexer restate it. Enumeration only ADDS rows we'd otherwise miss.
+      const known = new Set(
+        [chain.usdc, ...(chain.vaults ?? []).map((v) => v.address), ...chainExtra.map((e) => e.address)].map((a) => a.toLowerCase()),
+      );
+      tokens.push(...(await fetchEnumeratedTokens(address, chain.key, known)));
+    }
     return { ok: true, tokens };
   } catch (e) {
     return { ok: false, chain: chain.key, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * An ERC-4626 position in ASSET terms, never in shares.
+ *
+ * `convertToAssets(balanceOf(owner))` is the correct read and is tried first:
+ * `maxWithdraw` returns 0 on vaults whose liquidity sits in an adapter (the V2
+ * case documented in vault-depositors.ts), which would show a funded position
+ * as empty. maxWithdraw stays as the fallback for vaults where convertToAssets
+ * is missing. Returns raw units; the caller applies decimals.
+ */
+async function vaultPosition(chain: EvmChain, vault: Erc4626Vault, paddedOwner: string): Promise<number> {
+  const call = (data: string) => rpcCall<string>(chain.rpcs, "eth_call", [{ to: vault.address, data }, "latest"]);
+  try {
+    const sharesHex = await call(`0x70a08231${paddedOwner}`); // balanceOf(owner)
+    const shares = BigInt(sharesHex || "0x0");
+    if (shares === BigInt(0)) return 0;
+    // 0x07a2d13a = convertToAssets(uint256)
+    const assetsHex = await call(`0x07a2d13a${shares.toString(16).padStart(64, "0")}`);
+    const assets = parseInt(assetsHex || "0x0", 16);
+    if (assets > 0) return assets;
+  } catch {
+    // fall through to maxWithdraw
+  }
+  // 0xce96cb77 = maxWithdraw(address)
+  return parseInt((await call(`0xce96cb77${paddedOwner}`)) || "0x0", 16);
 }
 
 // Dust filter that PRESERVES unknown-USD tokens: a token with a known USD value
@@ -189,12 +345,16 @@ const keepAndSort = (tokens: EvmToken[]): EvmToken[] =>
 
 async function fetchEvmWallet(
   wallet: { label: string; address: string; extraTokens?: ExtraToken[] },
-  ethPrice: number,
+  ethPrice: number | null,
 ): Promise<EvmWalletReport> {
   // Query every chain in parallel. A chain whose read FAILS is recorded in
   // failedChains (its balances are UNKNOWN, not zero) — never silently dropped.
+  // Enumeration is ON for every portal, client ones included: a brand should see
+  // what its own treasury actually holds, not only what someone remembered to
+  // declare in config. Safe to enable because the enumerated path requires a
+  // real price and treats every label as hostile text.
   const reads = await Promise.all(
-    EVM_CHAINS.map((c) => fetchChainBalances(wallet.address, c, ethPrice, wallet.extraTokens ?? [])),
+    EVM_CHAINS.map((c) => fetchChainBalances(wallet.address, c, ethPrice, wallet.extraTokens ?? [], true)),
   );
   const all: EvmToken[] = [];
   const failedChains: string[] = [];
