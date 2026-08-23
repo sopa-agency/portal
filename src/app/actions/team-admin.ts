@@ -148,10 +148,12 @@ export async function getMemberTasks(
     return { ok: true, tasks, projectUrl };
   };
 
-  // SOPA hub (no own board, aggregates): collect the person's tasks across EVERY
-  // portal's board, tagged with the project name.
-  if (!g.project.githubProject) {
-    if (!g.project.kanbanAggregate) return { ok: true, tasks: [] };
+  // SOPA hub aggregates: collect the person's tasks across EVERY portal's board
+  // — including SOPA's own board, if it has one — tagged with the project name.
+  // Driven by kanbanAggregate, NOT by "has no board of its own": once the hub got
+  // its own githubProject, gating on !githubProject silently collapsed it back to
+  // a single board and dropped every other portal's tasks.
+  if (g.project.kanbanAggregate) {
     const { getAllProjects } = await import("@/projects/index");
     const seen = new Set<string>();
     const tasks: MemberTask[] = [];
