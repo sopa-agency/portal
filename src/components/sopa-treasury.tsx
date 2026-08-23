@@ -22,11 +22,14 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 export function SopaTreasury({
   groups,
   revenue,
+  revenueError = false,
   dashboardViews,
   agency,
 }: {
   groups: TreasuryGroup[];
   revenue: OrgRevenue | null;
+  /** The revenue READ failed (DB down) — show a failure, never an empty section. */
+  revenueError?: boolean;
   dashboardViews: FinancialDashboardView[];
   /** SOPA-level agency revenue (jobs + split share) — shown only on "Tudo". */
   agency: ReactNode;
@@ -112,8 +115,13 @@ export function SopaTreasury({
       {/* Agency revenue is SOPA-level (not a single project) — only on "Tudo". */}
       {isAll && agency}
 
-      {filteredRevenue && filteredRevenue.projects.length > 0 && (
-        <TreasuryRevenue data={filteredRevenue} aggregate={isAll} />
+      {revenueError ? (
+        <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          ⚠ A receita não carregou (leitura do banco falhou) — desconhecido, não zero. Recarregue.
+        </p>
+      ) : (
+        filteredRevenue &&
+        filteredRevenue.projects.length > 0 && <TreasuryRevenue data={filteredRevenue} aggregate={isAll} />
       )}
     </div>
   );

@@ -11,7 +11,7 @@ import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budge
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
 import { CostsTab } from "@/components/costs-tab";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
-import { getOrgRevenue } from "@/lib/org-revenue";
+import { getOrgRevenue, type OrgRevenue } from "@/lib/org-revenue";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
 import { PayrollPanel, type PayrollRosterOption } from "@/components/payroll-panel";
@@ -159,15 +159,20 @@ treasury: {
     treasuryUsd: g.report.grandTotalUsd,
   }));
   const isSopa = project.slug === "sopa";
-  const [costScope, session, orgRevenue, jobsRes] = await Promise.all([
+  const [costScope, session, orgRevenueResult, jobsRes] = await Promise.all([
     fetchCostScope(costGroups.map((g) => g.slug)),
     verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
     // Revenue is tracked on the org-chart. On SOPA show every project (grouped);
     // on a brand portal show only that project's own streams.
-    getOrgRevenue(isSopa ? undefined : { name: project.name, slug: project.slug }).catch(() => null),
+    getOrgRevenue(isSopa ? undefined : { name: project.name, slug: project.slug }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) })),
     // SOPA agency revenue: client jobs (manual).
     isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
   ]);
+  // Unwrap the revenue Result: data on success, null on FAILURE — and keep a
+  // distinct `revenueFailed` so the UI shows "leitura falhou", never an empty
+  // org chart that reads as "SOPA has nobody".
+  const orgRevenue: OrgRevenue | null = orgRevenueResult.ok ? orgRevenueResult.data : null;
+  const revenueFailed = !orgRevenueResult.ok;
   // SOPA data used to be a long serial waterfall of awaits. Now two parallel waves:
   // wave 1 = everything with no cross-dependency; wave 2 = reads that need a wave-1
   // result (the pool address, and the SOPA-owned vault).
@@ -255,6 +260,7 @@ treasury: {
     <SopaTreasury
       groups={groups}
       revenue={orgRevenue}
+      revenueError={revenueFailed}
       dashboardViews={dashboardViews}
       agency={
         <SopaRevenuePanel
@@ -331,7 +337,11 @@ treasury: {
           ) : null
         }
         revenue={
-          orgRevenue && orgRevenue.projects.length > 0 ? <TreasuryRevenue data={orgRevenue} aggregate={false} /> : null
+          revenueFailed ? (
+            <p className="text-xs text-warning">⚠ receita não carregou (leitura falhou) — não é zero</p>
+          ) : orgRevenue && orgRevenue.projects.length > 0 ? (
+            <TreasuryRevenue data={orgRevenue} aggregate={false} />
+          ) : null
         }
         balances={<TreasuryViews groups={groups} hideTotal />}
         costs={
