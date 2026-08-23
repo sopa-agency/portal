@@ -94,7 +94,13 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
   const addr = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(addr)) return { method: "none", revenueUsd: 0, count: 0, series: [], truncated: false };
   const host = BLOCKSCOUT_HOST[chainKey ?? "base"] ?? BLOCKSCOUT_HOST.base;
-  const { eth: ethPrice } = await getPrices();
+  // getPrices() now returns null when CoinGecko gives no ETH price. Historical
+  // revenue math has no honest answer in that case: valuing ETH events at 0
+  // undercounts, and failing the whole read turns a price blip into "revenue 0"
+  // at the call sites that catch (sopa-boards.ts). Keeping the previous
+  // behaviour on purpose — the fix is a degraded-result flag on
+  // RealizedRevenue/RevenueFlow, which is its own change.
+  const ethPrice = (await getPrices()).eth ?? 0;
 
   // Page decoded logs.
   const items: DecodedLog[] = [];
@@ -146,7 +152,13 @@ export async function fetchAddressFlows(address: string, chainKey: string | null
   const addr = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(addr)) return { receivedUsd: 0, paidUsd: 0, series: [], truncated: false, error: "endereço inválido" };
   const host = BLOCKSCOUT_HOST[chainKey ?? "base"] ?? BLOCKSCOUT_HOST.base;
-  const { eth: ethPrice } = await getPrices();
+  // getPrices() now returns null when CoinGecko gives no ETH price. Historical
+  // revenue math has no honest answer in that case: valuing ETH events at 0
+  // undercounts, and failing the whole read turns a price blip into "revenue 0"
+  // at the call sites that catch (sopa-boards.ts). Keeping the previous
+  // behaviour on purpose — the fix is a degraded-result flag on
+  // RealizedRevenue/RevenueFlow, which is its own change.
+  const ethPrice = (await getPrices()).eth ?? 0;
 
   const [erc20, internal, txs] = await Promise.all([
     pageAll(host, `/addresses/${addr}/token-transfers?type=ERC-20`),
