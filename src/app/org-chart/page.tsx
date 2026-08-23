@@ -5,6 +5,7 @@ import { type Person } from "@/components/sopa-org-chart";
 import { OrgChartViews } from "@/components/org-chart-views";
 import { getSopaRevenueOrbit, getSopaSupporters } from "@/lib/sopa-revenue-orbit";
 import { getAddressBook } from "@/lib/address-book";
+import { getBridgeFeeSummary } from "@/lib/bridge-fee-inflows";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,16 @@ export default async function OrgChartPage() {
   roster.sort((a, b) => a.username.localeCompare(b.username));
 
   const addressBook = await getAddressBook(cards).catch(() => []);
+  const bridgeFee = getBridgeFeeSummary();
 
-  return <OrgChartViews cards={cards} roster={roster} orbit={orbit} support={support} addressBook={addressBook} />;
+  return (
+    <OrgChartViews
+      cards={cards}
+      roster={roster}
+      orbit={orbit}
+      support={support}
+      addressBook={addressBook}
+      bridgeFee={bridgeFee}
+    />
+  );
 }

@@ -5,8 +5,55 @@ import { useRouter } from "next/navigation";
 import { Copy, Check, ExternalLink, BadgeCheck, TriangleAlert, Globe, Plus, Trash2 } from "lucide-react";
 import { suggestAddressEns, addManualAddress, removeManualAddress } from "@/app/actions/sopa-boards";
 import type { AddressBookEntry } from "@/lib/address-book";
+import type { BridgeFeeSummary } from "@/lib/bridge-fee-inflows";
 
 const isAddr = (a: string) => /^0x[a-fA-F0-9]{40}$/.test(a.trim());
+const eth = (n: number) => {
+  const s = n.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+  return s === "0" || s === "" ? "0" : s;
+};
+
+function BridgeFeePanel({ s }: { s: BridgeFeeSummary }) {
+  const b = s.breakdown;
+  return (
+    <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-foreground">Bridge fee — LI.FI · 0,5%</h4>
+        <span className="text-[11px] text-foreground-faint">até {s.asOf}</span>
+      </div>
+      <div className="flex flex-wrap gap-5">
+        <div>
+          <div className="text-lg font-bold tabular-nums text-foreground">{eth(b.totalGross)} ETH</div>
+          <div className="text-[11px] text-foreground-subtle">coletado (total)</div>
+        </div>
+        <div>
+          <div className="text-lg font-bold tabular-nums text-success">{eth(b.externalClientGross)} ETH</div>
+          <div className="text-[11px] text-foreground-subtle">cliente externo ({b.counts.external})</div>
+        </div>
+        <div>
+          <div className="text-lg font-bold tabular-nums text-foreground-muted">{eth(b.internalTestGross)} ETH</div>
+          <div className="text-[11px] text-foreground-subtle">interno/teste ({b.counts.internal})</div>
+        </div>
+      </div>
+      <p className="text-xs text-foreground-muted">
+        Receita de <b className="text-foreground">cliente</b> só sobe quando gente de fora usa o widget. Até {s.asOf}, 100% é
+        tesouro/testes nossos — não inflar como cliente. Fee 50&nbsp;bps confirmada on-chain (0,6575 × 0,005 ≈ coletado).
+      </p>
+      <details className="text-xs">
+        <summary className="cursor-pointer text-foreground-subtle">entradas ({s.inflows.length})</summary>
+        <div className="mt-1 space-y-0.5">
+          {s.inflows.map((i) => (
+            <div key={i.txHash} className="text-foreground-muted">
+              <span className="tabular-nums">{eth(i.eth)} ETH</span> · {i.note} ·{" "}
+              <span className="text-foreground-faint">{i.ts.slice(0, 10)}</span>
+            </div>
+          ))}
+        </div>
+      </details>
+      <p className="text-[10px] text-foreground-faint">Snapshot manual — atualiza quando plugarmos um indexer da Base.</p>
+    </div>
+  );
+}
 
 const EXPLORER: Record<string, string> = {
   base: "https://basescan.org",
@@ -255,7 +302,13 @@ function AddContractForm() {
   );
 }
 
-export function AddressBook({ entries }: { entries: AddressBookEntry[] }) {
+export function AddressBook({
+  entries,
+  bridgeFee,
+}: {
+  entries: AddressBookEntry[];
+  bridgeFee?: BridgeFeeSummary;
+}) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-foreground-muted">
@@ -264,6 +317,7 @@ export function AddressBook({ entries }: { entries: AddressBookEntry[] }) {
         <span className="text-foreground">sugerir/editar</span> um nome (a gente verifica se ele aponta de volta) e{" "}
         <span className="text-foreground">adicionar contratos</span> à mão.
       </p>
+      {bridgeFee && <BridgeFeePanel s={bridgeFee} />}
       <AddContractForm />
       {!entries.length ? (
         <div className="rounded-xl border border-border bg-surface p-8 text-center text-sm text-foreground-muted">
