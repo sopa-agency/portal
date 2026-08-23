@@ -52,6 +52,11 @@ export const SESSION_COOKIE_DOMAIN = process.env.SESSION_COOKIE_DOMAIN?.trim() |
 export function cookieDomainFor(host: string | null | undefined): string | undefined {
   if (SESSION_COOKIE_DOMAIN) return SESSION_COOKIE_DOMAIN;
   const h = (host ?? "").split(":")[0].toLowerCase();
+  // sopa.team is where the brands actually live now. Without this the cookie is
+  // host-only, and the GitHub handshake — which lands on ONE canonical host and
+  // then returns you to your brand — loses its state cookie on the way back and
+  // fails with github_state on every brand except the canonical one.
+  if (h === "sopa.team" || h.endsWith(".sopa.team")) return ".sopa.team";
   if (h === "reelflip.com" || h.endsWith(".reelflip.com")) return ".reelflip.com";
   return undefined;
 }
