@@ -1,7 +1,13 @@
-// Vercel fallback cron. Invoked by Vercel Cron (GET, every few minutes — see
-// vercel.json). It is a SAFETY NET, not the primary publisher: it only runs the
-// due-post publisher when the Mac's heartbeat lease is stale (i.e. the Mac
-// worker/portal is down). When the Mac is alive, this no-ops so normal posting
+// The scheduler tick (GET). Two callers, on purpose — see docs/scheduler-tick.md:
+//   • hourly, PRIMARY: scripts/scheduler-tick.js on the Mac (LaunchAgent)
+//   • daily,  SAFETY NET: the Vercel cron in vercel.json
+// The hourly cadence sits on the Mac because the crew's Vercel team is on Hobby,
+// which only accepts a DAILY cron — an hourly expression makes Vercel refuse to
+// create the deployment at all.
+//
+// For PUBLISHING this is a safety net either way: it only runs the due-post
+// publisher when the Mac's heartbeat lease is stale (i.e. the Mac worker/portal
+// is down). When the Mac is alive, publishing no-ops here so normal posting
 // stays on the Mac (residential IP).
 //
 // Auth: Vercel automatically sends `Authorization: Bearer <CRON_SECRET>` when a
