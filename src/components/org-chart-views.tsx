@@ -8,6 +8,7 @@ import { AddressBook } from "@/components/address-book";
 import type { BoardCard } from "@/app/actions/sopa-boards";
 import type { SopaRevenueOrbit, SopaSupport } from "@/lib/sopa-revenue-orbit";
 import type { AddressBookEntry } from "@/lib/address-book";
+import type { BridgeFeeSummary } from "@/lib/bridge-fee-inflows";
 
 // Three views of the org-chart, toggled (and URL-persisted): the org STRUCTURE
 // (who's who, tiers, teams — SopaOrgChart), the money view (revenue flowing INTO
@@ -19,12 +20,14 @@ export function OrgChartViews({
   orbit,
   support,
   addressBook,
+  bridgeFee,
 }: {
   cards: BoardCard[];
   roster: Person[];
   orbit: SopaRevenueOrbit;
   support: SopaSupport;
   addressBook: AddressBookEntry[];
+  bridgeFee?: BridgeFeeSummary;
 }) {
   const [view, setView] = useUrlTab("view", "structure");
   const active = view === "revenue" || view === "addresses" ? view : "structure";
@@ -53,7 +56,7 @@ export function OrgChartViews({
       ) : active === "revenue" ? (
         <OrgRevenueOrbit orbit={orbit} support={support} />
       ) : (
-        <AddressBook entries={addressBook} />
+        <AddressBook entries={addressBook} bridgeFee={bridgeFee} />
       )}
     </div>
   );
