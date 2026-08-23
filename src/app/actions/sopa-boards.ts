@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createPinataSignedUploadUrl } from "@/lib/social-publish";
-import { ensForwardResolves } from "@/lib/ens";
+import { resolveEns } from "@/lib/ens";
 import { getActiveProject } from "@/projects/index";
 
 // ---------------------------------------------------------------------------
@@ -440,7 +440,7 @@ export async function deleteCard(id: string): Promise<{ deleted: string[] }> {
 // suggestion is still stored (and shown flagged), never silently trusted.
 // ---------------------------------------------------------------------------
 export type EnsSuggestion =
-  | { address: string; ens: string; verified: boolean }
+  | { address: string; ens: string; verified: boolean; resolvedTo: string | null }
   | { error: string };
 
 export async function suggestAddressEns(address: string, ens: string): Promise<EnsSuggestion> {
@@ -453,16 +453,19 @@ export async function suggestAddressEns(address: string, ens: string): Promise<E
     // Empty = clear the suggestion (fall back to auto reverse-resolution).
     await prisma.addressLabel.deleteMany({ where: { address: addr } });
     revalidatePath("/org-chart");
-    return { address: addr, ens: "", verified: false };
+    return { address: addr, ens: "", verified: false, resolvedTo: null };
   }
-  if (!name.includes(".")) return { error: "Informe um nome ENS (ex.: nome.eth)." };
+  if (!name.includes(".")) return { error: "Informe um nome ENS (ex.: nome.eth ou sub.nome.eth)." };
 
-  const verified = await ensForwardResolves(name, addr);
+  // Resolve the name (works for subENS too) so we can tell "doesn't exist" from
+  // "exists but points elsewhere" from "points here" — never trust a name blindly.
+  const resolvedTo = await resolveEns(name);
+  const verified = !!resolvedTo && resolvedTo.toLowerCase() === addr;
   const row = await prisma.addressLabel.upsert({
     where: { address: addr },
     create: { address: addr, ens: name, verified },
     update: { ens: name, verified },
   });
   revalidatePath("/org-chart");
-  return { address: row.address, ens: row.ens, verified: row.verified };
+  return { address: row.address, ens: row.ens, verified: row.verified, resolvedTo };
 }
