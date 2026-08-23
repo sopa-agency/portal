@@ -76,8 +76,20 @@ const sopa: ProjectConfig = {
   },
   treasury: {
     ethWallets: [
-      // SOPA's own multisig (Safe on Base).
-      { label: "SOPA Safe", address: "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2" },
+      // SOPA's own multisig (Safe on Base). ETH + USDC + the Moonwell vault are
+      // read by default; USDCx and $gnars are extra known tokens the Safe holds.
+      {
+        label: "SOPA Safe",
+        address: "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2",
+        extraTokens: [
+          // Superfluid Super USDC — SuperToken balanceOf is real-time (includes
+          // CFA stream deltas), priced 1:1. NOTE: GDA pool claimable is NOT in
+          // balanceOf — flagged as a known limitation until we read the pool.
+          { chain: "base", address: "0xD04383398dD2426297da660F9CCA3d439AF9ce1b", symbol: "USDCx", decimals: 18, usd: "one", note: "claimable de pool GDA não incluído" },
+          // $GNARS (Clanker) — illiquid, no trustworthy price → quantity only.
+          { chain: "base", address: "0x0cf0c3b75d522290d7d12c74d7f1f0cc47ccb23b", symbol: "gnars", decimals: 18, usd: "none" },
+        ],
+      },
     ],
     includeProjects: ["gnars", "skatehive"],
   },

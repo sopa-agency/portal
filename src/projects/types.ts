@@ -236,8 +236,23 @@ export type ProjectConfig = {
    * Omitted = nav item hidden and route 404s.
    */
   treasury?: {
-    /** EVM wallets — balances aggregated via the Zapper proxy (api.keepkey.info). */
-    ethWallets: { label: string; address: string }[];
+    /** EVM wallets — ETH + USDC + configured ERC-4626 vaults read live per chain. */
+    ethWallets: {
+      label: string;
+      address: string;
+      /** Extra known ERC-20s to ALSO read for this wallet (config-driven, not an
+       *  indexer — so no spam/scam tokens leak in). `usd: "one"` prices 1:1 (Super
+       *  USDC); `usd: "none"` = balance known but no trustworthy price (rule 5:
+       *  show the quantity, USD unavailable). SOPA-only today. */
+      extraTokens?: {
+        chain: string;
+        address: string;
+        symbol: string;
+        decimals: number;
+        usd: "one" | "none";
+        note?: string;
+      }[];
+    }[];
     /** Hive accounts — balances from condenser_api, valued via CoinGecko. */
     hiveAccounts?: { label: string; account: string }[];
     /**

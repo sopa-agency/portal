@@ -27,15 +27,19 @@ const colorAt = (i: number) => PALETTE[i % PALETTE.length];
 // the reader gets the portfolio at a glance, Zerion-style.
 // ---------------------------------------------------------------------------
 
-type Asset = { symbol: string; chains: string[]; balance: number; valueUsd: number };
+// `usdUnknown` = this asset has a balance whose USD we can't price (rule 5). Its
+// quantity is real; the USD column shows "indisponível", and it never inflates
+// the USD total with a made-up price.
+type Asset = { symbol: string; chains: string[]; balance: number; valueUsd: number; usdUnknown: boolean };
 
 function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
   const map = new Map<string, Asset>();
-  const add = (symbol: string, chain: string, balance: number, valueUsd: number) => {
+  const add = (symbol: string, chain: string, balance: number, valueUsd: number | null) => {
     const k = symbol.toUpperCase();
-    const a = map.get(k) ?? { symbol, chains: [], balance: 0, valueUsd: 0 };
+    const a = map.get(k) ?? { symbol, chains: [], balance: 0, valueUsd: 0, usdUnknown: false };
     a.balance += balance;
-    a.valueUsd += valueUsd;
+    if (valueUsd == null) a.usdUnknown = true;
+    else a.valueUsd += valueUsd;
     if (!a.chains.includes(chain)) a.chains.push(chain);
     map.set(k, a);
   };
@@ -47,7 +51,10 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
       add("HBD", "Hive", h.hbd + h.hbdSavings, (h.hbd + h.hbdSavings) * prices.hbd);
     }
   }
-  return [...map.values()].filter((a) => a.valueUsd > 0.5).sort((a, b) => b.valueUsd - a.valueUsd);
+  // Keep priced assets over $0.50, AND any unpriced asset with a real balance.
+  return [...map.values()]
+    .filter((a) => a.valueUsd > 0.5 || (a.usdUnknown && a.balance > 0))
+    .sort((a, b) => b.valueUsd - a.valueUsd);
 }
 
 type Segment = { label: string; valueUsd: number; color: string };
@@ -218,8 +225,16 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                   </div>
                 </div>
                 <div className="w-24 shrink-0 text-right">
-                  <p className="text-sm font-semibold tabular-nums text-foreground">{usd(a.valueUsd)}</p>
-                  <p className="text-[11px] tabular-nums text-foreground-faint">{pct(share)}</p>
+                  {a.usdUnknown && a.valueUsd < 0.5 ? (
+                    <p className="text-xs font-medium tabular-nums text-foreground-faint" title="sem fonte de preço confiável">
+                      USD n/d
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold tabular-nums text-foreground">{usd(a.valueUsd)}</p>
+                      <p className="text-[11px] tabular-nums text-foreground-faint">{pct(share)}</p>
+                    </>
+                  )}
                 </div>
               </li>
             );
@@ -237,7 +252,7 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
 function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["views"] }) {
   const segs =
     w.totalUsd > 0
-      ? toSegments(w.tokens.map((tk) => ({ label: `${tk.symbol}·${tk.chain}`, valueUsd: tk.valueUsd })), t.others)
+      ? toSegments(w.tokens.map((tk) => ({ label: `${tk.symbol}·${tk.chain}`, valueUsd: tk.valueUsd ?? 0 })), t.others)
       : [];
   return (
     <div className="group rounded-2xl border border-border bg-surface p-5 transition-colors hover:border-border-strong">
@@ -256,7 +271,10 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
           </a>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-lg font-bold tabular-nums text-foreground">{usd(w.totalUsd)}</p>
+          <p className="text-lg font-bold tabular-nums text-foreground">
+            {usd(w.totalUsd)}
+            {w.failedChains.length > 0 && <span className="ml-1 text-xs font-medium text-warning">parcial</span>}
+          </p>
           {w.tokens.length > 0 && (
             <p className="text-[10px] tabular-nums text-foreground-faint">{t.assetCount(w.tokens.length)}</p>
           )}
@@ -269,29 +287,41 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
           ))}
         </div>
       )}
-      {w.error ? (
-        <p className="mt-3 text-xs text-danger">{t.loadFailed} {w.error}</p>
-      ) : w.tokens.length > 0 ? (
+      {w.failedChains.length > 0 && (
+        // Rule 5: a failed read is a FAILURE, never a 0. Show it, keep the total
+        // flagged "parcial", and still render whatever DID load.
+        <p className="mt-3 text-xs text-warning">
+          ⚠ {t.loadFailed} {w.failedChains.join(", ")} — desconhecido, não zero
+        </p>
+      )}
+      {w.tokens.length > 0 ? (
         <div className="mt-4 space-y-2">
-          {w.tokens.map((t, i) => (
-            <div key={`${t.symbol}-${t.chain}-${i}`} className="flex items-center justify-between gap-3 text-sm">
+          {w.tokens.map((tk, i) => (
+            <div key={`${tk.symbol}-${tk.chain}-${i}`} className="flex items-center justify-between gap-3 text-sm">
               <span className="flex min-w-0 items-center gap-2">
-                <TokenLogo symbol={t.symbol} color={colorAt(i)} size={20} />
-                <span className="font-medium text-foreground">{t.symbol}</span>
+                <TokenLogo symbol={tk.symbol} color={colorAt(i)} size={20} />
+                <span className="font-medium text-foreground">{tk.symbol}</span>
                 <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-foreground-faint">
-                  {t.chain}
+                  {tk.chain}
                 </span>
+                {tk.note && (
+                  <span className="text-[10px] text-foreground-faint" title={tk.note}>
+                    ⓘ
+                  </span>
+                )}
               </span>
               <span className="flex shrink-0 items-center gap-3 tabular-nums">
-                <span className="text-foreground-faint">{num(t.balance, 4)}</span>
-                <span className="w-20 text-right font-medium text-foreground">{usd(t.valueUsd)}</span>
+                <span className="text-foreground-faint">{num(tk.balance, 4)}</span>
+                <span className="w-24 text-right font-medium text-foreground">
+                  {tk.valueUsd == null ? <span className="text-foreground-faint">USD n/d</span> : usd(tk.valueUsd)}
+                </span>
               </span>
             </div>
           ))}
         </div>
-      ) : (
+      ) : w.failedChains.length === 0 ? (
         <p className="mt-3 text-xs text-foreground-faint">{t.noBalances}</p>
-      )}
+      ) : null}
     </div>
   );
 }

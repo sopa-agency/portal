@@ -16,7 +16,7 @@ import { getRevenueTrends, type RevenueTrend } from "@/lib/revenue-snapshots";
 // (AuctionSettled / SplitDistributed) + Δ7d/Δ30d trend per stream.
 
 type Kind = "manual" | "wallet" | "contract" | "split";
-type Token = { symbol: string; chain: string; balance: number; valueUsd: number };
+type Token = { symbol: string; chain: string; balance: number; valueUsd: number | null };
 
 export type OrgRevenueStream = {
   label: string;
