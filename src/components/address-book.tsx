@@ -11,9 +11,22 @@ const EXPLORER: Record<string, string> = {
   optimism: "https://optimistic.etherscan.io",
   arbitrum: "https://arbiscan.io",
 };
+const CHAIN_ID: Record<string, number> = { base: 8453, ethereum: 1, optimism: 10, arbitrum: 42161 };
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
-const explorerUrl = (chains: string[], address: string) =>
-  `${EXPLORER[chains[0]] ?? EXPLORER.base}/address/${address}`;
+
+// 0xSplits contracts get the Splits app (recipients + distributions), not a raw
+// block explorer — that's where a split actually reads as a split. Everything
+// else (wallets, plain contracts) goes to the chain's explorer.
+const linkFor = (entry: { chains: string[]; kinds: string[]; address: string }) => {
+  const chain = entry.chains[0] ?? "base";
+  if (entry.kinds.includes("split")) {
+    return {
+      url: `https://app.splits.org/accounts/${entry.address}/?chainId=${CHAIN_ID[chain] ?? 8453}`,
+      label: "Ver no Splits",
+    };
+  }
+  return { url: `${EXPLORER[chain] ?? EXPLORER.base}/address/${entry.address}`, label: "Ver no explorer" };
+};
 
 function CopyBtn({ value }: { value: string }) {
   const [done, setDone] = useState(false);
@@ -52,8 +65,10 @@ function EnsCell({ entry }: { entry: AddressBookEntry }) {
 
 function AddressRow({ entry }: { entry: AddressBookEntry }) {
   const [row, setRow] = useState(entry);
-  const [draft, setDraft] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
+  // Pre-fill with the current name so it's editable in place (subENS included).
+  const [draft, setDraft] = useState(entry.ens ?? "");
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const link = linkFor(row);
   const [pending, start] = useTransition();
 
   const submit = () => {
@@ -62,7 +77,7 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
     start(async () => {
       const res = await suggestAddressEns(row.address, ens);
       if ("error" in res) {
-        setMsg(res.error);
+        setMsg({ text: res.error, ok: false });
         return;
       }
       setRow((r) => ({
@@ -71,8 +86,13 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
         ensSource: res.ens ? "suggested" : null,
         verified: res.verified,
       }));
-      setDraft("");
-      setMsg(res.ens && !res.verified ? "Salvo, mas não resolve pro endereço." : null);
+      setDraft(res.ens);
+      // Distinguish resolves-here / exists-but-elsewhere / doesn't-exist.
+      if (!res.ens) setMsg(null);
+      else if (res.verified) setMsg({ text: "✓ resolve pra este endereço", ok: true });
+      else if (res.resolvedTo)
+        setMsg({ text: `⚠ existe, mas aponta pra ${short(res.resolvedTo)} — não é este`, ok: false });
+      else setMsg({ text: "⚠ não existe / não resolve on-chain", ok: false });
     });
   };
 
@@ -84,7 +104,7 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
       <td className="py-2.5 pr-3">
         <div className="flex items-center gap-1.5">
           <a
-            href={explorerUrl(row.chains, row.address)}
+            href={link.url}
             target="_blank"
             rel="noopener noreferrer"
             className="font-mono text-xs text-foreground-muted transition hover:text-accent"
@@ -93,10 +113,10 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
           </a>
           <CopyBtn value={row.address} />
           <a
-            href={explorerUrl(row.chains, row.address)}
+            href={link.url}
             target="_blank"
             rel="noopener noreferrer"
-            title="Ver no explorer"
+            title={link.label}
             className="text-foreground-faint transition hover:text-foreground"
           >
             <ExternalLink className="h-3.5 w-3.5" />
@@ -135,19 +155,19 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && draft.trim() && submit()}
-            placeholder={row.ens ? "trocar ENS…" : "sugerir ENS (nome.eth)"}
+            placeholder={row.ens ? "editar nome…" : "sugerir ENS (nome.eth ou sub.nome.eth)"}
             className="w-36 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none"
           />
           <button
             type="button"
             onClick={submit}
-            disabled={pending || !draft.trim()}
+            disabled={pending}
             className="rounded-md bg-accent-bg px-2 py-1 text-xs font-semibold text-accent transition hover:brightness-95 disabled:opacity-40"
           >
             {pending ? "…" : "salvar"}
           </button>
         </div>
-        {msg && <p className="mt-1 text-[10px] text-warning">{msg}</p>}
+        {msg && <p className={`mt-1 text-[10px] ${msg.ok ? "text-success" : "text-warning"}`}>{msg.text}</p>}
       </td>
     </tr>
   );

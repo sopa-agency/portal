@@ -28,14 +28,21 @@ export async function reverseEns(address: string): Promise<string | null> {
   }
 }
 
+/** Forward-resolve an ENS name (or subname, e.g. `treasury.sopa.eth`) to the
+ *  address it points to, or null if it doesn't exist / doesn't resolve. Works
+ *  for subENS the same way — viem walks the resolver chain. */
+export async function resolveEns(ens: string): Promise<string | null> {
+  try {
+    return await client.getEnsAddress({ name: normalize(ens) });
+  } catch {
+    return null;
+  }
+}
+
 /** Does `ens` forward-resolve to `address`? The integrity check on a suggestion:
  *  a name that doesn't point back to the address is misinformation, not a label. */
 export async function ensForwardResolves(ens: string, address: string): Promise<boolean> {
   if (!isAddress(address)) return false;
-  try {
-    const resolved = await client.getEnsAddress({ name: normalize(ens) });
-    return !!resolved && resolved.toLowerCase() === address.toLowerCase();
-  } catch {
-    return false;
-  }
+  const resolved = await resolveEns(ens);
+  return !!resolved && resolved.toLowerCase() === address.toLowerCase();
 }
