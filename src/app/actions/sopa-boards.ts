@@ -469,3 +469,32 @@ export async function suggestAddressEns(address: string, ens: string): Promise<E
   revalidatePath("/org-chart");
   return { address: row.address, ens: row.ens, verified: row.verified, resolvedTo };
 }
+
+// Manually add a contract/address to the org-chart address book (independent of
+// any revenue stream). Optional human label; ENS still auto-resolves + can be
+// suggested/verified like any other row.
+export async function addManualAddress(
+  address: string,
+  label?: string,
+): Promise<{ ok: true; address: string } | { ok: false; error: string }> {
+  await assertSopa();
+  const addr = address.trim().toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(addr)) return { ok: false, error: "Endereço inválido." };
+  const lbl = label?.trim() || null;
+  await prisma.addressLabel.upsert({
+    where: { address: addr },
+    create: { address: addr, manual: true, label: lbl },
+    update: { manual: true, ...(lbl ? { label: lbl } : {}) },
+  });
+  revalidatePath("/org-chart");
+  return { ok: true, address: addr };
+}
+
+/** Remove a manually-added address from the book (leaves stream-derived rows). */
+export async function removeManualAddress(address: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await assertSopa();
+  const addr = address.trim().toLowerCase();
+  await prisma.addressLabel.deleteMany({ where: { address: addr, manual: true } });
+  revalidatePath("/org-chart");
+  return { ok: true };
+}
