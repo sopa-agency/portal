@@ -8,11 +8,13 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X, CalendarDays } from "lucide-react";
 import type { CampaignDocumentKind } from "@/lib/campaign-kind";
+import { CampaignScheduledPostDialog } from "@/components/campaign-scheduled-post-dialog";
 
 export type CalendarAsset = {
   id: string;
   name: string;
   kind: CampaignDocumentKind;
+  content: string;
   tone: string;
   scheduledFor: Date | null;
 };
@@ -42,6 +44,10 @@ export function CampaignCalendar({
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
   const [armed, setArmed] = useState<string | null>(null);
+  // Clicking a scheduled chip opens the reschedule dialog (instead of jumping
+  // to the Files view). "abrir no editor" inside it runs the old open behavior.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const openAsset = openId ? assets.find((a) => a.id === openId) ?? null : null;
 
   const byDay = useMemo(() => {
     const m: Record<string, CalendarAsset[]> = {};
@@ -164,7 +170,7 @@ export function CampaignCalendar({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onOpen(a.id);
+                          setOpenId(a.id);
                         }}
                         className="min-w-0 flex-1 truncate text-left text-foreground-muted transition hover:text-foreground"
                       >
@@ -191,6 +197,26 @@ export function CampaignCalendar({
         </div>
       </div>
       {busy && <p className="text-[11px] text-foreground-faint">salvando…</p>}
+
+      {openAsset && (
+        <CampaignScheduledPostDialog
+          asset={openAsset}
+          busy={busy}
+          onClose={() => setOpenId(null)}
+          onReschedule={(iso) => {
+            onSchedule(openAsset.id, iso);
+            setOpenId(null);
+          }}
+          onClear={() => {
+            onSchedule(openAsset.id, null);
+            setOpenId(null);
+          }}
+          onOpenEditor={() => {
+            onOpen(openAsset.id);
+            setOpenId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
