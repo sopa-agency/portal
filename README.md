@@ -14,7 +14,7 @@ subdomain, with its own theme, accounts, allowlist, and AI agent.
 > the others. Tenants today, each on its own subdomain: **SOPA** (the agency
 > portal that sits above the rest — combined treasury, editable org-chart,
 > portfolio, deck-style About), **SkateHive**, **Gnars**, **Nogenta** (skate
-> editorial, B&W), **Vlad**, **KeepKey**, and **SwapPro**.
+> editorial, B&W), **Vlad**, **KeepKey**, and **swaps.pro**.
 >
 > The **Reelflip** name still appears throughout the code (umbrella logic, the
 > `/home` public page, `*.reelflip.com` redirects). It is legacy — the umbrella
@@ -37,7 +37,7 @@ Tenancy is resolved from the request **subdomain**:
 ```
 skatehive.sopa.team  → slug "skatehive" → SkateHive ProjectConfig
 gnars.sopa.team      → slug "gnars"     → Gnars ProjectConfig
-swaps.sopa.team      → slug "swaps"     → SwapPro ProjectConfig
+swaps.sopa.team      → slug "swaps"     → swaps.pro ProjectConfig
 localhost / apex     → PORTAL_DEFAULT_PROJECT
 ```
 

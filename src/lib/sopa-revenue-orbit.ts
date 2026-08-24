@@ -101,7 +101,7 @@ const DECLARED_INFLOWS: DeclaredInflow[] = [
     splitOut: { label: "Gnars DAO", toAddress: "0x72ad986ebac0246d2b3c565ab2a1ce3a14ce6f88", share: 0.18 },
   },
   {
-    // SwapPro cross-chain (THORChain affiliate) — LIVE. Multi-affiliate memo
+    // swaps.pro cross-chain (THORChain affiliate) — LIVE. Multi-affiliate memo
     // `keep/thor1ujdj…:24/6` pays the KeepKey THORName 24 bps + SOPA 6 bps → SOPA
     // gets 6/30 = 20% of the 0.30% fee. It's on THORChain (THORName, not EVM), so
     // there's no 0xSplits to read — declared at 20%. Realized $ = a Midgard follow-up.
