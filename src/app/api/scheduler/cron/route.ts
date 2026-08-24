@@ -1,5 +1,4 @@
-// Vercel fallback cron. Invoked by Vercel Cron (GET, every few minutes — see
-// vercel.json). It is a SAFETY NET, not the primary publisher: it only runs the
+// Vercel cron. Invoked by Vercel Cron (GET, hourly — see vercel.json). It is a SAFETY NET, not the primary publisher: it only runs the
 // due-post publisher when the Mac's heartbeat lease is stale (i.e. the Mac
 // worker/portal is down). When the Mac is alive, this no-ops so normal posting
 // stays on the Mac (residential IP).
@@ -14,6 +13,7 @@ import { MAC_LEASE_GRACE_MS } from "@/lib/scheduler-lease";
 import { autoBoostFromVotes } from "@/lib/auto-boost";
 import { snapshotRevenueIfDue } from "@/lib/revenue-snapshots";
 import { refillStreamIfLow } from "@/lib/stream-autopilot";
+import { dispatchSkatehiveScheduledPosts } from "@/lib/skatehive-scheduled-posts";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -86,6 +86,13 @@ export async function GET(req: Request) {
     ? await refillStreamIfLow().catch((e) => ({ ran: false, reason: String(e) }))
     : { skipped: "tick-claimed" as const };
 
+  // SkateHive's scheduled-post processor (skatehive3.0 #135) has no cron of its
+  // own — this tick is what makes it run. Deliberately OUTSIDE the per-hour
+  // claim and outside the mac-lease branch, so it fires on every tick no matter
+  // which deployment won the claim or whether the Mac is up. See the module for
+  // why that is the safe choice rather than the sloppy one.
+  const skatehiveScheduled = await dispatchSkatehiveScheduledPosts();
+
   if (!(await macLeaseIsStale(now))) {
     return NextResponse.json({
       checkedAt: new Date(now).toISOString(),
@@ -96,10 +103,11 @@ export async function GET(req: Request) {
       autoBoost,
       revenue,
       streamRefill,
+      skatehiveScheduled,
     });
   }
 
   // Mac is down → take over.
   const result = await runScheduledPublish(now);
-  return NextResponse.json({ ...result, fallback: true, skipped: false, claimedActions, autoBoost, revenue, streamRefill });
+  return NextResponse.json({ ...result, fallback: true, skipped: false, claimedActions, autoBoost, revenue, streamRefill, skatehiveScheduled });
 }
