@@ -1,9 +1,9 @@
 import type { ProjectConfig } from "./types";
 
-// Vlad — personal influencer brand, operated under the Reelflip umbrella (the
-// first of the influencer accounts Reelflip manages). Instagram/TikTok/YouTube-
+// Vlad — personal influencer brand, the first portal in SOPA's INFLUENCERS
+// division (see influencers.ts, the division's home). Instagram/TikTok/YouTube-
 // first; cross-posts to Hive via the SkateHive community as @xvlad. Accent:
-// violet, distinct from lime (SkateHive), red (Gnars) and cyan (Reelflip).
+// violet, distinct from lime (SkateHive), red (Gnars) and magenta (the division).
 //
 // Instagram is wired: @skate.mkv (business account id in VLAD_INSTAGRAM_*,
 // via the "Vlad" FB Page under the SkateHive Business Manager system user).
@@ -13,11 +13,11 @@ import type { ProjectConfig } from "./types";
 // TODO(vlad): drop the logo at public/projects/vlad/logo.png.
 const vlad: ProjectConfig = {
   slug: "vlad",
-  // Portal lives at vlad.reelflip.com (needs the subdomain pointed in Vercel/DNS).
-  // Personal portal — top-level (only visible to its own allowlist).
-  switcher: { rank: 40 },
+  // Portal lives at vlad.sopa.team. Indents under the Influencers division;
+  // still only visible to its own allowlist.
+  switcher: { rank: 50, parent: "influencers" },
   name: "Vlad",
-  description: "Internal ops portal for Vlad — personal influencer brand under Reelflip.",
+  description: "Internal ops portal for Vlad — personal influencer brand in SOPA's Influencers division.",
   // Restricted to @xvlad for now (personal influencer portal). SOPA global
   // admins still have access via their global role. Add more Hive usernames
   // here to grant others.

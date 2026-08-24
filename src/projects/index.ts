@@ -7,6 +7,7 @@ import keepkey from "./keepkey";
 import nogenta from "./nogenta";
 import vlad from "./vlad";
 import swaps from "./swaps";
+import influencers from "./influencers";
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -20,6 +21,7 @@ export const PROJECT_REGISTRY: Record<string, ProjectConfig> = {
   nogenta,
   vlad,
   swaps,
+  influencers,
 };
 
 // ---------------------------------------------------------------------------
