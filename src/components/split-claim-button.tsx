@@ -53,16 +53,39 @@ function summarize(claim: SplitClaim): string {
     .join(" · ");
 }
 
-export function SplitClaimButton({ address, chain }: { address: string; chain: string | null }) {
+// `showEmpty` makes a confirmed split with nothing pending SAY so instead of
+// vanishing. The treasury leaves it off — there a silent row is fine, the panel
+// is an extra on a stream that already shows its own numbers. The address book
+// turns it on, because there "no panel" and "no balance" would be
+// indistinguishable, and answering "how much is sitting in this split?" is the
+// whole reason the panel is on that page.
+export function SplitClaimButton({
+  address,
+  chain,
+  showEmpty = false,
+}: {
+  address: string;
+  chain: string | null;
+  showEmpty?: boolean;
+}) {
   const [claim, setClaim] = useState<SplitClaim | null>(null);
+  // getSplitClaim returns null for anything that is not a readable 0xSplits
+  // contract on Base, so a non-null read is itself the proof that it IS one.
+  // Tracked separately from `claim`, which goes null again once it is empty.
+  const [isSplit, setIsSplit] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [account, setAccount] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetchSplitClaim(address, chain)
-      .then((c) => setClaim(c && (c.distributable.length > 0 || c.withdrawable.length > 0) ? c : null))
-      .catch(() => {});
+      .then((c) => {
+        setIsSplit(!!c);
+        setClaim(c && (c.distributable.length > 0 || c.withdrawable.length > 0) ? c : null);
+      })
+      .catch(() => {})
+      .finally(() => setLoaded(true));
   }, [address, chain]);
 
   useEffect(() => {
@@ -141,10 +164,20 @@ export function SplitClaimButton({ address, chain }: { address: string; chain: s
     }
   }, [account, claim, address, chain, load]);
 
-  if (!claim) return null;
+  if (!claim) {
+    // A read that FAILED or has not finished must never render as "nothing
+    // here" — only a completed read of a real split earns the empty state.
+    if (!showEmpty || !loaded || !isSplit) return null;
+    return (
+      <div className="my-2 flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] text-foreground-faint">
+        <DownloadCloud className="h-3.5 w-3.5" />
+        Split sem saldo a recolher
+      </div>
+    );
+  }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-accent-border bg-accent-bg/40 px-2.5 py-1.5">
+    <div className="my-2 flex flex-wrap items-center gap-2 rounded-md border border-accent-border bg-accent-bg/40 px-2.5 py-1.5">
       <span className="flex items-center gap-1.5 text-[11px] text-foreground-muted">
         <DownloadCloud className="h-3.5 w-3.5 text-accent" />
         Recolhível: <span className="font-semibold text-foreground">{summarize(claim)}</span>
