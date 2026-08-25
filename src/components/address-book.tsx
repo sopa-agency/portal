@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Check, ExternalLink, BadgeCheck, TriangleAlert, Globe, Plus, Trash2 } from "lucide-react";
 import { suggestAddressEns, addManualAddress, removeManualAddress } from "@/app/actions/sopa-boards";
+import { SplitClaimButton } from "@/components/split-claim-button";
 import type { AddressBookEntry } from "@/lib/address-book";
 import type { BridgeFeeSummary } from "@/lib/bridge-fee-inflows";
 
@@ -153,12 +154,19 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
     });
   };
 
+  const isSplit = row.kinds.includes("split");
+  // Base is the only chain getSplitClaim reads. Passing anything else makes it
+  // return null and the panel hides itself, which is the honest outcome: better
+  // an absent panel than a confident "0" for a split we never actually read.
+  const splitChain = row.chains.includes("base") ? "base" : (row.chains[0] ?? null);
+
   return (
+    <>
     <tr className="border-t border-border align-top">
       <td className="py-2.5 px-3">
         <EnsCell entry={row} />
       </td>
-      <td className="py-2.5 pr-3">
+      <td className="py-2.5 px-3">
         <div className="flex items-center gap-1.5">
           <a
             href={link.url}
@@ -180,7 +188,7 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
           </a>
         </div>
       </td>
-      <td className="py-2.5 pr-3">
+      <td className="py-2.5 px-3">
         <div className="flex flex-wrap gap-1">
           {row.deployedOn.length > 0
             ? row.deployedOn.map((c) => (
@@ -209,7 +217,7 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
           )}
         </div>
       </td>
-      <td className="py-2.5 pr-3">
+      <td className="py-2.5 px-3">
         <div className="flex flex-col gap-0.5">
           {row.refs.slice(0, 3).map((r, i) => (
             <span key={i} className="text-xs text-foreground-muted">
@@ -224,14 +232,14 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
           )}
         </div>
       </td>
-      <td className="py-2.5">
+      <td className="py-2.5 px-3">
         <div className="flex items-center gap-1.5">
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && draft.trim() && submit()}
             placeholder={row.ens ? "editar nome…" : "sugerir ENS (nome.eth ou sub.nome.eth)"}
-            className="w-36 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none"
+            className="w-44 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none"
           />
           <button
             type="button"
@@ -256,6 +264,18 @@ function AddressRow({ entry }: { entry: AddressBookEntry }) {
         {msg && <p className={`mt-1 text-[10px] ${msg.ok ? "text-success" : "text-warning"}`}>{msg.text}</p>}
       </td>
     </tr>
+    {isSplit && (
+      // Its own full-width row rather than a cell: the balance summary gets the
+      // space it needs without widening the address column for every other row.
+      // The td carries no vertical padding, so when the panel renders nothing
+      // (a split off Base) this collapses to zero height instead of a gap.
+      <tr>
+        <td colSpan={5} className="px-3">
+          <SplitClaimButton address={row.address} chain={splitChain} showEmpty />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
@@ -325,7 +345,7 @@ export function AddressBook({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full min-w-[880px] text-left text-sm">
           <thead>
             <tr className="text-[11px] uppercase tracking-wide text-foreground-faint">
               <th className="px-3 py-2 font-semibold">ENS / nome</th>
