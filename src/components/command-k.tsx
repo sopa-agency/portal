@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Search, ArrowRight, LayoutGrid, Clock, CornerDownLeft } from "lucide-react";
+import { portalUrlFor } from "@/lib/portal-host";
 
 type NavItem = { href: string; label: string };
 type Portal = { slug: string; name: string; subdomain?: string };
@@ -69,13 +70,11 @@ export function CommandK({
     }
   }, [open]);
 
+  // Same rule as the sidebar switcher, same helper — these two drifting apart
+  // is how one of them would silently keep the three-level bug.
   const portalUrl = useCallback((p: Portal) => {
-    const { protocol, hostname, port } = window.location;
     const knownLabels = portals.flatMap((x) => (x.subdomain ? [x.slug, x.subdomain] : [x.slug]));
-    const labels = hostname.split(".");
-    const base = knownLabels.includes(labels[0]) ? labels.slice(1) : labels;
-    const target = p.subdomain ?? p.slug;
-    return `${protocol}//${[target, ...base].join(".")}${port ? `:${port}` : ""}/`;
+    return portalUrlFor(p.subdomain ?? p.slug, window.location, knownLabels);
   }, [portals]);
 
   const labelFor = useCallback((href: string) => navItems.find((n) => n.href === href)?.label ?? href, [navItems]);

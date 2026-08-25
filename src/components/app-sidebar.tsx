@@ -8,6 +8,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect, useCallback } from "react";
 import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Music2, Newspaper, LayoutTemplate, Inbox, Menu, X, PanelLeftClose, PanelLeftOpen, Search, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
+import { portalUrlFor } from "@/lib/portal-host";
 
 const SIDEBAR_COLLAPSED_KEY = "portal.sidebar.collapsed";
 const SIDEBAR_WIDTH_KEY = "portal.sidebar.width";
@@ -258,19 +259,14 @@ export function AppSidebar({ username, avatarUrl, projectName, projectLogo, curr
     };
   }, [mobileOpen]);
 
-  // Switch portals by swapping the leftmost host label — works across prod
-  // (admin/skatehive/gnars.reelflip.com, legacy slug.portal.skatehive.app),
-  // Tailscale nip.io, and localhost. A project's host label is its `subdomain`
-  // when set (Reelflip → "admin"), else its slug.
+  // Switch portals via the shared helper: on the real domain the root is fixed
+  // (see portal-host.ts — deriving it from the current host is what produced
+  // `<brand>.portal.sopa.team`), with label-swapping kept for nip.io/localhost.
+  // A project's host label is its `subdomain` when set, else its slug.
   const knownLabels = switchProjects.flatMap((p) => (p.subdomain ? [p.slug, p.subdomain] : [p.slug]));
   function switchTo(target: SwitchProject) {
     if (target.slug === currentSlug) { setSwitcherOpen(false); return; }
-    const { protocol, hostname, port } = window.location;
-    const labels = hostname.split(".");
-    const base = knownLabels.includes(labels[0]) ? labels.slice(1) : labels;
-    const targetLabel = target.subdomain ?? target.slug;
-    const host = [targetLabel, ...base].join(".");
-    window.location.assign(`${protocol}//${host}${port ? `:${port}` : ""}/`);
+    window.location.assign(portalUrlFor(target.subdomain ?? target.slug, window.location, knownLabels));
   }
 
   const nav = NAV.filter((item) => {
