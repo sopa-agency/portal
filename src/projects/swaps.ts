@@ -47,6 +47,14 @@ const swaps: ProjectConfig = {
   // No agent online — the block reserves the SWAPS_* gateway prefix so the
   // chat/briefings light up the day SWAPS_GATEWAY_URL / _TOKEN are set.
   briefingAgents: [],
+  // O board já existia: coinmastersguild/projects/2 tem os 11 issues do
+  // coinmastersguild/swapspro (subdomínio app.swaps.pro, ZEROX_API_KEY em prod,
+  // LI.FI como integrador, o bug de firmware do KeepKey). Não criamos um novo —
+  // seria duplicar o quadro onde a equipe já trabalha.
+  githubProject: {
+    org: "coinmastersguild",
+    number: 2,
+  },
   agent: {
     gatewayEnvPrefix: "SWAPS",
     id: "swaps",
