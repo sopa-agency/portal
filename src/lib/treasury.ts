@@ -201,7 +201,18 @@ const ENUMERATED_MIN_USD = 0.5;
 
 type BlockscoutTokenItem = {
   value?: string;
-  token?: { symbol?: string; name?: string; decimals?: string | number; address?: string; exchange_rate?: string | null };
+  token?: {
+    symbol?: string;
+    name?: string;
+    decimals?: string | number;
+    /** Blockscout v2 returns `address_hash`. It used to be `address`, and reading
+     *  only the old name silently disabled the whole dedup below: every trusted
+     *  token (USDC above all) came back a SECOND time from the indexer, priced,
+     *  and the total counted it twice. Read both, new name first. */
+    address_hash?: string;
+    address?: string;
+    exchange_rate?: string | null;
+  };
 };
 
 /**
@@ -224,9 +235,13 @@ async function fetchEnumeratedTokens(address: string, chainKey: string, skipAddr
     const out: EvmToken[] = [];
     for (const item of json.items ?? []) {
       const t = item.token ?? {};
-      const contract = (t.address ?? "").toLowerCase();
+      const contract = (t.address_hash ?? t.address ?? "").toLowerCase();
       // Already read over RPC as a trusted token — the RPC value wins.
       if (contract && skipAddresses.has(contract)) continue;
+      // No contract address at all means we CANNOT prove this isn't a duplicate
+      // of something the RPC already counted. Dropping it loses a row; keeping
+      // it double-counts money. Lose the row.
+      if (!contract) continue;
 
       // (1) reliable price required
       const rate = t.exchange_rate == null ? NaN : Number(t.exchange_rate);
