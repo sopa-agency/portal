@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Sparkles, Send, X, Check, ExternalLink, Heart, ChevronDown } from "lucide-react";
+import { Loader2, Sparkles, Send, X, Check, ExternalLink, Heart, ChevronDown, Users, Lock } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import {
   generateTrailReply,
+  generateTrailReplyAll,
   postTrailReply,
   skipTrailReply,
   type TrailItem,
+  type TrailSibling,
 } from "@/app/actions/farcaster-trail";
 
 function timeAgo(iso: string): string {
@@ -17,6 +19,95 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
+/**
+ * One OTHER account's reply to the same post. Kept editable and postable right
+ * here so approving every account is one pass down a single card, instead of a
+ * login round-trip per brand.
+ */
+function SiblingRow({ sib }: { sib: TrailSibling }) {
+  const [text, setText] = useState(sib.draft ?? "");
+  const [busy, setBusy] = useState<null | "gen" | "post">(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const posted = sib.status === "done" || !!url;
+
+  const gen = async () => {
+    setBusy("gen"); setErr(null);
+    const r = await generateTrailReply(sib.actionId);
+    setBusy(null);
+    if (r.ok) setText(r.draft); else setErr(r.error);
+  };
+  const post = async () => {
+    if (!text.trim()) return;
+    setBusy("post"); setErr(null);
+    const r = await postTrailReply(sib.actionId, text);
+    setBusy(null);
+    if (r.ok) setUrl(r.url); else setErr(r.error);
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-elevated p-2.5">
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <span className="inline-flex items-center rounded-full bg-accent-bg px-2 py-0.5 text-[10px] font-semibold text-accent">
+          {sib.actorName}
+        </span>
+        {posted && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-success">
+            <Check className="h-3 w-3" /> postado
+          </span>
+        )}
+        {!sib.canAct && (
+          <span
+            className="inline-flex items-center gap-1 text-[10px] text-foreground-faint"
+            title={
+              sib.reason === "no_portal"
+                ? "Esta conta da trilha não tem portal próprio, então não há credencial pra postar por ela daqui"
+                : "Você não está na allowlist do portal desta conta"
+            }
+          >
+            <Lock className="h-3 w-3" /> {sib.reason === "no_portal" ? "sem portal" : "sem permissão"}
+          </span>
+        )}
+      </div>
+      {posted ? (
+        <p className="text-xs text-foreground-muted">{text || sib.draft || "—"}</p>
+      ) : (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={2}
+            disabled={!sib.canAct}
+            placeholder={sib.canAct ? "sem rascunho ainda" : "somente leitura"}
+            className="w-full resize-none rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none disabled:opacity-60"
+          />
+          {sib.canAct && (
+            <div className="mt-1.5 flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={gen}
+                disabled={!!busy}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted transition-colors hover:border-border-strong disabled:opacity-50"
+              >
+                {busy === "gen" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Gerar
+              </button>
+              <button
+                type="button"
+                onClick={post}
+                disabled={!!busy || !text.trim()}
+                className="inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-bg px-2 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+              >
+                {busy === "post" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Postar
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {err && <p className="mt-1 text-[10px] text-danger">{err}</p>}
+    </div>
+  );
+}
+
 function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: string) => void }) {
   const [text, setText] = useState(item.draft ?? "");
   const [busy, setBusy] = useState<null | "gen" | "post" | "skip">(null);
@@ -24,6 +115,32 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
   const [done, setDone] = useState<string | null>(item.status === "done" ? "posted" : null);
   const [steerOpen, setSteerOpen] = useState(false);
   const [steer, setSteer] = useState("");
+  const [others, setOthers] = useState(item.others);
+  const [allBusy, setAllBusy] = useState(false);
+  const [allNote, setAllNote] = useState<string | null>(null);
+
+  // Draft for every pending account on this post at once — including THIS
+  // portal's, so one press covers the whole card.
+  const genAll = async () => {
+    setAllBusy(true); setAllNote(null); setErr(null);
+    const r = await generateTrailReplyAll(item.cast.hash, steer.trim() || undefined);
+    setAllBusy(false);
+    if (!r.ok) { setErr(r.error); return; }
+    const mine = r.results.find((x) => !others.some((o) => o.actorSlug === x.actorSlug) && x.ok && x.draft);
+    if (mine?.draft) setText(mine.draft);
+    setOthers((prev) =>
+      prev.map((o) => {
+        const hit = r.results.find((x) => x.actorSlug === o.actorSlug);
+        return hit?.ok && hit.draft ? { ...o, draft: hit.draft } : o;
+      }),
+    );
+    const failed = r.results.filter((x) => !x.ok);
+    setAllNote(
+      failed.length
+        ? `${r.results.length - failed.length}/${r.results.length} geradas · ${failed.map((f) => `${f.actorName}: ${f.error}`).join(" · ")}`
+        : `${r.results.length} contas geradas`,
+    );
+  };
 
   const QUICK_STEERS = ["mais curto", "mais engraçado", "menciona o autor", "faz uma pergunta", "mais hype"];
 
@@ -134,6 +251,16 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
               </div>
               <button
                 type="button"
+                onClick={genAll}
+                disabled={!!busy || allBusy}
+                title="Gera o rascunho de TODAS as contas pendentes neste post, cada uma na sua voz"
+                className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-50"
+              >
+                {allBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
+                Gerar p/ todas
+              </button>
+              <button
+                type="button"
                 onClick={post}
                 disabled={!!busy || !text.trim()}
                 className="inline-flex items-center gap-1 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
@@ -183,6 +310,21 @@ function TrailCard({ item, onResolved }: { item: TrailItem; onResolved: (id: str
             </div>
           )}
         </>
+      )}
+
+      {allNote && <p className="mt-2 text-[11px] text-foreground-subtle">{allNote}</p>}
+
+      {others.length > 0 && (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-foreground-faint">
+            <Users className="h-3.5 w-3.5" /> outras contas ({others.length})
+          </p>
+          <div className="space-y-2">
+            {others.map((o) => (
+              <SiblingRow key={o.actionId} sib={o} />
+            ))}
+          </div>
+        </div>
       )}
       {err && <p className="mt-2 rounded-lg border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-xs text-danger">{err}</p>}
     </div>

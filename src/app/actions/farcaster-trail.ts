@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
-import { getActiveProject } from "@/projects/index";
+import { getActiveProject, PROJECT_REGISTRY } from "@/projects/index";
 import { resolveFarcasterSigner } from "@/lib/farcaster-signer";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { brandEnv } from "@/lib/brand-env";
@@ -24,6 +24,27 @@ export type TrailItem = {
   draft: string | null;
   cast: { hash: string; platform: string; authorSlug: string; authorHandle: string | null; text: string; postedAt: string; url: string };
   liked: boolean; // did THIS portal already auto-like/upvote it
+  /** The SAME cast as seen by the other accounts on the trail. Carried here so
+   *  one person can draft and approve every account's reply from whichever
+   *  portal they happen to be in, instead of logging into each one to do it
+   *  one at a time. `canAct` is false when this session is not authorized on
+   *  that account's portal — the row still shows, but read-only. */
+  others: TrailSibling[];
+};
+
+export type TrailSibling = {
+  actionId: string;
+  actorSlug: string;
+  actorName: string;
+  status: string;
+  draft: string | null;
+  canAct: boolean;
+  /** Why not, when canAct is false. "no_portal" = the trail account has no
+   *  portal of its own (member accounts like xvlad, or a retired brand), so
+   *  there are no credentials to post with from here — a different problem
+   *  from the allowlist one, and saying "sem permissão" for it would send
+   *  someone hunting through allowlists for nothing. */
+  reason: "ok" | "no_portal" | "not_allowed";
 };
 
 async function gate() {
@@ -32,6 +53,33 @@ async function gate() {
   const who = await authorize(cookieStore.get(SESSION_COOKIE)?.value, project);
   if (!who) return { ok: false as const, error: "Unauthorized." };
   return { ok: true as const, project, who };
+}
+
+/**
+ * Resolve the portal an action ACTS AS, and prove this session is allowed to
+ * act as it.
+ *
+ * Credentials, voice and agent all come from the actor's project — never from
+ * whichever portal the browser happens to be pointed at — so a reply drafted
+ * for @skatehive sounds like SkateHive and posts with SkateHive's signer.
+ *
+ * Authorization is re-checked against that project rather than inherited from
+ * the current one. Being on the Gnars allowlist must not, by itself, grant the
+ * power to post as SkateHive; someone allowed on both (or global) passes, and
+ * that is exactly the person this cross-account view is for.
+ */
+async function actorFor(actorSlug: string) {
+  // MUST be an exact registry hit. getProject() falls back to the default
+  // project for an unknown slug, and the trail carries member accounts whose
+  // slug is not a portal at all (xvlad, r4topunk) — resolving those through the
+  // fallback would draft in the wrong brand's voice and, far worse, post with
+  // the wrong brand's credentials. An unknown actor is simply not actionable
+  // here.
+  const project = PROJECT_REGISTRY[actorSlug];
+  if (!project) return null;
+  const cookieStore = await cookies();
+  const who = await authorize(cookieStore.get(SESSION_COOKIE)?.value, project);
+  return who ? { project, who } : null;
 }
 
 function fcCastUrl(authorSlug: string, hash: string): string {
@@ -61,11 +109,49 @@ export async function listTrailFeed(): Promise<
     .catch(() => []);
   const likedByCast = new Map(likeRows.map((l) => [l.castHash, l.status === "done"]));
 
+  // The same casts as seen by every OTHER account on the trail. One query for
+  // all of them, then grouped — not one query per card.
+  const siblingRows = await prisma.farcasterTrailAction
+    .findMany({
+      where: { castHash: { in: replies.map((r) => r.castHash) }, kind: "reply", actorSlug: { not: slug } },
+      orderBy: { actorSlug: "asc" },
+    })
+    .catch(() => []);
+
+  // Authorize ONCE per distinct account, not once per row.
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  const actorSlugs = [...new Set(siblingRows.map((r) => r.actorSlug))];
+  const reasonBySlug = new Map<string, TrailSibling["reason"]>();
+  await Promise.all(
+    actorSlugs.map(async (a) => {
+      const target = PROJECT_REGISTRY[a];
+      if (!target) { reasonBySlug.set(a, "no_portal"); return; } // see actorFor
+      const who = await authorize(token, target).catch(() => null);
+      reasonBySlug.set(a, who ? "ok" : "not_allowed");
+    }),
+  );
+
+  const siblingsByCast = new Map<string, TrailSibling[]>();
+  for (const r of siblingRows) {
+    const list = siblingsByCast.get(r.castHash) ?? [];
+    list.push({
+      actionId: r.id,
+      actorSlug: r.actorSlug,
+      actorName: PROJECT_REGISTRY[r.actorSlug]?.name ?? r.actorSlug,
+      status: r.status,
+      draft: r.draft,
+      canAct: (reasonBySlug.get(r.actorSlug) ?? "not_allowed") === "ok",
+      reason: reasonBySlug.get(r.actorSlug) ?? "not_allowed",
+    });
+    siblingsByCast.set(r.castHash, list);
+  }
+
   const items: TrailItem[] = replies.map((r) => ({
     actionId: r.id,
     status: r.status,
     draft: r.draft,
     liked: likedByCast.get(r.castHash) ?? false,
+    others: siblingsByCast.get(r.castHash) ?? [],
     cast: {
       hash: r.cast.hash,
       platform: r.cast.platform,
@@ -126,24 +212,77 @@ export async function generateTrailReply(
   const action = await prisma.farcasterTrailAction
     .findUnique({ where: { id: actionId }, include: { cast: true } })
     .catch(() => null);
-  if (!action || action.actorSlug !== g.project.slug || action.kind !== "reply") {
-    return { ok: false, error: "Ação não encontrada." };
-  }
+  if (!action || action.kind !== "reply") return { ok: false, error: "Ação não encontrada." };
 
+  const actor = await actorFor(action.actorSlug);
+  if (!actor) return { ok: false, error: `Sem permissão para agir como ${action.actorSlug}.` };
+
+  return draftForAction(action, actor.project, instruction, current);
+}
+
+/** The actual drafting, shared by the one-account and all-accounts paths. */
+async function draftForAction(
+  action: { id: string; cast: { authorHandle: string | null; authorSlug: string; text: string; platform: string } },
+  project: ProjectConfig,
+  instruction?: string,
+  current?: string,
+): Promise<{ ok: true; draft: string } | { ok: false; error: string }> {
   let draft: string;
   try {
     const raw = await callOpenClaw(
-      replyPrompt(g.project, action.cast.authorHandle ?? action.cast.authorSlug, action.cast.text, instruction, current, action.cast.platform),
-      g.project.agent.id,
-      { timeoutMs: AI_TIMEOUT_MS, project: g.project },
+      replyPrompt(project, action.cast.authorHandle ?? action.cast.authorSlug, action.cast.text, instruction, current, action.cast.platform),
+      project.agent.id,
+      { timeoutMs: AI_TIMEOUT_MS, project },
     );
     draft = raw.trim().replace(/^["']|["']$/g, "").slice(0, 280);
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Falha na IA." };
   }
 
-  await prisma.farcasterTrailAction.update({ where: { id: actionId }, data: { draft } }).catch(() => {});
+  await prisma.farcasterTrailAction.update({ where: { id: action.id }, data: { draft } }).catch(() => {});
   return { ok: true, draft };
+}
+
+/**
+ * Draft a reply for EVERY account that still owes one on this cast, in one go.
+ *
+ * The point of the button: without it you log into each brand portal to press
+ * "generate" once per account, which is the same work multiplied by however
+ * many accounts are on the trail.
+ *
+ * Each account drafts in ITS OWN voice through ITS OWN agent — this is not one
+ * text copied across accounts, which would read as a bot the moment two of
+ * them landed under the same post. Accounts this session cannot act as are
+ * reported as skipped rather than silently dropped, and one account's failure
+ * never takes the others down.
+ */
+export async function generateTrailReplyAll(
+  castHash: string,
+  instruction?: string,
+): Promise<
+  | { ok: true; results: { actorSlug: string; actorName: string; ok: boolean; draft?: string; error?: string }[] }
+  | { ok: false; error: string }
+> {
+  const g = await gate();
+  if (!g.ok) return g;
+
+  const actions = await prisma.farcasterTrailAction
+    .findMany({ where: { castHash, kind: "reply", status: { in: ["pending", "failed"] } }, include: { cast: true } })
+    .catch(() => []);
+  if (!actions.length) return { ok: false, error: "Nenhuma conta pendente neste post." };
+
+  const results = await Promise.all(
+    actions.map(async (action) => {
+      const name = PROJECT_REGISTRY[action.actorSlug]?.name ?? action.actorSlug;
+      const actor = await actorFor(action.actorSlug);
+      if (!actor) return { actorSlug: action.actorSlug, actorName: name, ok: false, error: "sem permissão" };
+      const r = await draftForAction(action, actor.project, instruction, action.draft ?? undefined);
+      return r.ok
+        ? { actorSlug: action.actorSlug, actorName: name, ok: true, draft: r.draft }
+        : { actorSlug: action.actorSlug, actorName: name, ok: false, error: r.error };
+    }),
+  );
+  return { ok: true, results };
 }
 
 /** Post the reply/comment as this portal's account (Farcaster reply or Hive comment). */
@@ -159,14 +298,17 @@ export async function postTrailReply(
   const action = await prisma.farcasterTrailAction
     .findUnique({ where: { id: actionId }, include: { cast: true } })
     .catch(() => null);
-  if (!action || action.actorSlug !== g.project.slug || action.kind !== "reply") {
-    return { ok: false, error: "Ação não encontrada." };
-  }
+  if (!action || action.kind !== "reply") return { ok: false, error: "Ação não encontrada." };
+
+  // Post with the ACTOR's credentials and identity, whichever portal the
+  // browser is on — and only after that account's own allowlist says yes.
+  const actor = await actorFor(action.actorSlug);
+  if (!actor) return { ok: false, error: `Sem permissão para postar como ${action.actorSlug}.` };
 
   const result =
     action.cast.platform === "hive"
-      ? await postHiveComment(g.project, action.cast.hash, body)
-      : await postFarcasterReply(g.project, action.cast.hash, body);
+      ? await postHiveComment(actor.project, action.cast.hash, body)
+      : await postFarcasterReply(actor.project, action.cast.hash, body);
 
   if (!result.ok) {
     await prisma.farcasterTrailAction
