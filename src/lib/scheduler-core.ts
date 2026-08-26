@@ -14,6 +14,7 @@ import {
   type TweetStateMap,
 } from "@/app/actions/repo-to-social";
 import { normalizeMediaUrl, type SchedulablePlatform } from "@/lib/social-publish";
+import { schedulableNetworkFor } from "@/lib/campaign-doc-kind";
 import {
   publishMarketingTweetToBinance,
   publishMarketingTweetToFarcaster,
@@ -524,6 +525,7 @@ export type TickResult = {
   }>;
   instagram: IgResult[];
   lab?: LabResult[];
+  campaignDocs?: CampaignDocResult[];
   tiktok?: TikTokTickResult[];
 };
 
@@ -599,8 +601,98 @@ async function reconcileCrossPosts(now: number): Promise<number> {
   return repaired;
 }
 
+// ---------------------------------------------------------------------------
+// Campaign calendar publishing
+//
+// The campaign calendar was a PLAN with no actuator: setting a date wrote
+// CampaignDocument.scheduledFor, and nothing read it back to publish. The whole
+// Morpheus Phase 1 calendar sat there and no post ever went out.
+//
+// This publishes the calendar DIRECTLY off the document, the same way the four
+// lanes above publish off their own rows. Deliberately NOT by copying the text
+// into LabScheduledPost: a copy goes stale the moment someone edits the doc, and
+// two copies means two chances to double-post. The doc is the single source of
+// truth, and `postedAt` on it is the done-marker.
+//
+// Assets whose kind maps to no network (Twitter, Instagram, press release, TV
+// script) are skipped, not failed — a human hand-delivers those by design.
+// ---------------------------------------------------------------------------
+
+const CAMPAIGN_DOC_MAX_PER_TICK = 3;
+
+type CampaignDocResult = {
+  id: string;
+  projectSlug: string;
+  network: string;
+  ok: boolean;
+  url?: string;
+  error?: string;
+};
+
+async function publishDueCampaignDocs(now: number): Promise<CampaignDocResult[]> {
+  const staleThreshold = new Date(now - STALE_PUBLISHING_MS);
+  const candidates = await prisma.campaignDocument.findMany({
+    where: {
+      scheduledFor: { lte: new Date(now) },
+      postedAt: null,
+      publishError: null,
+      campaign: { archivedAt: null },
+      OR: [{ publishingAt: null }, { publishingAt: { lte: staleThreshold } }],
+    },
+    orderBy: { scheduledFor: "asc" },
+    take: CAMPAIGN_DOC_MAX_PER_TICK * 4,
+    select: {
+      id: true,
+      name: true,
+      content: true,
+      campaign: { select: { projectSlug: true } },
+    },
+  });
+
+  const results: CampaignDocResult[] = [];
+  for (const doc of candidates) {
+    if (results.length >= CAMPAIGN_DOC_MAX_PER_TICK) break;
+
+    const network = schedulableNetworkFor(doc.name);
+    if (!network) continue; // human-delivered asset — leave it on the calendar
+    const text = doc.content.trim();
+    if (!text) continue; // an empty draft is not ready; do not publish silence
+
+    // Atomic claim. The publishingAt guard is repeated here so that two ticks
+    // racing on the same doc cannot both get past it.
+    const claim = await prisma.campaignDocument.updateMany({
+      where: {
+        id: doc.id,
+        postedAt: null,
+        publishError: null,
+        OR: [{ publishingAt: null }, { publishingAt: { lte: staleThreshold } }],
+      },
+      data: { publishingAt: new Date(now) },
+    });
+    if (claim.count === 0) continue;
+
+    const projectSlug = doc.campaign.projectSlug;
+    const project = getProject(projectSlug);
+    try {
+      const r = await publishLabChannel(network, text, project);
+      await prisma.campaignDocument.update({
+        where: { id: doc.id },
+        data: r.ok
+          ? { postedAt: new Date(), postedTo: network, publishingAt: null, publishError: null }
+          : { publishingAt: null, publishError: r.error },
+      });
+      results.push({ id: doc.id, projectSlug, network, ok: r.ok, url: r.ok ? r.url : undefined, error: r.ok ? undefined : r.error });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      await prisma.campaignDocument.update({ where: { id: doc.id }, data: { publishingAt: null, publishError: error } });
+      results.push({ id: doc.id, projectSlug, network, ok: false, error });
+    }
+  }
+  return results;
+}
+
 export async function runScheduledPublish(now: number): Promise<TickResult> {
-  const [tweetDue, igResults, labResults, tiktokResults] = await Promise.all([
+  const [tweetDue, igResults, labResults, campaignDocResults, tiktokResults] = await Promise.all([
     findDueItems(now),
     publishDueIgPosts(now),
     publishDueLabPosts(now),
@@ -608,6 +700,9 @@ export async function runScheduledPublish(now: number): Promise<TickResult> {
     // an environment that hasn't run create-tiktok-tables.cjs. A rejection here
     // would take the WHOLE tick down with it — including Instagram — so it
     // degrades to an empty result instead.
+    // Same isolation rationale as TikTok below: a campaign-calendar failure must
+    // never take Instagram and the Lab down with it.
+    publishDueCampaignDocs(now).catch(() => [] as CampaignDocResult[]),
     publishDueTikTokPosts(now).catch((err) => [
       {
         id: "-",
@@ -642,6 +737,7 @@ export async function runScheduledPublish(now: number): Promise<TickResult> {
     processed,
     instagram: igResults,
     lab: labResults,
+    campaignDocs: campaignDocResults,
     tiktok: tiktokResults,
   };
 }

@@ -1,6 +1,7 @@
 "use server";
 
 import { promises as fs } from "node:fs";
+import { classifyDocumentKindByName, SCHEDULABLE_NETWORK } from "@/lib/campaign-doc-kind";
 import os from "node:os";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
@@ -2203,16 +2204,6 @@ Return ONLY the cast text. No preamble, no labels, no code fences.`;
   }
 }
 
-/** kind → the network key `publishLabChannel` dispatches on. */
-const SCHEDULABLE_NETWORK: Partial<Record<CampaignDocumentKind, string>> = {
-  hive: "hive",
-  farcaster: "farcaster",
-  discord: "discord",
-  binance: "binance",
-  hive_mag: "hive_mag",
-  email: "email",
-};
-
 /**
  * Queue one artifact to publish later. Writes a LabScheduledPost, which the
  * scheduler's publishDueLabPosts picks up at `scheduledFor`. Deliberately does
@@ -2542,31 +2533,5 @@ export async function sendCampaignEmailBlast(
 }
 
 /** Map document name to artifact kind. */
-function classifyDocumentKindByName(name: string): CampaignDocumentKind {
-  const lower = name.toLowerCase();
-  if (lower.includes("mag post") && lower.includes("(pt)")) return "doc";
-  if (lower.includes("mag post") || lower.includes("magazine")) return "hive_mag";
-  if (lower.includes("hive") || lower.includes("snap")) return "hive";
-  if (lower.includes("farcaster") || lower.includes("cast") || lower.includes("warpcast")) return "farcaster";
-  if (lower.includes("tweet") || lower.includes("twitter") || lower.includes("x thread")) return "tweets";
-  if (lower.includes("discord")) return "discord";
-  if (lower.includes("binance")) return "binance";
-  if (lower.includes("instagram") || lower.includes("carousel") || lower.includes("carrossel")) return "instagram";
-  if (lower.includes("email")) return "email";
-  if (lower.includes("markdown") || lower.includes("blog") || lower.includes("post")) return "markdown";
-  return "doc";
-}
-
-// Need to export type for the import in classifyDocumentKindByName
-type CampaignDocumentKind =
-  | "brief"
-  | "hive"
-  | "hive_mag"
-  | "farcaster"
-  | "tweets"
-  | "discord"
-  | "binance"
-  | "instagram"
-  | "email"
-  | "markdown"
-  | "doc";
+// classifyDocumentKindByName / CampaignDocumentKind moved to @/lib/campaign-doc-kind
+// so the scheduler can share them — see that module for why.

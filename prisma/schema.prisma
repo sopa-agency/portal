@@ -181,6 +181,13 @@ model CampaignDocument {
   postedAt   DateTime?
   postedTo   String?
   scheduledFor DateTime? // campaign calendar: planned publish day for this asset
+  // Set while the scheduler is mid-publish, so a crash can be recovered (a row
+  // stuck here past the stale threshold is retried) and two ticks can never
+  // publish the same asset twice. Cleared on both success and failure.
+  publishingAt DateTime?
+  // Terminal failure. A non-null value keeps the asset OUT of the candidate set
+  // — a broken publish must not retry forever — until a human clears it.
+  publishError String?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
