@@ -12,6 +12,8 @@ import { FixedCostsPanel } from "@/components/fixed-costs-panel";
 import { CostsTab } from "@/components/costs-tab";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue, type OrgRevenue } from "@/lib/org-revenue";
+import { getTreasuryHistory } from "@/lib/treasury-history";
+import { TreasuryHistoryChart } from "@/components/treasury-history-chart";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
 import { PayrollPanel, type PayrollRosterOption } from "@/components/payroll-panel";
@@ -159,7 +161,7 @@ treasury: {
     treasuryUsd: g.report.grandTotalUsd,
   }));
   const isSopa = project.slug === "sopa";
-  const [costScope, session, orgRevenueResult, jobsRes] = await Promise.all([
+  const [costScope, session, orgRevenueResult, jobsRes, history] = await Promise.all([
     fetchCostScope(costGroups.map((g) => g.slug)),
     verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
     // Revenue is tracked on the org-chart. On SOPA show every project (grouped);
@@ -167,6 +169,8 @@ treasury: {
     getOrgRevenue(isSopa ? undefined : { name: project.name, slug: project.slug }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) })),
     // SOPA agency revenue: client jobs (manual).
     isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
+    // Histórico do gráfico: leitura de banco (snapshots), zero requisição de rede.
+    getTreasuryHistory(60, isSopa ? undefined : { name: project.name, slug: project.slug }).catch(() => []),
   ]);
   // Unwrap the revenue Result: data on success, null on FAILURE — and keep a
   // distinct `revenueFailed` so the UI shows "leitura falhou", never an empty
@@ -337,11 +341,15 @@ treasury: {
           ) : null
         }
         revenue={
-          revenueFailed ? (
-            <p className="text-xs text-warning">⚠ receita não carregou (leitura falhou) — não é zero</p>
-          ) : orgRevenue && orgRevenue.projects.length > 0 ? (
-            <TreasuryRevenue data={orgRevenue} aggregate={false} />
-          ) : null
+          <>
+            <TreasuryHistoryChart series={history} />
+            <div className="mt-4" />
+            {revenueFailed ? (
+              <p className="text-xs text-warning">⚠ receita não carregou (leitura falhou) — não é zero</p>
+            ) : orgRevenue && orgRevenue.projects.length > 0 ? (
+              <TreasuryRevenue data={orgRevenue} aggregate={false} />
+            ) : null}
+          </>
         }
         balances={<TreasuryViews groups={groups} hideTotal />}
         costs={
