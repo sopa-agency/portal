@@ -52,8 +52,23 @@ const BLOCKSCOUT: Record<string, string> = {
 
 // RPCs proven to serve a full-range, address-filtered `eth_getLogs` in one shot.
 // Tried in order; the loop skips any that cap the range or error out.
+// Cada entrada foi PROVADA contra o split real (0xAccF0d…) com fromBlock 0x0 →
+// latest: as sete abaixo devolveram o log SplitUpdated numa tacada. Os RPCs
+// públicos comuns (publicnode) capam a faixa em 50k blocos em gnosis/avalanche
+// e o log é antigo demais pra caber — por isso Tenderly, não por preferência.
+//
+// bsc ficou de fora: não consegui provar nenhum endpoint de faixa completa. É
+// ausência de prova, não prova de ausência — mas o mapa só carrega o que foi
+// medido, e uma rede ausente aqui falha FECHADA (readSplitRaw devolve null) em
+// vez de ler a rede errada.
 const LOG_RPCS: Record<string, string[]> = {
   base: ["https://base.gateway.tenderly.co", "https://gateway.tenderly.co/public/base"],
+  ethereum: ["https://gateway.tenderly.co/public/mainnet"],
+  optimism: ["https://gateway.tenderly.co/public/optimism"],
+  arbitrum: ["https://gateway.tenderly.co/public/arbitrum"],
+  polygon: ["https://gateway.tenderly.co/public/polygon"],
+  gnosis: ["https://gateway.tenderly.co/public/gnosis"],
+  avalanche: ["https://gateway.tenderly.co/public/avalanche"],
 };
 
 // keccak256("SplitUpdated((address[],uint256[],uint256,uint16))")

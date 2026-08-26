@@ -98,9 +98,12 @@ export function SplitClaimButton({
       const eth = (window as unknown as { ethereum?: Eth }).ethereum;
       if (!eth) throw new Error("Nenhuma carteira detectada.");
       const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+      // A rede vem da LEITURA do split, não de uma constante aqui: com o split
+      // em oito redes, um 0x2105 fixo mandaria assinar na cadeia errada.
+      const want = claim ? `0x${claim.chainId.toString(16)}` : null;
       const cid = (await eth.request({ method: "eth_chainId" })) as string;
-      if (cid !== "0x2105") {
-        await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }).catch(() => {});
+      if (want && cid !== want) {
+        await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: want }] }).catch(() => {});
       }
       setAccount(getAddress(accs[0]));
     } catch (e) {
@@ -181,6 +184,7 @@ export function SplitClaimButton({
       <span className="flex items-center gap-1.5 text-[11px] text-foreground-muted">
         <DownloadCloud className="h-3.5 w-3.5 text-accent" />
         Recolhível: <span className="font-semibold text-foreground">{summarize(claim)}</span>
+        <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-foreground-subtle">{claim.chainKey}</span>
       </span>
       {account ? (
         <button

@@ -1,4 +1,5 @@
 import "server-only";
+import { zerionBalances } from "@/lib/zerion";
 import type { ProjectConfig } from "@/projects/types";
 import { sanitizeTokenLabel, labelLooksHostile, SYMBOL_MAX, NAME_MAX } from "@/lib/token-label";
 
@@ -395,7 +396,19 @@ async function fetchEvmWallet(
 /** EVM chains we can track a receiving wallet/contract/split on. */
 export const EVM_CHAIN_KEYS = EVM_CHAINS.map((c) => c.key);
 
-export type AddressBalance = { address: string; chain: string | null; totalUsd: number; tokens: EvmToken[]; failedChains: string[]; error?: string };
+export type AddressBalance = {
+  address: string;
+  chain: string | null;
+  totalUsd: number;
+  tokens: EvmToken[];
+  failedChains: string[];
+  error?: string;
+  /** Which reader produced this. A multi-chain read prefers Zerion (ONE request
+   *  for every chain instead of one per chain); "rpc" means Zerion was absent or
+   *  failed and the per-chain fan-out took over. Surfaced so a number is never
+   *  ambiguous about where it came from. */
+  source?: "zerion" | "rpc";
+};
 
 /**
  * Live native-ETH + USDC balance of any address (wallet, contract, or a 0xSplits
@@ -405,8 +418,29 @@ export type AddressBalance = { address: string; chain: string | null; totalUsd: 
 export async function fetchAddressBalance(address: string, chainKey?: string | null): Promise<AddressBalance> {
   const addr = address.trim();
   if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return { address, chain: chainKey ?? null, totalUsd: 0, tokens: [], failedChains: [], error: "endereço inválido" };
+  // MULTI-CHAIN: one Zerion call covers every chain, including the four the RPC
+  // list does not carry (bsc, gnosis, polygon, avalanche) — which is where the
+  // swaps.pro split now lives. Falls back to the RPC fan-out when Zerion is not
+  // configured or fails, so this degrades instead of breaking.
+  if (!chainKey) {
+    const z = await zerionBalances(addr).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (z.ok) {
+      const tokens = z.tokens.map(
+        (t): EvmToken => ({
+          symbol: t.symbol,
+          chain: t.chain,
+          balance: t.balance,
+          valueUsd: t.valueUsd,
+          untrusted: t.untrusted,
+          hostileLabel: t.suspicious,
+        }),
+      );
+      return { address: addr, chain: null, totalUsd: z.totalUsd, tokens, failedChains: [], source: "zerion" };
+    }
+  }
+
   const chains = chainKey ? EVM_CHAINS.filter((c) => c.key === chainKey) : EVM_CHAINS;
-  if (chains.length === 0) return { address: addr, chain: chainKey ?? null, totalUsd: 0, tokens: [], failedChains: [], error: "chain desconhecida" };
+  if (chains.length === 0) return { address: addr, chain: chainKey ?? null, totalUsd: 0, tokens: [], failedChains: [], error: `chain desconhecida: ${chainKey}` };
   const { eth } = await getPrices();
   const reads = await Promise.all(chains.map((c) => fetchChainBalances(addr, c, eth)));
   const all: EvmToken[] = [];
@@ -423,6 +457,7 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
     tokens,
     failedChains,
     error: failedChains.length ? `leitura falhou: ${failedChains.join(", ")}` : undefined,
+    source: "rpc",
   };
 }
 

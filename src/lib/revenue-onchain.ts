@@ -80,6 +80,9 @@ export type RealizedRevenue = {
   count: number;
   series: { t: string; usd: number }[]; // cumulative
   truncated: boolean;
+  /** Preenchido quando o histórico NÃO pôde ser calculado. Sem isso, "não deu
+   *  pra ler" e "não houve receita" são o mesmo zero na tela. */
+  error?: string;
 };
 
 type DecodedLog = {
@@ -93,7 +96,21 @@ const REALIZED_MAX_PAGES = 40; // ~2000 logs — full history for these DAOs
 export async function fetchOnchainRevenue(address: string, chainKey: string | null): Promise<RealizedRevenue> {
   const addr = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(addr)) return { method: "none", revenueUsd: 0, count: 0, series: [], truncated: false };
-  const host = BLOCKSCOUT_HOST[chainKey ?? "base"] ?? BLOCKSCOUT_HOST.base;
+  // NUNCA cair na Base por omissão. O mapa antes fazia `chainKey ?? "base"` com
+  // um segundo `?? base`, então rede nula E rede desconhecida liam a Base e
+  // devolviam um número com cara de certo — para um contrato que pode nem
+  // existir lá. Um stream multi-rede não tem host único, e o Blockscout não tem
+  // instância para bsc nem avalanche (404) e a de polygon responde 500: somar
+  // as que existem e chamar de total seria a mesma mentira em outra forma.
+  const host = chainKey ? BLOCKSCOUT_HOST[chainKey] : undefined;
+  if (!host) {
+    return {
+      method: "none", revenueUsd: 0, count: 0, series: [], truncated: false,
+      error: chainKey
+        ? `sem indexador para a rede "${chainKey}"`
+        : "stream multi-rede: histórico por indexador não cobre todas as redes",
+    };
+  }
   // getPrices() now returns null when CoinGecko gives no ETH price. Historical
   // revenue math has no honest answer in that case: valuing ETH events at 0
   // undercounts, and failing the whole read turns a price blip into "revenue 0"
@@ -151,7 +168,16 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
 export async function fetchAddressFlows(address: string, chainKey: string | null): Promise<RevenueFlow> {
   const addr = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(addr)) return { receivedUsd: 0, paidUsd: 0, series: [], truncated: false, error: "endereço inválido" };
-  const host = BLOCKSCOUT_HOST[chainKey ?? "base"] ?? BLOCKSCOUT_HOST.base;
+  // Mesma regra do fetchOnchainRevenue: sem host, sem número inventado.
+  const host = chainKey ? BLOCKSCOUT_HOST[chainKey] : undefined;
+  if (!host) {
+    return {
+      receivedUsd: 0, paidUsd: 0, series: [], truncated: false,
+      error: chainKey
+        ? `sem indexador para a rede "${chainKey}"`
+        : "stream multi-rede: fluxo por indexador não cobre todas as redes",
+    };
+  }
   // getPrices() now returns null when CoinGecko gives no ETH price. Historical
   // revenue math has no honest answer in that case: valuing ETH events at 0
   // undercounts, and failing the whole read turns a price blip into "revenue 0"
