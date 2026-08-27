@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Maximize2, Minus, Plus, Crosshair } from "lucide-react";
+import { CanvasDock, type DockEntry } from "@/components/canvas-dock";
 import { useT } from "@/components/locale-provider";
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -215,7 +216,7 @@ export function OrgCanvas<T extends TreeLike>({
   activeEdgeIds,
   dimmedIds,
   emptyHint,
-  toolbarExtra,
+  dockExtra,
   resetToken,
 }: {
   layout: Layout<T>;
@@ -227,7 +228,8 @@ export function OrgCanvas<T extends TreeLike>({
   /** ids to fade out (search miss). */
   dimmedIds?: Set<string>;
   emptyHint?: ReactNode;
-  toolbarExtra?: ReactNode;
+  /** Controls the chart adds to the canvas's own dock. */
+  dockExtra?: DockEntry[];
 }) {
   const t9n = useT().orgChart.canvas;
   const hostRef = useRef<HTMLDivElement>(null);
@@ -715,6 +717,40 @@ export function OrgCanvas<T extends TreeLike>({
     [],
   );
 
+  const dockItems: DockEntry[] = [
+    ...(dockExtra ?? []),
+    { key: "zoom-out", label: t9n.zoomOut, onClick: () => zoomCentre(1 / 1.2), icon: <Minus className="h-4 w-4" /> },
+    {
+      key: "zoom-level",
+      label: t9n.resetZoom,
+      width: 52,
+      text: `${Math.round(t.k * 100)}%`,
+      onClick: () => {
+        glide();
+        setT((prev) => ({ ...prev, k: 1 }));
+      },
+    },
+    { key: "zoom-in", label: t9n.zoomIn, onClick: () => zoomCentre(1.2), icon: <Plus className="h-4 w-4" /> },
+    { key: "sep-view", separator: true },
+    { key: "fit", label: t9n.fit, onClick: fit, icon: <Maximize2 className="h-4 w-4" /> },
+    {
+      key: "centre",
+      label: t9n.centerRoot,
+      icon: <Crosshair className="h-4 w-4" />,
+      onClick: () => {
+        const el = hostRef.current;
+        const root = layout.placed.find((p) => p.depth === 0);
+        if (!el || !root) return;
+        glide();
+        setT((prev) => ({
+          ...prev,
+          x: el.clientWidth / 2 - (root.x + NODE_W / 2) * prev.k,
+          y: 96 - root.y * prev.k,
+        }));
+      },
+    },
+  ];
+
   return (
     <div
       ref={hostRef}
@@ -836,69 +872,9 @@ export function OrgCanvas<T extends TreeLike>({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">{emptyHint}</div>
       )}
 
-      {/* Floating glass toolbar — chrome stays off the canvas itself. */}
+      {/* Chrome floats over the canvas, never inside it. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-4">
-        <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-surface/80 p-1 shadow-lg backdrop-blur-md">
-          {toolbarExtra}
-          <button
-            type="button"
-            onClick={() => zoomCentre(1 / 1.2)}
-            aria-label={t9n.zoomOut}
-            title={t9n.zoomOut}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
-          >
-            <Minus className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              glide();
-              setT((prev) => ({ ...prev, k: 1 }));
-            }}
-            className="min-w-[3.25rem] rounded-full px-2 py-1 text-center font-mono text-[11px] font-semibold text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
-            title={t9n.resetZoom}
-          >
-            {Math.round(t.k * 100)}%
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomCentre(1.2)}
-            aria-label={t9n.zoomIn}
-            title={t9n.zoomIn}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-          <span className="mx-0.5 h-5 w-px bg-border" />
-          <button
-            type="button"
-            onClick={fit}
-            aria-label={t9n.fit}
-            title={t9n.fit}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const el = hostRef.current;
-              const root = layout.placed.find((p) => p.depth === 0);
-              if (!el || !root) return;
-              glide();
-              setT((prev) => ({
-                ...prev,
-                x: el.clientWidth / 2 - (root.x + NODE_W / 2) * prev.k,
-                y: 96 - root.y * prev.k,
-              }));
-            }}
-            aria-label={t9n.centerRoot}
-            title={t9n.centerRoot}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
-          >
-            <Crosshair className="h-4 w-4" />
-          </button>
-        </div>
+        <CanvasDock label={t9n.toolbar} items={dockItems} />
       </div>
     </div>
   );

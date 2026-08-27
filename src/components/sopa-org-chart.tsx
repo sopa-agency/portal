@@ -287,6 +287,16 @@ export function SopaOrgChart({
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
+            {/* The count belongs to the field that produced it — in the dock it
+                was a readout wedged among controls. */}
+            {q && (
+              <span
+                aria-live="polite"
+                className="absolute right-0 top-full mt-1 pr-3 text-[10px] font-semibold text-accent"
+              >
+                {t.search.hits(hits)}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -297,28 +307,22 @@ export function SopaOrgChart({
         activeEdgeIds={activeEdgeIds}
         dimmedIds={dimmedIds}
         emptyHint={<p className="text-sm text-foreground-faint">{t.canvas.empty}</p>}
-        toolbarExtra={
-          <>
-            {q && (
-              <span className="px-2 font-mono text-[11px] font-semibold text-accent">
-                {t.search.hits(hits)}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setCollapsed(allCollapsed ? new Set() : new Set(allParents));
-                setResetToken((n) => n + 1);
-              }}
-              title={allCollapsed ? t.canvas.expandAll : t.canvas.collapseAll}
-              aria-label={allCollapsed ? t.canvas.expandAll : t.canvas.collapseAll}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
-            >
-              {allCollapsed ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
-            </button>
-            <span className="mx-0.5 h-5 w-px bg-border" />
-          </>
-        }
+        dockExtra={[
+          {
+            key: "fold-all",
+            label: allCollapsed ? t.canvas.expandAll : t.canvas.collapseAll,
+            icon: allCollapsed ? (
+              <ChevronsUpDown className="h-4 w-4" />
+            ) : (
+              <ChevronsDownUp className="h-4 w-4" />
+            ),
+            onClick: () => {
+              setCollapsed(allCollapsed ? new Set() : new Set(allParents));
+              setResetToken((n) => n + 1);
+            },
+          },
+          { key: "sep-fold", separator: true },
+        ]}
         renderNode={(p) => (
           <OrgNodeCard
             placed={p}

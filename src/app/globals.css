@@ -1291,3 +1291,41 @@ body {
     animation: none;
   }
 }
+
+/* ── Canvas dock ────────────────────────────────────────────────────────────
+   The name of the control the cursor is on, floating above it. It sits OUTSIDE
+   the button that swells, so it stays one size while the control grows — a
+   label that magnified with its button would read as a zoom, not as a name.
+   Cleared high enough that a fully grown control never reaches it. */
+.dock-label {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-bottom: 1.35rem;
+  transform: translate(-50%, 4px);
+  white-space: nowrap;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  padding: 0.15rem 0.45rem;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--foreground-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.dock-slot:hover .dock-label,
+.dock-slot:focus-within .dock-label {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-label {
+    transition: none;
+  }
+}
