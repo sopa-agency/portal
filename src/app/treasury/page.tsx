@@ -288,6 +288,15 @@ treasury: {
 
   const treasuryContent = isSopa ? (
     <div className="space-y-8">
+      {/* O gráfico abre a visão: a primeira pergunta é "para onde isto está
+          indo", antes da composição de hoje. Fica FORA do SopaTreasury porque
+          aquele componente recebe receita como dado, não como nó — foi por isso
+          que o gráfico não aparecia aqui na primeira subida. */}
+      <TreasuryHistoryChart
+        wallets={walletChart.series.length ? walletChart.series : walletHistory}
+        streams={history}
+        failed={walletChart.failed}
+      />
       {/* Ordem: quanto temos (hero + saldos + receita) → pra que é (earmarks) →
           o que sai (custos + runway) → atividade do multisig (recolhida, ops). */}
       {overviewAndRevenue}
