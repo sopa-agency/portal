@@ -1,6 +1,7 @@
 import "server-only";
 import { zerionBalances } from "@/lib/zerion";
-import { ok, readHealth, sumReadings, unread, type Reading } from "@/lib/reading";
+import { readHealth, sumReadings, type Reading } from "@/lib/reading";
+import { evmWalletReading, hiveAccountReading } from "@/lib/treasury-readings";
 import type { ProjectConfig } from "@/projects/types";
 import { sanitizeTokenLabel, labelLooksHostile, SYMBOL_MAX, NAME_MAX } from "@/lib/token-label";
 
@@ -102,15 +103,7 @@ export type TreasuryReport = {
   hiveApr: HiveApr | null;
 };
 
-/** A wallet answers fully, or it doesn't answer. A partial is not a balance. */
-export const evmWalletReading = (w: EvmWalletReport): Reading<number> =>
-  w.failedChains.length > 0
-    ? unread(`${w.label}: ${w.failedChains.join(", ")} não respondeu`)
-    : ok(w.totalUsd);
 
-/** "account not found" is a failed read, not an account worth zero. */
-export const hiveAccountReading = (a: HiveAccountReport): Reading<number> =>
-  a.error ? unread(`${a.label}: ${a.error}`) : ok(a.usd);
 
 // --- prices -----------------------------------------------------------------
 

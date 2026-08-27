@@ -1,4 +1,8 @@
-import { evmWalletReading, hiveAccountReading, type TreasuryGroup, type TreasuryReport } from "@/lib/treasury";
+// TYPE-only from treasury: that module is server-only, and a value import here
+// would follow this file into the client bundle (SopaTreasury is a Client
+// Component). The readings live in their own module for exactly that reason.
+import type { TreasuryGroup, TreasuryReport } from "@/lib/treasury";
+import { evmWalletReading, hiveAccountReading } from "@/lib/treasury-readings";
 import { readHealth, sumReadings, type Reading } from "@/lib/reading";
 
 /**
