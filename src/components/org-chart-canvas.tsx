@@ -319,27 +319,33 @@ export function OrgCanvas<T extends TreeLike>({
     [zoomAt, glide],
   );
 
-  // Wheel: trackpad two-finger scroll pans, pinch (ctrl/⌘ + wheel) zooms — the
-  // same contract design canvases use. Registered natively so preventDefault
-  // works (React's onWheel is passive).
+  // The wheel ONLY zooms. On a plane there is no up and down to scroll to — the
+  // page's scrollbar metaphor doesn't survive the trip. Getting somewhere is
+  // click-and-drag; the wheel changes how close you are.
+  //
+  // Registered natively so preventDefault works (React's onWheel is passive).
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       cutGlide();
-      if (e.ctrlKey || e.metaKey) {
-        zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY / 220));
-      } else {
-        setT((prev) => ({ ...prev, x: prev.x - e.deltaX, y: prev.y - e.deltaY }));
-      }
+      // deltaY arrives in whatever unit the device reports. Normalise to pixels
+      // first, then cap: one notch of a mouse wheel is a single big jump, and
+      // uncapped it would leap across half the zoom range.
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+      const dy = clamp(e.deltaY * unit, 100);
+      // A pinch (which arrives as ctrl+wheel) is a continuous gesture in small
+      // increments and wants the finer scale; a wheel notch wants the coarser.
+      zoomAt(e.clientX, e.clientY, Math.exp(-dy / (e.ctrlKey ? 220 : 700)));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [zoomAt, cutGlide]);
 
-  // Pointer pan + two-finger pinch. Dragging only starts on the canvas surface
-  // itself, so buttons and cards keep their own click behaviour.
+  // Pointer pan + two-finger pinch. Press anywhere and drag: on a card that
+  // moves the card, anywhere else it moves the plane. A press that doesn't
+  // travel is still a click, so cards and buttons keep their own behaviour.
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ dist: number; k: number } | null>(null);
   const [panning, setPanning] = useState(false);
