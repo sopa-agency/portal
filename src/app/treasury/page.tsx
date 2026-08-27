@@ -300,6 +300,14 @@ treasury: {
       {/* Ordem: quanto temos (hero + saldos + receita) → pra que é (earmarks) →
           o que sai (custos + runway) → atividade do multisig (recolhida, ops). */}
       {overviewAndRevenue}
+      {/* "O que sai" ao lado de "quanto temos". Estava a duas abas de distância,
+          o que tornava "subindo ou descendo" impossível de responder olhando uma
+          tela só. O portal de marca já fazia assim (BrandTreasury renderiza
+          custos inline); era a SOPA que estava fora do padrão. */}
+      <section className="border-t border-border pt-6">
+        <h3 className="mb-4 text-sm font-semibold text-foreground">{t.treasury.tabs.costs}</h3>
+        <CostsTab groups={costGroups} initialCosts={initialCosts} usdBrl={costScope.usdBrl} canEdit={!!session} />
+      </section>
       {/* Operações MOR (pipeline + stake) — ferramentas de owner, recolhidas num
           collapsible pra Tesouro ficar uma visão limpa de "quanto temos". */}
       <details className="group border-t border-border pt-8">
@@ -462,14 +470,6 @@ treasury: {
       {isSopa ? (
         <TreasuryTabs
           treasury={treasuryContent}
-          costs={
-            <CostsTab
-              groups={costGroups}
-              initialCosts={initialCosts}
-              usdBrl={costScope.usdBrl}
-              canEdit={!!session}
-            />
-          }
           members={
             <MembersTab
               canEdit={!!session}
