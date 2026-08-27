@@ -201,6 +201,60 @@ que nunca aconteceu.
 
 ---
 
+## Os dois verificadores são obrigatórios, por razões opostas
+
+Escrito depois de o `next build` quebrar num commit em que `tsc` e `eslint`
+passaram os dois, limpos.
+
+**Aqui, o `tsc` não enxerga a fronteira cliente/servidor.** `treasury.ts` é
+`server-only`. O `treasury-aggregate.ts` sempre importou dele — mas só TIPOS, e
+tipo é apagado na compilação. A fronteira existia sem nunca ter sido
+exercitada. No dia em que um VALOR cruzou (duas funções puras que traduzem
+carteira em `Reading<number>`), o `SopaTreasury`, que é Client Component e
+importa esse agregador, passou a arrastar chave de RPC e caminho de fetch para
+o bundle do navegador. Isso é quase-incidente de segurança, não erro de build.
+Quem separa cliente de servidor é o **bundler**. Só o `next build` acusa.
+
+**Na SkateHive é o inverso.** Lá o `next build` roda com *Skipping validation of
+types*, então o build não é verificador de tipo nenhum — o `tsc` é o único que
+pega erro de tipo.
+
+Ou seja: **cada repo tem um buraco diferente, e os dois verificadores cobrem
+buracos que o outro não cobre.** Passar num não é evidência de nada sobre o
+outro. Rodar os dois antes de mesclar não é zelo, é o mínimo — e no caso deste
+repo é por isso que o preview da Vercel roda antes do merge, não depois.
+
+**A regra prática:** quando um módulo `server-only` passar a exportar um VALOR
+consumido fora dele, verifique quem consome. Import de tipo é grátis e não
+prova nada; o primeiro import de valor é que testa a linha.
+
+## Medição da completude das leituras (27/08, 23h)
+
+A pergunta era com que frequência o total do tesouro apareceria como
+"incompleto" depois de ele parar de somar leitura falha como zero. Medido no
+próprio `TreasuryWalletSnapshot`, que já é o registro: o cron grava uma linha
+por carteira por hora e **pula** a que falhou, então linha ausente é falha
+registrada. Custo zero de cota.
+
+**Resultado: 0 de 8 ticks incompletos. 40 de 40 leituras.** Cinco carteiras
+configuradas (gnars 1, skatehive 3, sopa 1), todas presentes em todas as horas.
+
+Três ressalvas, e a terceira é a que importa:
+
+1. A amostra tem **8 horas**, todas de hoje — a tabela nasceu hoje. Não é
+   evidência sobre semanas.
+2. Cobre só EVM. As contas Hive também alimentam o total do hero e podem
+   falhar ("account not found"); o snapshot não as grava.
+3. **O snapshot é um sinal MAIS FRACO do que a condição do hero.** Ele registra
+   `totalUsd`, não `failedChains`. Uma carteira com uma chain caída grava a
+   linha assim mesmo — parcial —, enquanto o hero passa a tratar isso como
+   incompleto. Então a taxa real de "incompleto" pode ser maior que 0/8, e esta
+   medição não a distingue.
+
+**Conserto barato e óbvio:** gravar `failedChains` no snapshot. Uma coluna, e a
+condição exata que o hero avalia vira observável ao longo do tempo em vez de
+inferida.
+
 ## Cuidados pra quem mexer aqui depois
 
 - **Confira os dois ramos** (`SopaTreasury` × `BrandTreasury`). Já mordeu hoje.
