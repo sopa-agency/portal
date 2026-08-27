@@ -117,9 +117,94 @@ export function layoutTree<T extends TreeLike>(roots: T[], collapsed: Set<string
 const outAnchor = (p: Point) => ({ x: p.x + NODE_W / 2, y: p.y + NODE_H });
 const inAnchor = (p: Point) => ({ x: p.x + NODE_W / 2, y: p.y });
 
-function edgePath(a: Point, b: Point) {
-  const dy = Math.max(24, (b.y - a.y) * 0.55);
-  return `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}`;
+/* ── Slack ──────────────────────────────────────────────────────────────────
+   How far the control points sit from their anchors. Sideways distance counts
+   too, not just the drop: a connector reaching far across sags more than one
+   dropping straight down, the way a longer rope does. That single term is most
+   of why the line reads as soft rather than drafted. */
+const bendOf = (a: Point, b: Point) =>
+  Math.max(30, (b.y - a.y) * 0.55 + Math.abs(b.x - a.x) * 0.14);
+
+/* ── Give ───────────────────────────────────────────────────────────────────
+   The line keeps this much clear of a card it isn't attached to, and it moves
+   out of the way by displacing its BELLY — both control points shift together,
+   so the ends stay welded to their cards and only the middle gives. */
+const EDGE_CLEARANCE = 18;
+/** Where along the curve to look for a card in the way. Ends are pinned, so
+ *  they're not worth sampling. */
+const SAMPLE_TS = [0.25, 0.375, 0.5, 0.625, 0.75];
+/** Displacing the controls by d moves the point at t by 3t(1-t)·d. Exact, not
+ *  fitted — it's the cubic's own weight for its two middle terms. */
+const gainAt = (t: number) => 3 * t * (1 - t);
+/** Fraction of the remaining distance the belly closes each frame. Low enough
+ *  to lag visibly behind a card you're dragging, which is the whole effect. */
+const SLACK_EASE = 0.16;
+const MAX_GIVE_X = 460;
+const MAX_GIVE_Y = 280;
+
+const clamp = (v: number, limit: number) => Math.max(-limit, Math.min(limit, v));
+
+/** The undeflected curve's point at t. */
+function baseAt(a: Point, b: Point, bend: number, t: number): Point {
+  const c1y = a.y + bend;
+  const c2y = b.y - bend;
+  const u = 1 - t;
+  const w0 = u * u * u;
+  const w1 = 3 * u * u * t;
+  const w2 = 3 * u * t * t;
+  const w3 = t * t * t;
+  return {
+    x: w0 * a.x + w1 * a.x + w2 * b.x + w3 * b.x,
+    y: w0 * a.y + w1 * c1y + w2 * c2y + w3 * b.y,
+  };
+}
+
+/**
+ * How far the belly has to move for the line to clear every card standing in
+ * it. Two passes: the first reads the straight run, the second checks what the
+ * first correction ran into. Deriving the answer from the UNDEFLECTED curve
+ * each frame is what keeps it stable — measuring the deflected curve would
+ * make the push vanish as soon as it worked, and the line would flap.
+ */
+function giveFor(a: Point, b: Point, bend: number, obstacles: Point[]): Point {
+  let d = { x: 0, y: 0 };
+  for (let pass = 0; pass < 2; pass++) {
+    let needX = 0;
+    let needY = 0;
+    for (const t of SAMPLE_TS) {
+      const g = gainAt(t);
+      const base = baseAt(a, b, bend, t);
+      const px = base.x + g * d.x;
+      const py = base.y + g * d.y;
+      for (const o of obstacles) {
+        const left = o.x - EDGE_CLEARANCE;
+        const right = o.x + NODE_W + EDGE_CLEARANCE;
+        const top = o.y - EDGE_CLEARANCE;
+        const bottom = o.y + NODE_H + EDGE_CLEARANCE;
+        if (px <= left || px >= right || py <= top || py >= bottom) continue;
+        // Shortest way out of this card, then scaled back up into control-point
+        // units by the sample's own gain.
+        const outs = [left - px, right - px, top - py, bottom - py];
+        let pick = 0;
+        for (let i = 1; i < 4; i++) if (Math.abs(outs[i]) < Math.abs(outs[pick])) pick = i;
+        const need = outs[pick] / g;
+        if (pick < 2) {
+          if (Math.abs(need) > Math.abs(needX)) needX = need;
+        } else if (Math.abs(need) > Math.abs(needY)) needY = need;
+      }
+    }
+    if (needX === 0 && needY === 0) break;
+    d = { x: clamp(d.x + needX, MAX_GIVE_X), y: clamp(d.y + needY, MAX_GIVE_Y) };
+  }
+  return d;
+}
+
+function edgePath(a: Point, b: Point, bend: number, give: Point) {
+  const c1x = a.x + give.x;
+  const c1y = a.y + bend + give.y;
+  const c2x = b.x + give.x;
+  const c2y = b.y - bend + give.y;
+  return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${b.x} ${b.y}`;
 }
 
 type Transform = { x: number; y: number; k: number };
@@ -324,7 +409,10 @@ export function OrgCanvas<T extends TreeLike>({
       const base = layout.byId.get(nd.id);
       if (base) offsets.current.set(nd.id, { x: world.x - base.x, y: world.y - base.y });
       posRef.current.set(nd.id, world);
-      paint(posRef.current);
+      // Painting straight from here as WELL as from the settle loop would step
+      // the springs twice per frame, and the lag is the point. One write per
+      // frame, on the frame, is also simply the right place for it.
+      ensureSettle(posRef.current);
       return;
     }
 
@@ -410,17 +498,74 @@ export function OrgCanvas<T extends TreeLike>({
   // they outlive the layout that dropped them.
   const [leaving, setLeaving] = useState<{ nodes: Placed<T>[]; edges: Edge[] }>({ nodes: [], edges: [] });
 
+  // Each connector's current belly displacement, chasing its target frame by
+  // frame. This lag is the softness: drop a card on a line and the line yields
+  // to it over a few frames rather than snapping around it.
+  const gives = useRef(new Map<string, Point>());
+
+  /** Returns true while any connector is still settling. */
   const paint = useCallback((pos: Map<string, Point>) => {
     for (const { el, id } of nodeEls.current.values()) {
       const p = pos.get(id);
       if (p) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
     }
-    for (const { el, from, to } of pathEls.current.values()) {
-      const a = pos.get(from);
-      const b = pos.get(to);
-      if (a && b) el.setAttribute("d", edgePath(outAnchor(a), inAnchor(b)));
+
+    let settling = false;
+    for (const [slot, { el, from, to }] of pathEls.current) {
+      const pa = pos.get(from);
+      const pb = pos.get(to);
+      if (!pa || !pb) continue;
+      const a = outAnchor(pa);
+      const b = inAnchor(pb);
+      const bend = bendOf(a, b);
+
+      // Every card except the two this line is welded to, and only those whose
+      // box could plausibly reach the run between them.
+      const lo = { x: Math.min(a.x, b.x) - MAX_GIVE_X, y: Math.min(a.y, b.y) - EDGE_CLEARANCE };
+      const hi = { x: Math.max(a.x, b.x) + MAX_GIVE_X, y: Math.max(a.y, b.y) + EDGE_CLEARANCE };
+      const obstacles: Point[] = [];
+      for (const [id, p] of pos) {
+        if (id === from || id === to) continue;
+        if (p.x + NODE_W < lo.x || p.x > hi.x || p.y + NODE_H < lo.y || p.y > hi.y) continue;
+        obstacles.push(p);
+      }
+
+      const target = obstacles.length > 0 ? giveFor(a, b, bend, obstacles) : { x: 0, y: 0 };
+      const cur = gives.current.get(slot);
+      let give: Point;
+      if (!cur) {
+        give = target; // first sight of this connector: no catching up to do
+      } else {
+        const nx = cur.x + (target.x - cur.x) * SLACK_EASE;
+        const ny = cur.y + (target.y - cur.y) * SLACK_EASE;
+        if (Math.abs(target.x - nx) < 0.3 && Math.abs(target.y - ny) < 0.3) {
+          give = target;
+        } else {
+          give = { x: nx, y: ny };
+          settling = true;
+        }
+      }
+      gives.current.set(slot, give);
+      el.setAttribute("d", edgePath(a, b, bend, give));
     }
+    return settling;
   }, []);
+
+  // Keeps repainting while the lines catch up — the gesture that moved a card
+  // is long over by the time they finish.
+  const settleRaf = useRef(0);
+  // Takes the positions rather than reading them back: while settling, nothing
+  // is moving the cards any more, so the map handed in stays the live one.
+  const ensureSettle = useCallback(
+    (pos: Map<string, Point>) => {
+      cancelAnimationFrame(settleRaf.current);
+      const tick = () => {
+        if (paint(pos)) settleRaf.current = requestAnimationFrame(tick);
+      };
+      settleRaf.current = requestAnimationFrame(tick);
+    },
+    [paint],
+  );
 
   /**
    * The single owner of where things sit. Everything that moves the tree goes
@@ -430,6 +575,7 @@ export function OrgCanvas<T extends TreeLike>({
   const runTween = useCallback(
     (from: Map<string, Point>, to: Map<string, Point>, settleTo: Map<string, Point>, instant = false) => {
       cancelAnimationFrame(raf.current);
+      cancelAnimationFrame(settleRaf.current);
       // Paint frame zero synchronously. Arriving cards have no transform of
       // their own yet, so if the first rAF ever landed after a paint they'd
       // flash at the plane's origin — this makes that impossible, not unlikely.
@@ -438,6 +584,7 @@ export function OrgCanvas<T extends TreeLike>({
       if (instant) {
         posRef.current = settleTo;
         paint(settleTo);
+        ensureSettle(settleTo);
         return;
       }
 
@@ -450,11 +597,14 @@ export function OrgCanvas<T extends TreeLike>({
         posRef.current = cur;
         paint(cur);
         if (u < 1) raf.current = requestAnimationFrame(step);
-        else posRef.current = settleTo;
+        else {
+          posRef.current = settleTo;
+          ensureSettle(settleTo);
+        }
       };
       raf.current = requestAnimationFrame(step);
     },
-    [paint],
+    [paint, ensureSettle],
   );
 
   useLayoutEffect(() => {
@@ -535,6 +685,7 @@ export function OrgCanvas<T extends TreeLike>({
   useEffect(
     () => () => {
       cancelAnimationFrame(raf.current);
+      cancelAnimationFrame(settleRaf.current);
       if (exitTimer.current) clearTimeout(exitTimer.current);
     },
     [],
@@ -550,7 +701,10 @@ export function OrgCanvas<T extends TreeLike>({
   const pathRef = useCallback(
     (slot: string, from: string, to: string) => (el: SVGPathElement | null) => {
       if (el) pathEls.current.set(slot, { el, from, to });
-      else pathEls.current.delete(slot);
+      else {
+        pathEls.current.delete(slot);
+        gives.current.delete(slot);
+      }
     },
     [],
   );
