@@ -40,6 +40,7 @@ export type DockButton = {
   text?: string;
   /** Slot width, when the control isn't square. */
   width?: number;
+  disabled?: boolean;
 };
 
 export type DockEntry = DockButton | { key: string; separator: true };
@@ -167,6 +168,7 @@ export function CanvasDock({ items, label }: { items: DockEntry[]; label: string
               data-dock-key={item.key}
               type="button"
               tabIndex={item.key === activeKey ? 0 : -1}
+              disabled={item.disabled}
               onFocus={() => setFocusKey(item.key)}
               onClick={item.onClick}
               aria-label={item.label}
@@ -175,7 +177,7 @@ export function CanvasDock({ items, label }: { items: DockEntry[]; label: string
                 height: BASE,
                 transformOrigin: "bottom center",
               }}
-              className="flex items-center justify-center rounded-full text-foreground-muted transition-colors hover:bg-surface-elevated hover:text-foreground focus-visible:bg-surface-elevated focus-visible:text-foreground focus-visible:outline-none"
+              className="flex items-center justify-center rounded-full text-foreground-muted transition-colors hover:bg-surface-elevated hover:text-foreground focus-visible:bg-surface-elevated focus-visible:text-foreground focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40"
             >
               {item.text ? (
                 <span className="font-mono text-[11px] font-semibold">{item.text}</span>

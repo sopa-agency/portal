@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Plus,
   X,
@@ -180,7 +180,12 @@ export function SopaOrgChart({
   // Hover leads (it's the cheap, exploratory gesture); the open card holds the
   // line when nothing is hovered.
   const activeEdgeIds = useMemo(() => {
-    const focus = hoverId ?? openId ?? selectedId;
+    // Take the first candidate that still EXISTS in the current layout. Hover
+    // leaves no trace when React unmounts a card — no pointerleave fires — so
+    // collapsing a branch (or deleting a card) used to strand hoverId on a node
+    // that was gone, and the open card's line stayed dark until you happened to
+    // hover something else. Checking against the layout self-heals every path.
+    const focus = [hoverId, openId, selectedId].find((id) => id && layout.byId.has(id));
     if (!focus) return undefined;
     const chain = new Set<string>();
     let cur: string | null | undefined = focus;
@@ -189,7 +194,7 @@ export function SopaOrgChart({
       cur = parentOf.get(cur) ?? null;
     }
     return chain;
-  }, [hoverId, openId, selectedId, parentOf]);
+  }, [hoverId, openId, selectedId, parentOf, layout]);
 
   const openCard = cards.find((c) => c.id === openId) ?? null;
   const allParents = useMemo(
@@ -310,7 +315,14 @@ export function SopaOrgChart({
         dockExtra={[
           {
             key: "fold-all",
-            label: allCollapsed ? t.canvas.expandAll : t.canvas.collapseAll,
+            // A query forces every branch open, so the control would flip its
+            // own icon and move nothing on screen.
+            disabled: !!q,
+            label: q
+              ? t.canvas.foldWhileSearching
+              : allCollapsed
+                ? t.canvas.expandAll
+                : t.canvas.collapseAll,
             icon: allCollapsed ? (
               <ChevronsUpDown className="h-4 w-4" />
             ) : (
@@ -333,6 +345,7 @@ export function SopaOrgChart({
             onOpen={setOpenId}
             onToggleCollapse={toggleCollapse}
             onAddChild={addChild}
+            searching={!!q}
             disabled={pending}
           />
         )}
@@ -417,6 +430,7 @@ function OrgNodeCard({
   onOpen,
   onToggleCollapse,
   onAddChild,
+  searching,
   disabled,
 }: {
   placed: Placed<Node>;
@@ -427,6 +441,8 @@ function OrgNodeCard({
   onOpen: (id: string) => void;
   onToggleCollapse: (id: string) => void;
   onAddChild: (parentId: string, title: string) => void;
+  /** A search is forcing every branch open — folding is suspended. */
+  searching: boolean;
   disabled: boolean;
 }) {
   const t = useT().orgChart;
@@ -523,9 +539,17 @@ function OrgNodeCard({
         <button
           type="button"
           onClick={() => onToggleCollapse(node.id)}
+          disabled={searching}
           aria-expanded={!placed.collapsed}
-          aria-label={placed.collapsed ? t.node.expand(node.title) : t.node.collapse(node.title)}
-          className="absolute -bottom-3 left-1/2 flex h-6 -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 text-[10px] font-semibold text-foreground-muted shadow-sm transition hover:border-accent-border hover:text-accent"
+          aria-label={
+            searching
+              ? t.canvas.foldWhileSearching
+              : placed.collapsed
+                ? t.node.expand(node.title)
+                : t.node.collapse(node.title)
+          }
+          title={searching ? t.canvas.foldWhileSearching : undefined}
+          className="absolute -bottom-3 left-1/2 flex h-6 -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 text-[10px] font-semibold text-foreground-muted shadow-sm transition hover:border-accent-border hover:text-accent disabled:pointer-events-none disabled:opacity-45"
         >
           {placed.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           {childCount}
@@ -630,21 +654,17 @@ function CardDialog({
   const [confirmDel, setConfirmDel] = useState(false);
   const [revRows, setRevRows] = useState<RevenueStream[]>(() => card.revenueStreams);
   const [tab, setTab] = useState<"geral" | "time" | "receita">("geral");
+  const [confirmClose, setConfirmClose] = useState(false);
   const t = useT().orgChart;
 
-  // Esc closes the drawer, and the body stops scrolling behind it.
+  // The body stops scrolling behind the drawer.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, []);
 
   const kind = nodeKind(card);
   const rosterByUser = new Map(roster.map((p) => [p.username.toLowerCase(), p]));
@@ -670,6 +690,29 @@ function CardDialog({
     JSON.stringify([...repos].sort()) !== JSON.stringify([...card.repos].sort()) ||
     JSON.stringify(teamArr) !== JSON.stringify(card.team) ||
     JSON.stringify(revArr) !== JSON.stringify(card.revenueStreams);
+
+  // Every way out of this drawer goes through here. The component already knew
+  // there were unsaved edits — it renders an "unsaved" badge for exactly that
+  // state — while Escape and the backdrop closed regardless and took the edits
+  // with them. Now they ask, in the same two-step shape the delete button uses.
+  const requestClose = useCallback(() => {
+    if (dirty) {
+      setConfirmClose(true);
+      return;
+    }
+    onClose();
+  }, [dirty, onClose]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // A second Escape confirms what the first one asked.
+      if (confirmClose) onClose();
+      else requestClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmClose, onClose, requestClose]);
 
   async function fetchRepos() {
     const org = githubOrg.trim();
@@ -745,7 +788,7 @@ function CardDialog({
     // the structure you're editing.
     <div
       className="org-scrim fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-[2px]"
-      onClick={onClose}
+      onClick={requestClose}
       role="dialog"
       aria-modal="true"
       aria-label={t.drawer.label(card.title)}
@@ -801,7 +844,7 @@ function CardDialog({
           )}
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label={t.drawer.close}
             className="rounded-lg p-1.5 text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
           >
@@ -1239,6 +1282,30 @@ function CardDialog({
         )}
 
         </div>
+
+        {/* Saving while the ask is up settles it — there's nothing left to
+            discard, so the question retires itself. */}
+        {confirmClose && dirty && (
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-warning/30 bg-warning/10 px-5 py-2.5">
+            <span className="text-xs font-medium text-foreground">{t.drawer.discardTitle}</span>
+            <span className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmClose(false)}
+                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground hover:border-border-strong"
+              >
+                {t.drawer.keepEditing}
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/20"
+              >
+                {t.drawer.discard}
+              </button>
+            </span>
+          </div>
+        )}
 
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-3">
           {!isRoot ? (

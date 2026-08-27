@@ -286,37 +286,67 @@ export function OrgCanvas<T extends TreeLike>({
     fit();
   }, [fit, layout.width, layout.height]);
 
+  // `fit` changes identity whenever the tree's bounds change, so an effect that
+  // depended on it re-subscribed the observer on every fold — and observe()
+  // always delivers an initial observation, which called fit() and yanked the
+  // viewport back. Exactly what NOT re-fitting on a fold was meant to stop.
+  // The ref breaks that link; the size check states the intent outright.
+  const fitRef = useRef(fit);
+  useEffect(() => {
+    fitRef.current = fit;
+  }, [fit]);
+
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
-    // Keep the chart in frame when the window/sidebar resizes — that IS a
-    // change to the frame itself, unlike a fold.
-    const ro = new ResizeObserver(() => fit());
+    let seen = { w: el.clientWidth, h: el.clientHeight };
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w === seen.w && h === seen.h) return;
+      seen = { w, h };
+      // The FRAME changed (window, sidebar) — that earns a re-fit. A fold
+      // never reaches here.
+      fitRef.current();
+    });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [fit]);
-
-  const zoomAt = useCallback((clientX: number, clientY: number, factor: number) => {
-    const el = hostRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const px = clientX - rect.left;
-    const py = clientY - rect.top;
-    setT((prev) => {
-      const k = clampK(prev.k * factor);
-      if (k === prev.k) return prev;
-      const ratio = k / prev.k;
-      return { k, x: px - (px - prev.x) * ratio, y: py - (py - prev.y) * ratio };
-    });
   }, []);
 
-  const zoomCentre = useCallback(
-    (factor: number) => {
+  /**
+   * Zoom about a point on screen, holding whatever is under it still.
+   *
+   * `next` is either the scale to land on or a function of the current one, and
+   * either way it is resolved INSIDE the updater — so the compensation always
+   * uses the scale React is about to replace, never a copy of it read earlier.
+   * That matters for the pinch, where several pointermove events can be handled
+   * before a commit lands, and a scale read outside would already be stale.
+   */
+  const zoomAt = useCallback(
+    (clientX: number, clientY: number, next: number | ((k: number) => number)) => {
+      const el = hostRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const px = clientX - rect.left;
+      const py = clientY - rect.top;
+      setT((prev) => {
+        const k = clampK(typeof next === "function" ? next(prev.k) : next);
+        if (k === prev.k) return prev;
+        const ratio = k / prev.k;
+        return { k, x: px - (px - prev.x) * ratio, y: py - (py - prev.y) * ratio };
+      });
+    },
+    [],
+  );
+
+  /** Same, about the middle of the viewport. */
+  const zoomCentreTo = useCallback(
+    (next: number | ((k: number) => number)) => {
       const el = hostRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
       glide();
-      zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
+      zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, next);
     },
     [zoomAt, glide],
   );
@@ -339,7 +369,8 @@ export function OrgCanvas<T extends TreeLike>({
       const dy = clamp(e.deltaY * unit, 100);
       // A pinch (which arrives as ctrl+wheel) is a continuous gesture in small
       // increments and wants the finer scale; a wheel notch wants the coarser.
-      zoomAt(e.clientX, e.clientY, Math.exp(-dy / (e.ctrlKey ? 220 : 700)));
+      const factor = Math.exp(-dy / (e.ctrlKey ? 220 : 700));
+      zoomAt(e.clientX, e.clientY, (k) => k * factor);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -369,8 +400,10 @@ export function OrgCanvas<T extends TreeLike>({
 
   function onPointerDown(e: React.PointerEvent) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
-    // Form fields keep their own press-drag (caret, text selection).
-    if ((e.target as HTMLElement).closest("input, textarea, select")) return;
+    // Form fields keep their own press-drag (caret, text selection), and the
+    // dock is chrome floating over the plane — pressing a control there and
+    // drifting a few pixels must not pan the plane and swallow the click.
+    if ((e.target as HTMLElement).closest('input, textarea, select, [role="toolbar"]')) return;
     swallowClick.current = false;
 
     // On a card: move the card. Anywhere else: move the plane.
@@ -431,13 +464,18 @@ export function OrgCanvas<T extends TreeLike>({
     if (pointers.current.size === 2 && pinch.current) {
       const [a, b] = [...pointers.current.values()];
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
-      const target = clampK(pinch.current.k * (dist / pinch.current.dist));
-      zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, target / tRef.current.k);
+      // Absolute: the scale the fingers are asking for, measured from where the
+      // gesture started. No division by a scale read outside the updater.
+      zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, pinch.current.k * (dist / pinch.current.dist));
       return;
     }
 
     const d = drag.current;
-    if (d && d.id === e.pointerId && !d.moved) {
+    // Ownership, not just presence: after one finger of a pinch lifts, a
+    // pointer can still be down without owning the pan, and panning from it
+    // would skip the slop threshold and never arm the click guard.
+    if (!d || d.id !== e.pointerId) return;
+    if (!d.moved) {
       // Under the threshold this is still a click in progress — swallow the
       // movement rather than nudging the plane by a pixel.
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
@@ -463,7 +501,16 @@ export function OrgCanvas<T extends TreeLike>({
     if (drag.current?.id === e.pointerId) drag.current = null;
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
-    if (pointers.current.size === 0) setPanning(false);
+    if (pointers.current.size === 0) {
+      setPanning(false);
+    } else if (!drag.current && pointers.current.size === 1) {
+      // One finger of a pinch lifted. The other is still down and should carry
+      // on as a pan — but as a NEW gesture, from where it is now, with the slop
+      // threshold armed again, or it would jump by the whole pinch offset.
+      const [id, p] = [...pointers.current.entries()][0];
+      drag.current = { id, x: p.x, y: p.y, moved: false };
+      setPanning(false);
+    }
   }
 
   // Capture phase, so the card's own onClick never runs after a pan.
@@ -719,18 +766,18 @@ export function OrgCanvas<T extends TreeLike>({
 
   const dockItems: DockEntry[] = [
     ...(dockExtra ?? []),
-    { key: "zoom-out", label: t9n.zoomOut, onClick: () => zoomCentre(1 / 1.2), icon: <Minus className="h-4 w-4" /> },
+    { key: "zoom-out", label: t9n.zoomOut, onClick: () => zoomCentreTo((k) => k / 1.2), icon: <Minus className="h-4 w-4" /> },
     {
       key: "zoom-level",
       label: t9n.resetZoom,
       width: 52,
       text: `${Math.round(t.k * 100)}%`,
-      onClick: () => {
-        glide();
-        setT((prev) => ({ ...prev, k: 1 }));
-      },
+      // Reset through the same focal-point path as every other zoom: setting k
+      // alone would rescale about the world origin, which is off screen after
+      // any pan, and throw the card being examined out of view.
+      onClick: () => zoomCentreTo(1),
     },
-    { key: "zoom-in", label: t9n.zoomIn, onClick: () => zoomCentre(1.2), icon: <Plus className="h-4 w-4" /> },
+    { key: "zoom-in", label: t9n.zoomIn, onClick: () => zoomCentreTo((k) => k * 1.2), icon: <Plus className="h-4 w-4" /> },
     { key: "sep-view", separator: true },
     { key: "fit", label: t9n.fit, onClick: fit, icon: <Maximize2 className="h-4 w-4" /> },
     {

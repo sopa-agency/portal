@@ -1308,6 +1308,8 @@ const en = {
       toolbar: "Canvas controls",
       expandAll: "Expand all",
       collapseAll: "Collapse all",
+      /** Folding is suspended while a search forces every branch open. */
+      foldWhileSearching: "Clear the search to fold branches",
       empty: "No cards yet.",
     },
     /** What a card shows and the controls hanging off it. */
@@ -1334,6 +1336,10 @@ const en = {
       close: "Close",
       openSite: "Open website",
       openGithub: "Open GitHub",
+      /** Closing with edits pending asks first — the drawer is a long form. */
+      discardTitle: "Discard your changes?",
+      discard: "Discard",
+      keepEditing: "Keep editing",
     },
   },
   /**
@@ -2617,6 +2623,7 @@ const pt: typeof en = {
       toolbar: "Controles do canvas",
       expandAll: "Expandir tudo",
       collapseAll: "Recolher tudo",
+      foldWhileSearching: "Limpe a busca para dobrar galhos",
       empty: "Nenhum card ainda.",
     },
     node: {
@@ -2640,6 +2647,9 @@ const pt: typeof en = {
       close: "Fechar",
       openSite: "Abrir website",
       openGithub: "Abrir GitHub",
+      discardTitle: "Descartar as alterações?",
+      discard: "Descartar",
+      keepEditing: "Continuar editando",
     },
   },
   about: {
