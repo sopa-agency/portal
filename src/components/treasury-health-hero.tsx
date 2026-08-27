@@ -35,6 +35,7 @@ export function TreasuryHealthHero({
   runwayFooter,
   watermarkLogo,
   unreadLabels = [],
+  unvalued = [],
   sourceCount,
 }: {
   label: string;
@@ -53,6 +54,15 @@ export function TreasuryHealthHero({
   watermarkLogo?: string;
   /** Which sources didn't answer. Names make "incomplete" actionable. */
   unreadLabels?: string[];
+  /**
+   * O que está em carteira e não pôde ser precificado.
+   *
+   * Vale ao lado do número, não no lugar dele: aqui o saldo é conhecido e o
+   * PREÇO não, então o total é um piso correto — diferente de uma fonte que não
+   * respondeu, onde nem o saldo se sabe. Um deles retira o número; o outro
+   * anota o que falta nele.
+   */
+  unvalued?: { symbol: string; balance: number }[];
   /** How many sources were attempted, for the "N of M" note. */
   sourceCount?: number;
 }) {
@@ -91,6 +101,11 @@ export function TreasuryHealthHero({
         {!complete && unreadLabels.length > 0 && (
           <p className="mt-1.5 text-[11px] leading-snug text-warning">
             {t.incompleteNote(unreadLabels.length, sourceCount ?? walletCount, unreadLabels.join(", "))}
+          </p>
+        )}
+        {unvalued.length > 0 && (
+          <p className="mt-1.5 text-[11px] leading-snug text-foreground-subtle">
+            {t.unvalued(unvalued.map((u) => `${u.symbol} (${u.balance.toLocaleString("en-US", { maximumFractionDigits: 2 })})`).join(", "))}
           </p>
         )}
       </div>

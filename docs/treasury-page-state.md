@@ -289,6 +289,35 @@ Convergir os dois — a fonte injetável que já está adiada aqui — é o que 
 a medição medir a coisa e não a vizinha. Fica nomeado como o próximo passo
 estrutural desta página, acima de qualquer conserto pontual restante.
 
+### Item 3: caminho COM canal — o erro é bug, não design
+
+`EvmToken.valueUsd` já era `number | null`, com o comentário certo ao lado
+("unknown is not zero"). O canal existia; as duas somas é que o jogavam fora
+com `?? 0`. Pela unidade do SwapPro: **no caminho com canal, o erro é um bug.**
+Não havia o que projetar, havia o que consertar.
+
+**A medição, e ela é estrutural — custo zero de cota.** A pergunta era se
+"token sem preço ⇒ carteira incompleta" seria sinal ou barulho. Dos extraTokens
+configurados, `gnars` na carteira da SOPA é `usd: "none"` — **sem preço por
+configuração, toda hora, para sempre.** A regra estrita deixaria o hero da SOPA
+permanentemente incompleto: ruído constante, não sinal.
+
+**Mas a escolha não se apoia no barulho — se apoia numa distinção real:**
+
+| buraco | o que se sabe | o que o total é |
+|---|---|---|
+| chain que não respondeu | não se sabe O QUE tem | desconhecido → recusa o número |
+| token sem preço | sabe-se exatamente o que tem, não quanto vale | **piso correto** → mostra e nomeia o que falta |
+
+Conflar os dois seria um erro próprio, na direção oposta. Então a soma passa a
+somar os tokens COM preço — escrita como filtro, não como `?? 0`, para que ler
+a linha diga o que ela faz — e o resto sobe até o hero como nota: *"Não inclui
+gnars (N) — em carteira, sem preço confiável."*
+
+Num tesouro este é o pior lugar possível para essa confusão: **token sem preço
+conhecido é comum, token que vale zero é raro.** O caso frequente estava sendo
+renderizado como o caso raro.
+
 ### Aplicando a mesma unidade ao passo 2, item 2
 
 A pergunta antes de consertar os três `.catch(() => [])` do `treasury-history`

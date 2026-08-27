@@ -1,7 +1,7 @@
 import "server-only";
 import { zerionBalances } from "@/lib/zerion";
 import { readHealth, sumReadings, type Reading } from "@/lib/reading";
-import { evmWalletReading, hiveAccountReading } from "@/lib/treasury-readings";
+import { evmWalletReading, hiveAccountReading, mergeUnpriced } from "@/lib/treasury-readings";
 import type { ProjectConfig } from "@/projects/types";
 import { sanitizeTokenLabel, labelLooksHostile, SYMBOL_MAX, NAME_MAX } from "@/lib/token-label";
 
@@ -54,6 +54,18 @@ export type EvmWalletReport = {
   /** Chains whose on-chain read FAILED — their balances are unknown, NOT zero.
    *  The UI must show these as "read failed", never let them count as 0. */
   failedChains: string[];
+  /**
+   * Tokens we hold and CANNOT value — a different hole from a failed chain,
+   * and it deserves different treatment.
+   *
+   * A failed chain means we don't know WHAT is there. An unpriced token means
+   * we know exactly what is there and can't put a dollar on it. So the total
+   * isn't unknown, it's a floor: real, correct, and not everything. Refusing
+   * the number here would also be permanent noise rather than a signal — one
+   * of the configured tokens (gnars) is declared `usd: "none"`, so it is
+   * unpriced BY CONFIGURATION, every hour, forever.
+   */
+  unpriced: { symbol: string; balance: number }[];
   error?: string;
 };
 
@@ -99,6 +111,14 @@ export type TreasuryReport = {
    */
   health: ReturnType<typeof readHealth>;
   unreadLabels: string[];
+  /**
+   * O que está no tesouro e não entrou no total por falta de preço.
+   *
+   * Separado de `unreadLabels` de propósito: aquilo é "não sei o que tem",
+   * isto é "sei o que tem e não sei quanto vale". O total continua sendo um
+   * número correto — só não é tudo —, então ele aparece e isto vai junto.
+   */
+  unpriced: { symbol: string; balance: number }[];
   prices: { hive: number; hbd: number };
   hiveApr: HiveApr | null;
 };
@@ -465,13 +485,18 @@ async function fetchEvmWallet(
     }
   }
   const tokens = keepAndSort(all);
-  const totalUsd = tokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0);
+  // Soma dos tokens COM preço, e o resto nomeado — em vez de `?? 0`, que fazia
+  // "não sei quanto vale" e "vale zero" somarem igual. Num tesouro esse é o pior
+  // lugar para essa confusão: token sem preço conhecido é comum, token que vale
+  // zero é raro, então o caso frequente estava sendo lido como o caso raro.
+  const totalUsd = tokens.filter((t) => t.valueUsd != null).reduce((sum, t) => sum + t.valueUsd!, 0);
+  const unpriced = tokens.filter((t) => t.valueUsd == null).map((t) => ({ symbol: t.symbol, balance: t.balance }));
   const error = failedChains.length
     ? `leitura falhou: ${failedChains.join(", ")}`
     : tokens.length === 0
       ? "sem saldos"
       : undefined;
-  return { label: wallet.label, address: wallet.address, totalUsd, tokens, failedChains, error };
+  return { label: wallet.label, address: wallet.address, totalUsd, tokens, failedChains, unpriced, error };
 }
 
 // --- single-address balance (revenue tracking) -------------------------------
@@ -480,6 +505,8 @@ async function fetchEvmWallet(
 export const EVM_CHAIN_KEYS = EVM_CHAINS.map((c) => c.key);
 
 export type AddressBalance = {
+  /** Tokens presentes e sem preço — o total é um PISO, não o valor. */
+  unpriced?: { symbol: string; balance: number }[];
   address: string;
   chain: string | null;
   totalUsd: number;
@@ -553,9 +580,10 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
   return {
     address: addr,
     chain: chainKey ?? null,
-    totalUsd: tokens.reduce((s, t) => s + (t.valueUsd ?? 0), 0),
+    totalUsd: tokens.filter((t) => t.valueUsd != null).reduce((s, t) => s + t.valueUsd!, 0),
     tokens,
     failedChains,
+    unpriced: tokens.filter((t) => t.valueUsd == null).map((t) => ({ symbol: t.symbol, balance: t.balance })),
     error: [protocolGap, failedChains.length ? `leitura falhou: ${failedChains.join(", ")}` : null].filter(Boolean).join(" · ") || undefined,
     source: "rpc",
   };
@@ -716,6 +744,7 @@ export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryRep
       ...evm.filter((w) => w.failedChains.length > 0).map((w) => w.label),
       ...hive.filter((a) => a.error).map((a) => a.label),
     ],
+    unpriced: mergeUnpriced(evm),
     prices,
     hiveApr: hiveRes.apr,
   };

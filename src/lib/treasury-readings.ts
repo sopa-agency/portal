@@ -23,6 +23,13 @@ export const evmWalletReading = (w: EvmWalletReport): Reading<number> =>
     ? unread(`${w.label}: ${w.failedChains.join(", ")} não respondeu`)
     : ok(w.totalUsd);
 
+/** Mesma moeda em duas carteiras é uma linha só na nota, não duas. */
+export function mergeUnpriced(wallets: { unpriced: { symbol: string; balance: number }[] }[]) {
+  const by = new Map<string, number>();
+  for (const w of wallets) for (const u of w.unpriced) by.set(u.symbol, (by.get(u.symbol) ?? 0) + u.balance);
+  return [...by].map(([symbol, balance]) => ({ symbol, balance }));
+}
+
 /** "account not found" is a failed read, not an account worth zero. */
 export const hiveAccountReading = (a: HiveAccountReport): Reading<number> =>
   a.error ? unread(`${a.label}: ${a.error}`) : ok(a.usd);

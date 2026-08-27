@@ -127,6 +127,7 @@ export function SopaTreasury({
           label={projLabel}
           total={total}
         unreadLabels={unreadLabels}
+        unvalued={visibleGroups.flatMap((g) => g.report.unpriced)}
         sourceCount={walletCount}
           walletCount={walletCount}
           runwayMonths={runwayMonths}

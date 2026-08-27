@@ -47,6 +47,7 @@ export async function BrandTreasury({
         label={group?.name ?? "—"}
         total={total}
         unreadLabels={group?.report.unreadLabels ?? []}
+        unvalued={group?.report.unpriced ?? []}
         sourceCount={walletCount}
         walletCount={walletCount}
         runwayMonths={runwayMonths}

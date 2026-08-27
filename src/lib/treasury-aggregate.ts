@@ -2,7 +2,7 @@
 // would follow this file into the client bundle (SopaTreasury is a Client
 // Component). The readings live in their own module for exactly that reason.
 import type { TreasuryGroup, TreasuryReport } from "@/lib/treasury";
-import { evmWalletReading, hiveAccountReading } from "@/lib/treasury-readings";
+import { evmWalletReading, hiveAccountReading, mergeUnpriced } from "@/lib/treasury-readings";
 import { readHealth, sumReadings, type Reading } from "@/lib/reading";
 
 /**
@@ -47,6 +47,9 @@ export function dedupeTreasuryGroups(groups: TreasuryGroup[]): TreasuryGroup[] {
         ...evm.filter((w) => w.failedChains.length > 0).map((w) => w.label),
         ...hive.filter((a) => a.error).map((a) => a.label),
       ],
+      // Recalculado sobre as carteiras que sobreviveram ao dedupe, senão a nota
+      // contaria a mesma moeda duas vezes na visão combinada.
+      unpriced: mergeUnpriced(evm),
     };
     return { ...group, report };
   });

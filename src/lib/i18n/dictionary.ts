@@ -200,6 +200,9 @@ const en = {
       incomplete: "incomplete",
       incompleteNote: (failed: number, total: number, names: string) =>
         `${failed} of ${total} sources didn't answer — ${names}. What did answer is listed below.`,
+      /** Held, counted, and impossible to value — the total is a floor, and the
+       *  gap is named rather than folded in as zero. */
+      unvalued: (names: string) => `Doesn't include ${names} — held, with no trustworthy price.`,
       verdicts: {
         unknown: { label: "Unknown", phrase: "Part of the treasury couldn't be read, so health can't be judged." },
         noCosts: { label: "No costs", phrase: "Nothing going out — the treasury only accumulates." },
@@ -1616,6 +1619,7 @@ const pt: typeof en = {
       incomplete: "incompleto",
       incompleteNote: (failed: number, total: number, names: string) =>
         `${failed} de ${total} fontes não responderam — ${names}. O que respondeu está listado abaixo.`,
+      unvalued: (names: string) => `Não inclui ${names} — em carteira, sem preço confiável.`,
       verdicts: {
         unknown: { label: "Desconhecido", phrase: "Parte do tesouro não pôde ser lida, então não dá para julgar a saúde." },
         noCosts: { label: "Sem custos", phrase: "Nada saindo por aqui — o tesouro só acumula." },
