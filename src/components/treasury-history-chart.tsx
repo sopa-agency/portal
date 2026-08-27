@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import type { TreasurySeries } from "@/lib/treasury-history";
+import { isOk, ok, type Reading } from "@/lib/reading";
 import { fetchWalletChart } from "@/app/actions/treasury-chart";
 
 // Uma linha por tesouro, sobrepostas. Substitui a barra empilhada, que só sabia
@@ -27,20 +28,28 @@ export function TreasuryHistoryChart({
   streams,
   failed = [],
 }: {
-  /** Saldo por CARTEIRA de tesouro. É o que a página pede por padrão. */
-  wallets: TreasurySeries[];
+  /**
+   * Saldo por CARTEIRA de tesouro, como LEITURA.
+   *
+   * Antes chegava como array e a página fazia `.catch(() => [])`: banco fora do
+   * ar desenhava a mesma tela que "ainda não há histórico". Os dois estados
+   * pedem coisas opostas de quem olha — um é esperar, o outro é investigar.
+   */
+  wallets: Reading<TreasurySeries[]>;
   /** Arrecadação por card do org-chart. Fica disponível porque tem histórico
    *  mais longo, mas rotulado: nessa visão o Safe da SOPA aparece sob a Gnars,
    *  que é como o org-chart classifica aquele stream — e ler isso como "tesouro
    *  da Gnars" seria errado. */
-  streams: TreasurySeries[];
+  streams: Reading<TreasurySeries[]>;
   /** Carteiras cuja leitura FALHOU. Aparecem nomeadas: some da linha é
    *  diferente de valer zero, e o usuário precisa saber qual é qual. */
   failed?: string[];
 }) {
   // Começa no que TEM dado: as carteiras só acumulam ponto a partir do segundo
   // tick, então logo depois do deploy a única série com linha é a de streams.
-  const [src, setSrc] = useState<"wallets" | "streams">(wallets.length ? "wallets" : "streams");
+  const [src, setSrc] = useState<"wallets" | "streams">(
+    isOk(wallets) && wallets.value.length ? "wallets" : "streams",
+  );
   const [period, setPeriod] = useState("month");
   const [live, setLive] = useState<TreasurySeries[] | null>(null);
   const [liveFailed, setLiveFailed] = useState<string[]>(failed);
@@ -71,7 +80,15 @@ export function TreasuryHistoryChart({
     if (live) await pull(next);
   };
 
-  const series = src === "wallets" ? (live ?? wallets) : streams;
+  // A leitura escolhida, ainda como leitura. Só vira array depois de o
+  // componente ter decidido o que fazer com cada estado.
+  const reading: Reading<TreasurySeries[]> = useMemo(
+    () => (src === "wallets" ? (live ? ok(live) : wallets) : streams),
+    [src, live, wallets, streams],
+  );
+  // Memoizado porque um array novo a cada render invalidaria todos os useMemo
+  // abaixo (cores, eixo, spread) e recalcularia o gráfico inteiro por nada.
+  const series = useMemo(() => (isOk(reading) ? reading.value : []), [reading]);
   // A COR é fixada pelo cardId ordenado, NÃO pela ordem de exibição (que segue
   // valor). Ordenar por valor e colorir por posição repintaria as linhas toda
   // vez que um tesouro passasse o outro.
@@ -116,11 +133,27 @@ export function TreasuryHistoryChart({
   const ticks = log ? [FLOOR, 1, 100, 10_000] .filter((t) => t <= maxUsd * 10) : [0, maxUsd / 2, maxUsd];
 
   if (!series.length) {
+    // Três estados, três FORMATOS — não só três cores. Quem lê rápido lê forma:
+    // a falha é uma placa com moldura de aviso e um motivo; a espera é texto
+    // corrido sem moldura. Antes as duas eram a mesma frase cinza, e "o banco
+    // caiu" pedia investigar enquanto "ainda não deu tempo" pedia esperar.
+    const failed = reading.state === "unread";
     return (
-      <div className="rounded-xl border border-border bg-surface p-8 text-center">
-        <p className="text-sm text-foreground-muted">
-          Ainda não há histórico no portal — o cron grava um ponto por hora e a linha aparece a partir do segundo dia.
-        </p>
+      <div
+        className={`rounded-xl border p-8 text-center ${
+          failed ? "border-warning/40 bg-warning/10" : "border-border bg-surface"
+        }`}
+      >
+        {failed ? (
+          <p className="text-sm font-semibold text-warning">
+            ⚠ O histórico não pôde ser lido — {reading.reason}. Isto NÃO é ausência de histórico.
+          </p>
+        ) : (
+          <p className="text-sm text-foreground-muted">
+            Ainda não há histórico no portal — o cron grava um ponto por hora e a linha aparece a partir do segundo dia.
+            {reading.state === "insufficient" ? ` (${reading.note})` : ""}
+          </p>
+        )}
         {/* The button lives HERE too: without it, a portal whose snapshot table
             is still empty had no way to reach the one source that does have
             history, which is precisely when it's most needed. */}
@@ -184,7 +217,7 @@ export function TreasuryHistoryChart({
               {live ? "atualizar" : "sincronizar"}
             </button>
           )}
-          {wallets.length > 0 && streams.length > 0 && (
+          {isOk(wallets) && wallets.value.length > 0 && isOk(streams) && streams.value.length > 0 && (
             <button
               type="button"
               onClick={() => setSrc((v) => (v === "wallets" ? "streams" : "wallets"))}

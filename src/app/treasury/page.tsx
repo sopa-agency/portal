@@ -64,7 +64,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { ChevronRight } from "lucide-react";
 import { rich } from "@/components/rich-text";
-import { isOk, unread, type Reading } from "@/lib/reading";
+import { isOk, ok, unread, type Reading } from "@/lib/reading";
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
@@ -171,9 +171,11 @@ treasury: {
     // SOPA agency revenue: client jobs (manual).
     isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
     // Histórico do gráfico: leitura de banco (snapshots), zero requisição de rede.
-    getTreasuryHistory(60, isSopa ? undefined : { name: project.name, slug: project.slug }).catch(() => []),
+    // Sem `.catch(() => [])`: a função já devolve Reading e engolir aqui seria
+    // reintroduzir o colapso um andar acima do que acabou de ganhar canal.
+    getTreasuryHistory(60, isSopa ? undefined : { name: project.name, slug: project.slug }),
     // A SOPA agrega as carteiras de todos; portal de marca vê só as suas.
-    getTreasuryWalletHistory(60, isSopa ? undefined : { slug: project.slug }).catch(() => []),
+    getTreasuryWalletHistory(60, isSopa ? undefined : { slug: project.slug }),
     // A Zerion NÃO é chamada no carregamento. Uma carteira é uma requisição, e
     // toda visita de todo mundo a cada TTL somava rápido contra a cota. A linha
     // abre com o snapshot do banco, que é de graça, e quem quiser a profundidade
@@ -314,7 +316,7 @@ treasury: {
           aquele componente recebe receita como dado, não como nó — foi por isso
           que o gráfico não aparecia aqui na primeira subida. */}
       <TreasuryHistoryChart
-        wallets={walletChart.series.length ? walletChart.series : walletHistory}
+        wallets={walletChart.series.length ? ok(walletChart.series) : walletHistory}
         streams={history}
         failed={walletChart.failed}
       />
@@ -391,7 +393,7 @@ treasury: {
         }
         revenue={
           <>
-            <TreasuryHistoryChart wallets={walletChart.series.length ? walletChart.series : walletHistory} streams={history} failed={walletChart.failed} />
+            <TreasuryHistoryChart wallets={walletChart.series.length ? ok(walletChart.series) : walletHistory} streams={history} failed={walletChart.failed} />
             <div className="mt-4" />
             {revenueFailed ? (
               <p className="text-xs text-warning">⚠ receita não carregou (leitura falhou) — não é zero</p>

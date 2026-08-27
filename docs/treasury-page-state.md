@@ -268,9 +268,54 @@ no gráfico e nulo se conta. As contas Hive passaram a ser fotografadas junto,
 porque elas alimentam o mesmo total — uma saúde só de EVM pareceria completa
 sem ser.
 
-Fica de pé a ressalva do leitor: enquanto o snapshot ler pela Zerion, o
-`failedChains` que ele grava é o do caminho DELE. Medir o do hero exige os dois
-lendo pela mesma fonte.
+### O conserto de verdade: convergir os dois caminhos de leitura
+
+Não é "ressalva conhecida" — ressalva conhecida é o tipo de nota que ninguém
+age. É trabalho nomeado, com dono a definir.
+
+Enquanto o snapshot ler por `fetchAddressBalance` e o hero por
+`fetchEvmWallet`, **a métrica mede o caminho vizinho.** Isso é pior que não
+medir: daqui a uma semana alguém olha "0 incompletos", conclui que os RPCs
+estão saudáveis, e o que estava saudável era outra coisa. Métrica que mede o
+vizinho produz confiança falsa.
+
+A unidade de análise certa é o **caminho de leitura**, não a função. O SwapPro
+chegou à mesma unidade por outro lado, propondo ranquear caminhos por terem ou
+não canal de incerteza: *"no caminho com canal o erro é um bug; no caminho sem
+canal, é o design"*. O corolário é este caso: **dois caminhos separados não se
+medem, por mais correto que cada um esteja internamente.**
+
+Convergir os dois — a fonte injetável que já está adiada aqui — é o que faria
+a medição medir a coisa e não a vizinha. Fica nomeado como o próximo passo
+estrutural desta página, acima de qualquer conserto pontual restante.
+
+### Aplicando a mesma unidade ao passo 2, item 2
+
+A pergunta antes de consertar os três `.catch(() => [])` do `treasury-history`
+foi: **este caminho tem canal?** A verificação:
+
+| função | retorno antes | canal? |
+|---|---|---|
+| `getTreasuryHistory` | `TreasurySeries[]` | não |
+| `getTreasuryWalletHistory` | `TreasurySeries[]` | não |
+| `getTreasuryWalletChart` | `{series, failed}` | **sim** |
+
+Dois dos três não tinham onde colocar a informação, então tratar os `catch`
+não teria destino — e o quarto nasceria depois, que é exatamente o que o
+SwapPro descreveu. O conserto foi **dar canal ao caminho**: as duas funções
+passam a devolver `Reading<TreasurySeries[]>`, e o `attempt()` do módulo
+finalmente se aplica (na primeira leva eu tinha recusado usá-lo, porque lá a
+camada de fetch já produzia dois estados corretos por chain — aqui não produzia
+nada).
+
+Havia uma SEGUNDA camada de colapso: a página refazia `.catch(() => [])` no
+call site. Dar canal à lib sem tirar isso não teria mudado a tela.
+
+Um `catch` ficou de pé de propósito, e a distinção vale: o que busca os TÍTULOS
+dos cards. Ele degrada um rótulo — a série aparece com o id do card, feia e
+visivelmente incompleta — não um número. A regra dos três estados protege
+VALOR; rótulo caindo para id é degradação à vista, não valor errado se passando
+por certo.
 
 ## Cuidados pra quem mexer aqui depois
 

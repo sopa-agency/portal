@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { zerionChart, type ChartPeriod } from "@/lib/zerion";
 import { treasuryWallets } from "@/lib/treasury-wallet-snapshots";
 import { getProject } from "@/projects";
+import { attempt, insufficient, ok, unread, type Reading } from "@/lib/reading";
 
 // Série histórica de saldo por tesouro, a partir dos snapshots que o cron já
 // grava de hora em hora (RevenueSnapshot). Nada aqui vai à rede: é leitura de
@@ -75,13 +76,24 @@ export async function getTreasuryHistory(
   /** Portal de marca vê só o próprio tesouro; a SOPA é a única agregadora
    *  intencional. Sem isto, abrir a Gnars mostraria o saldo da SkateHive. */
   only?: { name: string; slug: string },
-): Promise<TreasurySeries[]> {
+): Promise<Reading<TreasurySeries[]>> {
   const since = new Date(Date.now() - days * 86_400_000);
-  const rows = await prisma.revenueSnapshot
-    .findMany({ where: { takenAt: { gte: since } }, orderBy: { takenAt: "asc" }, select: { cardId: true, address: true, totalUsd: true, takenAt: true } })
-    .catch(() => []);
-  if (!rows.length) return [];
+  const read = await attempt(
+    () =>
+      prisma.revenueSnapshot.findMany({
+        where: { takenAt: { gte: since } },
+        orderBy: { takenAt: "asc" },
+        select: { cardId: true, address: true, totalUsd: true, takenAt: true },
+      }),
+    (e) => `histórico não leu: ${e instanceof Error ? e.message : String(e)}`,
+  );
+  if (read.state !== "ok") return read as Reading<TreasurySeries[]>;
+  const rows = read.value;
+  if (!rows.length) return insufficient("ainda não há pontos gravados no período");
 
+  // Este catch FICA, e a diferença importa: ele degrada um RÓTULO, não um
+  // número. Sem os títulos a série aparece com o id do card, que é feio e
+  // visivelmente incompleto — não é um valor errado se passando por certo.
   const cards = await prisma.sopaBoard
     .findMany({ where: { id: { in: [...new Set(rows.map((r) => r.cardId))] } }, select: { id: true, title: true } })
     .catch(() => []);
@@ -115,7 +127,9 @@ export async function getTreasuryHistory(
   }
   // Ordem estável por valor atual — mas a COR não vem daqui (ver o componente):
   // ela é fixada pelo cardId, senão trocar de faixa de datas repintaria tudo.
-  return out.sort((a, b) => b.latestUsd - a.latestUsd);
+  // Lido com sucesso e sem série utilizável é "ainda não dá", não "não tem".
+  if (!out.length) return insufficient("ainda não há série com dois pontos");
+  return ok(out.sort((a, b) => b.latestUsd - a.latestUsd));
 }
 
 /**
@@ -127,10 +141,11 @@ export async function getTreasuryHistory(
 export async function getTreasuryWalletHistory(
   days = 60,
   only?: { slug: string },
-): Promise<TreasurySeries[]> {
+): Promise<Reading<TreasurySeries[]>> {
   const since = new Date(Date.now() - days * 86_400_000);
-  const rows = await prisma.treasuryWalletSnapshot
-    .findMany({
+  const read = await attempt(
+    () =>
+      prisma.treasuryWalletSnapshot.findMany({
       where: {
         takenAt: { gte: since },
         ...(only ? { projectSlug: only.slug } : {}),
@@ -144,11 +159,14 @@ export async function getTreasuryWalletHistory(
         // série ganha Hive quando houver histórico para ela desde o começo.
         kind: "evm",
       },
-      orderBy: { takenAt: "asc" },
-      select: { address: true, label: true, totalUsd: true, takenAt: true, projectSlug: true },
-    })
-    .catch(() => []);
-  if (!rows.length) return [];
+        orderBy: { takenAt: "asc" },
+        select: { address: true, label: true, totalUsd: true, takenAt: true, projectSlug: true },
+      }),
+    (e) => `histórico de carteiras não leu: ${e instanceof Error ? e.message : String(e)}`,
+  );
+  if (read.state !== "ok") return read as Reading<TreasurySeries[]>;
+  const rows = read.value;
+  if (!rows.length) return insufficient("ainda não há fotos gravadas no período");
 
   // Bucket ADAPTATIVO. Por dia é o certo para 60 dias — mas nas primeiras horas
   // de vida da tabela todos os pontos caem no mesmo dia, colapsam em um só, e
@@ -174,7 +192,9 @@ export async function getTreasuryWalletHistory(
       series: { cardId: address, label: e.label, points, latestUsd: points[points.length - 1].usd },
     });
   }
-  return foldByProject(tagged);
+  const folded = foldByProject(tagged);
+  if (!folded.length) return insufficient("ainda não há série com dois pontos");
+  return ok(folded);
 }
 
 /**
