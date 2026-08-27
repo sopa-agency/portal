@@ -680,16 +680,46 @@ function CardDialog({
       address: r.kind === "manual" ? null : r.address?.trim() || null,
     }))
     .filter((r) => r.label);
+  // Both sides get canonicalised before comparison, and that is NOT cosmetic:
+  // the editor rebuilds the team in ROLES order and trims/normalises every
+  // revenue row, so a card stored in another order — or with an untrimmed
+  // detail, or a chain left on a manual row — read as edited the moment it was
+  // opened. That used to only light up the Save button, which was harmless.
+  // Now `dirty` also decides whether closing asks to discard, and a false
+  // positive means being interrogated about a card you never touched.
+  const canonTeam = (list: TeamMember[]) =>
+    JSON.stringify(
+      list
+        .map((m) => ({ role: m.role.trim(), username: m.username.trim() }))
+        .filter((m) => m.role && m.username)
+        // Roles are a set, not a sequence — order carries no meaning here.
+        .sort((a, b) => a.role.localeCompare(b.role) || a.username.localeCompare(b.username)),
+    );
+  // Revenue rows DO have a meaningful order (the user arranges them), so these
+  // are normalised entry by entry and left in place.
+  const canonRev = (list: RevenueStream[]) =>
+    JSON.stringify(
+      list
+        .map((r) => ({
+          label: r.label.trim(),
+          detail: r.detail?.trim() || null,
+          kind: r.kind,
+          chain: r.kind === "manual" ? null : r.chain,
+          address: r.kind === "manual" ? null : r.address?.trim() || null,
+        }))
+        .filter((r) => r.label),
+    );
+
   const dirty =
     title !== card.title ||
     body !== (card.body ?? "") ||
     tier !== card.tier ||
     logoUrl !== card.logoUrl ||
-    website.trim() !== (card.website ?? "") ||
-    githubOrg.trim() !== (card.githubOrg ?? "") ||
+    website.trim() !== (card.website ?? "").trim() ||
+    githubOrg.trim() !== (card.githubOrg ?? "").trim() ||
     JSON.stringify([...repos].sort()) !== JSON.stringify([...card.repos].sort()) ||
-    JSON.stringify(teamArr) !== JSON.stringify(card.team) ||
-    JSON.stringify(revArr) !== JSON.stringify(card.revenueStreams);
+    canonTeam(teamArr) !== canonTeam(card.team) ||
+    canonRev(revArr) !== canonRev(card.revenueStreams);
 
   // Every way out of this drawer goes through here. The component already knew
   // there were unsaved edits — it renders an "unsaved" badge for exactly that
