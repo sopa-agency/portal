@@ -40,6 +40,7 @@ import type { RevenueTrend } from "@/lib/revenue-snapshots";
 import { uploadSopaLogo } from "@/lib/sopa-logo-upload";
 import { Sparkline, RevenueChart } from "@/components/revenue-charts";
 import { OrgCanvas, layoutTree, NODE_H, type Placed } from "@/components/org-chart-canvas";
+import { useT } from "@/components/locale-provider";
 
 // Engagement tiers + the roles defined for the agency. Stored on each node so a
 // project rectangle shows its tier of work and who's on each role.
@@ -71,10 +72,10 @@ function nodeKind(node: { parentId: string | null; title: string }): NodeKind {
 // On the canvas the card sits on a dotted plane, so its surface stays OPAQUE
 // (a tinted translucent card lets the grid bleed through and reads as noise).
 // The kind is carried by the left rail + title colour instead of a body tint.
-const KIND_STYLE: Record<NodeKind, { wrap: string; title: string; badge: string | null }> = {
-  root: { wrap: "border-accent-border bg-surface", title: "text-accent", badge: "Agência" },
-  native: { wrap: "border-border bg-surface", title: "text-foreground", badge: "Nativo" },
-  client: { wrap: "border-border bg-surface", title: "text-foreground", badge: "Cliente" },
+const KIND_STYLE: Record<NodeKind, { wrap: string; title: string }> = {
+  root: { wrap: "border-accent-border bg-surface", title: "text-accent" },
+  native: { wrap: "border-border bg-surface", title: "text-foreground" },
+  client: { wrap: "border-border bg-surface", title: "text-foreground" },
 };
 
 const githubHref = (v: string) => (v.startsWith("http") ? v : `https://github.com/${v}`);
@@ -126,6 +127,7 @@ export function SopaOrgChart({
   initial: BoardCard[];
   roster: Person[];
 }) {
+  const t = useT().orgChart;
   const [cards, setCards] = useState<BoardCard[]>(initial);
   const [openId, setOpenId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -247,21 +249,21 @@ export function SopaOrgChart({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-            SOPA
+            {t.eyebrow}
           </p>
-          <h1 className="text-2xl font-bold text-foreground">Org Chart</h1>
+          <h1 className="text-2xl font-bold text-foreground">{t.title}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground-subtle">
-            <span>{cards.length} cards</span>
+            <span>{t.stats.cards(cards.length)}</span>
             <span className="text-foreground-faint">·</span>
-            <span>{peopleCount} pessoas</span>
+            <span>{t.stats.people(peopleCount)}</span>
             <span className="text-foreground-faint">·</span>
-            <span>{streamCount} fontes de receita</span>
+            <span>{t.stats.streams(streamCount)}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
           {pending && (
             <span className="flex items-center gap-1.5 text-xs text-foreground-faint">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> salvando…
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t.saving}
             </span>
           )}
           <div className="relative">
@@ -269,14 +271,14 @@ export function SopaOrgChart({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar projeto, pessoa, receita…"
+              placeholder={t.search.placeholder}
               className="w-56 rounded-full border border-border bg-surface py-1.5 pl-8 pr-8 text-xs text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery("")}
-                aria-label="Limpar busca"
+                aria-label={t.search.clear}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-foreground-faint hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" />
@@ -290,19 +292,19 @@ export function SopaOrgChart({
         layout={layout}
         activeEdgeIds={activeEdgeIds}
         dimmedIds={dimmedIds}
-        emptyHint={<p className="text-sm text-foreground-faint">Nenhum card ainda.</p>}
+        emptyHint={<p className="text-sm text-foreground-faint">{t.canvas.empty}</p>}
         toolbarExtra={
           <>
             {q && (
               <span className="px-2 font-mono text-[11px] font-semibold text-accent">
-                {hits} hit{hits === 1 ? "" : "s"}
+                {t.search.hits(hits)}
               </span>
             )}
             <button
               type="button"
               onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(allParents))}
-              title={allCollapsed ? "Expandir tudo" : "Recolher tudo"}
-              aria-label={allCollapsed ? "Expandir tudo" : "Recolher tudo"}
+              title={allCollapsed ? t.canvas.expandAll : t.canvas.collapseAll}
+              aria-label={allCollapsed ? t.canvas.expandAll : t.canvas.collapseAll}
               className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
             >
               {allCollapsed ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
@@ -341,7 +343,15 @@ export function SopaOrgChart({
 }
 
 /** Avatars of everyone assigned to a card, capped so the row never wraps. */
-function TeamStack({ team, rosterMap }: { team: TeamMember[]; rosterMap: Map<string, Person> }) {
+function TeamStack({
+  team,
+  rosterMap,
+  noTeamLabel,
+}: {
+  team: TeamMember[];
+  rosterMap: Map<string, Person>;
+  noTeamLabel: string;
+}) {
   const people = useMemo(() => {
     const seen = new Set<string>();
     return team
@@ -355,7 +365,7 @@ function TeamStack({ team, rosterMap }: { team: TeamMember[]; rosterMap: Map<str
   }, [team, rosterMap]);
 
   if (people.length === 0) {
-    return <span className="text-[10px] text-foreground-faint">sem time</span>;
+    return <span className="text-[10px] text-foreground-faint">{noTeamLabel}</span>;
   }
   const shown = people.slice(0, 4);
   return (
@@ -408,6 +418,7 @@ function OrgNodeCard({
   onAddChild: (parentId: string, title: string) => void;
   disabled: boolean;
 }) {
+  const t = useT().orgChart;
   const node = placed.node;
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -464,13 +475,13 @@ function OrgNodeCard({
               )}
             </span>
             <span className="mt-0.5 block truncate text-[11px] leading-snug text-foreground-subtle">
-              {node.body || tier?.label || (style.badge ?? "SOPA")}
+              {node.body || tier?.label || t.kinds[kind]}
             </span>
           </span>
         </span>
 
         <span className="flex items-center justify-between gap-2 border-t border-border pt-2">
-          <TeamStack team={node.team} rosterMap={rosterMap} />
+          <TeamStack team={node.team} rosterMap={rosterMap} noTeamLabel={t.node.noTeam} />
           <span className="flex shrink-0 items-center gap-1.5">
             {node.revenueStreams.length > 0 && (
               <span
@@ -502,7 +513,7 @@ function OrgNodeCard({
           type="button"
           onClick={() => onToggleCollapse(node.id)}
           aria-expanded={!placed.collapsed}
-          aria-label={placed.collapsed ? `Expandir ${node.title}` : `Recolher ${node.title}`}
+          aria-label={placed.collapsed ? t.node.expand(node.title) : t.node.collapse(node.title)}
           className="absolute -bottom-3 left-1/2 flex h-6 -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 text-[10px] font-semibold text-foreground-muted shadow-sm transition hover:border-accent-border hover:text-accent"
         >
           {placed.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -516,8 +527,8 @@ function OrgNodeCard({
           type="button"
           disabled={disabled}
           onClick={() => setAdding(true)}
-          aria-label={`Adicionar sob ${node.title}`}
-          title={`Adicionar sob ${node.title}`}
+          aria-label={t.node.addUnder(node.title)}
+          title={t.node.addUnder(node.title)}
           className="absolute -right-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-dashed border-border bg-surface text-foreground-faint opacity-0 shadow-sm transition hover:border-accent-border hover:text-accent focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-40"
         >
           <Plus className="h-3.5 w-3.5" />
@@ -537,13 +548,13 @@ function OrgNodeCard({
                 setDraft("");
               }
             }}
-            placeholder="Nome do card…"
+            placeholder={t.node.namePlaceholder}
             className="w-36 rounded-lg border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
           />
           <button
             type="button"
             onClick={confirmAdd}
-            aria-label="Adicionar"
+            aria-label={t.node.add}
             className="rounded-lg border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20"
           >
             <Check className="h-3.5 w-3.5" />
@@ -554,7 +565,7 @@ function OrgNodeCard({
               setAdding(false);
               setDraft("");
             }}
-            aria-label="Cancelar"
+            aria-label={t.node.cancel}
             className="rounded-lg border border-border p-1 text-foreground-muted hover:text-danger"
           >
             <X className="h-3.5 w-3.5" />
@@ -608,6 +619,7 @@ function CardDialog({
   const [confirmDel, setConfirmDel] = useState(false);
   const [revRows, setRevRows] = useState<RevenueStream[]>(() => card.revenueStreams);
   const [tab, setTab] = useState<"geral" | "time" | "receita">("geral");
+  const t = useT().orgChart;
 
   // Esc closes the drawer, and the body stops scrolling behind it.
   useEffect(() => {
@@ -725,7 +737,7 @@ function CardDialog({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`Detalhes de ${card.title}`}
+      aria-label={t.drawer.label(card.title)}
     >
       <div
         className="org-drawer flex h-full w-full max-w-xl flex-col border-l border-border bg-surface shadow-2xl"
@@ -743,11 +755,11 @@ function CardDialog({
             )}
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-sm font-semibold text-foreground">{title.trim() || "Sem nome"}</h2>
+            <h2 className="truncate text-sm font-semibold text-foreground">{title.trim() || t.drawer.untitled}</h2>
             <p className="flex items-center gap-1.5 text-[11px] text-foreground-subtle">
               <span className={`h-1.5 w-1.5 rounded-full ${KIND_RAIL[kind]}`} />
-              {KIND_STYLE[kind].badge}
-              {dirty && <span className="text-warning">· não salvo</span>}
+              {t.kinds[kind]}
+              {dirty && <span className="text-warning">{t.drawer.unsaved}</span>}
             </p>
           </div>
           {/* The card itself can't carry these (a link inside a button is invalid
@@ -758,7 +770,7 @@ function CardDialog({
               target="_blank"
               rel="noopener noreferrer"
               title={website.trim()}
-              aria-label="Abrir website"
+              aria-label={t.drawer.openSite}
               className="rounded-lg p-1.5 text-foreground-muted transition hover:bg-surface-elevated hover:text-accent"
             >
               <Globe className="h-4 w-4" />
@@ -770,7 +782,7 @@ function CardDialog({
               target="_blank"
               rel="noopener noreferrer"
               title={githubOrg.trim()}
-              aria-label="Abrir GitHub"
+              aria-label={t.drawer.openGithub}
               className="rounded-lg p-1.5 text-foreground-muted transition hover:bg-surface-elevated hover:text-accent"
             >
               <Code2 className="h-4 w-4" />
@@ -779,7 +791,7 @@ function CardDialog({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t.drawer.close}
             className="rounded-lg p-1.5 text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
           >
             <X className="h-4 w-4" />

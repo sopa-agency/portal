@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { Network, TrendingUp, BookText } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
+import { useT } from "@/components/locale-provider";
 import { SopaOrgChart, type Person } from "@/components/sopa-org-chart";
 import { OrgRevenueOrbit } from "@/components/org-revenue-orbit";
 import { AddressBook } from "@/components/address-book";
@@ -12,9 +13,9 @@ import type { AddressBookEntry } from "@/lib/address-book";
 import type { BridgeFeeSummary } from "@/lib/bridge-fee-inflows";
 
 const TABS = [
-  { key: "structure", label: "Structure", icon: Network },
-  { key: "revenue", label: "Revenue", icon: TrendingUp },
-  { key: "addresses", label: "Address Book", icon: BookText },
+  { key: "structure", icon: Network },
+  { key: "revenue", icon: TrendingUp },
+  { key: "addresses", icon: BookText },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -38,6 +39,7 @@ export function OrgChartViews({
   addressBook: AddressBookEntry[];
   bridgeFee?: BridgeFeeSummary;
 }) {
+  const t = useT().orgChart.views;
   const [view, setView] = useUrlTab("view", "structure");
   const active: TabKey = view === "revenue" || view === "addresses" ? view : "structure";
 
@@ -87,12 +89,12 @@ export function OrgChartViews({
       <div
         ref={listRef}
         role="tablist"
-        aria-label="Org chart views"
+        aria-label={t.label}
         onKeyDown={onKeyDown}
         className="segmented inline-flex w-fit rounded-xl border border-border p-1"
       >
         <span className="segmented-thumb" aria-hidden="true" />
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {TABS.map(({ key, icon: Icon }) => (
           <button
             key={key}
             ref={(node) => {
@@ -109,7 +111,7 @@ export function OrgChartViews({
             }`}
           >
             <Icon className={`h-4 w-4 transition-colors duration-200 ${active === key ? "text-accent" : ""}`} />
-            {label}
+            {t[key]}
           </button>
         ))}
       </div>

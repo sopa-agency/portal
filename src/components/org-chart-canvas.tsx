@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Maximize2, Minus, Plus, Crosshair } from "lucide-react";
+import { useT } from "@/components/locale-provider";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Infinite-canvas org chart — a spatial view instead of a page-flow tree.
@@ -126,6 +127,7 @@ export function OrgCanvas<T extends TreeLike>({
   emptyHint?: ReactNode;
   toolbarExtra?: ReactNode;
 }) {
+  const t9n = useT().orgChart.canvas;
   const hostRef = useRef<HTMLDivElement>(null);
   const [t, setT] = useState<Transform>({ x: 0, y: 0, k: 1 });
   // Pointer handlers need the CURRENT transform without re-subscribing on every
@@ -368,7 +370,8 @@ export function OrgCanvas<T extends TreeLike>({
           <button
             type="button"
             onClick={() => zoomCentre(1 / 1.2)}
-            aria-label="Zoom out"
+            aria-label={t9n.zoomOut}
+            title={t9n.zoomOut}
             className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
           >
             <Minus className="h-4 w-4" />
@@ -377,14 +380,15 @@ export function OrgCanvas<T extends TreeLike>({
             type="button"
             onClick={() => setT((prev) => ({ ...prev, k: 1 }))}
             className="min-w-[3.25rem] rounded-full px-2 py-1 text-center font-mono text-[11px] font-semibold text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
-            title="Reset zoom to 100%"
+            title={t9n.resetZoom}
           >
             {Math.round(t.k * 100)}%
           </button>
           <button
             type="button"
             onClick={() => zoomCentre(1.2)}
-            aria-label="Zoom in"
+            aria-label={t9n.zoomIn}
+            title={t9n.zoomIn}
             className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
           >
             <Plus className="h-4 w-4" />
@@ -393,8 +397,8 @@ export function OrgCanvas<T extends TreeLike>({
           <button
             type="button"
             onClick={fit}
-            aria-label="Fit to screen"
-            title="Fit to screen"
+            aria-label={t9n.fit}
+            title={t9n.fit}
             className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
           >
             <Maximize2 className="h-4 w-4" />
@@ -411,8 +415,8 @@ export function OrgCanvas<T extends TreeLike>({
                 y: 96 - root.y * prev.k,
               }));
             }}
-            aria-label="Center on root"
-            title="Center on root"
+            aria-label={t9n.centerRoot}
+            title={t9n.centerRoot}
             className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
           >
             <Crosshair className="h-4 w-4" />

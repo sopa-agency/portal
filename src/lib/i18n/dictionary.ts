@@ -1273,6 +1273,69 @@ const en = {
     },
   },
   /**
+   * Org chart — the spatial view of the agency. Chrome only: the card editor's
+   * form is still hardcoded in the component and hasn't been converted yet.
+   */
+  orgChart: {
+    eyebrow: "SOPA",
+    title: "Org Chart",
+    /** The three views of the page. */
+    views: {
+      structure: "Structure",
+      revenue: "Revenue",
+      addresses: "Address Book",
+      label: "Org chart views",
+    },
+    /** Header counters, interpolated with the live totals. */
+    stats: {
+      cards: (n: number) => `${n} ${n === 1 ? "card" : "cards"}`,
+      people: (n: number) => `${n} ${n === 1 ? "person" : "people"}`,
+      streams: (n: number) => `${n} revenue ${n === 1 ? "source" : "sources"}`,
+    },
+    saving: "saving…",
+    search: {
+      placeholder: "Search project, person, revenue…",
+      clear: "Clear search",
+      hits: (n: number) => `${n} ${n === 1 ? "hit" : "hits"}`,
+    },
+    /** The floating toolbar and the canvas surface itself. */
+    canvas: {
+      zoomIn: "Zoom in",
+      zoomOut: "Zoom out",
+      resetZoom: "Reset zoom to 100%",
+      fit: "Fit to screen",
+      centerRoot: "Center on root",
+      expandAll: "Expand all",
+      collapseAll: "Collapse all",
+      empty: "No cards yet.",
+    },
+    /** What a card shows and the controls hanging off it. */
+    node: {
+      noTeam: "no team",
+      addUnder: (title: string) => `Add under ${title}`,
+      expand: (title: string) => `Expand ${title}`,
+      collapse: (title: string) => `Collapse ${title}`,
+      namePlaceholder: "Card name…",
+      add: "Add",
+      cancel: "Cancel",
+    },
+    /** Card kinds — the rail colour's meaning, spelled out. */
+    kinds: {
+      root: "Agency",
+      native: "Native",
+      client: "Client",
+    },
+    /** The editor drawer's own chrome (its form fields are not converted). */
+    drawer: {
+      label: (title: string) => `Details of ${title}`,
+      untitled: "Untitled",
+      unsaved: "· unsaved",
+      close: "Close",
+      openSite: "Open website",
+      openGithub: "Open GitHub",
+    },
+  },
+  /**
    * About — the SOPA deck. Copy, not chrome: this screen IS its text, so the
    * whole thing lives here rather than in the component. Slide order is fixed
    * by the component; each entry below is one slide's worth of words.
@@ -2522,6 +2585,59 @@ const pt: typeof en = {
         month: "Funcionário do Mês",
         lastMonth: "Funcionário do Mês Passado",
       },
+    },
+  },
+  orgChart: {
+    eyebrow: "SOPA",
+    title: "Organograma",
+    views: {
+      structure: "Estrutura",
+      revenue: "Receita",
+      addresses: "Endereços",
+      label: "Views do organograma",
+    },
+    stats: {
+      cards: (n: number) => `${n} ${n === 1 ? "card" : "cards"}`,
+      people: (n: number) => `${n} ${n === 1 ? "pessoa" : "pessoas"}`,
+      streams: (n: number) => `${n} ${n === 1 ? "fonte de receita" : "fontes de receita"}`,
+    },
+    saving: "salvando…",
+    search: {
+      placeholder: "Buscar projeto, pessoa, receita…",
+      clear: "Limpar busca",
+      hits: (n: number) => `${n} ${n === 1 ? "resultado" : "resultados"}`,
+    },
+    canvas: {
+      zoomIn: "Aproximar",
+      zoomOut: "Afastar",
+      resetZoom: "Voltar o zoom para 100%",
+      fit: "Enquadrar na tela",
+      centerRoot: "Centralizar na raiz",
+      expandAll: "Expandir tudo",
+      collapseAll: "Recolher tudo",
+      empty: "Nenhum card ainda.",
+    },
+    node: {
+      noTeam: "sem time",
+      addUnder: (title: string) => `Adicionar sob ${title}`,
+      expand: (title: string) => `Expandir ${title}`,
+      collapse: (title: string) => `Recolher ${title}`,
+      namePlaceholder: "Nome do card…",
+      add: "Adicionar",
+      cancel: "Cancelar",
+    },
+    kinds: {
+      root: "Agência",
+      native: "Nativo",
+      client: "Cliente",
+    },
+    drawer: {
+      label: (title: string) => `Detalhes de ${title}`,
+      untitled: "Sem nome",
+      unsaved: "· não salvo",
+      close: "Fechar",
+      openSite: "Abrir website",
+      openGithub: "Abrir GitHub",
     },
   },
   about: {
