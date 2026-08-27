@@ -131,9 +131,12 @@ export function OrgCanvas<T extends TreeLike>({
   dimmedIds,
   emptyHint,
   toolbarExtra,
+  resetToken,
 }: {
   layout: Layout<T>;
   renderNode: (p: Placed<T>) => ReactNode;
+  /** Bump to send hand-placed cards back to their computed positions. */
+  resetToken?: number;
   /** ids whose incoming edge should be drawn highlighted (root→selected path). */
   activeEdgeIds?: Set<string>;
   /** ids to fade out (search miss). */
@@ -260,12 +263,37 @@ export function OrgCanvas<T extends TreeLike>({
   // turns "a click that wobbled" into "a drag".
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
   const swallowClick = useRef(false);
+  // Dragging a CARD is a different gesture from dragging the plane, and the
+  // pointer's target decides which one you get.
+  const nodeDrag = useRef<{
+    id: string;
+    pointerId: number;
+    startClient: Point;
+    startWorld: Point;
+    moved: boolean;
+  } | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   function onPointerDown(e: React.PointerEvent) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     // Form fields keep their own press-drag (caret, text selection).
     if ((e.target as HTMLElement).closest("input, textarea, select")) return;
     swallowClick.current = false;
+
+    // On a card: move the card. Anywhere else: move the plane.
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-org-node]");
+    const id = el?.dataset.orgNode;
+    const at = id ? posRef.current.get(id) : undefined;
+    if (id && at) {
+      nodeDrag.current = {
+        id,
+        pointerId: e.pointerId,
+        startClient: { x: e.clientX, y: e.clientY },
+        startWorld: at,
+        moved: false,
+      };
+      return;
+    }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
@@ -275,6 +303,31 @@ export function OrgCanvas<T extends TreeLike>({
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    const nd = nodeDrag.current;
+    if (nd && nd.pointerId === e.pointerId) {
+      const dx = e.clientX - nd.startClient.x;
+      const dy = e.clientY - nd.startClient.y;
+      if (!nd.moved) {
+        if (Math.hypot(dx, dy) < 4) return;
+        nd.moved = true;
+        swallowClick.current = true;
+        hostRef.current?.setPointerCapture(e.pointerId);
+        // A fold still settling would fight the hand for the same coordinates.
+        cancelAnimationFrame(raf.current);
+        setDraggingId(nd.id);
+      }
+      // THE conversion the gesture lives or dies by: the pointer moves in
+      // screen pixels, the card lives on a plane scaled by k. Without the
+      // divide the card drifts away from the cursor at any zoom but 100%.
+      const k = tRef.current.k || 1;
+      const world = { x: nd.startWorld.x + dx / k, y: nd.startWorld.y + dy / k };
+      const base = layout.byId.get(nd.id);
+      if (base) offsets.current.set(nd.id, { x: world.x - base.x, y: world.y - base.y });
+      posRef.current.set(nd.id, world);
+      paint(posRef.current);
+      return;
+    }
+
     const prev = pointers.current.get(e.pointerId);
     if (!prev) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -307,6 +360,10 @@ export function OrgCanvas<T extends TreeLike>({
   }
 
   function endPointer(e: React.PointerEvent) {
+    if (nodeDrag.current?.pointerId === e.pointerId) {
+      nodeDrag.current = null;
+      setDraggingId(null);
+    }
     if (drag.current?.id === e.pointerId) drag.current = null;
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
@@ -337,6 +394,15 @@ export function OrgCanvas<T extends TreeLike>({
   const nodeEls = useRef(new Map<string, { el: HTMLDivElement; id: string }>());
   const pathEls = useRef(new Map<string, { el: SVGPathElement; from: string; to: string }>());
   const posRef = useRef(new Map<string, Point>());
+  // Where a card was dragged to, as a delta on top of its computed position.
+  // A ref, not state: nothing in the React tree reads it (positions are painted
+  // imperatively), and it deliberately dies with the component — leaving the
+  // screen is how you get the tidy layout back.
+  const offsets = useRef(new Map<string, Point>());
+  const withOffset = useCallback((id: string, x: number, y: number): Point => {
+    const o = offsets.current.get(id);
+    return o ? { x: x + o.x, y: y + o.y } : { x, y };
+  }, []);
   const prevLayout = useRef<Layout<T> | null>(null);
   const raf = useRef(0);
   const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -356,18 +422,52 @@ export function OrgCanvas<T extends TreeLike>({
     }
   }, []);
 
+  /**
+   * The single owner of where things sit. Everything that moves the tree goes
+   * through here — the first paint, a fold, the reset — so there is exactly one
+   * place that writes positions, and one rAF loop that can be cancelled.
+   */
+  const runTween = useCallback(
+    (from: Map<string, Point>, to: Map<string, Point>, settleTo: Map<string, Point>, instant = false) => {
+      cancelAnimationFrame(raf.current);
+      // Paint frame zero synchronously. Arriving cards have no transform of
+      // their own yet, so if the first rAF ever landed after a paint they'd
+      // flash at the plane's origin — this makes that impossible, not unlikely.
+      posRef.current = from;
+      paint(from);
+      if (instant) {
+        posRef.current = settleTo;
+        paint(settleTo);
+        return;
+      }
+
+      const t0 = performance.now();
+      const step = (now: number) => {
+        const u = Math.min(1, (now - t0) / MOVE_MS);
+        const e = easeOut(u);
+        const cur = new Map<string, Point>();
+        for (const [id, a] of from) cur.set(id, lerp(a, to.get(id) ?? a, e));
+        posRef.current = cur;
+        paint(cur);
+        if (u < 1) raf.current = requestAnimationFrame(step);
+        else posRef.current = settleTo;
+      };
+      raf.current = requestAnimationFrame(step);
+    },
+    [paint],
+  );
+
   useLayoutEffect(() => {
     const prev = prevLayout.current;
     prevLayout.current = layout;
-    const next = new Map<string, Point>(layout.placed.map((p) => [p.id, { x: p.x, y: p.y }]));
+    const next = new Map<string, Point>(layout.placed.map((p) => [p.id, withOffset(p.id, p.x, p.y)]));
 
     const reduced =
       typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     // First commit, or motion turned off: land on the answer.
     if (!prev || reduced) {
-      posRef.current = next;
-      paint(next);
+      runTween(next, next, next, true);
       return;
     }
 
@@ -380,7 +480,7 @@ export function OrgCanvas<T extends TreeLike>({
     const to = new Map<string, Point>();
 
     for (const p of layout.placed) {
-      const end = { x: p.x, y: p.y };
+      const end = withOffset(p.id, p.x, p.y);
       to.set(p.id, end);
       const before = was.get(p.id);
       if (before) {
@@ -394,7 +494,7 @@ export function OrgCanvas<T extends TreeLike>({
       from.set(p.id, anchor ?? end);
     }
     for (const g of gone) {
-      const start = was.get(g.id) ?? { x: g.x, y: g.y };
+      const start = was.get(g.id) ?? withOffset(g.id, g.x, g.y);
       from.set(g.id, start);
       // Departing: pulled back into the parent that swallowed it.
       const parent = prevParent.get(g.id);
@@ -409,27 +509,21 @@ export function OrgCanvas<T extends TreeLike>({
       exitTimer.current = setTimeout(() => setLeaving({ nodes: [], edges: [] }), EXIT_MS);
     }
 
-    cancelAnimationFrame(raf.current);
-    // Paint frame zero synchronously. Arriving cards have no transform of their
-    // own yet, so if the first rAF ever landed after a paint they'd flash at the
-    // plane's origin — this makes that impossible rather than unlikely.
-    posRef.current = from;
-    paint(from);
-
-    const t0 = performance.now();
-    const step = (now: number) => {
-      const u = Math.min(1, (now - t0) / MOVE_MS);
-      const e = easeOut(u);
-      const cur = new Map<string, Point>();
-      for (const [id, a] of from) cur.set(id, lerp(a, to.get(id) ?? a, e));
-      posRef.current = cur;
-      paint(cur);
-      if (u < 1) raf.current = requestAnimationFrame(step);
-      else posRef.current = next;
-    };
-    raf.current = requestAnimationFrame(step);
+    runTween(from, to, next);
     return () => cancelAnimationFrame(raf.current);
-  }, [layout, paint]);
+  }, [layout, paint, runTween, withOffset]);
+
+  // Hand-placed cards go home. Same tween as a fold, so the two never look like
+  // different mechanisms.
+  useEffect(() => {
+    if (offsets.current.size === 0) return;
+    offsets.current.clear();
+    const home = new Map<string, Point>(layout.placed.map((p) => [p.id, { x: p.x, y: p.y }]));
+    runTween(new Map(posRef.current), home, home);
+    // layout is read, not tracked: this must fire on the token alone, or every
+    // fold would also undo the dragging.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetToken]);
 
   // The cards that just mounted for the exit animation need placing on their
   // very first frame, or they'd flash at the plane's origin. posRef still holds
@@ -470,7 +564,7 @@ export function OrgCanvas<T extends TreeLike>({
       onPointerCancel={endPointer}
       onLostPointerCapture={endPointer}
       onClickCapture={onClickCapture}
-      data-panning={panning ? "true" : undefined}
+      data-panning={panning || draggingId ? "true" : undefined}
       className="org-canvas relative min-h-0 flex-1 cursor-grab overflow-hidden rounded-2xl border border-border bg-background"
       style={{
         backgroundImage: "radial-gradient(circle at center, var(--canvas-dot) 1px, transparent 1px)",
@@ -499,27 +593,39 @@ export function OrgCanvas<T extends TreeLike>({
           height={layout.height}
           aria-hidden
         >
-          {/* `d` is never written from JSX — the tween owns it (see paint). */}
-          {layout.edges.map((e) => (
-            <path
-              key={edgeKey(e.from, e.to)}
-              ref={pathRef(`live-${edgeKey(e.from, e.to)}`, e.from, e.to)}
-              fill="none"
-              strokeWidth={activeEdgeIds?.has(e.to) ? 2 : 1.25}
-              className={`org-edge-in transition-[stroke-width] ${
-                activeEdgeIds?.has(e.to) ? "stroke-accent" : "stroke-border-strong"
-              }`}
-              strokeLinecap="round"
-            />
-          ))}
+          {/* `d` is never written from JSX — the tween owns it (see paint).
+              Dashed, currentColor at low opacity: the connector reads as a
+              route rather than a rule, and one colour works in both themes
+              because it's the foreground token, only faint. The live path to
+              the focused card keeps the dash but takes the accent and marches,
+              so "this is the reporting line" survives without a second style. */}
+          {layout.edges.map((e) => {
+            const live = activeEdgeIds?.has(e.to) ?? false;
+            return (
+              <path
+                key={edgeKey(e.from, e.to)}
+                ref={pathRef(`live-${edgeKey(e.from, e.to)}`, e.from, e.to)}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeDasharray="8 6"
+                strokeLinecap="round"
+                opacity={live ? 0.95 : 0.35}
+                className={`${live ? "org-edge-flow text-accent" : "org-edge-in text-foreground"} transition-opacity`}
+              />
+            );
+          })}
           {leaving.edges.map((e) => (
             <path
               key={`leaving-${edgeKey(e.from, e.to)}`}
               ref={pathRef(`leaving-${edgeKey(e.from, e.to)}`, e.from, e.to)}
               fill="none"
-              strokeWidth={1.25}
-              className="org-edge-out stroke-border-strong"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeDasharray="8 6"
               strokeLinecap="round"
+              opacity={0.35}
+              className="org-edge-out text-foreground"
             />
           ))}
         </svg>
@@ -528,19 +634,24 @@ export function OrgCanvas<T extends TreeLike>({
           <div
             key={p.id}
             ref={nodeRef(`live-${p.id}`, p.id)}
+            data-org-node={p.id}
             className="absolute left-0 top-0"
-            style={{ width: NODE_W }}
+            // Raised only while held, so a dragged card passes OVER its
+            // neighbours instead of ducking behind them.
+            style={{ width: NODE_W, zIndex: draggingId === p.id ? 50 : undefined }}
           >
             {/* Separate element: the entrance animates transform, and the
                 wrapper's transform is the card's position on the plane. */}
             <div
-              className="org-node-in"
+              className={`org-node-in ${draggingId === p.id ? "org-node-held" : ""}`}
               style={{
                 // Siblings fan out left to right, levels cascade downward — the
                 // branch reads as unfolding rather than blinking into place.
                 animationDelay: `${Math.min(p.depth * 16 + p.siblingIndex * 22, 130)}ms`,
                 opacity: dimmedIds?.has(p.id) ? 0.22 : undefined,
-                transition: "opacity 200ms",
+                // transform/filter here are the lift when the card is picked
+                // up; the mount animation overrides them while it runs.
+                transition: "opacity 200ms, transform 140ms ease, filter 140ms ease",
               }}
             >
               {renderNode(p)}

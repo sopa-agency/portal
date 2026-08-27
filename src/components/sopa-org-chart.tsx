@@ -133,6 +133,9 @@ export function SopaOrgChart({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Bumped by "collapse/expand all" — the one gesture that also means "and put
+  // the cards I dragged back where they belong".
+  const [resetToken, setResetToken] = useState(0);
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -290,6 +293,7 @@ export function SopaOrgChart({
 
       <OrgCanvas
         layout={layout}
+        resetToken={resetToken}
         activeEdgeIds={activeEdgeIds}
         dimmedIds={dimmedIds}
         emptyHint={<p className="text-sm text-foreground-faint">{t.canvas.empty}</p>}
@@ -302,7 +306,10 @@ export function SopaOrgChart({
             )}
             <button
               type="button"
-              onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(allParents))}
+              onClick={() => {
+                setCollapsed(allCollapsed ? new Set() : new Set(allParents));
+                setResetToken((n) => n + 1);
+              }}
               title={allCollapsed ? t.canvas.expandAll : t.canvas.collapseAll}
               aria-label={allCollapsed ? t.canvas.expandAll : t.canvas.collapseAll}
               className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
@@ -446,7 +453,7 @@ function OrgNodeCard({
         onPointerLeave={() => onHover(null)}
         onFocus={() => onHover(node.id)}
         onBlur={() => onHover(null)}
-        className={`relative flex h-full w-full flex-col justify-between overflow-hidden rounded-2xl border p-3.5 text-left shadow-sm transition duration-150 hover:-translate-y-0.5 hover:shadow-md ${style.wrap} ${
+        className={`relative flex h-full w-full cursor-grab flex-col justify-between overflow-hidden rounded-2xl border p-3.5 text-left shadow-sm transition duration-150 hover:-translate-y-0.5 hover:shadow-md ${style.wrap} ${
           selected ? "border-accent-border ring-2 ring-accent/60" : "hover:border-border-strong"
         }`}
       >

@@ -1246,8 +1246,23 @@ body {
 }
 
 .org-edge-in {
-  animation: org-edge-in 280ms ease-out backwards;
-  animation-delay: 50ms;
+  animation: org-edge-in 280ms ease-out 50ms backwards;
+}
+
+/* The live path — root to the card under the cursor — keeps the dash and walks
+   it. Direction of travel IS the information: which way the reporting line
+   runs. Both animations are declared together because a second class setting
+   `animation` would replace the first outright, not add to it. */
+@keyframes org-edge-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+.org-edge-flow {
+  animation:
+    org-edge-in 280ms ease-out 50ms backwards,
+    org-edge-flow 900ms linear infinite;
 }
 
 /* `forwards` keeps them gone for the frames between the animation ending and
@@ -1260,11 +1275,19 @@ body {
   animation: org-edge-in 120ms ease-in reverse forwards;
 }
 
+/* A card being carried lifts off the plane: a touch bigger, a real shadow, and
+   it passes OVER its neighbours (z-index is set where it's dragged). */
+.org-node-held {
+  transform: scale(1.03);
+  filter: drop-shadow(0 12px 24px rgb(0 0 0 / 0.18));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .org-node-in,
   .org-node-out,
   .org-edge-in,
-  .org-edge-out {
+  .org-edge-out,
+  .org-edge-flow {
     animation: none;
   }
 }
