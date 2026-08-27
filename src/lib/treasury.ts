@@ -478,7 +478,9 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
   // swaps.pro split now lives. Falls back to the RPC fan-out when Zerion is not
   // configured or fails, so this degrades instead of breaking.
   if (!chainKey) {
-    const z = await zerionBalances(addr).catch((e) => ({ ok: false as const, error: String(e) }));
+    // "all": inclui posição de protocolo. Sem isso, dinheiro que saiu da carteira
+  // para render some do tesouro e a tela lê como perda.
+  const z = await zerionBalances(addr, "all").catch((e) => ({ ok: false as const, error: String(e) }));
     if (z.ok) {
       const tokens = z.tokens.map(
         (t): EvmToken => ({
@@ -489,6 +491,9 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
           untrusted: t.untrusted,
           hostileLabel: t.suspicious,
           icon: t.icon,
+          // Posição de protocolo ganha rótulo: "MOR" solto e "MOR em stake" são
+          // dinheiros com liquidez diferente e não podem ler igual.
+          note: t.kind && t.kind !== "wallet" ? `${t.kind}${t.protocol ? ` · ${t.protocol}` : ""}` : undefined,
         }),
       );
       return { address: addr, chain: null, totalUsd: z.totalUsd, tokens, failedChains: [], source: "zerion" };

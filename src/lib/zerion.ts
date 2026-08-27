@@ -42,6 +42,11 @@ export type ZerionToken = {
    *  também traz logo bonito. Por isso `untrusted`/`suspicious` continuam
    *  mandando na forma como a linha é exibida. */
   icon: string | null;
+  /** "wallet" = solto; qualquer outro valor = posição de protocolo (staked,
+   *  deposit, loan…). É o que separa "tenho na mão" de "está rendendo". */
+  kind: string | null;
+  /** Protocolo que detém a posição, quando houver (Morpheus, Moonwell…). */
+  protocol: string | null;
 };
 
 export type ZerionRead =
@@ -56,6 +61,8 @@ type Position = {
     quantity?: { numeric?: string; float?: number };
     value?: number | null;
     fungible_info?: { symbol?: string; name?: string; icon?: { url?: string }; flags?: { verified?: boolean } };
+    position_type?: string;
+    protocol?: string;
     flags?: { displayable?: boolean };
   };
   relationships?: { chain?: { data?: { id?: string } } };
@@ -70,19 +77,36 @@ type Position = {
  * NÃO a única: o nome continua sendo texto de terceiro e passa pelo mesmo
  * saneamento dos tokens vindos de indexador.
  */
-export async function zerionBalances(address: string): Promise<ZerionRead> {
+export async function zerionBalances(
+  address: string,
+  /**
+   * "simple" = só o que está solto na carteira. "all" inclui POSIÇÕES DE
+   * PROTOCOLO — staking, LP, lending — que é onde mora o dinheiro que saiu da
+   * carteira sem sair do tesouro. Foi a ausência disto que fez o multisig da
+   * SkateHive parecer ter perdido dinheiro quando na verdade tinha feito stake.
+   *
+   * "all" NÃO é o padrão de propósito: pelo que o swaps.pro documenta, posição
+   * de protocolo cobra da fatia racionada da cota (a mesma do gráfico e do PnL),
+   * que não tem overage. Só o tesouro liga isso, e com cache mais longo.
+   */
+  positions: "simple" | "all" = "simple",
+): Promise<ZerionRead> {
   const addr = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(addr)) return { ok: false, error: "endereço inválido" };
 
-  const hit = cache.get(addr);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
+  const ck = `${addr}:${positions}`;
+  const hit = cache.get(ck);
+  // Posição de protocolo custa cota racionada — vale mais cache.
+  const ttl = positions === "all" ? 5 * TTL_MS : TTL_MS;
+  if (hit && Date.now() - hit.at < ttl) return hit.value;
 
   const key = process.env.ZERION_API_KEY?.trim();
   if (!key) return { ok: false, error: "ZERION_API_KEY não configurada" };
 
   const url =
     `https://api.zerion.io/v1/wallets/${addr}/positions/` +
-    `?filter[positions]=only_simple&currency=usd&filter[trash]=only_non_trash`;
+    `?filter[positions]=${positions === "all" ? "no_filter" : "only_simple"}` +
+    `&currency=usd&filter[trash]=only_non_trash&sort=-value`;
 
   let out: ZerionRead;
   try {
@@ -119,6 +143,8 @@ export async function zerionBalances(address: string): Promise<ZerionRead> {
         untrusted: true,
         suspicious,
         icon: typeof a.fungible_info?.icon?.url === "string" ? a.fungible_info.icon.url : null,
+        kind: typeof a.position_type === "string" ? a.position_type : null,
+        protocol: typeof a.protocol === "string" ? sanitizeTokenLabel(a.protocol, SYMBOL_MAX) || null : null,
       });
       chains.add(chain);
     }
@@ -135,7 +161,7 @@ export async function zerionBalances(address: string): Promise<ZerionRead> {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
-  cache.set(addr, { at: Date.now(), value: out });
+  cache.set(ck, { at: Date.now(), value: out });
   return out;
 }
 
@@ -158,7 +184,7 @@ export async function zerionShapeProbe(address: string): Promise<Record<string, 
   if (!key) return { ok: false, error: "sem chave" };
   try {
     const res = await fetch(
-      `https://api.zerion.io/v1/wallets/${address.toLowerCase()}/positions/?filter[positions]=only_simple&currency=usd&filter[trash]=only_non_trash`,
+      `https://api.zerion.io/v1/wallets/${address.toLowerCase()}/positions/?filter[positions]=no_filter&currency=usd&filter[trash]=only_non_trash`,
       { headers: { authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`, accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(20_000) },
     );
     if (!res.ok) return { ok: false, status: res.status };
@@ -175,6 +201,9 @@ export async function zerionShapeProbe(address: string): Promise<Record<string, 
       comQuantityNumeric: has((r) => r.attributes?.quantity?.numeric),
       comValue: has((r) => r.attributes?.value),
       comSymbol: has((r) => r.attributes?.fungible_info?.symbol),
+      comIcon: has((r) => r.attributes?.fungible_info?.icon?.url),
+      tiposDePosicao: [...new Set(rows.map((r) => r.attributes?.position_type).filter(Boolean))],
+      protocolos: [...new Set(rows.map((r) => r.attributes?.protocol).filter(Boolean))].slice(0, 8),
       chavesTopo: rows[0] ? Object.keys(rows[0].attributes ?? {}) : [],
     };
   } catch (e) {
