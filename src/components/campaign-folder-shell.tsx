@@ -51,6 +51,7 @@ type CampaignDocument = {
   isMain: boolean;
   updatedAt: Date;
   postedAt: Date | null;
+  postedTo?: string | null;
   scheduledFor: Date | null;
 };
 
@@ -388,6 +389,7 @@ export function CampaignFolderShell({
               name: selected.name,
               updatedAt: selected.updatedAt,
               postedAt: selected.postedAt,
+              postedTo: selected.postedTo ?? null,
             }}
             kind={selected.kind}
             brand={brand}

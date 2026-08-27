@@ -36,6 +36,10 @@ type Props = {
   kind: CampaignDocumentKind;
   content: string;
   initialPostedAt: Date | null;
+  /** Para onde a peça já foi. O mag post publica em DOIS lugares — Hive e
+   *  Paragraph — e o registro do doc só comporta um destino, então "postado"
+   *  sozinho não diz se o Paragraph saiu. */
+  initialPostedTo?: string | null;
   onContentChange?: (newContent: string) => void;
 };
 
@@ -44,6 +48,7 @@ export function CampaignArtifactActions({
   kind,
   content,
   initialPostedAt,
+  initialPostedTo = null,
   onContentChange,
 }: Props) {
   const [postedAt, setPostedAt] = useState<Date | null>(initialPostedAt);
@@ -81,6 +86,10 @@ export function CampaignArtifactActions({
   const supportsAutoSend =
     kind === "hive" || kind === "farcaster" || kind === "discord" || kind === "binance";
   const isMag = kind === "hive_mag";
+  // Paragraph PENDENTE: a peça já saiu (no Hive) mas o registro não menciona
+  // paragraph. Fica destacado porque o disparo é manual por decisão do Vlad —
+  // e o que é manual precisa ser visível, senão vira esquecimento silencioso.
+  const paragraphPending = isMag && !!postedAt && !(initialPostedTo ?? "").toLowerCase().includes("paragraph");
   const isTweets = kind === "tweets";
   const isEmail = kind === "email";
 
@@ -349,10 +358,15 @@ export function CampaignArtifactActions({
               type="button"
               onClick={() => setParagraphOpen(true)}
               aria-label="Send to Paragraph newsletter"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20"
+              title={paragraphPending ? "Publicado no Hive, mas ainda não no Paragraph" : "Enviar para o Paragraph"}
+              className={
+                paragraphPending
+                  ? "inline-flex items-center gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-xs font-semibold text-warning transition hover:bg-warning/25"
+                  : "inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20"
+              }
             >
               <BookUp className="h-3.5 w-3.5" />
-              Paragraph…
+              {paragraphPending ? "Paragraph pendente" : "Paragraph…"}
             </button>
           )
         )}

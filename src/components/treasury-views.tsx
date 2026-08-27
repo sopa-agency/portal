@@ -204,14 +204,14 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
   return (
     <div className="overflow-hidden rounded-3xl border border-border bg-surface">
       {/* Hero */}
-      <div className={`border-b border-border p-6 ${hideTotal ? "" : "bg-gradient-to-br from-accent-bg to-transparent"}`}>
+      <div className={`border-b border-border p-5 ${hideTotal ? "" : "bg-gradient-to-br from-accent-bg to-transparent"}`}>
         {!hideTotal && (
           <>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">{title}</p>
             <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums text-foreground">{usd(grand)}</p>
           </>
         )}
-        <div className={`grid grid-cols-2 gap-4 sm:grid-cols-4 ${hideTotal ? "" : "mt-5"}`}>
+        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${hideTotal ? "" : "mt-4"}`}>
           <Stat label="EVM" value={usd(evmTotal)} />
           <Stat label="Hive" value={usd(hiveTotal)} />
           <Stat label={t.assets} value={String(assets.length)} />
@@ -220,9 +220,9 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
       </div>
 
       {/* Composition */}
-      <div className="grid gap-6 p-6 lg:grid-cols-2">
+      <div className="grid gap-5 p-5 lg:grid-cols-2">
         {multi && (
-          <div className="space-y-3">
+          <div className="space-y-2">
             <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
               <Layers className="h-3.5 w-3.5" /> {t.byProject}
             </h4>

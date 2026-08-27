@@ -71,7 +71,7 @@ export default async function TreasuryPage() {
 
   if (!project.treasury) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-6">
         <PageHeader
           eyebrow="Treasury"
           title={`${project.name} treasury`}
@@ -287,7 +287,7 @@ treasury: {
   const brandBurn = initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0);
 
   const treasuryContent = isSopa ? (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* O gráfico abre a visão: a primeira pergunta é "para onde isto está
           indo", antes da composição de hoje. Fica FORA do SopaTreasury porque
           aquele componente recebe receita como dado, não como nó — foi por isso
@@ -308,7 +308,7 @@ treasury: {
           {t.treasury.ops.mor}
           <span className="text-xs font-normal text-foreground-faint">{t.treasury.ops.morHint}</span>
         </summary>
-        <div className="mt-6 space-y-8">
+        <div className="mt-5 space-y-6">
           {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
           {/* TEMP: deploy + dry-run the native-swap flash filler (haxixe only). Delete after wiring the real Swap A/B buttons. */}
           <NativeSwapDeployPanel />
@@ -337,7 +337,7 @@ treasury: {
             {t.treasury.ops.multisig}
             <span className="text-xs font-normal text-foreground-faint">{t.treasury.ops.multisigHint}</span>
           </summary>
-          <div className="mt-6 space-y-8">
+          <div className="mt-5 space-y-6">
             <MultisigBudgets budgets={budgets} />
             <SafeActivity safes={safes} />
           </div>
@@ -345,7 +345,7 @@ treasury: {
       )}
     </div>
   ) : (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <BrandTreasury
         group={brandView}
         monthlyBurnUsd={brandBurn}
@@ -438,7 +438,7 @@ treasury: {
   }, await getLocale());
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* The project name is the eyebrow and "Tesouraria" the title — it used to
           be the other way round, which said the word twice. The status slot no
           longer repeats the total either: the hero card below shows it in full
@@ -577,7 +577,7 @@ treasury: {
             ) : undefined
           }
           plan={
-            <div className="space-y-8">
+            <div className="space-y-6">
               <MorFlowDiagram />
               <FinancialPlan
                 liveStakedUsd={stakePosition?.valueUsd ?? 0}
