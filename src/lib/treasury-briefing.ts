@@ -9,10 +9,14 @@ import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/dictionary";
 
 export type BriefingInput = {
   projectName: string;
-  /** This project's OWN pot (not the brand treasuries it reports on). */
-  ownTreasuryUsd: number;
-  /** Every treasury shown on the page, including the brands. */
-  combinedTreasuryUsd: number;
+  /**
+   * This project's OWN pot (not the brand treasuries it reports on), and every
+   * treasury on the page. NULL when the read didn't complete — the briefing
+   * says the numbers out loud, which is the last place a partial should be
+   * passed off as the figure.
+   */
+  ownTreasuryUsd: number | null;
+  combinedTreasuryUsd: number | null;
   brandCount: number;
   stakedUsd: number | null;
   apy: number | null;
@@ -112,6 +116,10 @@ type Copy = {
   person: { one: string; many: string };
   tx: { one: string; many: string };
   ownCash: (name: string, value: string) => string;
+  /** The cash figure didn't finish reading — said plainly, not omitted. */
+  cashUnread: string;
+  /** Monthly costs are known, the horizon they buy isn't. */
+  costsOnly: (name: string, monthly: string) => string;
   ownCashOnly: (name: string, value: string) => string;
   brandsToo: (value: string) => string;
   nothingEarning: (value: string) => string;
@@ -177,6 +185,8 @@ const COPY: Record<Locale, Copy> = {
     person: { one: "person", many: "people" },
     tx: { one: "stuck transaction", many: "stuck transactions" },
     ownCash: (name, value) => `${name} has ${value} in its own cash.`,
+    cashUnread: "The cash figure couldn't be read in full — part of the treasury didn't answer, so no total is stated here.",
+    costsOnly: (name, monthly) => `${name} spends ${monthly}/mo. How long that lasts isn't stated: the cash figure didn't read.`,
     ownCashOnly: (name, value) => `${name} has ${value} in its own cash`,
     brandsToo: (value) =>
       `. Adding the treasuries of the brands it tracks, the page shows ${value} — but that money lives in separate multisigs and can't be spent from here.`,
@@ -258,6 +268,8 @@ const COPY: Record<Locale, Copy> = {
     person: { one: "pessoa", many: "pessoas" },
     tx: { one: "transação parada", many: "transações paradas" },
     ownCash: (name, value) => `A ${name} tem ${value} no próprio caixa.`,
+    cashUnread: "O caixa não pôde ser lido por inteiro — parte do tesouro não respondeu, então nenhum total é afirmado aqui.",
+    costsOnly: (name, monthly) => `A ${name} gasta ${monthly}/mês. Por quanto tempo isso dura não é afirmado: o caixa não leu.`,
     ownCashOnly: (name, value) => `A ${name} tem ${value} no próprio caixa`,
     brandsToo: (value) =>
       `. Somando os tesouros das marcas que ela acompanha, a página mostra ${value} — mas esse dinheiro é de multisigs separados e não dá pra gastar daqui.`,
@@ -334,26 +346,35 @@ export function buildTreasuryBriefing(i: BriefingInput, locale: Locale = DEFAULT
   const sections: BriefingSection[] = [];
 
   // ---- 1. The cash ----
-  const idleUsd = Math.max(0, i.ownTreasuryUsd - (i.stakedUsd ?? 0));
-  const stakedPct = i.ownTreasuryUsd > 0 ? (i.stakedUsd ?? 0) / i.ownTreasuryUsd : 0;
+  // Idle cash is treasury minus staked. Unknown treasury ⇒ unknown idle, and
+  // an unknown that defaults to 0 would quietly retire the "put it to work"
+  // nudge — the advice would vanish exactly when the data did.
+  const idleUsd = i.ownTreasuryUsd != null ? Math.max(0, i.ownTreasuryUsd - (i.stakedUsd ?? 0)) : null;
+  const stakedPct = i.ownTreasuryUsd != null && i.ownTreasuryUsd > 0 ? (i.stakedUsd ?? 0) / i.ownTreasuryUsd : 0;
   const cash: string[] = [];
 
-  cash.push(
-    i.brandCount > 0
-      ? c.ownCashOnly(i.projectName, usd(i.ownTreasuryUsd)) + c.brandsToo(usd(i.combinedTreasuryUsd))
-      : c.ownCash(i.projectName, usd(i.ownTreasuryUsd)),
-  );
+  // A briefing that can't state the cash says so, in the first sentence, and
+  // stops. Silence here reads as "nothing to report", which is the opposite.
+  if (i.ownTreasuryUsd == null) {
+    cash.push(c.cashUnread);
+  } else {
+    cash.push(
+      i.brandCount > 0 && i.combinedTreasuryUsd != null
+        ? c.ownCashOnly(i.projectName, usd(i.ownTreasuryUsd)) + c.brandsToo(usd(i.combinedTreasuryUsd))
+        : c.ownCash(i.projectName, usd(i.ownTreasuryUsd)),
+    );
+  }
 
   if (i.stakedUsd != null) {
     if (i.stakedUsd <= 0) {
-      cash.push(c.nothingEarning(usd(i.ownTreasuryUsd)));
+      if (i.ownTreasuryUsd != null) cash.push(c.nothingEarning(usd(i.ownTreasuryUsd)));
     } else {
       const rate =
         i.apy != null
           ? c.atRate(pct(i.apy)) + (i.monthlyYieldUsd != null ? c.perMonthYield(usd(i.monthlyYieldUsd)) : "")
           : "";
       cash.push(c.staked(usd(i.stakedUsd), pct(stakedPct), rate));
-      if (stakedPct < 0.8 && idleUsd > 1) cash.push(c.idleLeft(usd(idleUsd)));
+      if (idleUsd != null && stakedPct < 0.8 && idleUsd > 1) cash.push(c.idleLeft(usd(idleUsd)));
     }
     if (i.harvestableUsd != null && i.harvestableUsd > 0.01) cash.push(c.harvestable(usd(i.harvestableUsd)));
   }
@@ -378,13 +399,17 @@ export function buildTreasuryBriefing(i: BriefingInput, locale: Locale = DEFAULT
   if (i.ownMonthlyCostsUsd <= 0) {
     outgoing.push(c.noCosts(i.projectName));
   } else {
-    const months = i.ownTreasuryUsd / i.ownMonthlyCostsUsd;
+    const months = i.ownTreasuryUsd != null ? i.ownTreasuryUsd / i.ownMonthlyCostsUsd : null;
+    // "Costs last X months" needs the cash. Without it the sentence still says
+    // what goes OUT — that part is known — and simply doesn't claim a horizon.
     outgoing.push(
-      c.costsLast(
-        i.projectName,
-        usd(i.ownMonthlyCostsUsd),
-        months > 120 ? c.overTenYears : c.aboutMonths(mark(String(Math.round(months)))),
-      ),
+      months == null
+        ? c.costsOnly(i.projectName, usd(i.ownMonthlyCostsUsd))
+        : c.costsLast(
+            i.projectName,
+            usd(i.ownMonthlyCostsUsd),
+            months > 120 ? c.overTenYears : c.aboutMonths(mark(String(Math.round(months)))),
+          ),
     );
   }
   if (i.allMonthlyCostsUsd > i.ownMonthlyCostsUsd) {
@@ -471,15 +496,20 @@ export function buildTreasuryBriefing(i: BriefingInput, locale: Locale = DEFAULT
     if (unsigned.length === i.queued.length) attention.push(c.queueUnsigned);
   }
   if (!i.allocationSaved) attention.push(c.allocationUnsaved);
-  if (i.stakedUsd != null && i.ownTreasuryUsd > 0 && stakedPct < 0.5 && idleUsd > 50) {
-    attention.push(c.idleCash(usd(idleUsd)));
+  if (i.stakedUsd != null && (i.ownTreasuryUsd ?? 0) > 0 && stakedPct < 0.5 && (idleUsd ?? 0) > 50) {
+    attention.push(c.idleCash(usd(idleUsd ?? 0)));
   }
   if (attention.length === 0) attention.push(c.nothingStuck);
   sections.push({ title: c.sections.attention, paragraphs: attention });
 
   // ---- headline ----
+  // The headline is the one line someone reads if they read nothing else. With
+  // no cash figure it says THAT, rather than leading with a number it doesn't
+  // have or silently falling through to a different framing.
   const headline =
-    i.incomingLast6Usd > 0 && i.jobsLast6Usd / i.incomingLast6Usd > 0.8
+    i.ownTreasuryUsd == null
+      ? c.cashUnread
+      : i.incomingLast6Usd > 0 && i.jobsLast6Usd / i.incomingLast6Usd > 0.8
       ? c.headlineJobs(usd(i.ownTreasuryUsd))
       : i.stakedUsd != null && i.stakedUsd > 0
         ? c.headlineStaked(usd(i.ownTreasuryUsd), pct(stakedPct))

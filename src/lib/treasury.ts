@@ -1,5 +1,6 @@
 import "server-only";
 import { zerionBalances } from "@/lib/zerion";
+import { ok, readHealth, sumReadings, unread, type Reading } from "@/lib/reading";
 import type { ProjectConfig } from "@/projects/types";
 import { sanitizeTokenLabel, labelLooksHostile, SYMBOL_MAX, NAME_MAX } from "@/lib/token-label";
 
@@ -37,6 +38,13 @@ export type EvmToken = {
   icon?: string | null;
 };
 
+/** A wallet's contribution to a total, as a reading rather than a number.
+ *
+ *  A wallet with a failed chain has a PARTIAL balance. That partial is worth
+ *  showing on its own row — it's what we did see — but it is not what the
+ *  wallet holds, so it cannot enter a sum that claims to be the treasury. The
+ *  failure branch gets a reason and no access to the partial, which is the
+ *  whole point of the shape. */
 export type EvmWalletReport = {
   label: string;
   address: string;
@@ -70,12 +78,39 @@ export type HiveApr = { hp: number; hbdSavings: number };
 export type TreasuryReport = {
   evm: EvmWalletReport[];
   hive: HiveAccountReport[];
-  evmTotalUsd: number;
-  hiveTotalUsd: number;
-  grandTotalUsd: number;
+  /**
+   * Totals are READINGS, not numbers. Before this, a wallet whose read failed
+   * arrived with `error` set and `totalUsd: 0`, and the sum took the zero and
+   * dropped the error — so the headline number silently claimed completeness
+   * it did not have. On a page someone opens to decide a payment, that number
+   * doesn't merely misinform, it decides.
+   */
+  evmTotal: Reading<number>;
+  hiveTotal: Reading<number>;
+  total: Reading<number>;
+  /**
+   * How many wallets and accounts actually answered, and which didn't.
+   *
+   * `sumReadings` carries only the FIRST bad reason, which is enough to refuse
+   * the sum and not enough to act on. "Incomplete" alone is anxiety; "2 of 7
+   * didn't answer, these two" is a next step. So the count and the names ride
+   * alongside — the module summarises, this names.
+   */
+  health: ReturnType<typeof readHealth>;
+  unreadLabels: string[];
   prices: { hive: number; hbd: number };
   hiveApr: HiveApr | null;
 };
+
+/** A wallet answers fully, or it doesn't answer. A partial is not a balance. */
+export const evmWalletReading = (w: EvmWalletReport): Reading<number> =>
+  w.failedChains.length > 0
+    ? unread(`${w.label}: ${w.failedChains.join(", ")} não respondeu`)
+    : ok(w.totalUsd);
+
+/** "account not found" is a failed read, not an account worth zero. */
+export const hiveAccountReading = (a: HiveAccountReport): Reading<number> =>
+  a.error ? unread(`${a.label}: ${a.error}`) : ok(a.usd);
 
 // --- prices -----------------------------------------------------------------
 
@@ -663,7 +698,23 @@ export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryRep
   ]);
   const hive = hiveRes.reports;
 
-  const evmTotalUsd = evm.reduce((s, w) => s + w.totalUsd, 0);
-  const hiveTotalUsd = hive.reduce((s, a) => s + a.usd, 0);
-  return { evm, hive, evmTotalUsd, hiveTotalUsd, grandTotalUsd: evmTotalUsd + hiveTotalUsd, prices, hiveApr: hiveRes.apr };
+  // Summed from the LEAVES, not from the two subtotals: chaining sums would
+  // stack "total incomplete — total incomplete — …" onto the reason.
+  const evmReadings = evm.map(evmWalletReading);
+  const hiveReadings = hive.map(hiveAccountReading);
+  const all = [...evmReadings, ...hiveReadings];
+  return {
+    evm,
+    hive,
+    evmTotal: sumReadings(evmReadings),
+    hiveTotal: sumReadings(hiveReadings),
+    total: sumReadings(all),
+    health: readHealth(all),
+    unreadLabels: [
+      ...evm.filter((w) => w.failedChains.length > 0).map((w) => w.label),
+      ...hive.filter((a) => a.error).map((a) => a.label),
+    ],
+    prices,
+    hiveApr: hiveRes.apr,
+  };
 }

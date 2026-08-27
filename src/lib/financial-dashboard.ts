@@ -1,7 +1,8 @@
 import type { FixedCostDTO } from "@/lib/fixed-costs";
 import type { OrgRevenue } from "@/lib/org-revenue";
 import type { TreasuryGroup } from "@/lib/treasury";
-import { combinedTreasuryUsd } from "@/lib/treasury-aggregate";
+import { combinedTreasury } from "@/lib/treasury-aggregate";
+import { isOk, type Reading } from "@/lib/reading";
 
 type JobLike = {
   amountUsd: number;
@@ -22,7 +23,9 @@ export type FinancialDashboardView = {
   slug: string;
   name: string;
   series: FinanceMonthPoint[];
-  treasuryUsd: number;
+  /** Renamed from `treasuryUsd` on purpose: the rename is what forced every
+   *  consumer to face the three states instead of inheriting a number. */
+  treasury: Reading<number>;
   burnUsd: number;
   runwayMonths: number | null;
   onchainBalanceUsd: number;
@@ -143,16 +146,18 @@ export function buildFinancialDashboardViews({
       }
     }
 
-    const treasuryUsd = group.report.grandTotalUsd;
+    const treasury = group.report.total;
     const burnUsd = groupCosts.reduce((sum, cost) => sum + cost.monthlyUsd, 0);
 
     return {
       slug: group.slug,
       name: group.name,
       series,
-      treasuryUsd,
+      treasury,
       burnUsd,
-      runwayMonths: burnUsd > 0 ? treasuryUsd / burnUsd : null,
+      // Runway is treasury ÷ burn. An unreadable treasury makes it unknowable,
+      // and an unknown runway is null — never a number derived from a partial.
+      runwayMonths: burnUsd > 0 && isOk(treasury) ? treasury.value / burnUsd : null,
       onchainBalanceUsd: matchedProjects.reduce((sum, project) => sum + project.balanceTotalUsd, 0),
       onchainRealizedTotalUsd: matchedProjects.reduce((sum, project) => sum + project.realizedTotalUsd, 0),
       pendingJobsUsd: isSopaGroup ? pendingJobsUsd : 0,
@@ -181,7 +186,7 @@ export function buildFinancialDashboardViews({
 
   // Native project views may intentionally share a source. The aggregate must
   // count each wallet/account only once (e.g. Hive @gnars in two projects).
-  const totalTreasuryUsd = combinedTreasuryUsd(groups);
+  const totalTreasury = combinedTreasury(groups);
   const totalBurnUsd = views.reduce((sum, view) => sum + view.burnUsd, 0);
 
   return [
@@ -189,9 +194,9 @@ export function buildFinancialDashboardViews({
       slug: "all",
       name: "Tudo",
       series: allSeries,
-      treasuryUsd: totalTreasuryUsd,
+      treasury: totalTreasury,
       burnUsd: totalBurnUsd,
-      runwayMonths: totalBurnUsd > 0 ? totalTreasuryUsd / totalBurnUsd : null,
+      runwayMonths: totalBurnUsd > 0 && isOk(totalTreasury) ? totalTreasury.value / totalBurnUsd : null,
       onchainBalanceUsd: revenue?.balanceTotalUsd ?? 0,
       onchainRealizedTotalUsd: revenue?.realizedTotalUsd ?? 0,
       pendingJobsUsd,

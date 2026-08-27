@@ -12,6 +12,7 @@ import { usd as usd2 } from "@/lib/format";
 import { TreasuryHealthHero } from "@/components/treasury-health-hero";
 import { dedupeTreasuryGroups } from "@/lib/treasury-aggregate";
 import { useT } from "@/components/locale-provider";
+import { sumReadings } from "@/lib/reading";
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -68,7 +69,10 @@ export function SopaTreasury({
 
   // Hero numbers for the current filter: how much, is it healthy, how long it lasts.
   const dash = dashboardViews.find((d) => d.slug === view) ?? dashboardViews[0];
-  const totalUsd = visibleGroups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
+  // sumReadings refuses the sum when any group couldn't be read — that refusal
+  // IS the feature. The names ride alongside so "incomplete" says what to chase.
+  const total = sumReadings(visibleGroups.map((g) => g.report.total));
+  const unreadLabels = visibleGroups.flatMap((g) => g.report.unreadLabels);
   const walletCount = visibleGroups.reduce((s, g) => s + g.report.evm.length + g.report.hive.length, 0);
   const runwayMonths = dash?.runwayMonths ?? null;
   const burnUsd = dash?.burnUsd ?? 0;
@@ -121,7 +125,9 @@ export function SopaTreasury({
         {/* Hero: quanto temos · está saudável? · quanto tempo dura */}
         <TreasuryHealthHero
           label={projLabel}
-          totalUsd={totalUsd}
+          total={total}
+        unreadLabels={unreadLabels}
+        sourceCount={walletCount}
           walletCount={walletCount}
           runwayMonths={runwayMonths}
           watermarkLogo="/projects/sopa/logo.png"

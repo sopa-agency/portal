@@ -15,6 +15,7 @@ import { createFixedCost, updateFixedCost, deleteFixedCost, setMonthlyActual, cl
 import { useConfirm } from "@/components/confirm-dialog";
 import { useLocale } from "@/components/locale-provider";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionary";
+import { isOk, sumReadings, type Reading } from "@/lib/reading";
 
 type CostsT = Dictionary["treasury"]["costs"];
 
@@ -85,7 +86,7 @@ function runwayTone(m: number | null): { text: string; bar: string; ring: string
   return { text: "text-success", bar: "bg-success", ring: "border-success/30 bg-success/10" };
 }
 
-export type CostGroupMeta = { slug: string; name: string; treasuryUsd: number };
+export type CostGroupMeta = { slug: string; name: string; treasury: Reading<number> };
 
 type DraftState = {
   label: string;
@@ -118,6 +119,8 @@ export function FixedCostsPanel({
   const { confirm, confirmUI } = useConfirm();
   const { locale, t: dict } = useLocale();
   const t = dict.treasury.costs;
+  // One phrasing for "we couldn't finish reading this", shared with the hero.
+  const th = dict.treasury.hero;
 
   const bySlug = useMemo(() => {
     const m: Record<string, FixedCostDTO[]> = {};
@@ -129,9 +132,11 @@ export function FixedCostsPanel({
   const burnOf = (slug: string) => (bySlug[slug] ?? []).filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0);
 
   // Combined KPIs (live — recompute as costs change).
-  const totalTreasury = groups.reduce((s, g) => s + g.treasuryUsd, 0);
+  // Refuses to add up when any project's treasury couldn't be read: a runway
+  // computed from a partial cash figure is a longer runway than you have.
+  const totalTreasury = sumReadings(groups.map((g) => g.treasury));
   const totalBurn = groups.reduce((s, g) => s + burnOf(g.slug), 0);
-  const totalMonths = months(totalTreasury, totalBurn);
+  const totalMonths = isOk(totalTreasury) ? months(totalTreasury.value, totalBurn) : null;
 
   const upsert = (cost: FixedCostDTO) =>
     setCosts((prev) => (prev.some((c) => c.id === cost.id) ? prev.map((c) => (c.id === cost.id ? cost : c)) : [...prev, cost]));
@@ -151,7 +156,7 @@ export function FixedCostsPanel({
 
       {/* Combined KPIs */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <Kpi icon={<Wallet className="h-4 w-4" />} label={t.kpiTreasury} value={usd(totalTreasury)} />
+        <Kpi icon={<Wallet className="h-4 w-4" />} label={t.kpiTreasury} value={isOk(totalTreasury) ? usd(totalTreasury.value) : th.incomplete} />
         <Kpi icon={<TrendingDown className="h-4 w-4" />} label={t.kpiBurn} value={usd(totalBurn, 0)} />
         <RunwayKpi months={totalMonths} t={t} />
       </div>
@@ -241,7 +246,7 @@ function ProjectCosts({
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [cell, setCell] = useState<{ costId: string; month: string } | null>(null);
-  const m = months(meta.treasuryUsd, burnUsd);
+  const m = isOk(meta.treasury) ? months(meta.treasury.value, burnUsd) : null;
   const tone = runwayTone(m);
 
   const currentMonth = costs[0]?.currentMonth ?? clientMonthKey();
@@ -255,7 +260,7 @@ function ProjectCosts({
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-foreground">{meta.name}</h3>
           <p className="mt-0.5 text-[11px] text-foreground-faint">
-            {t.inTreasury(usd(meta.treasuryUsd))} · {usd(burnUsd, 0)}
+            {isOk(meta.treasury) ? t.inTreasury(usd(meta.treasury.value)) : t.incomplete} · {usd(burnUsd, 0)}
             {t.monthSuffix}
           </p>
         </div>

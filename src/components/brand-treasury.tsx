@@ -4,6 +4,7 @@ import type { TreasuryGroup } from "@/lib/treasury";
 import { Section } from "@/components/section-heading";
 import { TreasuryHealthHero } from "@/components/treasury-health-hero";
 import { getDictionary } from "@/lib/i18n/server";
+import { isOk, unread, type Reading } from "@/lib/reading";
 
 // Brand treasury (Gnars, SkateHive…) in the same design language as the SOPA
 // cockpit — but these portals have NO stake/stream payroll setup, so there's no
@@ -33,16 +34,20 @@ export async function BrandTreasury({
   costs: ReactNode;
 }) {
   const { treasury: t } = await getDictionary();
-  const total = group?.report.grandTotalUsd ?? 0;
+  // No group configured is a different thing from a group that wouldn't read —
+  // both stop the number, and both say which.
+  const total: Reading<number> = group?.report.total ?? unread("nenhum tesouro configurado");
   const walletCount = (group?.report.evm.length ?? 0) + (group?.report.hive.length ?? 0);
-  const runwayMonths = monthlyBurnUsd > 0 ? total / monthlyBurnUsd : null;
+  const runwayMonths = monthlyBurnUsd > 0 && isOk(total) ? total.value / monthlyBurnUsd : null;
 
   return (
     <div className="space-y-10">
       {/* Hero: how much, is it healthy, how long it lasts */}
       <TreasuryHealthHero
         label={group?.name ?? "—"}
-        totalUsd={total}
+        total={total}
+        unreadLabels={group?.report.unreadLabels ?? []}
+        sourceCount={walletCount}
         walletCount={walletCount}
         runwayMonths={runwayMonths}
         runwayFooter={t.hero.currentPace}

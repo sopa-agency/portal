@@ -1,4 +1,5 @@
-import type { TreasuryGroup, TreasuryReport } from "@/lib/treasury";
+import { evmWalletReading, hiveAccountReading, type TreasuryGroup, type TreasuryReport } from "@/lib/treasury";
+import { readHealth, sumReadings, type Reading } from "@/lib/reading";
 
 /**
  * Return a combined-view copy where the same wallet/account is counted once.
@@ -24,20 +25,36 @@ export function dedupeTreasuryGroups(groups: TreasuryGroup[]): TreasuryGroup[] {
       seenHive.add(key);
       return true;
     });
-    const evmTotalUsd = evm.reduce((sum, wallet) => sum + wallet.totalUsd, 0);
-    const hiveTotalUsd = hive.reduce((sum, account) => sum + account.usd, 0);
+    // Deduping drops wallets, so the totals have to be recomputed — and they
+    // are recomputed as READINGS, over the surviving leaves. Re-summing the
+    // numbers here was the second place a failed wallet counted as zero.
+    const evmReadings = evm.map(evmWalletReading);
+    const hiveReadings = hive.map(hiveAccountReading);
+    const all = [...evmReadings, ...hiveReadings];
     const report: TreasuryReport = {
       ...group.report,
       evm,
       hive,
-      evmTotalUsd,
-      hiveTotalUsd,
-      grandTotalUsd: evmTotalUsd + hiveTotalUsd,
+      evmTotal: sumReadings(evmReadings),
+      hiveTotal: sumReadings(hiveReadings),
+      total: sumReadings(all),
+      health: readHealth(all),
+      unreadLabels: [
+        ...evm.filter((w) => w.failedChains.length > 0).map((w) => w.label),
+        ...hive.filter((a) => a.error).map((a) => a.label),
+      ],
     };
     return { ...group, report };
   });
 }
 
-export function combinedTreasuryUsd(groups: TreasuryGroup[]): number {
-  return dedupeTreasuryGroups(groups).reduce((sum, group) => sum + group.report.grandTotalUsd, 0);
+/**
+ * The combined treasury across groups — as a reading.
+ *
+ * One group being unable to read makes the COMBINED figure incomplete, which
+ * is exactly the case `sumReadings` exists to refuse. Callers that used to get
+ * a number now have to say what they show when it isn't one.
+ */
+export function combinedTreasury(groups: TreasuryGroup[]): Reading<number> {
+  return sumReadings(dedupeTreasuryGroups(groups).map((group) => group.report.total));
 }

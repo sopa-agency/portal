@@ -6,6 +6,7 @@ import type { TreasuryGroup, EvmWalletReport, HiveAccountReport } from "@/lib/tr
 import { TokenLogo } from "@/components/token-logo";
 import { useT } from "@/components/locale-provider";
 import type { Dictionary } from "@/lib/i18n/dictionary";
+import { isOk, sumReadings } from "@/lib/reading";
 
 const usd = (n: number, max = 0) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < 1 ? 4 : max });
@@ -179,10 +180,23 @@ function Stat({ label, value }: { label: string; value: string }) {
 /** The hero + composition + holdings overview for the current view. */
 function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[]; title: string; hideTotal?: boolean }) {
   const t = useT().treasury.views;
-  const grand = groups.reduce((s, g) => s + g.report.grandTotalUsd, 0);
-  const evmTotal = groups.reduce((s, g) => s + g.report.evmTotalUsd, 0);
-  const hiveTotal = groups.reduce((s, g) => s + g.report.hiveTotalUsd, 0);
+  // Same wording as the hero's incomplete plate — one phrasing for one meaning.
+  const th = useT().treasury.hero;
+  const grand = sumReadings(groups.map((g) => g.report.total));
+  const evmTotal = sumReadings(groups.map((g) => g.report.evmTotal));
+  const hiveTotal = sumReadings(groups.map((g) => g.report.hiveTotal));
+  const unreadLabels = groups.flatMap((g) => g.report.unreadLabels);
   const assets = useMemo(() => aggregateAssets(groups), [groups]);
+  /**
+   * Denominator for the shares and the bars: what is actually LISTED below,
+   * not the treasury total.
+   *
+   * These percentages describe the composition of the holdings on screen, and
+   * that set is honest by construction — every asset in it read. Dividing by a
+   * claimed treasury total would make the slices depend on a number that may be
+   * incomplete, and they'd silently stop adding to 100%.
+   */
+  const listedUsd = useMemo(() => assets.reduce((sum, a) => sum + a.valueUsd, 0), [assets]);
   // Linhas abertas. Uma linha por ATIVO; a quebra por rede vive dentro dela, e
   // só existe para quem clica — a lista fica curta por padrão.
   const [openRows, setOpenRows] = useState<Set<string>>(new Set());
@@ -207,7 +221,13 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
     [assets, t.others],
   );
   const projectSegments = useMemo(
-    () => toSegments(groups.map((g) => ({ label: g.name, valueUsd: g.report.grandTotalUsd })), t.others),
+    () =>
+      toSegments(
+        // A group that couldn't be read is left OUT rather than drawn as a
+        // sliver of zero — the bar shows the composition of what answered.
+        groups.filter((g) => isOk(g.report.total)).map((g) => ({ label: g.name, valueUsd: (g.report.total as { value: number }).value })),
+        t.others,
+      ),
     [groups, t.others],
   );
   const multi = groups.length > 1;
@@ -230,12 +250,23 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
         {!hideTotal && (
           <>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">{title}</p>
-            <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums text-foreground">{usd(grand)}</p>
+            {isOk(grand) ? (
+              <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums text-foreground">{usd(grand.value)}</p>
+            ) : (
+              <>
+                <p className="mt-1 text-2xl font-bold uppercase tracking-tight text-warning">{th.incomplete}</p>
+                {unreadLabels.length > 0 && (
+                  <p className="mt-1 text-[11px] leading-snug text-warning">
+                    {th.incompleteNote(unreadLabels.length, walletCount, unreadLabels.join(", "))}
+                  </p>
+                )}
+              </>
+            )}
           </>
         )}
         <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${hideTotal ? "" : "mt-4"}`}>
-          <Stat label="EVM" value={usd(evmTotal)} />
-          <Stat label="Hive" value={usd(hiveTotal)} />
+          <Stat label="EVM" value={isOk(evmTotal) ? usd(evmTotal.value) : th.incomplete} />
+          <Stat label="Hive" value={isOk(hiveTotal) ? usd(hiveTotal.value) : th.incomplete} />
           <Stat label={t.assets} value={String(assets.length)} />
           <Stat label={multi ? t.wallets : t.networks} value={String(multi ? walletCount : chainCount)} />
         </div>
@@ -248,14 +279,14 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
             <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
               <Layers className="h-3.5 w-3.5" /> {t.byProject}
             </h4>
-            <AllocationBar segments={projectSegments} total={grand} />
+            <AllocationBar segments={projectSegments} total={listedUsd} />
           </div>
         )}
         <div className="space-y-3">
           <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
             <Wallet className="h-3.5 w-3.5" /> {t.byAsset}
           </h4>
-          <AllocationBar segments={assetSegments} total={grand} />
+          <AllocationBar segments={assetSegments} total={listedUsd} />
         </div>
       </div>
 
@@ -267,7 +298,7 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
         const liquid = assets.filter((a) => !a.protocol);
         const earning = assets.filter((a) => a.protocol);
         const renderRow = (a: Asset) => {
-            const share = grand > 0 ? (a.valueUsd / grand) * 100 : 0;
+            const share = listedUsd > 0 ? (a.valueUsd / listedUsd) * 100 : 0;
             const color = assetColor(a.symbol);
             return (
               <li key={`${a.protocol ?? ""}:${a.symbol}`} className="px-6 py-3">
@@ -516,6 +547,7 @@ function HiveCard({ a, t }: { a: HiveAccountReport; t: Dictionary["treasury"]["v
 }
 
 function WalletDetail({ groups, withHeadings, t }: { groups: TreasuryGroup[]; withHeadings: boolean; t: Dictionary["treasury"]["views"] }) {
+  const th = useT().treasury.hero;
   return (
     <div className="space-y-8">
       {groups.map((g) => (
@@ -523,7 +555,11 @@ function WalletDetail({ groups, withHeadings, t }: { groups: TreasuryGroup[]; wi
           {withHeadings && (
             <div className="flex items-baseline justify-between gap-3">
               <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">{g.name}</h3>
-              <span className="text-sm font-semibold tabular-nums text-foreground-muted">{usd(g.report.grandTotalUsd)}</span>
+              <span
+                className={`text-sm font-semibold tabular-nums ${isOk(g.report.total) ? "text-foreground-muted" : "text-warning"}`}
+              >
+                {isOk(g.report.total) ? usd(g.report.total.value) : th.incomplete}
+              </span>
             </div>
           )}
           {g.report.evm.length > 0 && (

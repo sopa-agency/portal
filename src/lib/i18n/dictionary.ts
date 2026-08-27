@@ -195,7 +195,13 @@ const en = {
       runwayTitle: "How long the cash lasts if spending continues at the current pace.",
       months: "months",
       /** Verdict per runway band: <3 months danger · <12 warning · else ok. */
+      /** The total could not be completed — say WHICH sources are missing, or
+       *  "incomplete" is just anxiety. */
+      incomplete: "incomplete",
+      incompleteNote: (failed: number, total: number, names: string) =>
+        `${failed} of ${total} sources didn't answer — ${names}. What did answer is listed below.`,
       verdicts: {
+        unknown: { label: "Unknown", phrase: "Part of the treasury couldn't be read, so health can't be judged." },
         noCosts: { label: "No costs", phrase: "Nothing going out — the treasury only accumulates." },
         warning: { label: "Watch it", phrase: "Under a year of cash — worth following closely." },
         danger: { label: "Critical", phrase: "Under 3 months of cash at the current pace." },
@@ -301,6 +307,8 @@ const en = {
       title: "Fixed costs & runway",
       hint: "monthly average per cost vs. the treasury available",
       kpiTreasury: "Treasury",
+      /** Same word the hero uses when a total can't be completed. */
+      incomplete: "incomplete",
       kpiBurn: "Burn / mo",
       runway: "Runway",
       months: "months",
@@ -1605,7 +1613,11 @@ const pt: typeof en = {
       runway: "Runway",
       runwayTitle: "Quanto tempo o caixa dura se o gasto continuar no ritmo atual.",
       months: "meses",
+      incomplete: "incompleto",
+      incompleteNote: (failed: number, total: number, names: string) =>
+        `${failed} de ${total} fontes não responderam — ${names}. O que respondeu está listado abaixo.`,
       verdicts: {
+        unknown: { label: "Desconhecido", phrase: "Parte do tesouro não pôde ser lida, então não dá para julgar a saúde." },
         noCosts: { label: "Sem custos", phrase: "Nada saindo por aqui — o tesouro só acumula." },
         warning: { label: "Atenção", phrase: "Menos de um ano de caixa — vale acompanhar de perto." },
         danger: { label: "Crítico", phrase: "Menos de 3 meses de caixa no ritmo atual." },
@@ -1709,6 +1721,7 @@ const pt: typeof en = {
       title: "Custos fixos & runway",
       hint: "média mensal por custo vs. o tesouro disponível",
       kpiTreasury: "Tesouro",
+      incomplete: "incompleto",
       kpiBurn: "Queima / mês",
       runway: "Runway",
       months: "meses",

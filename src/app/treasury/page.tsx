@@ -54,7 +54,7 @@ import { VaultFlowView } from "@/components/vault-flow-view";
 import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
-import { combinedTreasuryUsd, dedupeTreasuryGroups } from "@/lib/treasury-aggregate";
+import { combinedTreasury, dedupeTreasuryGroups } from "@/lib/treasury-aggregate";
 import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
 import { fetchCostScope } from "@/lib/fixed-costs-data";
 import { getActiveProject, getAllProjects } from "@/projects";
@@ -64,6 +64,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { ChevronRight } from "lucide-react";
 import { rich } from "@/components/rich-text";
+import { isOk, unread, type Reading } from "@/lib/reading";
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
@@ -104,7 +105,7 @@ treasury: {
   }
 
   const groups = await fetchTreasuryGroups(project);
-  const combined = combinedTreasuryUsd(groups);
+  const combined = combinedTreasury(groups);
 
   // Surface Safe transaction activity. Candidates = EVM treasury wallets (chain
   // unknown → probe Base + mainnet) plus the project's configured bounty Safes
@@ -158,7 +159,7 @@ treasury: {
   const costGroups = dedupeTreasuryGroups(groups).map((g) => ({
     slug: g.slug,
     name: g.name,
-    treasuryUsd: g.report.grandTotalUsd,
+    treasury: g.report.total,
   }));
   const isSopa = project.slug === "sopa";
   const [costScope, session, orgRevenueResult, jobsRes, history, walletHistory, walletChart] = await Promise.all([
@@ -302,6 +303,10 @@ treasury: {
   const brandView = groups.find((g) => g.slug === project.slug) ?? groups[0];
   const brandBurn = initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0);
 
+  // SOPA's own pot, as a reading — the earmark panel's denominator.
+  const ownTotal: Reading<number> =
+    groups.find((g) => g.slug === project.slug)?.report.total ?? unread("tesouro da SOPA não encontrado");
+
   const treasuryContent = isSopa ? (
     <div className="space-y-6">
       {/* O gráfico abre a visão: a primeira pergunta é "para onde isto está
@@ -337,12 +342,20 @@ treasury: {
           <MorFlowDiagram />
         </div>
       </details>
-      {allocation && (
+      {/* Earmarks are PERCENTAGES OF the pot, so an incomplete pot makes every
+          slice wrong in a way that still looks plausible. The panel is withheld
+          rather than shown with a denominator we couldn't finish reading. */}
+      {allocation && ownTotal.state !== "ok" && (
+        <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          {t.treasury.hero.incomplete} — {ownTotal.state === "unread" ? ownTotal.reason : ownTotal.note}
+        </p>
+      )}
+      {allocation && isOk(ownTotal) && (
         <TreasuryAllocation
           initial={allocation}
           // SOPA's OWN pot and SOPA's OWN costs — not the brand treasuries it
           // merely reports on (those are separate money, own multisigs).
-          totalUsd={groups.find((g) => g.slug === project.slug)?.report.grandTotalUsd ?? 0}
+          totalUsd={ownTotal.value}
           stakedUsd={stakePosition?.valueUsd ?? 0}
           canEdit={!!session}
           streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
@@ -409,8 +422,10 @@ treasury: {
   const last6 = (ownView ?? dashboardViews[0])?.series.slice(-6) ?? [];
   const briefing = buildTreasuryBriefing({
     projectName: project.name,
-    ownTreasuryUsd: ownGroup?.report.grandTotalUsd ?? 0,
-    combinedTreasuryUsd: combined,
+    // null, never 0: the briefing speaks the number aloud, and "zero in cash"
+    // is a sentence someone acts on.
+    ownTreasuryUsd: ownGroup && isOk(ownGroup.report.total) ? ownGroup.report.total.value : null,
+    combinedTreasuryUsd: isOk(combined) ? combined.value : null,
     brandCount: Math.max(0, groups.length - 1),
     stakedUsd: stakePosition?.valueUsd ?? null,
     apy: stakePosition?.apy ?? null,
