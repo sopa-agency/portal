@@ -112,6 +112,36 @@ provedor"*.
 Foi adiada de propósito no fim do turno — é refactor grande e não conserta bug
 nenhum hoje. Mas é a próxima coisa certa a fazer nesta página.
 
+### Ver junto com o padrão dos três estados
+
+`patterns/three-state-reads.md` + `patterns/reading.ts` (126 linhas, zero
+dependência) no repo **sopa-estado**, commit `87c629d` — escrito pelo Comporta
+depois que o **mesmo bug mordeu três frentes no mesmo dia**: a Zerion daqui
+falhando e virando "não tem nada em stake", o gnars.com afirmando "Not linked"
+sobre 1050 pessoas, e o `parseUnits` do SwapPro truncando dinheiro num airdrop
+cujo total continuava batendo. O caso desta página é o **primeiro exemplo citado
+no doc**.
+
+> Caminho dado: `/Users/web3warrior/Code/sopa-estado/patterns/`. **Não é
+> acessível desta máquina** (home de outro usuário) — buscar pelo repo
+> `sopa-estado`, não por esse path.
+
+Duas peças que interessam aqui:
+
+- **`fromCall()`** torna o erro *impossível de escrever*, não só documentado.
+  `multicall` com `allowFailure` devolve sucesso e falha no mesmo formato, e a
+  linha natural seguinte é `result ?? 0n`. Depois do `fromCall`, o ramo de falha
+  não tem acesso a valor nenhum — só a um motivo.
+- **`sumReadings()`** se recusa a somar quando qualquer parcela está ruim:
+  leitura falha não vale zero na aritmética, vale "total incompleto". Numa
+  página de tesouro é a diferença entre um número errado e um número honesto.
+
+**Olhar as duas coisas juntas, não separado.** Se a fonte for injetada **e**
+devolver `Reading<T>`, resolve-se de uma vez sobreviver a trocar de provedor
+**e** não conseguir mais colapsar falha em zero. Hoje a correção daqui é uma
+convenção que depende de alguém lembrar; com `Reading<T>` vira tipo, e o
+compilador passa a cobrar.
+
 ---
 
 ## O achado da quota (não pode viver só no chat)
