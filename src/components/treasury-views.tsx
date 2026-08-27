@@ -32,6 +32,9 @@ const colorAt = (i: number) => PALETTE[i % PALETTE.length];
 // the USD total with a made-up price.
 type Asset = {
   symbol: string;
+  /** Logo do indexador. Decoração, NUNCA credencial — um token de phishing
+   *  também traz logo bonito, então a marca de não-verificado continua ao lado. */
+  icon?: string | null;
   chains: string[];
   balance: number;
   valueUsd: number;
@@ -50,13 +53,15 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
     valueUsd: number | null,
     untrusted = false,
     hostileLabel = false,
+    icon: string | null = null,
   ) => {
     // The key carries `untrusted`, and that is load-bearing: anyone can deploy a
     // token whose symbol is "USDC". Keying on the symbol alone would add the
     // impostor's balance to the real USDC row and inflate the total. An
     // untrusted token never shares a row with a trusted one.
     const k = `${untrusted ? "u:" : "t:"}${symbol.toUpperCase()}`;
-    const a = map.get(k) ?? { symbol, chains: [], balance: 0, valueUsd: 0, usdUnknown: false, untrusted, hostileLabel };
+    const a = map.get(k) ?? { symbol, chains: [], balance: 0, valueUsd: 0, usdUnknown: false, untrusted, hostileLabel, icon };
+    if (!a.icon && icon) a.icon = icon;
     a.balance += balance;
     if (valueUsd == null) a.usdUnknown = true;
     else a.valueUsd += valueUsd;
@@ -66,7 +71,7 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
   };
   for (const g of groups) {
     const prices = g.report.prices;
-    for (const w of g.report.evm) for (const t of w.tokens) add(t.symbol, t.chain, t.balance, t.valueUsd, t.untrusted, t.hostileLabel);
+    for (const w of g.report.evm) for (const t of w.tokens) add(t.symbol, t.chain, t.balance, t.valueUsd, t.untrusted, t.hostileLabel, t.icon ?? null);
     for (const h of g.report.hive) {
       add("HIVE", "Hive", h.hive + h.hp, (h.hive + h.hp) * prices.hive);
       add("HBD", "Hive", h.hbd + h.hbdSavings, (h.hbd + h.hbdSavings) * prices.hbd);
@@ -245,6 +250,18 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                   <div className="flex flex-wrap items-center gap-2">
                     {/* Plain text, always. A token label is never an <a>, never
                         a title-linkified string — see lib/token-label.ts. */}
+                    {a.icon && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={a.icon}
+                        alt=""
+                        aria-hidden
+                        width={18}
+                        height={18}
+                        className="h-[18px] w-[18px] shrink-0 rounded-full"
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      />
+                    )}
                     <span className="text-sm font-semibold text-foreground">{a.symbol}</span>
                     {a.untrusted && <UnverifiedTag hostile={a.hostileLabel} />}
                     {a.chains.map((c) => (

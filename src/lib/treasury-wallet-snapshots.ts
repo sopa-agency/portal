@@ -15,7 +15,7 @@ const EVERY_MS = 60 * 60 * 1000;
 
 /** Carteiras únicas por endereço. Uma mesma carteira listada em dois portais
  *  (a SOPA agrega gnars e skatehive) é UMA leitura, não duas. */
-function wallets(): { projectSlug: string; label: string; address: string }[] {
+export function treasuryWallets(): { projectSlug: string; label: string; address: string }[] {
   const seen = new Map<string, { projectSlug: string; label: string; address: string }>();
   for (const p of getAllProjects()) {
     for (const w of p.treasury?.ethWallets ?? []) {
@@ -33,7 +33,7 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
     .catch(() => null);
   if (last && now - last.takenAt.getTime() < EVERY_MS * 0.9) return { ran: false, reason: "ainda não é hora" };
 
-  const list = wallets();
+  const list = treasuryWallets();
   let wrote = 0;
   let skipped = 0;
   for (const w of list) {

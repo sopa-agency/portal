@@ -32,6 +32,9 @@ export type EvmToken = {
   hostileLabel?: boolean;
   /** Full name from the indexer, sanitised — for the row's second line. */
   name?: string;
+  /** Logo do token, quando o indexador tem. Enfeite, não credencial: token de
+   *  phishing também traz logo. A marca `untrusted` continua mandando. */
+  icon?: string | null;
 };
 
 export type EvmWalletReport = {
@@ -433,6 +436,7 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
           valueUsd: t.valueUsd,
           untrusted: t.untrusted,
           hostileLabel: t.suspicious,
+          icon: t.icon,
         }),
       );
       return { address: addr, chain: null, totalUsd: z.totalUsd, tokens, failedChains: [], source: "zerion" };

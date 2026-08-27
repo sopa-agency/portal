@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { TreasurySeries } from "@/lib/treasury-history";
+import { fetchWalletChart } from "@/app/actions/treasury-chart";
 
 // Uma linha por tesouro, sobrepostas. Substitui a barra empilhada, que só sabia
 // dizer a composição de HOJE e não mostrava movimento nenhum.
@@ -23,6 +24,7 @@ const money = (n: number) =>
 export function TreasuryHistoryChart({
   wallets,
   streams,
+  failed = [],
 }: {
   /** Saldo por CARTEIRA de tesouro. É o que a página pede por padrão. */
   wallets: TreasurySeries[];
@@ -31,11 +33,30 @@ export function TreasuryHistoryChart({
    *  que é como o org-chart classifica aquele stream — e ler isso como "tesouro
    *  da Gnars" seria errado. */
   streams: TreasurySeries[];
+  /** Carteiras cuja leitura FALHOU. Aparecem nomeadas: some da linha é
+   *  diferente de valer zero, e o usuário precisa saber qual é qual. */
+  failed?: string[];
 }) {
   // Começa no que TEM dado: as carteiras só acumulam ponto a partir do segundo
   // tick, então logo depois do deploy a única série com linha é a de streams.
   const [src, setSrc] = useState<"wallets" | "streams">(wallets.length ? "wallets" : "streams");
-  const series = src === "wallets" ? wallets : streams;
+  const [period, setPeriod] = useState("month");
+  const [live, setLive] = useState<TreasurySeries[] | null>(null);
+  const [liveFailed, setLiveFailed] = useState<string[]>(failed);
+  const [loading, setLoading] = useState(false);
+
+  const changePeriod = async (next: string) => {
+    setPeriod(next);
+    setLoading(true);
+    const r = await fetchWalletChart(next);
+    setLoading(false);
+    if (r.ok) {
+      setLive(r.series);
+      setLiveFailed(r.failed);
+    }
+  };
+
+  const series = src === "wallets" ? (live ?? wallets) : streams;
   // A COR é fixada pelo cardId ordenado, NÃO pela ordem de exibição (que segue
   // valor). Ordenar por valor e colorir por posição repintaria as linhas toda
   // vez que um tesouro passasse o outro.
@@ -100,6 +121,22 @@ export function TreasuryHistoryChart({
           </p>
         </div>
         <div className="flex items-center gap-1.5">
+          {src === "wallets" && (
+            <select
+              value={period}
+              onChange={(e) => changePeriod(e.target.value)}
+              disabled={loading}
+              aria-label="Período do gráfico"
+              className="rounded-lg border border-border bg-surface-elevated px-2 py-1 text-[11px] font-medium text-foreground-muted focus:border-accent-border focus:outline-none disabled:opacity-50"
+            >
+              <option value="day">24h</option>
+              <option value="week">7 dias</option>
+              <option value="month">1 mês</option>
+              <option value="3months">3 meses</option>
+              <option value="year">1 ano</option>
+              <option value="max">tudo</option>
+            </select>
+          )}
           {wallets.length > 0 && streams.length > 0 && (
             <button
               type="button"
@@ -228,7 +265,9 @@ export function TreasuryHistoryChart({
 
       {hoverDay && !table && (
         <div className="mt-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">{hoverDay}</p>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">
+            {hoverDay.length > 10 ? new Date(hoverDay).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : hoverDay}
+          </p>
           <div className="flex flex-wrap gap-x-4 gap-y-0.5">
             {series.map((s) => {
               const pt = s.points.find((p) => p.t === hoverDay);
@@ -242,6 +281,12 @@ export function TreasuryHistoryChart({
             })}
           </div>
         </div>
+      )}
+
+      {src === "wallets" && liveFailed.length > 0 && (
+        <p className="mt-2 text-[11px] text-warning">
+          ⚠ não consegui ler {liveFailed.join(", ")} — ausente da linha, o que NÃO é o mesmo que zero
+        </p>
       )}
 
       {/* legenda — sempre presente com 2+ séries */}

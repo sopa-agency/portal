@@ -1,5 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { zerionChart, type ChartPeriod } from "@/lib/zerion";
+import { treasuryWallets } from "@/lib/treasury-wallet-snapshots";
 
 // Série histórica de saldo por tesouro, a partir dos snapshots que o cron já
 // grava de hora em hora (RevenueSnapshot). Nada aqui vai à rede: é leitura de
@@ -109,4 +111,38 @@ export async function getTreasuryWalletHistory(
     out.push({ cardId: address, label: e.label, points, latestUsd: points[points.length - 1].usd });
   }
   return out.sort((a, b) => b.latestUsd - a.latestUsd);
+}
+
+/**
+ * Histórico por carteira vindo DIRETO da Zerion.
+ *
+ * Preferido sobre o snapshot próprio para desenhar a linha: a Zerion devolve
+ * meses de profundidade na primeira chamada, enquanto a nossa tabela leva
+ * semanas para acumular o mesmo. O snapshot continua rodando como registro
+ * independente e como rede de segurança se a cota estourar.
+ *
+ * Uma chamada por carteira, cacheada por período dentro do cliente Zerion.
+ */
+export async function getTreasuryWalletChart(
+  period: ChartPeriod = "month",
+  only?: { slug: string },
+): Promise<{ series: TreasurySeries[]; failed: string[] }> {
+  const wallets = treasuryWallets().filter((w) => !only || w.projectSlug === only.slug);
+  const series: TreasurySeries[] = [];
+  const failed: string[] = [];
+
+  const reads = await Promise.all(
+    wallets.map(async (w) => ({ w, chart: await zerionChart(w.address, period).catch(() => ({ ok: false as const, error: "falhou" })) })),
+  );
+
+  for (const { w, chart } of reads) {
+    // Carteira que não leu entra em `failed`, NÃO vira linha reta no zero.
+    if (!chart.ok || chart.points.length < 2) {
+      failed.push(w.label);
+      continue;
+    }
+    const points = chart.points.map((p) => ({ t: new Date(p.t * 1000).toISOString(), usd: p.v }));
+    series.push({ cardId: w.address, label: w.label, points, latestUsd: points[points.length - 1].usd });
+  }
+  return { series: series.sort((a, b) => b.latestUsd - a.latestUsd), failed };
 }

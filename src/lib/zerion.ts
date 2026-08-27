@@ -37,6 +37,11 @@ export type ZerionToken = {
   valueUsd: number | null;
   untrusted: boolean;
   suspicious: boolean;
+  /** URL do logo do token, quando a Zerion tem. É imagem de terceiro: vale como
+   *  enfeite, NUNCA como prova de que o token é legítimo — um token de phishing
+   *  também traz logo bonito. Por isso `untrusted`/`suspicious` continuam
+   *  mandando na forma como a linha é exibida. */
+  icon: string | null;
 };
 
 export type ZerionRead =
@@ -50,7 +55,7 @@ type Position = {
   attributes?: {
     quantity?: { numeric?: string; float?: number };
     value?: number | null;
-    fungible_info?: { symbol?: string; name?: string; flags?: { verified?: boolean } };
+    fungible_info?: { symbol?: string; name?: string; icon?: { url?: string }; flags?: { verified?: boolean } };
     flags?: { displayable?: boolean };
   };
   relationships?: { chain?: { data?: { id?: string } } };
@@ -113,6 +118,7 @@ export async function zerionBalances(address: string): Promise<ZerionRead> {
         valueUsd: typeof a.value === "number" ? a.value : null,
         untrusted: true,
         suspicious,
+        icon: typeof a.fungible_info?.icon?.url === "string" ? a.fungible_info.icon.url : null,
       });
       chains.add(chain);
     }
@@ -172,6 +178,68 @@ export async function zerionShapeProbe(address: string): Promise<Record<string, 
       chavesTopo: rows[0] ? Object.keys(rows[0].attributes ?? {}) : [],
     };
   } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Histórico de valor da carteira, direto da Zerion.
+//
+// Isto existe porque a Zerion JÁ guarda o histórico: acumular snapshot próprio
+// para desenhar a mesma linha significaria esperar semanas por um dado que a
+// API entrega pronto, com meses de profundidade, na primeira chamada.
+//
+// RACIONADO: pelo que o swaps.pro documenta, este endpoint divide um quarto da
+// cota do plano com PnL e posições DeFi, e essa fatia NÃO tem overage. Por isso
+// o cache é por período e agressivo — um gráfico de um mês não muda de minuto
+// em minuto, e só os períodos curtos precisam ser frescos.
+// ---------------------------------------------------------------------------
+
+export const CHART_PERIODS = ["day", "week", "month", "3months", "year", "max"] as const;
+export type ChartPeriod = (typeof CHART_PERIODS)[number];
+
+const CHART_TTL_MS: Record<ChartPeriod, number> = {
+  day: 300_000,
+  week: 900_000,
+  month: 3_600_000,
+  "3months": 3_600_000,
+  year: 21_600_000,
+  max: 43_200_000,
+};
+
+export type ZerionChart = { ok: true; points: { t: number; v: number }[] } | { ok: false; error: string };
+
+const chartCache = new Map<string, { at: number; value: ZerionChart }>();
+
+export async function zerionChart(address: string, period: ChartPeriod): Promise<ZerionChart> {
+  const addr = address.trim().toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(addr)) return { ok: false, error: "endereço inválido" };
+
+  const ck = `${addr}:${period}`;
+  const hit = chartCache.get(ck);
+  if (hit && Date.now() - hit.at < CHART_TTL_MS[period]) return hit.value;
+
+  const key = process.env.ZERION_API_KEY?.trim();
+  if (!key) return { ok: false, error: "ZERION_API_KEY não configurada" };
+
+  try {
+    const res = await fetch(`https://api.zerion.io/v1/wallets/${addr}/charts/${period}?currency=usd`, {
+      headers: { authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`, accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return { ok: false, error: `Zerion HTTP ${res.status}` };
+    const body = (await res.json()) as { data?: { attributes?: { points?: unknown[] } } };
+    const raw = Array.isArray(body.data?.attributes?.points) ? body.data.attributes.points : [];
+    // Cada ponto é [segundos unix, valor].
+    const points = raw
+      .map((p) => (Array.isArray(p) ? { t: Number(p[0]), v: Number(p[1]) } : null))
+      .filter((p): p is { t: number; v: number } => !!p && Number.isFinite(p.t) && Number.isFinite(p.v));
+    const out: ZerionChart = { ok: true, points };
+    chartCache.set(ck, { at: Date.now(), value: out });
+    return out;
+  } catch (e) {
+    // Falha NUNCA vira série vazia silenciosa — quem chama decide o que exibir.
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
