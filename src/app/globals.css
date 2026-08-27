@@ -1197,3 +1197,74 @@ body {
 .org-canvas[data-panning="true"] * {
   cursor: grabbing !important;
 }
+
+/* ── Org-chart branch fold/unfold ───────────────────────────────────────────
+   Cards and connectors are MOVED by a rAF tween in the canvas component (they
+   have to travel together, and SVG path data can't be transitioned in CSS).
+   What lives here is only the arriving and departing: a card that appears
+   settles in from slightly small, and a card that folds away shrinks a touch
+   as it goes.
+
+   Asymmetric on purpose. Unfolding is the answer to a question you just asked,
+   so it gets the longer, springier curve; folding is housekeeping, so it gets
+   out of the way in barely more than half the time. */
+@keyframes org-node-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes org-node-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes org-edge-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* `backwards` holds the from-state through the stagger delay, so a card that
+   waits its turn waits invisible instead of flashing in and then animating. */
+.org-node-in {
+  animation: org-node-in 300ms cubic-bezier(0.32, 1.02, 0.35, 1) backwards;
+}
+
+.org-edge-in {
+  animation: org-edge-in 320ms ease-out backwards;
+  animation-delay: 60ms;
+}
+
+/* `forwards` keeps them gone for the frames between the animation ending and
+   React unmounting them. */
+.org-node-out {
+  animation: org-node-out 190ms ease-in forwards;
+}
+
+.org-edge-out {
+  animation: org-edge-in 150ms ease-in reverse forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .org-node-in,
+  .org-node-out,
+  .org-edge-in,
+  .org-edge-out {
+    animation: none;
+  }
+}

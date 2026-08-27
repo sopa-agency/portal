@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -27,6 +26,16 @@ const GAP_Y = 78;
 const PAD = 64; // world padding around the layout bounds
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2;
+/** How long the tree takes to settle into a new shape. */
+const MOVE_MS = 340;
+/** Folding away is quicker than unfolding: leaving shouldn't cost attention. */
+const EXIT_MS = 190;
+
+type Point = { x: number; y: number };
+
+const edgeKey = (from: string, to: string) => `${from}\u2192${to}`;
+const easeOut = (u: number) => 1 - Math.pow(1 - u, 3);
+const lerp = (a: Point, b: Point, e: number) => ({ x: a.x + (b.x - a.x) * e, y: a.y + (b.y - a.y) * e });
 
 export type TreeLike = { id: string; children: TreeLike[] };
 
@@ -37,6 +46,8 @@ export type Placed<T> = {
   x: number;
   y: number;
   depth: number;
+  /** Position among its siblings — the reveal fans out left to right. */
+  siblingIndex: number;
   hasChildren: boolean;
   collapsed: boolean;
 };
@@ -62,7 +73,7 @@ export function layoutTree<T extends TreeLike>(roots: T[], collapsed: Set<string
   const edges: Edge[] = [];
   let cursor = PAD;
 
-  function walk(node: T, depth: number): number {
+  function walk(node: T, depth: number, siblingIndex: number): number {
     const isCollapsed = collapsed.has(node.id);
     const kids = (isCollapsed ? [] : node.children) as T[];
     let cx: number;
@@ -70,7 +81,7 @@ export function layoutTree<T extends TreeLike>(roots: T[], collapsed: Set<string
       cx = cursor + NODE_W / 2;
       cursor += NODE_W + GAP_X;
     } else {
-      const centres = kids.map((k) => walk(k, depth + 1));
+      const centres = kids.map((k, i) => walk(k, depth + 1, i));
       cx = (centres[0] + centres[centres.length - 1]) / 2;
       for (const k of kids) edges.push({ from: node.id, to: k.id });
     }
@@ -80,13 +91,14 @@ export function layoutTree<T extends TreeLike>(roots: T[], collapsed: Set<string
       x: cx - NODE_W / 2,
       y: PAD + depth * (NODE_H + GAP_Y),
       depth,
+      siblingIndex,
       hasChildren: node.children.length > 0,
       collapsed: isCollapsed,
     });
     return cx;
   }
 
-  for (const r of roots) walk(r, 0);
+  roots.forEach((r, i) => walk(r, 0, i));
 
   const maxX = placed.reduce((m, p) => Math.max(m, p.x + NODE_W), 0);
   const maxY = placed.reduce((m, p) => Math.max(m, p.y + NODE_H), 0);
@@ -100,10 +112,10 @@ export function layoutTree<T extends TreeLike>(roots: T[], collapsed: Set<string
 }
 
 /** Anchor points a connector runs between (bottom-centre → top-centre). */
-const outAnchor = (p: Placed<unknown>) => ({ x: p.x + NODE_W / 2, y: p.y + NODE_H });
-const inAnchor = (p: Placed<unknown>) => ({ x: p.x + NODE_W / 2, y: p.y });
+const outAnchor = (p: Point) => ({ x: p.x + NODE_W / 2, y: p.y + NODE_H });
+const inAnchor = (p: Point) => ({ x: p.x + NODE_W / 2, y: p.y });
 
-function edgePath(a: { x: number; y: number }, b: { x: number; y: number }) {
+function edgePath(a: Point, b: Point) {
   const dy = Math.max(24, (b.y - a.y) * 0.55);
   return `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}`;
 }
@@ -140,14 +152,36 @@ export function OrgCanvas<T extends TreeLike>({
 
   const clampK = (k: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, k));
 
+  // A transform the USER didn't drag — a fit, a zoom button, the re-fit after a
+  // branch folds — eases instead of teleporting. A gesture must never ease: a
+  // transition on the plane would rubber-band under the pointer.
+  const [smooth, setSmooth] = useState(false);
+  const smoothTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const glide = useCallback(() => {
+    setSmooth(true);
+    if (smoothTimer.current) clearTimeout(smoothTimer.current);
+    smoothTimer.current = setTimeout(() => setSmooth(false), MOVE_MS + 60);
+  }, []);
+  const cutGlide = useCallback(() => {
+    if (smoothTimer.current) {
+      clearTimeout(smoothTimer.current);
+      smoothTimer.current = null;
+    }
+    setSmooth(false);
+  }, []);
+  useEffect(() => () => {
+    if (smoothTimer.current) clearTimeout(smoothTimer.current);
+  }, []);
+
   const fit = useCallback(() => {
     const el = hostRef.current;
     if (!el || !layout.width || !layout.height) return;
     const { clientWidth: cw, clientHeight: ch } = el;
     if (!cw || !ch) return;
     const k = clampK(Math.min(cw / layout.width, ch / layout.height, 1));
+    glide();
     setT({ k, x: (cw - layout.width * k) / 2, y: (ch - layout.height * k) / 2 });
-  }, [layout.width, layout.height]);
+  }, [layout.width, layout.height, glide]);
 
   // Fit once per distinct layout size (a node added/collapsed re-fits, panning
   // around does not snap back).
@@ -189,9 +223,10 @@ export function OrgCanvas<T extends TreeLike>({
       const el = hostRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
+      glide();
       zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
     },
-    [zoomAt],
+    [zoomAt, glide],
   );
 
   // Wheel: trackpad two-finger scroll pans, pinch (ctrl/⌘ + wheel) zooms — the
@@ -202,6 +237,7 @@ export function OrgCanvas<T extends TreeLike>({
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      cutGlide();
       if (e.ctrlKey || e.metaKey) {
         zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY / 220));
       } else {
@@ -210,7 +246,7 @@ export function OrgCanvas<T extends TreeLike>({
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [zoomAt]);
+  }, [zoomAt, cutGlide]);
 
   // Pointer pan + two-finger pinch. Dragging only starts on the canvas surface
   // itself, so buttons and cards keep their own click behaviour.
@@ -255,6 +291,7 @@ export function OrgCanvas<T extends TreeLike>({
       // movement rather than nudging the plane by a pixel.
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
       d.moved = true;
+      cutGlide();
       // Armed here, not on pointerup: browsers disagree on whether
       // lostpointercapture lands before or after pointerup, and a pan that ends
       // over a card must never also open it.
@@ -282,15 +319,144 @@ export function OrgCanvas<T extends TreeLike>({
     e.preventDefault();
   }
 
-  const paths = useMemo(
-    () =>
-      layout.edges.map((e) => {
-        const a = layout.byId.get(e.from);
-        const b = layout.byId.get(e.to);
-        if (!a || !b) return null;
-        return { ...e, d: edgePath(outAnchor(a), inAnchor(b)) };
-      }),
-    [layout],
+  /* ── Reshaping the tree ───────────────────────────────────────────────────
+     Folding a branch moves every card that was standing to its right. Letting
+     React write the new coordinates would snap them there, and — worse — the
+     connectors would snap while the cards eased, so the lines would detach
+     from the cards they connect for the length of the transition.
+
+     So positions are tweened in one rAF loop that writes cards AND paths from
+     the same interpolated state, straight to the DOM. React owns what exists;
+     this loop owns where it sits. ────────────────────────────────────────── */
+  // Keyed by RENDER slot, not by node id: a card that is folding away and the
+  // same card already unfolding again coexist for a few frames, and one's
+  // unmount must not evict the other's element. What each slot points AT is
+  // carried in the value.
+  const nodeEls = useRef(new Map<string, { el: HTMLDivElement; id: string }>());
+  const pathEls = useRef(new Map<string, { el: SVGPathElement; from: string; to: string }>());
+  const posRef = useRef(new Map<string, Point>());
+  const prevLayout = useRef<Layout<T> | null>(null);
+  const raf = useRef(0);
+  const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Cards on their way out: React can't unmount them until they've faded, so
+  // they outlive the layout that dropped them.
+  const [leaving, setLeaving] = useState<{ nodes: Placed<T>[]; edges: Edge[] }>({ nodes: [], edges: [] });
+
+  const paint = useCallback((pos: Map<string, Point>) => {
+    for (const { el, id } of nodeEls.current.values()) {
+      const p = pos.get(id);
+      if (p) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+    }
+    for (const { el, from, to } of pathEls.current.values()) {
+      const a = pos.get(from);
+      const b = pos.get(to);
+      if (a && b) el.setAttribute("d", edgePath(outAnchor(a), inAnchor(b)));
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    const prev = prevLayout.current;
+    prevLayout.current = layout;
+    const next = new Map<string, Point>(layout.placed.map((p) => [p.id, { x: p.x, y: p.y }]));
+
+    const reduced =
+      typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // First commit, or motion turned off: land on the answer.
+    if (!prev || reduced) {
+      posRef.current = next;
+      paint(next);
+      return;
+    }
+
+    const was = posRef.current;
+    const prevParent = new Map(prev.edges.map((e) => [e.to, e.from]));
+    const nextParent = new Map(layout.edges.map((e) => [e.to, e.from]));
+    const gone = prev.placed.filter((p) => !layout.byId.has(p.id));
+
+    const from = new Map<string, Point>();
+    const to = new Map<string, Point>();
+
+    for (const p of layout.placed) {
+      const end = { x: p.x, y: p.y };
+      to.set(p.id, end);
+      const before = was.get(p.id);
+      if (before) {
+        from.set(p.id, before);
+        continue;
+      }
+      // Arriving: unfold OUT of wherever its parent was standing, so a branch
+      // reads as opening from its own root rather than materialising.
+      const parent = nextParent.get(p.id);
+      const anchor = parent ? was.get(parent) ?? next.get(parent) : undefined;
+      from.set(p.id, anchor ?? end);
+    }
+    for (const g of gone) {
+      const start = was.get(g.id) ?? { x: g.x, y: g.y };
+      from.set(g.id, start);
+      // Departing: pulled back into the parent that swallowed it.
+      const parent = prevParent.get(g.id);
+      const anchor = parent ? next.get(parent) ?? was.get(parent) : undefined;
+      to.set(g.id, anchor ?? start);
+    }
+
+    if (gone.length > 0) {
+      const goneIds = new Set(gone.map((g) => g.id));
+      setLeaving({ nodes: gone, edges: prev.edges.filter((e) => goneIds.has(e.to)) });
+      if (exitTimer.current) clearTimeout(exitTimer.current);
+      exitTimer.current = setTimeout(() => setLeaving({ nodes: [], edges: [] }), EXIT_MS);
+    }
+
+    cancelAnimationFrame(raf.current);
+    // Paint frame zero synchronously. Arriving cards have no transform of their
+    // own yet, so if the first rAF ever landed after a paint they'd flash at the
+    // plane's origin — this makes that impossible rather than unlikely.
+    posRef.current = from;
+    paint(from);
+
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const u = Math.min(1, (now - t0) / MOVE_MS);
+      const e = easeOut(u);
+      const cur = new Map<string, Point>();
+      for (const [id, a] of from) cur.set(id, lerp(a, to.get(id) ?? a, e));
+      posRef.current = cur;
+      paint(cur);
+      if (u < 1) raf.current = requestAnimationFrame(step);
+      else posRef.current = next;
+    };
+    raf.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf.current);
+  }, [layout, paint]);
+
+  // The cards that just mounted for the exit animation need placing on their
+  // very first frame, or they'd flash at the plane's origin. posRef still holds
+  // the outgoing positions here — the tween's first frame hasn't run yet.
+  useLayoutEffect(() => {
+    if (leaving.nodes.length > 0) paint(posRef.current);
+  }, [leaving, paint]);
+
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(raf.current);
+      if (exitTimer.current) clearTimeout(exitTimer.current);
+    },
+    [],
+  );
+
+  const nodeRef = useCallback(
+    (slot: string, id: string) => (el: HTMLDivElement | null) => {
+      if (el) nodeEls.current.set(slot, { el, id });
+      else nodeEls.current.delete(slot);
+    },
+    [],
+  );
+  const pathRef = useCallback(
+    (slot: string, from: string, to: string) => (el: SVGPathElement | null) => {
+      if (el) pathEls.current.set(slot, { el, from, to });
+      else pathEls.current.delete(slot);
+    },
+    [],
   );
 
   return (
@@ -308,6 +474,11 @@ export function OrgCanvas<T extends TreeLike>({
         backgroundImage: "radial-gradient(circle at center, var(--canvas-dot) 1px, transparent 1px)",
         backgroundSize: `${28 * t.k}px ${28 * t.k}px`,
         backgroundPosition: `${t.x}px ${t.y}px`,
+        // The grid is painted on the host, not the plane, so it needs the same
+        // easing or the texture slides out of step with the cards.
+        transition: smooth
+          ? `background-position ${MOVE_MS}ms cubic-bezier(0.32, 1.02, 0.35, 1), background-size ${MOVE_MS}ms cubic-bezier(0.32, 1.02, 0.35, 1)`
+          : undefined,
         touchAction: "none",
       }}
     >
@@ -317,6 +488,7 @@ export function OrgCanvas<T extends TreeLike>({
           width: layout.width,
           height: layout.height,
           transform: `translate3d(${t.x}px, ${t.y}px, 0) scale(${t.k})`,
+          transition: smooth ? `transform ${MOVE_MS}ms cubic-bezier(0.32, 1.02, 0.35, 1)` : undefined,
         }}
       >
         <svg
@@ -325,36 +497,64 @@ export function OrgCanvas<T extends TreeLike>({
           height={layout.height}
           aria-hidden
         >
-          {paths.map((p) =>
-            p ? (
-              <path
-                key={`${p.from}-${p.to}`}
-                d={p.d}
-                fill="none"
-                strokeWidth={activeEdgeIds?.has(p.to) ? 2 : 1.25}
-                className={
-                  activeEdgeIds?.has(p.to)
-                    ? "stroke-accent transition-[stroke-width]"
-                    : "stroke-border-strong transition-[stroke-width]"
-                }
-                strokeLinecap="round"
-              />
-            ) : null,
-          )}
+          {/* `d` is never written from JSX — the tween owns it (see paint). */}
+          {layout.edges.map((e) => (
+            <path
+              key={edgeKey(e.from, e.to)}
+              ref={pathRef(`live-${edgeKey(e.from, e.to)}`, e.from, e.to)}
+              fill="none"
+              strokeWidth={activeEdgeIds?.has(e.to) ? 2 : 1.25}
+              className={`org-edge-in transition-[stroke-width] ${
+                activeEdgeIds?.has(e.to) ? "stroke-accent" : "stroke-border-strong"
+              }`}
+              strokeLinecap="round"
+            />
+          ))}
+          {leaving.edges.map((e) => (
+            <path
+              key={`leaving-${edgeKey(e.from, e.to)}`}
+              ref={pathRef(`leaving-${edgeKey(e.from, e.to)}`, e.from, e.to)}
+              fill="none"
+              strokeWidth={1.25}
+              className="org-edge-out stroke-border-strong"
+              strokeLinecap="round"
+            />
+          ))}
         </svg>
 
         {layout.placed.map((p) => (
           <div
             key={p.id}
-            className="absolute transition-[opacity,transform] duration-200"
-            style={{
-              left: p.x,
-              top: p.y,
-              width: NODE_W,
-              opacity: dimmedIds?.has(p.id) ? 0.22 : 1,
-            }}
+            ref={nodeRef(`live-${p.id}`, p.id)}
+            className="absolute left-0 top-0"
+            style={{ width: NODE_W }}
           >
-            {renderNode(p)}
+            {/* Separate element: the entrance animates transform, and the
+                wrapper's transform is the card's position on the plane. */}
+            <div
+              className="org-node-in"
+              style={{
+                // Siblings fan out left to right, levels cascade downward — the
+                // branch reads as unfolding rather than blinking into place.
+                animationDelay: `${Math.min(p.depth * 24 + p.siblingIndex * 30, 210)}ms`,
+                opacity: dimmedIds?.has(p.id) ? 0.22 : undefined,
+                transition: "opacity 200ms",
+              }}
+            >
+              {renderNode(p)}
+            </div>
+          </div>
+        ))}
+
+        {leaving.nodes.map((placed) => (
+          <div
+            key={`leaving-${placed.id}`}
+            ref={nodeRef(`leaving-${placed.id}`, placed.id)}
+            aria-hidden
+            className="pointer-events-none absolute left-0 top-0"
+            style={{ width: NODE_W }}
+          >
+            <div className="org-node-out">{renderNode(placed)}</div>
           </div>
         ))}
       </div>
@@ -378,7 +578,10 @@ export function OrgCanvas<T extends TreeLike>({
           </button>
           <button
             type="button"
-            onClick={() => setT((prev) => ({ ...prev, k: 1 }))}
+            onClick={() => {
+              glide();
+              setT((prev) => ({ ...prev, k: 1 }));
+            }}
             className="min-w-[3.25rem] rounded-full px-2 py-1 text-center font-mono text-[11px] font-semibold text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
             title={t9n.resetZoom}
           >
@@ -409,6 +612,7 @@ export function OrgCanvas<T extends TreeLike>({
               const el = hostRef.current;
               const root = layout.placed.find((p) => p.depth === 0);
               if (!el || !root) return;
+              glide();
               setT((prev) => ({
                 ...prev,
                 x: el.clientWidth / 2 - (root.x + NODE_W / 2) * prev.k,
