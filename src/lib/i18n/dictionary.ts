@@ -377,8 +377,8 @@ const en = {
     /** Collapsed owner-tool sections. Only their headers are wired — the panels
      *  inside (MOR pipeline, staking) still render their own hardcoded copy. */
     ops: {
-      mor: "MOR operations",
-      morHint: "MOR→USDC pipeline · subnet stake · advancing is permissionless, claiming is haxixe.eth's",
+      mor: "Operate",
+      morHint: "MOR→USDC pipeline · subnet stake · deploy · how it works — owner tools, out of the way",
       multisig: "Multisig activity",
       multisigHint: "bounty budgets · proposal queue",
     },
@@ -1761,8 +1761,8 @@ const pt: typeof en = {
       tabHint: "custos e runway do projeto selecionado",
     },
     ops: {
-      mor: "Operações MOR",
-      morHint: "pipeline MOR→USDC · stake na subnet · avançar é permissionless, reivindicar é da haxixe.eth",
+      mor: "Operar",
+      morHint: "pipeline MOR→USDC · stake na subnet · deploy · como funciona — ferramentas de owner, fora do caminho",
       multisig: "Atividade do multisig",
       multisigHint: "orçamentos de bounty · fila de propostas",
     },

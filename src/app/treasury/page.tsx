@@ -321,6 +321,10 @@ treasury: {
           {/* TEMP: deploy + dry-run the native-swap flash filler (haxixe only). Delete after wiring the real Swap A/B buttons. */}
           <NativeSwapDeployPanel />
           <SopaStakePanel />
+          {/* O didático mora junto da coisa que ele explica, não na tela de
+              consulta. Vem por último: quem abriu "Operar" quer a ferramenta;
+              a explicação fica embaixo, para quem precisa dela. */}
+          <MorFlowDiagram />
         </div>
       </details>
       {allocation && (
@@ -578,7 +582,6 @@ treasury: {
           }
           plan={
             <div className="space-y-6">
-              <MorFlowDiagram />
               <FinancialPlan
                 liveStakedUsd={stakePosition?.valueUsd ?? 0}
                 liveApy={stakePosition?.apy ?? null}
