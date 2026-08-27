@@ -36,6 +36,14 @@ type Asset = {
    *  também traz logo bonito, então a marca de não-verificado continua ao lado. */
   icon?: string | null;
   chains: string[];
+  /** Quebra por rede, para a linha abrir sem uma segunda leitura. Padrão que a
+   *  gente pegou do portfolio do swaps.pro: uma linha por ATIVO, expansível —
+   *  em vez de uma linha por (ativo × rede), que multiplica a lista. */
+  parts: { chain: string; balance: number; valueUsd: number | null }[];
+  /** Posição de PROTOCOLO (staking, LP, lending) — dinheiro que rende mas não
+   *  está solto. Vive numa seção separada: misturar com token à vista faz duas
+   *  liquidezes diferentes lerem igual. */
+  protocol?: string | null;
   balance: number;
   valueUsd: number;
   usdUnknown: boolean;
@@ -54,14 +62,18 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
     untrusted = false,
     hostileLabel = false,
     icon: string | null = null,
+    protocol: string | null = null,
   ) => {
     // The key carries `untrusted`, and that is load-bearing: anyone can deploy a
     // token whose symbol is "USDC". Keying on the symbol alone would add the
     // impostor's balance to the real USDC row and inflate the total. An
     // untrusted token never shares a row with a trusted one.
-    const k = `${untrusted ? "u:" : "t:"}${symbol.toUpperCase()}`;
-    const a = map.get(k) ?? { symbol, chains: [], balance: 0, valueUsd: 0, usdUnknown: false, untrusted, hostileLabel, icon };
+    const k = `${untrusted ? "u:" : "t:"}${protocol ? `p:${protocol}:` : ""}${symbol.toUpperCase()}`;
+    // A chave separa protocolo de token solto: "MOR" e "MOR em stake" são
+    // linhas distintas de propósito.
+    const a = map.get(k) ?? { symbol, chains: [], parts: [], balance: 0, valueUsd: 0, usdUnknown: false, untrusted, hostileLabel, icon, protocol };
     if (!a.icon && icon) a.icon = icon;
+    a.parts.push({ chain, balance, valueUsd });
     a.balance += balance;
     if (valueUsd == null) a.usdUnknown = true;
     else a.valueUsd += valueUsd;
@@ -71,7 +83,7 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
   };
   for (const g of groups) {
     const prices = g.report.prices;
-    for (const w of g.report.evm) for (const t of w.tokens) add(t.symbol, t.chain, t.balance, t.valueUsd, t.untrusted, t.hostileLabel, t.icon ?? null);
+    for (const w of g.report.evm) for (const t of w.tokens) add(t.symbol, t.chain, t.balance, t.valueUsd, t.untrusted, t.hostileLabel, t.icon ?? null, t.note ?? null);
     for (const h of g.report.hive) {
       add("HIVE", "Hive", h.hive + h.hp, (h.hive + h.hp) * prices.hive);
       add("HBD", "Hive", h.hbd + h.hbdSavings, (h.hbd + h.hbdSavings) * prices.hbd);
@@ -171,6 +183,16 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
   const evmTotal = groups.reduce((s, g) => s + g.report.evmTotalUsd, 0);
   const hiveTotal = groups.reduce((s, g) => s + g.report.hiveTotalUsd, 0);
   const assets = useMemo(() => aggregateAssets(groups), [groups]);
+  // Linhas abertas. Uma linha por ATIVO; a quebra por rede vive dentro dela, e
+  // só existe para quem clica — a lista fica curta por padrão.
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set());
+  const toggleRow = (k: string) =>
+    setOpenRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
   const walletCount = groups.reduce((s, g) => s + g.report.evm.length + g.report.hive.length, 0);
   const chainCount = new Set(assets.flatMap((a) => a.chains)).size;
 
@@ -237,14 +259,29 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
         </div>
       </div>
 
-      {/* Holdings list */}
-      {assets.length > 0 && (
-        <ul className="divide-y divide-border border-t border-border">
-          {assets.map((a) => {
+      {/* Holdings — à vista primeiro, rendendo depois.
+          Separado de propósito: token solto e posição de protocolo têm
+          liquidez diferente e não podem ler como a mesma linha. Padrão vindo do
+          portfolio do swaps.pro, que usa abas para a mesma distinção. */}
+      {(() => {
+        const liquid = assets.filter((a) => !a.protocol);
+        const earning = assets.filter((a) => a.protocol);
+        const renderRow = (a: Asset) => {
             const share = grand > 0 ? (a.valueUsd / grand) * 100 : 0;
             const color = assetColor(a.symbol);
             return (
-              <li key={a.symbol} className="flex items-center gap-3 px-6 py-3">
+              <li key={`${a.protocol ?? ""}:${a.symbol}`} className="px-6 py-3">
+                <div
+                  className={`flex items-center gap-3 ${a.parts.length > 1 ? "cursor-pointer" : ""}`}
+                  onClick={a.parts.length > 1 ? () => toggleRow(`${a.protocol ?? ""}:${a.symbol}`) : undefined}
+                  role={a.parts.length > 1 ? "button" : undefined}
+                  tabIndex={a.parts.length > 1 ? 0 : undefined}
+                  onKeyDown={
+                    a.parts.length > 1
+                      ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(`${a.protocol ?? ""}:${a.symbol}`); } }
+                      : undefined
+                  }
+                >
                 <Monogram symbol={a.symbol} color={color} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -303,11 +340,42 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                     </>
                   )}
                 </div>
+                </div>
+                {a.parts.length > 1 && openRows.has(`${a.protocol ?? ""}:${a.symbol}`) && (
+                  <ul className="ml-10 mt-2 space-y-1 border-l border-border pl-3">
+                    {[...a.parts]
+                      .sort((x, y) => (y.valueUsd ?? 0) - (x.valueUsd ?? 0))
+                      .map((pt, i) => (
+                        <li key={`${pt.chain}-${i}`} className="flex items-center gap-2 text-[11px]">
+                          <span className="uppercase tracking-wider text-foreground-faint">{pt.chain}</span>
+                          <span className="tabular-nums text-foreground-muted">{num(pt.balance, 4)}</span>
+                          <span className="ml-auto tabular-nums text-foreground-subtle">
+                            {pt.valueUsd == null ? "USD n/d" : usd(pt.valueUsd)}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                )}
               </li>
             );
-          })}
-        </ul>
-      )}
+          };
+        return (
+          <>
+            {liquid.length > 0 && <ul className="divide-y divide-border border-t border-border">{liquid.map(renderRow)}</ul>}
+            {earning.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">
+                  <Layers className="h-3.5 w-3.5 text-foreground-faint" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
+                    rendendo — sai com unstake
+                  </span>
+                </div>
+                <ul className="divide-y divide-border">{earning.map(renderRow)}</ul>
+              </>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
