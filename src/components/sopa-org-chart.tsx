@@ -136,6 +136,10 @@ export function SopaOrgChart({
   // Bumped by "collapse/expand all" — the one gesture that also means "and put
   // the cards I dragged back where they belong".
   const [resetToken, setResetToken] = useState(0);
+  // The card that must not move when the tree reshapes. Folding a branch pins
+  // the card you clicked; folding everything pins the root, which is the card
+  // people read the whole chart from.
+  const [anchorId, setAnchorId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -213,6 +217,7 @@ export function SopaOrgChart({
   );
 
   function toggleCollapse(id: string) {
+    setAnchorId(id);
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -221,7 +226,10 @@ export function SopaOrgChart({
     });
   }
 
+  const rootId = useMemo(() => cards.find((c) => c.parentId === null)?.id ?? null, [cards]);
+
   function addChild(parentId: string, title: string) {
+    setAnchorId(parentId);
     // A new child inside a folded branch would vanish — unfold as we add.
     setCollapsed((prev) => {
       if (!prev.has(parentId)) return prev;
@@ -309,6 +317,7 @@ export function SopaOrgChart({
       <OrgCanvas
         layout={layout}
         resetToken={resetToken}
+        anchorId={anchorId}
         activeEdgeIds={activeEdgeIds}
         dimmedIds={dimmedIds}
         emptyHint={<p className="text-sm text-foreground-faint">{t.canvas.empty}</p>}
@@ -329,6 +338,7 @@ export function SopaOrgChart({
               <ChevronsDownUp className="h-4 w-4" />
             ),
             onClick: () => {
+              setAnchorId(rootId);
               setCollapsed(allCollapsed ? new Set() : new Set(allParents));
               setResetToken((n) => n + 1);
             },

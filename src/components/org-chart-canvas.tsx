@@ -38,6 +38,10 @@ const edgeKey = (from: string, to: string) => `${from}\u2192${to}`;
 // Quartic, not cubic: leaves fast enough to feel like a direct answer to the
 // click, and spends its tail settling instead of drifting.
 const easeOut = (u: number) => 1 - Math.pow(1 - u, 4);
+/** The same curve for CSS. The plane and the cards move together during a
+ *  reshape, so they must not be eased differently or the card the plane is
+ *  compensating for would drift mid-flight. */
+const EASE_CSS = "cubic-bezier(0.165, 0.84, 0.44, 1)";
 const lerp = (a: Point, b: Point, e: number) => ({ x: a.x + (b.x - a.x) * e, y: a.y + (b.y - a.y) * e });
 
 export type TreeLike = { id: string; children: TreeLike[] };
@@ -218,11 +222,14 @@ export function OrgCanvas<T extends TreeLike>({
   emptyHint,
   dockExtra,
   resetToken,
+  anchorId,
 }: {
   layout: Layout<T>;
   renderNode: (p: Placed<T>) => ReactNode;
   /** Bump to send hand-placed cards back to their computed positions. */
   resetToken?: number;
+  /** The card to hold still on screen when the tree changes shape. */
+  anchorId?: string | null;
   /** ids whose incoming edge should be drawn highlighted (root→selected path). */
   activeEdgeIds?: Set<string>;
   /** ids to fade out (search miss). */
@@ -707,6 +714,29 @@ export function OrgCanvas<T extends TreeLike>({
       to.set(g.id, anchor ?? start);
     }
 
+    /* A tidy tree re-centres every parent over its children, so the layout's
+       origin is arbitrary: fold the whole chart and the root travels from the
+       middle of a wide tree to the plane's start. The auto-fit used to hide
+       that by re-framing; without it the root visibly shot across the screen.
+
+       So the PLANE moves by exactly what the anchor card is about to move, and
+       that card stays put while the tree reorganises around it. The plane rides
+       the same duration and the same curve as the cards (EASE_CSS), which is
+       what keeps the anchor still for the whole flight rather than only at the
+       two ends. Compensating the layout instead would have poisoned the
+       hand-drag offsets, which are deltas against a layout slot. */
+    const pin =
+      (anchorId && layout.byId.has(anchorId) ? anchorId : null) ??
+      layout.placed.find((p) => p.depth === 0)?.id;
+    const pinFrom = pin ? was.get(pin) : undefined;
+    const pinTo = pin ? next.get(pin) : undefined;
+    if (pinFrom && pinTo && (pinFrom.x !== pinTo.x || pinFrom.y !== pinTo.y)) {
+      const dx = pinTo.x - pinFrom.x;
+      const dy = pinTo.y - pinFrom.y;
+      glide();
+      setT((prevT) => ({ ...prevT, x: prevT.x - dx * prevT.k, y: prevT.y - dy * prevT.k }));
+    }
+
     if (gone.length > 0) {
       const goneIds = new Set(gone.map((g) => g.id));
       setLeaving({ nodes: gone, edges: prev.edges.filter((e) => goneIds.has(e.to)) });
@@ -716,7 +746,7 @@ export function OrgCanvas<T extends TreeLike>({
 
     runTween(from, to, next);
     return () => cancelAnimationFrame(raf.current);
-  }, [layout, paint, runTween, withOffset]);
+  }, [layout, paint, runTween, withOffset, glide, anchorId]);
 
   // Hand-placed cards go home. Same tween as a fold, so the two never look like
   // different mechanisms.
@@ -816,7 +846,7 @@ export function OrgCanvas<T extends TreeLike>({
         // The grid is painted on the host, not the plane, so it needs the same
         // easing or the texture slides out of step with the cards.
         transition: smooth
-          ? `background-position ${MOVE_MS}ms cubic-bezier(0.32, 1.02, 0.35, 1), background-size ${MOVE_MS}ms cubic-bezier(0.32, 1.02, 0.35, 1)`
+          ? `background-position ${MOVE_MS}ms ${EASE_CSS}, background-size ${MOVE_MS}ms ${EASE_CSS}`
           : undefined,
         touchAction: "none",
       }}
@@ -827,7 +857,7 @@ export function OrgCanvas<T extends TreeLike>({
           width: layout.width,
           height: layout.height,
           transform: `translate3d(${t.x}px, ${t.y}px, 0) scale(${t.k})`,
-          transition: smooth ? `transform ${MOVE_MS}ms cubic-bezier(0.32, 1.02, 0.35, 1)` : undefined,
+          transition: smooth ? `transform ${MOVE_MS}ms ${EASE_CSS}` : undefined,
         }}
       >
         <svg
