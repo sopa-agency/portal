@@ -51,7 +51,11 @@ export async function probeZerionQuota(): Promise<ZerionProbeResult> {
     // Sem header de cota o provedor não expõe o limite — registrar isso é tão
     // útil quanto registrar o número, e evita alguém procurar de novo amanhã.
     if (Object.keys(headers).length === 0) headers["_nota"] = "nenhum header de rate limit na resposta";
-    const out = { ok: res.ok, status: res.status, headers };
+    // Junto da cota, uma leitura real de posições do Safe da SOPA só para provar
+    // o FORMATO que o parser assume. Uma requisição a mais por hora.
+    const { zerionShapeProbe } = await import("@/lib/zerion");
+    const shape = await zerionShapeProbe("0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2").catch(() => ({ ok: false, error: "sonda de formato falhou" }));
+    const out = { ok: res.ok, status: res.status, headers: { ...headers, _shape: JSON.stringify(shape).slice(0, 900) } };
     await save(out);
     return out;
   } catch (e) {

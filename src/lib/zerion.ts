@@ -132,3 +132,46 @@ export async function zerionBalances(address: string): Promise<ZerionRead> {
   cache.set(addr, { at: Date.now(), value: out });
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Sonda de FORMATO.
+//
+// O parser acima foi escrito contra a documentação, não contra uma resposta
+// real: a chave é write-only na Vercel, então ninguém consegue rodar um curl de
+// fora. Se `quantity.float` ou `chain.data.id` tiverem outro nome, zerionBalances
+// devolve lista vazia — e tesouro cheio vira tesouro vazio na tela.
+//
+// Esta sonda roda DENTRO do runtime, que tem a chave, e grava um resumo do
+// FORMATO: quantos itens vieram, quais ids de rede apareceram e se cada campo
+// que o parser depende chegou preenchido. Sem valores de saldo, sem nome de
+// token (texto de terceiro), sem a chave. Só o suficiente para provar ou
+// derrubar o mapeamento.
+// ---------------------------------------------------------------------------
+export async function zerionShapeProbe(address: string): Promise<Record<string, unknown>> {
+  const key = process.env.ZERION_API_KEY?.trim();
+  if (!key) return { ok: false, error: "sem chave" };
+  try {
+    const res = await fetch(
+      `https://api.zerion.io/v1/wallets/${address.toLowerCase()}/positions/?filter[positions]=only_simple&currency=usd&filter[trash]=only_non_trash`,
+      { headers: { authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`, accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(20_000) },
+    );
+    if (!res.ok) return { ok: false, status: res.status };
+    const body = (await res.json()) as { data?: Position[] };
+    const rows = Array.isArray(body.data) ? body.data : [];
+    const chainIds = [...new Set(rows.map((r) => r.relationships?.chain?.data?.id).filter(Boolean))];
+    const has = (f: (p: Position) => unknown) => rows.filter((r) => f(r) != null).length;
+    return {
+      ok: true,
+      status: res.status,
+      itens: rows.length,
+      chainIds,                                  // alimenta o mapa CHAIN_KEY
+      comQuantityFloat: has((r) => r.attributes?.quantity?.float),
+      comQuantityNumeric: has((r) => r.attributes?.quantity?.numeric),
+      comValue: has((r) => r.attributes?.value),
+      comSymbol: has((r) => r.attributes?.fungible_info?.symbol),
+      chavesTopo: rows[0] ? Object.keys(rows[0].attributes ?? {}) : [],
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
