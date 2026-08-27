@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Loader2, RefreshCw } from "lucide-react";
 import type { TreasurySeries } from "@/lib/treasury-history";
 import { fetchWalletChart } from "@/app/actions/treasury-chart";
 
@@ -44,16 +45,30 @@ export function TreasuryHistoryChart({
   const [live, setLive] = useState<TreasurySeries[] | null>(null);
   const [liveFailed, setLiveFailed] = useState<string[]>(failed);
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  const changePeriod = async (next: string) => {
-    setPeriod(next);
+  // The Zerion read is EXPLICIT. One request per wallet per period, so having
+  // every page view pull it burned quota on a number nobody had asked for. The
+  // chart opens on the snapshot the cron already writes — free, ours, no
+  // network — and this button is what buys the depth Zerion has and we don't.
+  const pull = async (p: string) => {
     setLoading(true);
-    const r = await fetchWalletChart(next);
+    setErr(null);
+    const r = await fetchWalletChart(p);
     setLoading(false);
     if (r.ok) {
       setLive(r.series);
       setLiveFailed(r.failed);
+    } else {
+      setErr(r.error);
     }
+  };
+
+  const changePeriod = async (next: string) => {
+    setPeriod(next);
+    // Only once the user has opted into live data does changing the period
+    // fetch on its own; before that the period just arms the button.
+    if (live) await pull(next);
   };
 
   const series = src === "wallets" ? (live ?? wallets) : streams;
@@ -102,8 +117,23 @@ export function TreasuryHistoryChart({
 
   if (!series.length) {
     return (
-      <div className="rounded-xl border border-border bg-surface p-8 text-center text-sm text-foreground-muted">
-        Ainda não há histórico suficiente — o cron grava um ponto por hora e a linha aparece a partir do segundo dia.
+      <div className="rounded-xl border border-border bg-surface p-8 text-center">
+        <p className="text-sm text-foreground-muted">
+          Ainda não há histórico no portal — o cron grava um ponto por hora e a linha aparece a partir do segundo dia.
+        </p>
+        {/* The button lives HERE too: without it, a portal whose snapshot table
+            is still empty had no way to reach the one source that does have
+            history, which is precisely when it's most needed. */}
+        <button
+          type="button"
+          onClick={() => pull(period)}
+          disabled={loading}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          buscar na Zerion
+        </button>
+        {err && <p className="mt-2 text-[11px] text-danger">{err}</p>}
       </div>
     );
   }
@@ -116,7 +146,8 @@ export function TreasuryHistoryChart({
         <div>
           <h3 className="text-sm font-semibold text-foreground">Saldo por tesouro</h3>
           <p className="text-[11px] text-foreground-subtle">
-            {src === "wallets" ? "carteiras do tesouro" : "arrecadação por projeto"} · {allDays.length} dias · fechamento diário ·{" "}
+            {src === "wallets" ? (live ? "Zerion · ao vivo" : "snapshot do portal") : "arrecadação por projeto"} · {allDays.length}{" "}
+            dias · fechamento diário ·{" "}
             <span className="font-medium text-foreground-muted">{log ? "escala logarítmica" : "escala linear"}</span>
           </p>
         </div>
@@ -136,6 +167,22 @@ export function TreasuryHistoryChart({
               <option value="year">1 ano</option>
               <option value="max">tudo</option>
             </select>
+          )}
+          {src === "wallets" && (
+            <button
+              type="button"
+              onClick={() => pull(period)}
+              disabled={loading}
+              title="Ler o histórico na Zerion — uma requisição por carteira"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
+            >
+              {loading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              {live ? "atualizar" : "sincronizar"}
+            </button>
           )}
           {wallets.length > 0 && streams.length > 0 && (
             <button
@@ -283,6 +330,7 @@ export function TreasuryHistoryChart({
         </div>
       )}
 
+      {err && <p className="mt-2 text-[11px] text-danger">⚠ {err}</p>}
       {src === "wallets" && liveFailed.length > 0 && (
         <p className="mt-2 text-[11px] text-warning">
           ⚠ não consegui ler {liveFailed.join(", ")} — ausente da linha, o que NÃO é o mesmo que zero

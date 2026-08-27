@@ -173,9 +173,11 @@ treasury: {
     getTreasuryHistory(60, isSopa ? undefined : { name: project.name, slug: project.slug }).catch(() => []),
     // A SOPA agrega as carteiras de todos; portal de marca vê só as suas.
     getTreasuryWalletHistory(60, isSopa ? undefined : { slug: project.slug }).catch(() => []),
-    // Histórico da Zerion: meses de profundidade já na primeira carga, em vez
-    // de esperar o snapshot próprio acumular.
-    getTreasuryWalletChart("month", isSopa ? undefined : { slug: project.slug }).catch(() => ({ series: [], failed: [] })),
+    // A Zerion NÃO é chamada no carregamento. Uma carteira é uma requisição, e
+    // toda visita de todo mundo a cada TTL somava rápido contra a cota. A linha
+    // abre com o snapshot do banco, que é de graça, e quem quiser a profundidade
+    // da Zerion pede pelo botão de sincronizar.
+    Promise.resolve({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[] }),
   ]);
   // Unwrap the revenue Result: data on success, null on FAILURE — and keep a
   // distinct `revenueFailed` so the UI shows "leitura falhou", never an empty

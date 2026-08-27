@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { zerionChart, type ChartPeriod } from "@/lib/zerion";
 import { treasuryWallets } from "@/lib/treasury-wallet-snapshots";
+import { getProject } from "@/projects";
 
 // Série histórica de saldo por tesouro, a partir dos snapshots que o cron já
 // grava de hora em hora (RevenueSnapshot). Nada aqui vai à rede: é leitura de
@@ -9,6 +10,54 @@ import { treasuryWallets } from "@/lib/treasury-wallet-snapshots";
 
 export type HistoryPoint = { t: string; usd: number };
 export type TreasurySeries = { cardId: string; label: string; points: HistoryPoint[]; latestUsd: number };
+
+
+/**
+ * Fold a project's wallets into ONE line.
+ *
+ * A brand has one treasury; that it happens to be spread over a hot wallet and
+ * two multisigs is custody, not accounting. Drawing a line per address turned
+ * the brand page into a rainbow of series that nobody adds up by eye, and the
+ * chart's own heading already claimed to show balance per TREASURY.
+ *
+ * Balances are steps, not samples: between two readings a wallet holds its last
+ * value, it doesn't interpolate. So each wallet's last known value is carried
+ * forward across the union of timestamps, and — for stamps before a wallet's
+ * first reading — its first value is carried BACKWARD. Treating "no reading
+ * yet" as zero would draw a ramp on the left edge that never happened.
+ *
+ * Projects stay apart. Folding ACROSS projects would hide whose money is whose,
+ * which is the one thing the SOPA aggregator exists to keep straight.
+ */
+function foldIntoOne(list: TreasurySeries[], cardId: string, label: string): TreasurySeries[] {
+  if (list.length === 0) return [];
+  if (list.length === 1) return [{ ...list[0], cardId, label }];
+
+  const stamps = [...new Set(list.flatMap((s) => s.points.map((p) => p.t)))].sort();
+  const cursor = list.map(() => 0);
+  const points = stamps.map((t) => {
+    let usd = 0;
+    list.forEach((s, i) => {
+      while (cursor[i] + 1 < s.points.length && s.points[cursor[i] + 1].t <= t) cursor[i]++;
+      usd += s.points[cursor[i]].usd;
+    });
+    return { t, usd };
+  });
+  return [{ cardId, label, points, latestUsd: points[points.length - 1].usd }];
+}
+
+/** One line per project, each the sum of that project's wallets. */
+function foldByProject(tagged: { slug: string; series: TreasurySeries }[]): TreasurySeries[] {
+  const groups = new Map<string, TreasurySeries[]>();
+  for (const { slug, series } of tagged) {
+    const list = groups.get(slug) ?? [];
+    list.push(series);
+    groups.set(slug, list);
+  }
+  return [...groups]
+    .flatMap(([slug, list]) => foldIntoOne(list, slug, getProject(slug).name))
+    .sort((a, b) => b.latestUsd - a.latestUsd);
+}
 
 /**
  * Uma série por card, com um ponto por DIA.
@@ -84,7 +133,7 @@ export async function getTreasuryWalletHistory(
     .findMany({
       where: { takenAt: { gte: since }, ...(only ? { projectSlug: only.slug } : {}) },
       orderBy: { takenAt: "asc" },
-      select: { address: true, label: true, totalUsd: true, takenAt: true },
+      select: { address: true, label: true, totalUsd: true, takenAt: true, projectSlug: true },
     })
     .catch(() => []);
   if (!rows.length) return [];
@@ -97,20 +146,23 @@ export async function getTreasuryWalletHistory(
   const span = new Set(rows.map((r) => r.takenAt.toISOString().slice(0, 10))).size;
   const bucket = (d: Date) => (span < 3 ? d.toISOString().slice(0, 13) + "h" : d.toISOString().slice(0, 10));
 
-  const byWalletDay = new Map<string, { label: string; days: Map<string, number> }>();
+  const byWalletDay = new Map<string, { slug: string; label: string; days: Map<string, number> }>();
   for (const r of rows) {
-    const e = byWalletDay.get(r.address) ?? { label: r.label, days: new Map<string, number>() };
+    const e = byWalletDay.get(r.address) ?? { slug: r.projectSlug, label: r.label, days: new Map<string, number>() };
     e.days.set(bucket(r.takenAt), r.totalUsd); // ordenado: o último do bucket vence
     byWalletDay.set(r.address, e);
   }
 
-  const out: TreasurySeries[] = [];
+  const tagged: { slug: string; series: TreasurySeries }[] = [];
   for (const [address, e] of byWalletDay) {
     const points = [...e.days.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([t, usd]) => ({ t, usd }));
     if (points.length < 2) continue;
-    out.push({ cardId: address, label: e.label, points, latestUsd: points[points.length - 1].usd });
+    tagged.push({
+      slug: e.slug,
+      series: { cardId: address, label: e.label, points, latestUsd: points[points.length - 1].usd },
+    });
   }
-  return out.sort((a, b) => b.latestUsd - a.latestUsd);
+  return foldByProject(tagged);
 }
 
 /**
@@ -128,7 +180,7 @@ export async function getTreasuryWalletChart(
   only?: { slug: string },
 ): Promise<{ series: TreasurySeries[]; failed: string[] }> {
   const wallets = treasuryWallets().filter((w) => !only || w.projectSlug === only.slug);
-  const series: TreasurySeries[] = [];
+  const tagged: { slug: string; series: TreasurySeries }[] = [];
   const failed: string[] = [];
 
   const reads = await Promise.all(
@@ -142,7 +194,13 @@ export async function getTreasuryWalletChart(
       continue;
     }
     const points = chart.points.map((p) => ({ t: new Date(p.t * 1000).toISOString(), usd: p.v }));
-    series.push({ cardId: w.address, label: w.label, points, latestUsd: points[points.length - 1].usd });
+    tagged.push({
+      slug: w.projectSlug,
+      series: { cardId: w.address, label: w.label, points, latestUsd: points[points.length - 1].usd },
+    });
   }
-  return { series: series.sort((a, b) => b.latestUsd - a.latestUsd), failed };
+  // A wallet that failed to read is NOT folded in as zero — it stays named in
+  // `failed`, which the chart prints, so a partial total announces itself
+  // instead of quietly reading as a drop in the project's line.
+  return { series: foldByProject(tagged), failed };
 }
