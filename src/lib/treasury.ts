@@ -84,23 +84,27 @@ export type TreasuryReport = {
  *  every ETH holding got valueUsd = balance * 0 = 0, and the dust filter then
  *  deleted it from the page. Unknown is not zero — a null price makes the ETH
  *  row show its quantity with "USD n/d" instead of vanishing. */
-export async function getPrices(): Promise<{ hive: number; hbd: number; eth: number | null }> {
+export async function getPrices(): Promise<{ hive: number; hbd: number; eth: number | null; mor: number | null }> {
   try {
     const res = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=hive,hive_dollar,ethereum&vs_currencies=usd",
+      "https://api.coingecko.com/api/v3/simple/price?ids=hive,hive_dollar,ethereum,morpheusai&vs_currencies=usd",
       { next: { revalidate: 300, tags: ["treasury"] } },
     );
     const data = (await res.json()) as Record<string, { usd?: number }>;
     const eth = data.ethereum?.usd;
+    const mor = data.morpheusai?.usd;
     return {
       hive: data.hive?.usd ?? 0.21,
       hbd: data.hive_dollar?.usd ?? 1.0,
       eth: typeof eth === "number" && eth > 0 ? eth : null,
+      // Sem preço não inventamos zero: a quantidade aparece e o USD fica
+      // indisponível (regra 5), igual ao ETH acima.
+      mor: typeof mor === "number" && mor > 0 ? mor : null,
     };
   } catch {
     // HIVE/HBD keep the constants skatehive.app uses; ETH has no sane constant,
     // so it stays unknown rather than becoming a made-up number.
-    return { hive: 0.21, hbd: 1.0, eth: null };
+    return { hive: 0.21, hbd: 1.0, eth: null, mor: null };
   }
 }
 
@@ -127,7 +131,13 @@ type Erc4626Vault = { address: string; symbol: string; decimals: number };
  *  trusted tokens may show a quantity with no price. */
 export type ExtraToken = { chain: string; address: string; symbol: string; decimals: number; usd: "one" | "none"; note?: string };
 
-type EvmChain = { key: string; rpcs: string[]; usdc: string; vaults?: Erc4626Vault[] };
+/** Posição travada num subnet de Builders do Morpheus. NÃO é ERC-4626, então o
+ *  leitor de vault não a enxerga — e sem isto o token some do tesouro no dia em
+ *  que é colocado em stake, o que na tela lê como PERDA em vez de movimento.
+ *  Foi exatamente o que aconteceu com o multisig da SkateHive. */
+type BuilderStake = { contract: string; subnetId: string; symbol: string; decimals: number; price: "mor" };
+
+type EvmChain = { key: string; rpcs: string[]; usdc: string; vaults?: Erc4626Vault[]; tokens?: Erc4626Vault[]; stakes?: BuilderStake[] };
 // Each chain lists MULTIPLE RPCs, tried in order — a single flaky public endpoint
 // (mainnet.base.org rate-limits Vercel datacenter IPs) must not silently zero a
 // balance. All fail ⇒ the chain reports a FAILED read, never 0.
@@ -139,6 +149,18 @@ const EVM_CHAINS: EvmChain[] = [
     usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     // Moonwell Flagship USDC (MetaMorpho) — where the SOPA Safe stakes.
     vaults: [{ address: "0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca", symbol: "USDC (staked)", decimals: 6 }],
+    // MOR parado na carteira. Nome escrito por nós, não por indexador.
+    tokens: [{ address: "0x7431aDa8a591C955a994a21710752EF9b882b8e3", symbol: "MOR", decimals: 18 }],
+    // MOR em stake no subnet de Builders — ver BuilderStake.
+    stakes: [
+      {
+        contract: "0x42BB446eAE6dca7723a9eBdb81EA88aFe77eF4B9",
+        subnetId: "0xf129111951997d1c386be9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d",
+        symbol: "MOR (staked)",
+        decimals: 18,
+        price: "mor",
+      },
+    ],
   },
   { key: "optimism", rpcs: ["https://optimism-rpc.publicnode.com", "https://mainnet.optimism.io", "https://optimism.drpc.org"], usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" },
   { key: "arbitrum", rpcs: ["https://arbitrum-one-rpc.publicnode.com", "https://arb1.arbitrum.io/rpc", "https://arbitrum.drpc.org"], usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
@@ -288,16 +310,27 @@ async function fetchChainBalances(
   ethPrice: number | null,
   extra: ExtraToken[] = [],
   enumerate = false,
+  morPrice: number | null = null,
 ): Promise<ChainRead> {
   const padded = address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
   const balOf = (to: string) => rpcCall<string>(chain.rpcs, "eth_call", [{ to, data: `0x70a08231${padded}` }, "latest"]);
   const chainExtra = extra.filter((e) => e.chain === chain.key);
   try {
-    const [ethHex, usdcHex, vaultAssets, extraHexes] = await Promise.all([
+    const [ethHex, usdcHex, vaultAssets, extraHexes, tokenHexes, stakeHexes] = await Promise.all([
       rpcCall<string>(chain.rpcs, "eth_getBalance", [address, "latest"]),
       balOf(chain.usdc),
       Promise.all((chain.vaults ?? []).map((v) => vaultPosition(chain, v, padded))),
       Promise.all(chainExtra.map((e) => balOf(e.address))),
+      Promise.all((chain.tokens ?? []).map((t) => balOf(t.address))),
+      // usersData(address,bytes32) → tupla; `deposited` é o índice [2].
+      Promise.all(
+        (chain.stakes ?? []).map((st) =>
+          rpcCall<string>(chain.rpcs, "eth_call", [
+            { to: st.contract, data: `0x996cb7c3${padded}${st.subnetId.replace(/^0x/, "")}` },
+            "latest",
+          ]),
+        ),
+      ),
     ]);
     const tokens: EvmToken[] = [];
     const eth = parseInt(ethHex, 16) / 1e18;
@@ -314,11 +347,29 @@ async function fetchChainBalances(
       const b = parseInt(extraHexes[i] || "0x0", 16) / 10 ** e.decimals;
       if (b > 0) tokens.push({ symbol: e.symbol, chain: chain.key, balance: b, valueUsd: e.usd === "one" ? b : null, note: e.note });
     });
+    (chain.tokens ?? []).forEach((tk, i) => {
+      const b = parseInt(tokenHexes[i] || "0x0", 16) / 10 ** tk.decimals;
+      // Preço ausente ⇒ USD indisponível, nunca zero.
+      if (b > 0) tokens.push({ symbol: tk.symbol, chain: chain.key, balance: b, valueUsd: morPrice == null ? null : b * morPrice });
+    });
+    (chain.stakes ?? []).forEach((st, i) => {
+      const raw = stakeHexes[i];
+      if (!raw || raw === "0x" || raw.length < 2 + 64 * 3) return;
+      const deposited = parseInt(raw.slice(2 + 64 * 2, 2 + 64 * 3), 16) / 10 ** st.decimals;
+      if (deposited > 0)
+        tokens.push({
+          symbol: st.symbol,
+          chain: chain.key,
+          balance: deposited,
+          valueUsd: morPrice == null ? null : deposited * morPrice,
+          note: "em stake no subnet de Builders — sai com unstake",
+        });
+    });
     if (enumerate) {
       // Everything above came from RPC and is authoritative — don't let the
       // indexer restate it. Enumeration only ADDS rows we'd otherwise miss.
       const known = new Set(
-        [chain.usdc, ...(chain.vaults ?? []).map((v) => v.address), ...chainExtra.map((e) => e.address)].map((a) => a.toLowerCase()),
+        [chain.usdc, ...(chain.vaults ?? []).map((v) => v.address), ...(chain.tokens ?? []).map((t) => t.address), ...chainExtra.map((e) => e.address)].map((a) => a.toLowerCase()),
       );
       tokens.push(...(await fetchEnumeratedTokens(address, chain.key, known)));
     }
@@ -365,6 +416,7 @@ const keepAndSort = (tokens: EvmToken[]): EvmToken[] =>
 async function fetchEvmWallet(
   wallet: { label: string; address: string; extraTokens?: ExtraToken[] },
   ethPrice: number | null,
+  morPrice: number | null = null,
 ): Promise<EvmWalletReport> {
   // Query every chain in parallel. A chain whose read FAILS is recorded in
   // failedChains (its balances are UNKNOWN, not zero) — never silently dropped.
@@ -373,7 +425,7 @@ async function fetchEvmWallet(
   // declare in config. Safe to enable because the enumerated path requires a
   // real price and treats every label as hostile text.
   const reads = await Promise.all(
-    EVM_CHAINS.map((c) => fetchChainBalances(wallet.address, c, ethPrice, wallet.extraTokens ?? [], true)),
+    EVM_CHAINS.map((c) => fetchChainBalances(wallet.address, c, ethPrice, wallet.extraTokens ?? [], true, morPrice)),
   );
   const all: EvmToken[] = [];
   const failedChains: string[] = [];
@@ -445,8 +497,8 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
 
   const chains = chainKey ? EVM_CHAINS.filter((c) => c.key === chainKey) : EVM_CHAINS;
   if (chains.length === 0) return { address: addr, chain: chainKey ?? null, totalUsd: 0, tokens: [], failedChains: [], error: `chain desconhecida: ${chainKey}` };
-  const { eth } = await getPrices();
-  const reads = await Promise.all(chains.map((c) => fetchChainBalances(addr, c, eth)));
+  const { eth, mor } = await getPrices();
+  const reads = await Promise.all(chains.map((c) => fetchChainBalances(addr, c, eth, [], false, mor)));
   const all: EvmToken[] = [];
   const failedChains: string[] = [];
   for (const r of reads) {
@@ -588,7 +640,7 @@ export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryRep
 
   const prices = await getPrices();
   const [evm, hiveRes] = await Promise.all([
-    Promise.all(cfg.ethWallets.map((w) => fetchEvmWallet(w, prices.eth))),
+    Promise.all(cfg.ethWallets.map((w) => fetchEvmWallet(w, prices.eth, prices.mor))),
     cfg.hiveAccounts?.length
       ? fetchHiveAccounts(cfg.hiveAccounts, prices)
       : Promise.resolve({ reports: [] as HiveAccountReport[], apr: null as HiveApr | null }),
