@@ -218,11 +218,14 @@ const en = {
       costsHint: "What goes out every month — this is what sets the runway above.",
       costsMonthly: (value: string) => `${value}/mo in active costs`,
       costsNone: "no costs filed",
+      /** Revenue tab with nothing to show — an empty tab must say why. */
+      noRevenue: "No on-chain revenue recorded for this filter yet.",
     },
     filterHint: "the filter adjusts every number below",
     all: "All",
     tabs: {
       treasury: "Treasury",
+      revenue: "Revenue",
       costs: "Costs",
       members: "Members",
       support: "Support",
@@ -1625,11 +1628,13 @@ const pt: typeof en = {
       costsHint: "O que sai todo mês — é isso que define o runway acima.",
       costsMonthly: (value: string) => `${value}/mês em custos ativos`,
       costsNone: "nenhum custo cadastrado",
+      noRevenue: "Ainda não há receita on-chain registrada para este filtro.",
     },
     filterHint: "o filtro ajusta todos os números abaixo",
     all: "Tudo",
     tabs: {
       treasury: "Tesouro",
+      revenue: "Receita",
       costs: "Custos",
       members: "Membros",
       support: "Apoiar",

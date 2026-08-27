@@ -25,6 +25,7 @@ export function SopaTreasury({
   revenueError = false,
   dashboardViews,
   agency,
+  part = "treasury",
 }: {
   groups: TreasuryGroup[];
   revenue: OrgRevenue | null;
@@ -33,6 +34,14 @@ export function SopaTreasury({
   dashboardViews: FinancialDashboardView[];
   /** SOPA-level agency revenue (jobs + split share) — shown only on "Tudo". */
   agency: ReactNode;
+  /**
+   * Which half to render. Balances and revenue are two questions — how much do
+   * we have, and where does it come from — and each earns its own tab. They
+   * share this component because they share the project FILTER: splitting them
+   * into separate components would have meant two copies of that logic, and two
+   * places for it to drift.
+   */
+  part?: "treasury" | "revenue";
 }) {
   const t = useT().treasury;
   const [view, setView] = useState("all");
@@ -90,38 +99,47 @@ export function SopaTreasury({
         </div>
       )}
 
-      {/* Hero: quanto temos · está saudável? · quanto tempo dura */}
-      <TreasuryHealthHero
-        label={projLabel}
-        totalUsd={totalUsd}
-        walletCount={walletCount}
-        runwayMonths={runwayMonths}
-        watermarkLogo="/projects/sopa/logo.png"
-        runwayFooter={
-          burnUsd > 0
-            ? isAll
-              ? t.hero.countingCostsAll(usd2(burnUsd))
-              : t.hero.countingCosts(usd2(burnUsd))
-            : t.hero.noCostsFiled
-        }
-      />
+      {part === "revenue" ? (
+        <>
+          {/* Agency revenue is SOPA-level (not a single project) — only on "Tudo". */}
+          {isAll && agency}
 
-      <FinancialDashboard views={dashboardViews} selectedView={view} />
-
-      <Section title={t.sections.where} hint={isAll ? t.sections.whereHintAll : t.sections.whereHint}>
-        <TreasuryViews groups={visibleGroups} hideSelector hideTotal />
-      </Section>
-
-      {/* Agency revenue is SOPA-level (not a single project) — only on "Tudo". */}
-      {isAll && agency}
-
-      {revenueError ? (
-        <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-          ⚠ A receita não carregou (leitura do banco falhou) — desconhecido, não zero. Recarregue.
-        </p>
+          {revenueError ? (
+            <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+              ⚠ A receita não carregou (leitura do banco falhou) — desconhecido, não zero. Recarregue.
+            </p>
+          ) : filteredRevenue && filteredRevenue.projects.length > 0 ? (
+            <TreasuryRevenue data={filteredRevenue} aggregate={isAll} />
+          ) : (
+            <p className="rounded-xl border border-border bg-surface px-4 py-8 text-center text-sm text-foreground-muted">
+              {t.sections.noRevenue}
+            </p>
+          )}
+        </>
       ) : (
-        filteredRevenue &&
-        filteredRevenue.projects.length > 0 && <TreasuryRevenue data={filteredRevenue} aggregate={isAll} />
+        <>
+        {/* Hero: quanto temos · está saudável? · quanto tempo dura */}
+        <TreasuryHealthHero
+          label={projLabel}
+          totalUsd={totalUsd}
+          walletCount={walletCount}
+          runwayMonths={runwayMonths}
+          watermarkLogo="/projects/sopa/logo.png"
+          runwayFooter={
+            burnUsd > 0
+              ? isAll
+                ? t.hero.countingCostsAll(usd2(burnUsd))
+                : t.hero.countingCosts(usd2(burnUsd))
+              : t.hero.noCostsFiled
+          }
+        />
+
+        <FinancialDashboard views={dashboardViews} selectedView={view} />
+
+        <Section title={t.sections.where} hint={isAll ? t.sections.whereHintAll : t.sections.whereHint}>
+          <TreasuryViews groups={visibleGroups} hideSelector hideTotal />
+        </Section>
+        </>
       )}
     </div>
   );

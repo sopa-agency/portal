@@ -267,8 +267,22 @@ treasury: {
   // portals show their single treasury + their own revenue directly.
   const pipelineStatus = isSopa ? await getPipelineStatus().catch(() => null) : null;
 
-  const overviewAndRevenue = isSopa ? (
+  // Two halves of the same component, one per tab: they share the project
+  // filter, which is why they aren't two components.
+  const sopaOverview = isSopa ? (
     <SopaTreasury
+      part="treasury"
+      groups={groups}
+      revenue={orgRevenue}
+      revenueError={revenueFailed}
+      dashboardViews={dashboardViews}
+      agency={null}
+    />
+  ) : null;
+
+  const sopaRevenue = isSopa ? (
+    <SopaTreasury
+      part="revenue"
       groups={groups}
       revenue={orgRevenue}
       revenueError={revenueFailed}
@@ -299,17 +313,11 @@ treasury: {
         streams={history}
         failed={walletChart.failed}
       />
-      {/* Ordem: quanto temos (hero + saldos + receita) → pra que é (earmarks) →
-          o que sai (custos + runway) → atividade do multisig (recolhida, ops). */}
-      {overviewAndRevenue}
-      {/* "O que sai" ao lado de "quanto temos". Estava a duas abas de distância,
-          o que tornava "subindo ou descendo" impossível de responder olhando uma
-          tela só. O portal de marca já fazia assim (BrandTreasury renderiza
-          custos inline); era a SOPA que estava fora do padrão. */}
-      <section className="border-t border-border pt-6">
-        <h3 className="mb-4 text-sm font-semibold text-foreground">{t.treasury.tabs.costs}</h3>
-        <CostsTab groups={costGroups} initialCosts={initialCosts} usdBrl={costScope.usdBrl} canEdit={!!session} />
-      </section>
+      {/* Esta aba responde UMA pergunta: quanto temos e onde está. De onde vem
+          (receita) e o que sai (custos) são perguntas próprias, cada uma na sua
+          aba — empilhar as três aqui obrigava a rolar por duas para chegar na
+          terceira, e nenhuma delas ficava sendo o assunto da tela. */}
+      {sopaOverview}
       {/* Operações MOR (pipeline + stake) — ferramentas de owner, recolhidas num
           collapsible pra Tesouro ficar uma visão limpa de "quanto temos". */}
       <details className="group border-t border-border pt-8">
@@ -476,6 +484,10 @@ treasury: {
       {isSopa ? (
         <TreasuryTabs
           treasury={treasuryContent}
+          revenue={sopaRevenue}
+          costs={
+            <CostsTab groups={costGroups} initialCosts={initialCosts} usdBrl={costScope.usdBrl} canEdit={!!session} />
+          }
           members={
             <MembersTab
               canEdit={!!session}
