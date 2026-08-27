@@ -12,7 +12,7 @@ import { FixedCostsPanel } from "@/components/fixed-costs-panel";
 import { CostsTab } from "@/components/costs-tab";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue, type OrgRevenue } from "@/lib/org-revenue";
-import { getTreasuryHistory } from "@/lib/treasury-history";
+import { getTreasuryHistory, getTreasuryWalletHistory } from "@/lib/treasury-history";
 import { TreasuryHistoryChart } from "@/components/treasury-history-chart";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
@@ -161,7 +161,7 @@ treasury: {
     treasuryUsd: g.report.grandTotalUsd,
   }));
   const isSopa = project.slug === "sopa";
-  const [costScope, session, orgRevenueResult, jobsRes, history] = await Promise.all([
+  const [costScope, session, orgRevenueResult, jobsRes, history, walletHistory] = await Promise.all([
     fetchCostScope(costGroups.map((g) => g.slug)),
     verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
     // Revenue is tracked on the org-chart. On SOPA show every project (grouped);
@@ -171,6 +171,8 @@ treasury: {
     isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
     // Histórico do gráfico: leitura de banco (snapshots), zero requisição de rede.
     getTreasuryHistory(60, isSopa ? undefined : { name: project.name, slug: project.slug }).catch(() => []),
+    // A SOPA agrega as carteiras de todos; portal de marca vê só as suas.
+    getTreasuryWalletHistory(60, isSopa ? undefined : { slug: project.slug }).catch(() => []),
   ]);
   // Unwrap the revenue Result: data on success, null on FAILURE — and keep a
   // distinct `revenueFailed` so the UI shows "leitura falhou", never an empty
@@ -342,7 +344,7 @@ treasury: {
         }
         revenue={
           <>
-            <TreasuryHistoryChart series={history} />
+            <TreasuryHistoryChart wallets={walletHistory} streams={history} />
             <div className="mt-4" />
             {revenueFailed ? (
               <p className="text-xs text-warning">⚠ receita não carregou (leitura falhou) — não é zero</p>

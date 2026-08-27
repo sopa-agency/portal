@@ -1276,3 +1276,23 @@ model TikTokPost {
   @@index([projectSlug, status, updatedAt(sort: Desc)])
   @@index([status, scheduledFor]) // scheduler tick queries
 }
+
+// Saldo de uma CARTEIRA de tesouro num instante. Separado do RevenueSnapshot de
+// propósito: aquele rastreia streams de RECEITA agrupados por card do org-chart
+// — e por isso o Safe da SOPA aparece lá dentro do card da Gnars, como stream de
+// MOR staking. Somar as duas coisas no mesmo gráfico faria uma linha "Gnars"
+// carregar dinheiro da SOPA. São perguntas diferentes e ficam em tabelas
+// diferentes.
+model TreasuryWalletSnapshot {
+  id          String   @id @default(cuid())
+  projectSlug String
+  label       String
+  address     String // lowercased 0x…
+  totalUsd    Float
+  /** Leitor que produziu o número, para o caso de divergência entre eles. */
+  source      String?
+  takenAt     DateTime @default(now())
+
+  @@index([projectSlug, takenAt])
+  @@index([address, takenAt])
+}

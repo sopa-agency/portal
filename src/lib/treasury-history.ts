@@ -66,3 +66,47 @@ export async function getTreasuryHistory(
   // ela é fixada pelo cardId, senão trocar de faixa de datas repintaria tudo.
   return out.sort((a, b) => b.latestUsd - a.latestUsd);
 }
+
+/**
+ * Uma série por CARTEIRA de tesouro — a pergunta "quanto cada carteira tem ao
+ * longo do tempo", que é diferente de "quanto cada card do org-chart arrecadou".
+ * Sem essa separação o Safe da SOPA aparece dentro da linha da Gnars, porque lá
+ * ele é um stream de MOR staking daquele card.
+ */
+export async function getTreasuryWalletHistory(
+  days = 60,
+  only?: { slug: string },
+): Promise<TreasurySeries[]> {
+  const since = new Date(Date.now() - days * 86_400_000);
+  const rows = await prisma.treasuryWalletSnapshot
+    .findMany({
+      where: { takenAt: { gte: since }, ...(only ? { projectSlug: only.slug } : {}) },
+      orderBy: { takenAt: "asc" },
+      select: { address: true, label: true, totalUsd: true, takenAt: true },
+    })
+    .catch(() => []);
+  if (!rows.length) return [];
+
+  // Bucket ADAPTATIVO. Por dia é o certo para 60 dias — mas nas primeiras horas
+  // de vida da tabela todos os pontos caem no mesmo dia, colapsam em um só, e
+  // `points.length < 2` descartaria a série inteira: gráfico vazio por um dia
+  // depois de ligar a captura. Enquanto o histórico couber em menos de 3 dias,
+  // agrupa por HORA, que é a granularidade real da captura.
+  const span = new Set(rows.map((r) => r.takenAt.toISOString().slice(0, 10))).size;
+  const bucket = (d: Date) => (span < 3 ? d.toISOString().slice(0, 13) + "h" : d.toISOString().slice(0, 10));
+
+  const byWalletDay = new Map<string, { label: string; days: Map<string, number> }>();
+  for (const r of rows) {
+    const e = byWalletDay.get(r.address) ?? { label: r.label, days: new Map<string, number>() };
+    e.days.set(bucket(r.takenAt), r.totalUsd); // ordenado: o último do bucket vence
+    byWalletDay.set(r.address, e);
+  }
+
+  const out: TreasurySeries[] = [];
+  for (const [address, e] of byWalletDay) {
+    const points = [...e.days.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([t, usd]) => ({ t, usd }));
+    if (points.length < 2) continue;
+    out.push({ cardId: address, label: e.label, points, latestUsd: points[points.length - 1].usd });
+  }
+  return out.sort((a, b) => b.latestUsd - a.latestUsd);
+}

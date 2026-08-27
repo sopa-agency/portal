@@ -20,7 +20,22 @@ const PAD = { t: 14, r: 92, b: 26, l: 52 };
 const money = (n: number) =>
   n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : n >= 1 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`;
 
-export function TreasuryHistoryChart({ series }: { series: TreasurySeries[] }) {
+export function TreasuryHistoryChart({
+  wallets,
+  streams,
+}: {
+  /** Saldo por CARTEIRA de tesouro. É o que a página pede por padrão. */
+  wallets: TreasurySeries[];
+  /** Arrecadação por card do org-chart. Fica disponível porque tem histórico
+   *  mais longo, mas rotulado: nessa visão o Safe da SOPA aparece sob a Gnars,
+   *  que é como o org-chart classifica aquele stream — e ler isso como "tesouro
+   *  da Gnars" seria errado. */
+  streams: TreasurySeries[];
+}) {
+  // Começa no que TEM dado: as carteiras só acumulam ponto a partir do segundo
+  // tick, então logo depois do deploy a única série com linha é a de streams.
+  const [src, setSrc] = useState<"wallets" | "streams">(wallets.length ? "wallets" : "streams");
+  const series = src === "wallets" ? wallets : streams;
   // A COR é fixada pelo cardId ordenado, NÃO pela ordem de exibição (que segue
   // valor). Ordenar por valor e colorir por posição repintaria as linhas toda
   // vez que um tesouro passasse o outro.
@@ -80,11 +95,20 @@ export function TreasuryHistoryChart({ series }: { series: TreasurySeries[] }) {
         <div>
           <h3 className="text-sm font-semibold text-foreground">Saldo por tesouro</h3>
           <p className="text-[11px] text-foreground-subtle">
-            {allDays.length} dias · fechamento diário ·{" "}
+            {src === "wallets" ? "carteiras do tesouro" : "arrecadação por projeto"} · {allDays.length} dias · fechamento diário ·{" "}
             <span className="font-medium text-foreground-muted">{log ? "escala logarítmica" : "escala linear"}</span>
           </p>
         </div>
         <div className="flex items-center gap-1.5">
+          {wallets.length > 0 && streams.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSrc((v) => (v === "wallets" ? "streams" : "wallets"))}
+              className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
+            >
+              {src === "wallets" ? "ver arrecadação" : "ver carteiras"}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setLog((v) => !v)}
