@@ -1,0 +1,184 @@
+# Página de Tesouro — estado, decisões e o que ficou aberto
+
+> Escrito em **2026-08-27**, fim do turno da noite. Complementa `treasury-replan.md`
+> (que é plano de refactor); este aqui é **estado**: o que a página é hoje, por que
+> ficou assim, e o que a próxima pessoa precisa saber antes de mexer.
+>
+> Existe porque chat some e resumo perde detalhe. Três agentes voltaram sem contexto
+> hoje e recomeçaram em silêncio — um deles foi este terminal, que ficou 44 minutos
+> parado num seletor de resume sem ninguém saber.
+
+---
+
+## O problema que esta leva resolveu
+
+Não era quantidade de componente. Era **mistura de público numa tela só**.
+
+A aba `tesouro` atendia três pessoas ao mesmo tempo:
+
+1. quem quer saber **quanto temos** — a pergunta que a página existe pra responder;
+2. o **crew**, que opera e precisa de orçamento, atividade de multisig, earmarks;
+3. o **owner**, que assina transação: pipeline MOR, stake, deploy de contrato.
+
+Cockpit de owner não *compete* com "quanto temos" — ele **convive**, o que é pior,
+porque disputa a mesma atenção sem servir a mesma pessoa.
+
+O critério usado pra cortar, e que vale manter: **a pergunta da página é "quanto a
+gente tem, em quê, e isso está subindo ou descendo". Componente que não ajuda a
+responder isso está competindo com quem ajuda. Hierarquia não é diminuir fonte — é
+decidir o que sai da tela.**
+
+---
+
+## O que mudou
+
+### Custos subiu pro lado do saldo (`1a4a214`)
+
+"O que sai" estava a **duas abas de distância** de "quanto temos". Com isso,
+"subindo ou descendo" era impossível de responder olhando uma tela só — você tinha
+que trocar de aba e guardar o número de cabeça.
+
+Descoberta do caminho: **o portal de marca já fazia certo.** `BrandTreasury`
+renderiza os custos inline numa `Section` junto do saldo. Era a **SOPA** que estava
+fora do padrão, com custos numa aba de topo própria. Agora os dois ramos leem igual.
+
+> ⚠️ **A página tem DOIS ramos** e isso já causou bug real hoje: `isSopa` escolhe
+> entre `SopaTreasury` (que recebe receita como **dado**) e `BrandTreasury` (que
+> recebe como **nó React**). O gráfico foi plugado só no segundo e ficou invisível
+> justamente na página da SOPA (`aada4a8` conserta). **Ao mexer na página, confira
+> os dois ramos.**
+
+### Cockpit de owner recolhido sob "Operar" (`c117a6a`)
+
+`MorPipelinePanel`, `NativeSwapDeployPanel`, `SopaStakePanel` e `MorFlowDiagram`
+vivem hoje num único `<details>` recolhido, rotulado **"Operar" / "Operate"**
+(`treasury.ops.mor` no dicionário).
+
+O diagrama vem **por último** dentro da seção: quem abre "Operar" quer a ferramenta;
+a explicação fica embaixo pra quem precisa dela. Conteúdo didático mora junto da
+coisa que ele explica, não na tela de consulta — antes ele estava na aba `plano`.
+
+**NADA FOI DELETADO.** Cinco componentes mudaram de lugar. Reverter qualquer um é
+mover de volta.
+
+### Onde a página está agora
+
+| aba | responde | público |
+|---|---|---|
+| `tesouro` | quanto temos · em quê · subindo ou descendo · o que sai | todos |
+| `tesouro` → "Operar" (recolhido) | pipeline MOR, stake, deploy, como funciona | owner |
+| `membros` | o stream de payroll aguenta quanto tempo | crew |
+| `apoiar` | staking da comunidade | público externo |
+| `plano` | estudo de sustentabilidade | crew |
+
+---
+
+## Três perguntas abertas pro Vlad
+
+Nenhuma foi decidida — e nenhuma bloqueia nada.
+
+1. **`NativeSwapDeployPanel` já cumpriu a função?**
+   Medido, e o resultado não foi nenhuma das opções: **não dá pra saber pelo
+   servidor.** O painel guarda o endereço do filler em `localStorage`, por
+   navegador — nunca persistiu em config nem env. A ausência de registro
+   compartilhado é, ela mesma, o argumento de que é ferramenta pontual. Está
+   recolhido; se já cumpriu, pode sair um dia.
+
+2. **`MorFlowDiagram` ainda ensina alguém?**
+   Diagrama didático envelhece rápido. Recolhido resolve os dois casos: se ensina,
+   ensina no lugar certo; se não, não incomoda.
+
+3. **`FinancialPlan` é estudo vivo ou virou registro?**
+   Se virou registro, não é tesouro. Está em aba própria e não disputa atenção com
+   nada, então ficou como está.
+
+---
+
+## A refatoração adiada — e por que ela importa
+
+**`fetchAddressBalance` deveria RECEBER a fonte de saldo, não importar Zerion e RPC.**
+
+Hoje ela importa os dois direto (`src/lib/treasury.ts`). Isso é a diferença entre a
+página **sobreviver ou não a trocar de provedor**: enquanto a função souber que a
+Zerion existe, trocar de provedor significa reescrever a função, e testá-la
+significa ter uma chave de API.
+
+O time do swaps.pro chegou nessa conclusão do jeito caro. O `PortfolioView.tsx`
+deles sabe que o Pioneer existe, e é **exatamente por isso que é impossível de
+extrair**. A recomendação que veio de lá, textual: *"se a tua página de tesouro
+nascer com a fonte injetada em vez de importada, ela sobrevive a trocar de
+provedor"*.
+
+Foi adiada de propósito no fim do turno — é refactor grande e não conserta bug
+nenhum hoje. Mas é a próxima coisa certa a fazer nesta página.
+
+---
+
+## O achado da quota (não pode viver só no chat)
+
+**Cache num `Map` de módulo não protege cota nenhuma.**
+
+Na Vercel **cada instância tem o próprio `Map`**. Com isso a cota vira função de
+**tráfego × instâncias** em vez de função de **perguntas distintas**. Cinco
+instâncias respondendo sobre a mesma carteira = cinco chamadas upstream pra mesma
+resposta. É o tipo de bug que **só aparece na fatura, nunca em teste**.
+
+A correção (`d006078`) é `next: { revalidate }` no próprio `fetch`: usa o **data
+cache do deployment**, compartilhado entre instâncias e usuários, chaveado pela URL
+inteira — que já carrega endereço e filtro. Duas pessoas perguntando da mesma
+carteira dividem uma chamada; carteiras diferentes nunca colidem.
+
+TTLs atuais em `src/lib/zerion.ts`: **60s** saldo simples, **300s** posição de
+protocolo, e por período no gráfico (300s para 24h → 43200s para "tudo").
+
+### Por que os TTLs de protocolo e gráfico são maiores
+
+Documentado no código do swaps.pro e respeitado aqui: **`charts`, `pnl` e
+`positions?filter[positions]=only_complex` puxam de um quarto da cota do plano e
+NÃO são cobertos por overage.** Qualquer coisa construída em cima disso é racionada
+mais do que saldo simples.
+
+### A regra irmã: leitura que falha não vira zero
+
+Esta estava **viva no código** e foi corrigida no mesmo commit. Quando a Zerion
+falhava, a leitura caía no fan-out de RPC — que é **cego pra posição de protocolo**.
+A tela mostraria um total menor dizendo *"não tem nada em stake"* quando a verdade é
+*"não conseguimos perguntar"*.
+
+Numa página de tesouro esse é o pior erro possível, porque **parece um número em vez
+de parecer uma falha**. Hoje a falha viaja junto do número (`AddressBalance.error`)
+e diz explicitamente que o total exclui stake/LP.
+
+O mesmo princípio já vale em outros pontos e deve continuar valendo:
+`failedChains` nunca vira 0; sem preço confiável, mostra-se a quantidade com "USD
+indisponível"; e o snapshot horário **pula** a carteira cuja leitura falhou em vez
+de gravar um ponto de zero — um zero gravado por engano desenha um despenhadeiro
+que nunca aconteceu.
+
+---
+
+## Outros dois bugs que esta leva matou
+
+- **MOR era invisível no tesouro** (`3af9642`, `6e92845`). O multisig da SkateHive
+  "caiu" sem ninguém gastar nada: os fundos foram fazer stake no Morpheus. O leitor
+  não via porque a chamada pedia `filter[positions]=only_simple`, que é justamente o
+  filtro que **exclui posição de protocolo**. O dado sempre esteve na API — o pedido
+  é que estava errado. Corrigido de forma geral: staking, LP e lending contam em
+  qualquer cadeia, sem um leitor por protocolo.
+
+- **O gráfico não aparecia na página da SOPA** (`aada4a8`) — ver o aviso dos dois
+  ramos acima.
+
+---
+
+## Cuidados pra quem mexer aqui depois
+
+- **Confira os dois ramos** (`SopaTreasury` × `BrandTreasury`). Já mordeu hoje.
+- **Deploy verde não prova que a tela mudou.** Prova que o build subiu. Duas vezes
+  hoje eu reportei "está em prod" quando o componente não estava na rota que o
+  usuário abria. Se não der pra abrir a página (ela exige login), diga isso em vez
+  de deixar o sucesso do deploy sugerir mais do que ele prova.
+- **`portal.sopa.team` não é a SOPA.** O rótulo "portal" não é slug de projeto
+  nenhum, então cai no projeto padrão. A página da SOPA é `sopa.sopa.team/treasury`.
+- **Verifique deploy por SHA COMPLETO** na API do GitHub. Sha curto devolve vazio e
+  parece que nunca deployou.
