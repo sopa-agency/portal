@@ -1,7 +1,23 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
-import { Plus, X, Trash2, Check, Loader2, ImagePlus, DollarSign, Globe, Code2, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  Plus,
+  X,
+  Trash2,
+  Check,
+  Loader2,
+  ImagePlus,
+  DollarSign,
+  Globe,
+  Code2,
+  RefreshCw,
+  Search,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+} from "lucide-react";
 import {
   type BoardCard,
   type TeamMember,
@@ -23,6 +39,7 @@ import {
 import type { RevenueTrend } from "@/lib/revenue-snapshots";
 import { uploadSopaLogo } from "@/lib/sopa-logo-upload";
 import { Sparkline, RevenueChart } from "@/components/revenue-charts";
+import { OrgCanvas, layoutTree, NODE_H, type Placed } from "@/components/org-chart-canvas";
 
 // Engagement tiers + the roles defined for the agency. Stored on each node so a
 // project rectangle shows its tier of work and who's on each role.
@@ -51,14 +68,13 @@ function nodeKind(node: { parentId: string | null; title: string }): NodeKind {
   if (node.parentId === null) return "root";
   return NATIVE_PROJECTS.has(node.title.trim().toLowerCase()) ? "native" : "client";
 }
+// On the canvas the card sits on a dotted plane, so its surface stays OPAQUE
+// (a tinted translucent card lets the grid bleed through and reads as noise).
+// The kind is carried by the left rail + title colour instead of a body tint.
 const KIND_STYLE: Record<NodeKind, { wrap: string; title: string; badge: string | null }> = {
-  root: { wrap: "border-accent-border bg-accent-bg", title: "text-accent", badge: null },
-  native: { wrap: "border-accent-border bg-surface-elevated", title: "text-accent", badge: "Native" },
-  client: {
-    wrap: "border-sky-400/40 bg-sky-400/10",
-    title: "text-sky-600 dark:text-sky-300",
-    badge: "Client",
-  },
+  root: { wrap: "border-accent-border bg-surface", title: "text-accent", badge: "Agência" },
+  native: { wrap: "border-border bg-surface", title: "text-foreground", badge: "Nativo" },
+  client: { wrap: "border-border bg-surface", title: "text-foreground", badge: "Cliente" },
 };
 
 const githubHref = (v: string) => (v.startsWith("http") ? v : `https://github.com/${v}`);
@@ -112,6 +128,10 @@ export function SopaOrgChart({
 }) {
   const [cards, setCards] = useState<BoardCard[]>(initial);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
 
   const tree = useMemo(() => buildTree(cards), [cards]);
@@ -119,9 +139,86 @@ export function SopaOrgChart({
     () => new Map(roster.map((p) => [p.username.toLowerCase(), p])),
     [roster],
   );
+  const parentOf = useMemo(
+    () => new Map(cards.map((c) => [c.id, c.parentId])),
+    [cards],
+  );
+
+  // Searching temporarily overrides collapse: a hit hidden inside a folded
+  // branch would otherwise look like "no results".
+  const q = query.trim().toLowerCase();
+  const layout = useMemo(
+    () => layoutTree(tree, q ? new Set<string>() : collapsed),
+    [tree, collapsed, q],
+  );
+
+  // Search miss = faded, not removed, so the shape of the org stays readable.
+  const dimmedIds = useMemo(() => {
+    if (!q) return undefined;
+    const miss = new Set<string>();
+    for (const c of cards) {
+      const hay = [
+        c.title,
+        c.body ?? "",
+        ...c.team.map((t) => `${t.role} ${t.username}`),
+        ...c.revenueStreams.map((s) => s.label),
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!hay.includes(q)) miss.add(c.id);
+    }
+    return miss;
+  }, [cards, q]);
+  const hits = q ? cards.length - (dimmedIds?.size ?? 0) : 0;
+
+  // Root → focused chain, so the connectors light up the reporting line.
+  // Hover leads (it's the cheap, exploratory gesture); the open card holds the
+  // line when nothing is hovered.
+  const activeEdgeIds = useMemo(() => {
+    const focus = hoverId ?? openId ?? selectedId;
+    if (!focus) return undefined;
+    const chain = new Set<string>();
+    let cur: string | null | undefined = focus;
+    while (cur) {
+      chain.add(cur);
+      cur = parentOf.get(cur) ?? null;
+    }
+    return chain;
+  }, [hoverId, openId, selectedId, parentOf]);
+
   const openCard = cards.find((c) => c.id === openId) ?? null;
+  const allParents = useMemo(
+    () => cards.filter((c) => cards.some((x) => x.parentId === c.id)).map((c) => c.id),
+    [cards],
+  );
+  const allCollapsed = allParents.length > 0 && allParents.every((id) => collapsed.has(id));
+
+  const peopleCount = useMemo(
+    () => new Set(cards.flatMap((c) => c.team.map((t) => t.username.toLowerCase()))).size,
+    [cards],
+  );
+  const streamCount = useMemo(
+    () => cards.reduce((n, c) => n + c.revenueStreams.length, 0),
+    [cards],
+  );
+
+  function toggleCollapse(id: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function addChild(parentId: string, title: string) {
+    // A new child inside a folded branch would vanish — unfold as we add.
+    setCollapsed((prev) => {
+      if (!prev.has(parentId)) return prev;
+      const next = new Set(prev);
+      next.delete(parentId);
+      return next;
+    });
     startTransition(async () => {
       const created = await createCard({ board: "orgchart", parentId, title });
       setCards((prev) => [...prev, created]);
@@ -141,41 +238,92 @@ export function SopaOrgChart({
       const gone = new Set(deleted);
       setCards((prev) => prev.filter((c) => !gone.has(c.id)));
       setOpenId(null);
+      setSelectedId(null);
     });
   }
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div className="flex items-center justify-between">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
             SOPA
           </p>
           <h1 className="text-2xl font-bold text-foreground">Org Chart</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground-subtle">
+            <span>{cards.length} cards</span>
+            <span className="text-foreground-faint">·</span>
+            <span>{peopleCount} pessoas</span>
+            <span className="text-foreground-faint">·</span>
+            <span>{streamCount} fontes de receita</span>
+          </p>
         </div>
-        {pending && (
-          <span className="flex items-center gap-1.5 text-xs text-foreground-faint">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> salvando…
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {pending && (
+            <span className="flex items-center gap-1.5 text-xs text-foreground-faint">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> salvando…
+            </span>
+          )}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-foreground-faint" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar projeto, pessoa, receita…"
+              className="w-56 rounded-full border border-border bg-surface py-1.5 pl-8 pr-8 text-xs text-foreground placeholder:text-foreground-faint focus:border-border-strong focus:outline-none"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Limpar busca"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-foreground-faint hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-border bg-surface p-8">
-        <div className="sopa-org flex min-w-max justify-center">
-          <ul>
-            {tree.map((n) => (
-              <TreeNode
-                key={n.id}
-                node={n}
-                rosterMap={rosterMap}
-                onOpen={setOpenId}
-                onAddChild={addChild}
-                disabled={pending}
-              />
-            ))}
-          </ul>
-        </div>
-      </div>
+      <OrgCanvas
+        layout={layout}
+        activeEdgeIds={activeEdgeIds}
+        dimmedIds={dimmedIds}
+        emptyHint={<p className="text-sm text-foreground-faint">Nenhum card ainda.</p>}
+        toolbarExtra={
+          <>
+            {q && (
+              <span className="px-2 font-mono text-[11px] font-semibold text-accent">
+                {hits} hit{hits === 1 ? "" : "s"}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(allParents))}
+              title={allCollapsed ? "Expandir tudo" : "Recolher tudo"}
+              aria-label={allCollapsed ? "Expandir tudo" : "Recolher tudo"}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
+            >
+              {allCollapsed ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
+            </button>
+            <span className="mx-0.5 h-5 w-px bg-border" />
+          </>
+        }
+        renderNode={(p) => (
+          <OrgNodeCard
+            placed={p}
+            rosterMap={rosterMap}
+            selected={openId === p.id || selectedId === p.id}
+            onSelect={setSelectedId}
+            onHover={setHoverId}
+            onOpen={setOpenId}
+            onToggleCollapse={toggleCollapse}
+            onAddChild={addChild}
+            disabled={pending}
+          />
+        )}
+      />
 
       {openCard && (
         <CardDialog
@@ -188,54 +336,85 @@ export function SopaOrgChart({
           busy={pending}
         />
       )}
-
-      {/* Classic CSS org-tree connectors — colored with the theme border token so
-          they read in light + dark. Scoped under .sopa-org. */}
-      <style>{`
-        .sopa-org ul { display: flex; padding-top: 22px; position: relative; }
-        .sopa-org li {
-          list-style: none; position: relative; display: flex; flex-direction: column;
-          align-items: center; padding: 22px 14px 0;
-        }
-        .sopa-org li::before, .sopa-org li::after {
-          content: ''; position: absolute; top: 0; right: 50%;
-          border-top: 1px solid var(--border); width: 50%; height: 22px;
-        }
-        .sopa-org li::after {
-          right: auto; left: 50%; border-left: 1px solid var(--border);
-        }
-        .sopa-org li:only-child::before, .sopa-org li:only-child::after { display: none; }
-        .sopa-org li:only-child { padding-top: 0; }
-        .sopa-org li:first-child::before, .sopa-org li:last-child::after { border: 0 none; }
-        .sopa-org li:last-child::before { border-right: 1px solid var(--border); }
-        .sopa-org > ul { padding-top: 0; }
-        .sopa-org ul ul::before {
-          content: ''; position: absolute; top: 0; left: 50%;
-          border-left: 1px solid var(--border); width: 0; height: 22px;
-        }
-      `}</style>
     </div>
   );
 }
 
-function TreeNode({
-  node,
+/** Avatars of everyone assigned to a card, capped so the row never wraps. */
+function TeamStack({ team, rosterMap }: { team: TeamMember[]; rosterMap: Map<string, Person> }) {
+  const people = useMemo(() => {
+    const seen = new Set<string>();
+    return team
+      .filter((t) => {
+        const k = t.username.trim().toLowerCase();
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .map((t) => ({ ...t, person: rosterMap.get(t.username.trim().toLowerCase()) }));
+  }, [team, rosterMap]);
+
+  if (people.length === 0) {
+    return <span className="text-[10px] text-foreground-faint">sem time</span>;
+  }
+  const shown = people.slice(0, 4);
+  return (
+    // Spans, not divs: this renders inside the card's <button>, which may only
+    // contain phrasing content.
+    <span className="flex items-center -space-x-1.5">
+      {shown.map((m) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={m.username}
+          src={m.person?.avatarUrl ?? `https://images.hive.blog/u/${m.username}/avatar`}
+          alt={m.username}
+          title={`${m.username} — ${m.role}`}
+          className="h-5 w-5 rounded-full border border-surface bg-surface-elevated object-cover ring-1 ring-border"
+        />
+      ))}
+      {people.length > shown.length && (
+        <span className="flex h-5 items-center rounded-full border border-surface bg-surface-elevated pl-2 pr-1.5 text-[9px] font-semibold text-foreground-subtle ring-1 ring-border">
+          +{people.length - shown.length}
+        </span>
+      )}
+    </span>
+  );
+}
+
+const KIND_RAIL: Record<NodeKind, string> = {
+  root: "bg-accent",
+  native: "bg-accent/55",
+  client: "bg-sky-400",
+};
+
+function OrgNodeCard({
+  placed,
   rosterMap,
+  selected,
+  onSelect,
+  onHover,
   onOpen,
+  onToggleCollapse,
   onAddChild,
   disabled,
 }: {
-  node: Node;
+  placed: Placed<Node>;
   rosterMap: Map<string, Person>;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onHover: (id: string | null) => void;
   onOpen: (id: string) => void;
+  onToggleCollapse: (id: string) => void;
   onAddChild: (parentId: string, title: string) => void;
   disabled: boolean;
 }) {
+  const node = placed.node;
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const kind = nodeKind(node);
   const style = KIND_STYLE[kind];
-  const showTier = kind === "client" && tierMeta(node.tier);
+  const tier = kind === "client" ? tierMeta(node.tier) : null;
+  const childCount = node.children.length;
 
   function confirmAdd() {
     const t = draft.trim();
@@ -245,165 +424,146 @@ function TreeNode({
   }
 
   return (
-    <li>
-      <div className="flex flex-col items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => onOpen(node.id)}
-          className={`group w-[200px] rounded-xl border px-4 py-3 text-center shadow-sm transition hover:border-border-strong ${style.wrap}`}
-        >
-          {style.badge && (
-            <span className="mb-1 block text-[8px] font-bold uppercase tracking-[0.15em] text-foreground-faint">
-              {style.badge}
-            </span>
-          )}
-          {node.logoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={node.logoUrl}
-              alt=""
-              className="mx-auto mb-1.5 h-9 w-9 rounded-lg border border-border bg-surface object-contain p-0.5"
-            />
-          )}
-          <div className="flex items-center justify-center gap-2">
-            <span className={`truncate text-sm font-semibold ${style.title}`}>{node.title}</span>
-            {showTier && (
-              <span className="shrink-0 rounded-full bg-sky-400/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-600 dark:text-sky-300">
-                {tierMeta(node.tier)!.pct}
+    <div className="group relative" style={{ height: NODE_H }}>
+      <button
+        type="button"
+        onClick={() => {
+          onSelect(node.id);
+          onOpen(node.id);
+        }}
+        onPointerEnter={() => onHover(node.id)}
+        onPointerLeave={() => onHover(null)}
+        onFocus={() => onHover(node.id)}
+        onBlur={() => onHover(null)}
+        className={`relative flex h-full w-full flex-col justify-between overflow-hidden rounded-2xl border p-3.5 text-left shadow-sm transition duration-150 hover:-translate-y-0.5 hover:shadow-md ${style.wrap} ${
+          selected ? "border-accent-border ring-2 ring-accent/60" : "hover:border-border-strong"
+        }`}
+      >
+        <span className={`absolute inset-y-3 left-0 w-[3px] rounded-r-full ${KIND_RAIL[kind]}`} />
+
+        <span className="flex items-start gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface">
+            {node.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={node.logoUrl} alt="" className="h-full w-full object-contain p-0.5" />
+            ) : (
+              <span className="text-xs font-bold uppercase text-foreground-faint">
+                {node.title.trim().slice(0, 2)}
               </span>
             )}
-          </div>
-          {showTier && (
-            <span className="mt-0.5 block text-[10px] font-medium text-foreground-subtle">
-              {tierMeta(node.tier)!.label}
-            </span>
-          )}
-          {node.body && (
-            <span className="mt-0.5 block truncate text-[11px] text-foreground-subtle">
-              {node.body}
-            </span>
-          )}
-          {node.revenueStreams.length > 0 && (
-            <div className="mt-2 space-y-0.5 border-t border-border pt-2 text-left">
-              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                <DollarSign className="h-2.5 w-2.5" /> Receita
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5">
+              <span className={`truncate text-[13.5px] font-semibold leading-tight ${style.title}`}>
+                {node.title}
               </span>
-              {node.revenueStreams.slice(0, 4).map((s, i) => (
-                <span
-                  key={i}
-                  className="block truncate text-[10px] text-foreground-muted"
-                  title={s.detail ? `${s.label} — ${s.detail}` : s.label}
-                >
-                  • {s.label}
-                  {s.detail ? <span className="text-foreground-faint"> · {s.detail}</span> : null}
-                </span>
-              ))}
-              {node.revenueStreams.length > 4 && (
-                <span className="block text-[10px] text-foreground-faint">
-                  +{node.revenueStreams.length - 4} mais
+              {tier && (
+                <span className="shrink-0 rounded-full bg-sky-400/15 px-1.5 py-px text-[9px] font-bold tracking-wide text-sky-600 dark:text-sky-300">
+                  {tier.pct}
                 </span>
               )}
-            </div>
-          )}
+            </span>
+            <span className="mt-0.5 block truncate text-[11px] leading-snug text-foreground-subtle">
+              {node.body || tier?.label || (style.badge ?? "SOPA")}
+            </span>
+          </span>
+        </span>
+
+        <span className="flex items-center justify-between gap-2 border-t border-border pt-2">
+          <TeamStack team={node.team} rosterMap={rosterMap} />
+          <span className="flex shrink-0 items-center gap-1.5">
+            {node.revenueStreams.length > 0 && (
+              <span
+                title={node.revenueStreams.map((s) => s.label).join(", ")}
+                className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400"
+              >
+                <DollarSign className="h-2.5 w-2.5" />
+                {node.revenueStreams.length}
+              </span>
+            )}
+            {node.repos.length > 0 && (
+              <span
+                title={node.repos.join(", ")}
+                className="inline-flex items-center gap-0.5 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[10px] font-semibold text-foreground-subtle"
+              >
+                <Code2 className="h-2.5 w-2.5" />
+                {node.repos.length}
+              </span>
+            )}
+            {node.website && <Globe className="h-3 w-3 text-foreground-faint" />}
+          </span>
+        </span>
+      </button>
+
+      {/* Fold/unfold the branch. Always visible when there are children — the
+          count is information, not just a control. */}
+      {childCount > 0 && (
+        <button
+          type="button"
+          onClick={() => onToggleCollapse(node.id)}
+          aria-expanded={!placed.collapsed}
+          aria-label={placed.collapsed ? `Expandir ${node.title}` : `Recolher ${node.title}`}
+          className="absolute -bottom-3 left-1/2 flex h-6 -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 text-[10px] font-semibold text-foreground-muted shadow-sm transition hover:border-accent-border hover:text-accent"
+        >
+          {placed.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          {childCount}
         </button>
+      )}
 
-        {(node.website || node.githubOrg || node.repos.length > 0) && (
-          <div className="flex items-center gap-2">
-            {node.website && (
-              <a
-                href={node.website}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                title={node.website}
-                className="flex items-center gap-1 text-[10px] text-foreground-muted hover:text-accent"
-              >
-                <Globe className="h-3 w-3" /> site
-              </a>
-            )}
-            {node.githubOrg && (
-              <a
-                href={githubHref(node.githubOrg)}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                title={node.repos.length ? node.repos.join(", ") : node.githubOrg}
-                className="flex items-center gap-1 text-[10px] text-foreground-muted hover:text-accent"
-              >
-                <Code2 className="h-3 w-3" /> {node.githubOrg}
-                {node.repos.length > 0 && <span className="text-foreground-faint">· {node.repos.length} repo{node.repos.length > 1 ? "s" : ""}</span>}
-              </a>
-            )}
-          </div>
-        )}
+      {/* Add a child — revealed on hover so the canvas stays quiet at rest. */}
+      {!adding && (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setAdding(true)}
+          aria-label={`Adicionar sob ${node.title}`}
+          title={`Adicionar sob ${node.title}`}
+          className="absolute -right-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-dashed border-border bg-surface text-foreground-faint opacity-0 shadow-sm transition hover:border-accent-border hover:text-accent focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      )}
 
-        {adding ? (
-          <div className="flex items-center gap-1">
-            <input
-              autoFocus
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") confirmAdd();
-                if (e.key === "Escape") {
-                  setAdding(false);
-                  setDraft("");
-                }
-              }}
-              placeholder="Name…"
-              className="w-28 rounded-md border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={confirmAdd}
-              aria-label="Add"
-              className="rounded-md border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20"
-            >
-              <Check className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
+      {adding && (
+        <div className="absolute left-1/2 top-full z-20 mt-4 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg">
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") confirmAdd();
+              if (e.key === "Escape") {
                 setAdding(false);
                 setDraft("");
-              }}
-              aria-label="Cancel"
-              className="rounded-md border border-border p-1 text-foreground-muted hover:text-danger"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ) : (
+              }
+            }}
+            placeholder="Nome do card…"
+            className="w-36 rounded-lg border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground focus:border-border-strong focus:outline-none"
+          />
           <button
             type="button"
-            disabled={disabled}
-            onClick={() => setAdding(true)}
-            aria-label="Add item"
-            className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-border text-foreground-faint transition hover:border-accent-border hover:text-accent disabled:opacity-40"
+            onClick={confirmAdd}
+            aria-label="Adicionar"
+            className="rounded-lg border border-accent-border bg-accent-bg p-1 text-accent hover:bg-accent/20"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Check className="h-3.5 w-3.5" />
           </button>
-        )}
-      </div>
-
-      {node.children.length > 0 && (
-        <ul>
-          {node.children.map((c) => (
-            <TreeNode
-              key={c.id}
-              node={c}
-              rosterMap={rosterMap}
-              onOpen={onOpen}
-              onAddChild={onAddChild}
-              disabled={disabled}
-            />
-          ))}
-        </ul>
+          <button
+            type="button"
+            onClick={() => {
+              setAdding(false);
+              setDraft("");
+            }}
+            aria-label="Cancelar"
+            className="rounded-lg border border-border p-1 text-foreground-muted hover:text-danger"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
-    </li>
+    </div>
   );
 }
-
 function CardDialog({
   card,
   roster,
@@ -448,6 +608,20 @@ function CardDialog({
   const [confirmDel, setConfirmDel] = useState(false);
   const [revRows, setRevRows] = useState<RevenueStream[]>(() => card.revenueStreams);
   const [tab, setTab] = useState<"geral" | "time" | "receita">("geral");
+
+  // Esc closes the drawer, and the body stops scrolling behind it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
 
   const kind = nodeKind(card);
   const rosterByUser = new Map(roster.map((p) => [p.username.toLowerCase(), p]));
@@ -543,28 +717,77 @@ function CardDialog({
   const teamCount = new Set(teamArr.map((t) => t.username)).size;
 
   return (
+    // A side drawer, not a centred modal: editing a card is a long form, and a
+    // drawer keeps the chart itself on screen so you never lose your place in
+    // the structure you're editing.
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="org-scrim fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-[2px]"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Detalhes de ${card.title}`}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-xl"
+        className="org-drawer flex h-full w-full max-w-xl flex-col border-l border-border bg-surface shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Detalhes do card</h2>
+        <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-elevated">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="" className="h-full w-full object-contain p-0.5" />
+            ) : (
+              <span className="text-xs font-bold uppercase text-foreground-faint">
+                {(title.trim() || "?").slice(0, 2)}
+              </span>
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-sm font-semibold text-foreground">{title.trim() || "Sem nome"}</h2>
+            <p className="flex items-center gap-1.5 text-[11px] text-foreground-subtle">
+              <span className={`h-1.5 w-1.5 rounded-full ${KIND_RAIL[kind]}`} />
+              {KIND_STYLE[kind].badge}
+              {dirty && <span className="text-warning">· não salvo</span>}
+            </p>
+          </div>
+          {/* The card itself can't carry these (a link inside a button is invalid
+              markup), so the drawer header is where site/repo actually open. */}
+          {website.trim() && (
+            <a
+              href={website.trim()}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={website.trim()}
+              aria-label="Abrir website"
+              className="rounded-lg p-1.5 text-foreground-muted transition hover:bg-surface-elevated hover:text-accent"
+            >
+              <Globe className="h-4 w-4" />
+            </a>
+          )}
+          {githubOrg.trim() && (
+            <a
+              href={githubHref(githubOrg.trim())}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={githubOrg.trim()}
+              aria-label="Abrir GitHub"
+              className="rounded-lg p-1.5 text-foreground-muted transition hover:bg-surface-elevated hover:text-accent"
+            >
+              <Code2 className="h-4 w-4" />
+            </a>
+          )}
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
-            className="text-foreground-muted hover:text-foreground"
+            aria-label="Fechar"
+            className="rounded-lg p-1.5 text-foreground-muted transition hover:bg-surface-elevated hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
-        </div>
+        </header>
 
         {/* Tabs */}
-        <div className="mb-4 flex items-center gap-1 border-b border-border">
+        <div className="flex shrink-0 items-center gap-1 border-b border-border px-5">
           {(
             [
               ["geral", "General"],
@@ -589,6 +812,7 @@ function CardDialog({
           ))}
         </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {tab === "geral" && (
           <>
             <label className="mb-1 block text-xs font-medium text-foreground-muted">Logo</label>
@@ -991,7 +1215,9 @@ function CardDialog({
           </>
         )}
 
-        <div className="mt-2 flex items-center justify-between border-t border-border pt-4">
+        </div>
+
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-3">
           {!isRoot ? (
             confirmDel ? (
               <button
