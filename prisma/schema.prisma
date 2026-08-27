@@ -1287,8 +1287,20 @@ model TreasuryWalletSnapshot {
   id          String   @id @default(cuid())
   projectSlug String
   label       String
-  address     String // lowercased 0x…
-  totalUsd    Float
+  address     String // lowercased 0x… (EVM) ou o nome da conta (Hive)
+  /** NULL = a leitura FALHOU. Antes a falha era registrada como ausência de
+   *  linha, o que a tornava indistinguível de "o cron não rodou naquela hora" —
+   *  e ausência não se conta. Agora a falha é uma linha que diz que falhou. */
+  totalUsd    Float?
+  /** Redes que não responderam nesta leitura. É a condição EXATA que o total do
+   *  hero avalia, gravada em vez de inferida: sem isto, "com que frequência o
+   *  total aparece incompleto" só tinha estimativa por proxy. */
+  failedChains String[] @default([])
+  /** Por que falhou, quando falhou. */
+  reason      String?
+  /** "evm" | "hive" — as contas Hive também entram no total do hero, então uma
+   *  medição de saúde que só olhasse EVM pareceria completa sem ser. */
+  kind        String   @default("evm")
   /** Leitor que produziu o número, para o caso de divergência entre eles. */
   source      String?
   takenAt     DateTime @default(now())

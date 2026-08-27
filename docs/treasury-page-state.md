@@ -245,15 +245,32 @@ Três ressalvas, e a terceira é a que importa:
    evidência sobre semanas.
 2. Cobre só EVM. As contas Hive também alimentam o total do hero e podem
    falhar ("account not found"); o snapshot não as grava.
-3. **O snapshot é um sinal MAIS FRACO do que a condição do hero.** Ele registra
-   `totalUsd`, não `failedChains`. Uma carteira com uma chain caída grava a
-   linha assim mesmo — parcial —, enquanto o hero passa a tratar isso como
-   incompleto. Então a taxa real de "incompleto" pode ser maior que 0/8, e esta
-   medição não a distingue.
+3. **O snapshot mede um LEITOR DIFERENTE do que decide o INCOMPLETO.**
+   (Correção: eu havia escrito aqui que o snapshot gravava leituras parciais.
+   Não gravava — ele PULAVA a carteira com `bal.error`, o que já cobria chain
+   caída. O erro real é outro e é mais fundo.)
 
-**Conserto barato e óbvio:** gravar `failedChains` no snapshot. Uma coluna, e a
-condição exata que o hero avalia vira observável ao longo do tempo em vez de
-inferida.
+   O snapshot lê com `fetchAddressBalance` (Zerion primeiro, fan-out de RPC
+   como queda). O total do hero lê com `fetchEvmWallet` (fan-out de RPC puro).
+   **São dois caminhos com modos de falha distintos.** O "0 de 8" diz *a Zerion
+   respondeu 40 de 40 vezes* — ótima notícia sobre a Zerion, e quase nada sobre
+   o fan-out que produz o `failedChains` que o hero avalia.
+
+   Isto é a mesma refatoração adiada ("`fetchAddressBalance` receber a fonte")
+   vista de outro ângulo: enquanto a página e o snapshot lerem por caminhos
+   diferentes, um não mede o outro.
+
+**Consertado no passo 2** (`feat/treasury-read-health`): a falha deixa de ser
+ausência de linha e passa a ser uma linha com `totalUsd` nulo, mais
+`failedChains`, `reason` e `kind`. Ausência de linha era indistinguível de "o
+cron não rodou naquela hora", e o que não está lá não se conta. Nulo não entra
+no gráfico e nulo se conta. As contas Hive passaram a ser fotografadas junto,
+porque elas alimentam o mesmo total — uma saúde só de EVM pareceria completa
+sem ser.
+
+Fica de pé a ressalva do leitor: enquanto o snapshot ler pela Zerion, o
+`failedChains` que ele grava é o do caminho DELE. Medir o do hero exige os dois
+lendo pela mesma fonte.
 
 ## Cuidados pra quem mexer aqui depois
 

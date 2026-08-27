@@ -131,7 +131,19 @@ export async function getTreasuryWalletHistory(
   const since = new Date(Date.now() - days * 86_400_000);
   const rows = await prisma.treasuryWalletSnapshot
     .findMany({
-      where: { takenAt: { gte: since }, ...(only ? { projectSlug: only.slug } : {}) },
+      where: {
+        takenAt: { gte: since },
+        ...(only ? { projectSlug: only.slug } : {}),
+        // Linhas de FALHA agora existem (totalUsd nulo) para poderem ser
+        // contadas. Elas não são pontos: plotá-las como zero é exatamente o
+        // despenhadeiro inventado que a coluna foi criada para evitar.
+        totalUsd: { not: null },
+        // Só EVM na série. As contas Hive passaram a ser fotografadas junto,
+        // mas somá-las agora desenharia um degrau na linha no dia do corte —
+        // uma subida que nunca aconteceu. Elas entram na medição de saúde; a
+        // série ganha Hive quando houver histórico para ela desde o começo.
+        kind: "evm",
+      },
       orderBy: { takenAt: "asc" },
       select: { address: true, label: true, totalUsd: true, takenAt: true, projectSlug: true },
     })
@@ -149,7 +161,7 @@ export async function getTreasuryWalletHistory(
   const byWalletDay = new Map<string, { slug: string; label: string; days: Map<string, number> }>();
   for (const r of rows) {
     const e = byWalletDay.get(r.address) ?? { slug: r.projectSlug, label: r.label, days: new Map<string, number>() };
-    e.days.set(bucket(r.takenAt), r.totalUsd); // ordenado: o último do bucket vence
+    e.days.set(bucket(r.takenAt), r.totalUsd!); // ordenado: o último do bucket vence
     byWalletDay.set(r.address, e);
   }
 

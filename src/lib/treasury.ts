@@ -602,6 +602,15 @@ function computeHiveApr(props: {
   return { hp, hbdSavings };
 }
 
+/** Saldos das contas Hive, sem o resto do relatório — é o que o snapshot
+ *  horário precisa para medir a saúde da leitura também do lado Hive. */
+export async function hiveAccountBalances(
+  accounts: { label: string; account: string }[],
+  prices: { hive: number; hbd: number },
+): Promise<HiveAccountReport[]> {
+  return (await fetchHiveAccounts(accounts, prices)).reports;
+}
+
 async function fetchHiveAccounts(
   accounts: { label: string; account: string }[],
   prices: { hive: number; hbd: number },
