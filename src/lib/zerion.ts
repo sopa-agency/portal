@@ -53,8 +53,16 @@ export type ZerionRead =
   | { ok: true; tokens: ZerionToken[]; chains: string[]; totalUsd: number }
   | { ok: false; error: string };
 
-const TTL_MS = 60_000;
-const cache = new Map<string, { at: number; value: ZerionRead }>();
+// SEGUNDOS, não milissegundos: isto vai para `next: { revalidate }`, que é o
+// cache de DADOS do deployment — compartilhado entre instâncias e usuários,
+// chaveado pela URL inteira (que já carrega endereço e filtro).
+//
+// Por que não um Map neste módulo, que era o que eu tinha: cache por processo
+// protege UMA instância e não protege a cota de nada. Na Vercel cada instância
+// tem o próprio Map, então a cota viraria função de tráfego × instâncias em vez
+// de função de PERGUNTAS DISTINTAS. Lição paga pelo swaps.pro, portada.
+const TTL_S = 60;
+const TTL_PROTOCOL_S = 300;
 
 type Position = {
   attributes?: {
@@ -94,12 +102,6 @@ export async function zerionBalances(
   const addr = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(addr)) return { ok: false, error: "endereço inválido" };
 
-  const ck = `${addr}:${positions}`;
-  const hit = cache.get(ck);
-  // Posição de protocolo custa cota racionada — vale mais cache.
-  const ttl = positions === "all" ? 5 * TTL_MS : TTL_MS;
-  if (hit && Date.now() - hit.at < ttl) return hit.value;
-
   const key = process.env.ZERION_API_KEY?.trim();
   if (!key) return { ok: false, error: "ZERION_API_KEY não configurada" };
 
@@ -112,9 +114,12 @@ export async function zerionBalances(
   try {
     const res = await fetch(url, {
       headers: { authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`, accept: "application/json" },
-      cache: "no-store",
+      // Posição de protocolo cobra da fatia racionada da cota — cacheia mais.
+      next: { revalidate: positions === "all" ? TTL_PROTOCOL_S : TTL_S },
       signal: AbortSignal.timeout(20_000),
     });
+    // Status repassado: 401 é a chave, 429 é o plano. Colapsar os dois manda a
+    // gente caçar o problema errado.
     if (!res.ok) return { ok: false, error: `Zerion HTTP ${res.status}` };
     const body = (await res.json()) as { data?: Position[] };
     const rows = Array.isArray(body.data) ? body.data : [];
@@ -161,7 +166,6 @@ export async function zerionBalances(
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
-  cache.set(ck, { at: Date.now(), value: out });
   return out;
 }
 
@@ -227,26 +231,22 @@ export async function zerionShapeProbe(address: string): Promise<Record<string, 
 export const CHART_PERIODS = ["day", "week", "month", "3months", "year", "max"] as const;
 export type ChartPeriod = (typeof CHART_PERIODS)[number];
 
-const CHART_TTL_MS: Record<ChartPeriod, number> = {
-  day: 300_000,
-  week: 900_000,
-  month: 3_600_000,
-  "3months": 3_600_000,
-  year: 21_600_000,
-  max: 43_200_000,
+/** SEGUNDOS, para o data cache do deployment. Um gráfico de um mês não muda de
+ *  minuto em minuto; só os períodos curtos precisam ser frescos. */
+const CHART_TTL_S: Record<ChartPeriod, number> = {
+  day: 300,
+  week: 900,
+  month: 3_600,
+  "3months": 3_600,
+  year: 21_600,
+  max: 43_200,
 };
 
 export type ZerionChart = { ok: true; points: { t: number; v: number }[] } | { ok: false; error: string };
 
-const chartCache = new Map<string, { at: number; value: ZerionChart }>();
-
 export async function zerionChart(address: string, period: ChartPeriod): Promise<ZerionChart> {
   const addr = address.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(addr)) return { ok: false, error: "endereço inválido" };
-
-  const ck = `${addr}:${period}`;
-  const hit = chartCache.get(ck);
-  if (hit && Date.now() - hit.at < CHART_TTL_MS[period]) return hit.value;
 
   const key = process.env.ZERION_API_KEY?.trim();
   if (!key) return { ok: false, error: "ZERION_API_KEY não configurada" };
@@ -254,7 +254,7 @@ export async function zerionChart(address: string, period: ChartPeriod): Promise
   try {
     const res = await fetch(`https://api.zerion.io/v1/wallets/${addr}/charts/${period}?currency=usd`, {
       headers: { authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`, accept: "application/json" },
-      cache: "no-store",
+      next: { revalidate: CHART_TTL_S[period] },
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) return { ok: false, error: `Zerion HTTP ${res.status}` };
@@ -264,9 +264,7 @@ export async function zerionChart(address: string, period: ChartPeriod): Promise
     const points = raw
       .map((p) => (Array.isArray(p) ? { t: Number(p[0]), v: Number(p[1]) } : null))
       .filter((p): p is { t: number; v: number } => !!p && Number.isFinite(p.t) && Number.isFinite(p.v));
-    const out: ZerionChart = { ok: true, points };
-    chartCache.set(ck, { at: Date.now(), value: out });
-    return out;
+    return { ok: true, points };
   } catch (e) {
     // Falha NUNCA vira série vazia silenciosa — quem chama decide o que exibir.
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

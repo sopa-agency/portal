@@ -477,10 +477,21 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
   // list does not carry (bsc, gnosis, polygon, avalanche) — which is where the
   // swaps.pro split now lives. Falls back to the RPC fan-out when Zerion is not
   // configured or fails, so this degrades instead of breaking.
+  // Preenchido quando a Zerion falha e a leitura cai no RPC, que é cego para
+  // posição de protocolo. Viaja junto do número para a tela nunca apresentar um
+  // total incompleto como se fosse completo.
+  let protocolGap: string | undefined;
   if (!chainKey) {
-    // "all": inclui posição de protocolo. Sem isso, dinheiro que saiu da carteira
-  // para render some do tesouro e a tela lê como perda.
-  const z = await zerionBalances(addr, "all").catch((e) => ({ ok: false as const, error: String(e) }));
+    // "all": inclui posição de protocolo. Sem isso, dinheiro que saiu da
+    // carteira para render some do tesouro e a tela lê como perda.
+    const z = await zerionBalances(addr, "all").catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!z.ok) {
+      // O caminho de RPC abaixo NÃO enxerga posição de protocolo. Cair nele em
+      // silêncio faria a tela dizer "não tem nada em stake" quando a verdade é
+      // "não conseguimos perguntar" — e num tesouro esse é o pior erro que
+      // existe, porque parece um número em vez de parecer uma falha.
+      protocolGap = `posições de protocolo NÃO lidas (${z.error}) — o total abaixo exclui o que está em stake/LP`;
+    }
     if (z.ok) {
       const tokens = z.tokens.map(
         (t): EvmToken => ({
@@ -517,7 +528,7 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
     totalUsd: tokens.reduce((s, t) => s + (t.valueUsd ?? 0), 0),
     tokens,
     failedChains,
-    error: failedChains.length ? `leitura falhou: ${failedChains.join(", ")}` : undefined,
+    error: [protocolGap, failedChains.length ? `leitura falhou: ${failedChains.join(", ")}` : null].filter(Boolean).join(" · ") || undefined,
     source: "rpc",
   };
 }
