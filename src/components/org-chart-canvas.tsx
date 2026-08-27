@@ -27,14 +27,16 @@ const PAD = 64; // world padding around the layout bounds
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2;
 /** How long the tree takes to settle into a new shape. */
-const MOVE_MS = 340;
+const MOVE_MS = 320;
 /** Folding away is quicker than unfolding: leaving shouldn't cost attention. */
-const EXIT_MS = 190;
+const EXIT_MS = 150;
 
 type Point = { x: number; y: number };
 
 const edgeKey = (from: string, to: string) => `${from}\u2192${to}`;
-const easeOut = (u: number) => 1 - Math.pow(1 - u, 3);
+// Quartic, not cubic: leaves fast enough to feel like a direct answer to the
+// click, and spends its tail settling instead of drifting.
+const easeOut = (u: number) => 1 - Math.pow(1 - u, 4);
 const lerp = (a: Point, b: Point, e: number) => ({ x: a.x + (b.x - a.x) * e, y: a.y + (b.y - a.y) * e });
 
 export type TreeLike = { id: string; children: TreeLike[] };
@@ -148,7 +150,7 @@ export function OrgCanvas<T extends TreeLike>({
   useEffect(() => {
     tRef.current = t;
   }, [t]);
-  const fittedFor = useRef<string>("");
+  const fitted = useRef(false);
 
   const clampK = (k: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, k));
 
@@ -183,23 +185,23 @@ export function OrgCanvas<T extends TreeLike>({
     setT({ k, x: (cw - layout.width * k) / 2, y: (ch - layout.height * k) / 2 });
   }, [layout.width, layout.height, glide]);
 
-  // Fit once per distinct layout size (a node added/collapsed re-fits, panning
-  // around does not snap back).
+  // Fit ONCE, on the first layout — never again on a shape change. Re-fitting
+  // every time a branch folded yanked the whole plane (pan AND zoom) at the
+  // same moment the cards were moving: two motions at once, in different
+  // directions, which read as noise rather than as the branch folding. The
+  // viewport is now the reader's; the fit button gives it back on demand.
   useLayoutEffect(() => {
-    const key = `${Math.round(layout.width)}x${Math.round(layout.height)}`;
-    if (fittedFor.current === key) return;
-    fittedFor.current = key;
+    if (fitted.current || !layout.width || !layout.height) return;
+    fitted.current = true;
     fit();
   }, [fit, layout.width, layout.height]);
 
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
-      // Keep the chart in frame when the window/sidebar resizes.
-      fittedFor.current = "";
-      fit();
-    });
+    // Keep the chart in frame when the window/sidebar resizes — that IS a
+    // change to the frame itself, unlike a fold.
+    const ro = new ResizeObserver(() => fit());
     ro.observe(el);
     return () => ro.disconnect();
   }, [fit]);
@@ -536,7 +538,7 @@ export function OrgCanvas<T extends TreeLike>({
               style={{
                 // Siblings fan out left to right, levels cascade downward — the
                 // branch reads as unfolding rather than blinking into place.
-                animationDelay: `${Math.min(p.depth * 24 + p.siblingIndex * 30, 210)}ms`,
+                animationDelay: `${Math.min(p.depth * 16 + p.siblingIndex * 22, 130)}ms`,
                 opacity: dimmedIds?.has(p.id) ? 0.22 : undefined,
                 transition: "opacity 200ms",
               }}
