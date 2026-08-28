@@ -16,12 +16,19 @@ import type { ProjectConfig } from "./types";
  *   SKATEHIVE_PORTAL_DEVICE_PRIVATE_KEY_BASE64 -> fallback: OPENCLAW_PORTAL_DEVICE_PRIVATE_KEY_BASE64
  */
 export function projectEnv(project: ProjectConfig, key: string): string | undefined {
-  const namespacedKey = `${project.agent.gatewayEnvPrefix}_${key}`;
+  // `gatewayFrom` quando o projeto reusa o agente de outra marca. É o ÚNICO
+  // lugar onde ele vale: identidade continua saindo de `gatewayEnvPrefix`, e
+  // é essa separação que permite emprestar computação sem emprestar o direito
+  // de postar como. Ausente = o próprio prefixo, como sempre foi.
+  const prefix = project.agent.gatewayFrom ?? project.agent.gatewayEnvPrefix;
+  const namespacedKey = `${prefix}_${key}`;
   const namespacedVal = process.env[namespacedKey]?.trim();
   if (namespacedVal) return namespacedVal;
 
   // Legacy fallbacks for SkateHive so existing .env.local needs no changes.
-  if (project.agent.gatewayEnvPrefix === "SKATEHIVE") {
+  // Casa contra o prefixo EFETIVO: quem toma emprestado da SkateHive também
+  // deve enxergar as variáveis antigas dela.
+  if (prefix === "SKATEHIVE") {
     const legacyMap: Record<string, string> = {
       GATEWAY_URL: "OPENCLAW_GATEWAY_URL",
       GATEWAY_TOKEN: "GATEWAY_TOKEN",

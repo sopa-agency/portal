@@ -73,8 +73,6 @@ const swaps: ProjectConfig = {
   // Sits right under KeepKey, below the divider that separates that org from
   // the Reelflip family.
   switcher: { rank: 110, parent: "keepkey" },
-  // No agent online — the block reserves the SWAPS_* gateway prefix so the
-  // chat/briefings light up the day SWAPS_GATEWAY_URL / _TOKEN are set.
   briefingAgents: [],
   // O board já existia: coinmastersguild/projects/2 tem os 11 issues do
   // coinmastersguild/swapspro (subdomínio app.swaps.pro, ZEROX_API_KEY em prod,
@@ -84,8 +82,27 @@ const swaps: ProjectConfig = {
     org: "coinmastersguild",
     number: 2,
   },
+  /**
+   * Reusa o AGENTE do KeepKey, e só ele.
+   *
+   * `gatewayFrom: "KEEPKEY"` empresta a computação — gateway e device keys.
+   * `gatewayEnvPrefix: "SWAPS"` mantém a identidade própria: qualquer
+   * credencial de postar (Hive, Farcaster, Discord, Instagram, TikTok,
+   * Binance) continua sendo procurada como SWAPS_*, e nunca como KEEPKEY_*.
+   *
+   * Sem essa separação o caminho óbvio seria trocar o gatewayEnvPrefix para
+   * "KEEPKEY" — e aí o swaps.pro passaria a postar COMO KeepKey no dia em que
+   * alguém setasse uma credencial de identidade do KeepKey. A mudança que
+   * armaria a bomba não teria nada a ver com o swaps, que é o que a tornaria
+   * difícil de rastrear.
+   *
+   * Hoje nenhum dos dois prefixos tem variável neste ambiente: isto liga o
+   * encanamento antes da água. É de propósito — o encanamento certo tem que
+   * existir antes de alguém precisar dele com pressa.
+   */
   agent: {
     gatewayEnvPrefix: "SWAPS",
+    gatewayFrom: "KEEPKEY",
     id: "swaps",
     displayName: "swaps.pro",
     emoji: "🔁",

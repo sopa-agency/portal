@@ -319,8 +319,34 @@ export type ProjectConfig = {
     /**
      * Uppercase prefix for namespaced env vars.
      * e.g. "SKATEHIVE" reads SKATEHIVE_GATEWAY_URL, SKATEHIVE_GATEWAY_TOKEN, etc.
+     *
+     * ATENÇÃO — apesar do nome, este prefixo NÃO resolve só o gateway. Ele é
+     * também o prefixo de IDENTIDADE: `brandEnv()` o usa para achar
+     * HIVE_POSTING_KEY, NEYNAR_SIGNER_UUID, DISCORD_BOT_TOKEN,
+     * INSTAGRAM_ACCESS_TOKEN, TIKTOK_*, BINANCE_SQUARE_KEY — mais uns dez
+     * pontos que montam `${prefix}_X` na mão.
+     *
+     * Consequência: apontar este campo para OUTRA marca não empresta só
+     * computação, empresta o direito de POSTAR COMO ela. Para compartilhar
+     * apenas o agente, use `gatewayFrom` abaixo e deixe este como o próprio.
      */
     gatewayEnvPrefix: string;
+    /**
+     * De qual marca vêm as credenciais de COMPUTAÇÃO (gateway e device keys),
+     * quando o projeto reusa o agente de outra em vez de ter o seu.
+     *
+     * Só o `projectEnv()` lê isto — GATEWAY_URL, GATEWAY_TOKEN,
+     * PORTAL_DEVICE_*. A identidade continua vindo de `gatewayEnvPrefix`.
+     *
+     * Existe porque as duas coisas moravam no mesmo campo, e a diferença entre
+     * elas é a diferença entre "usa o mesmo computador" e "assina como".
+     * Compartilhar a primeira é reuso; a segunda é o desastre que o comentário
+     * no topo de `brand-env.ts` foi escrito para impedir — e ele descreve o
+     * caso da SkateHive, mas vale em qualquer direção.
+     *
+     * Ausente = o projeto usa o próprio prefixo para tudo, como antes.
+     */
+    gatewayFrom?: string;
     /** OpenClaw agentId, e.g. "skatehive-marketing" */
     id: string;
     /** Display name shown in the chat header, e.g. "SkateHive Marketing" */
