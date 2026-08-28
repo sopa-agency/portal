@@ -30,6 +30,104 @@ decidir o que sai da tela.**
 
 ---
 
+## A noite dos três estados (27/08, leva da madrugada)
+
+Leia isto primeiro. O resto do doc é o detalhe de cada peça; esta seção é o
+arco inteiro, na ordem em que aconteceu, e o suficiente para agir.
+
+**O problema, numa frase:** a página do tesouro tratava "não consegui ler" e
+"o valor é zero" como a mesma coisa. Num painel de dinheiro isso não
+desinforma — **decide**. Alguém abre a tela para resolver um pagamento.
+
+O time já havia resolvido isso três ou quatro vezes, cada vez de um jeito
+diferente (`Result`, `error?` ao lado do número, união discriminada, lista
+paralela de nomes, ausência inferida no consumidor). Cada `.catch(() => [])`
+restante era um lugar onde não havia resolvido. Foi por isso que a resposta foi
+sistêmica e não pontual: consertar a nona ocorrência garante a décima.
+
+### O que foi feito, em ordem
+
+| # | O que estava errado | Conserto | Commit |
+|---|---|---|---|
+| — | A soma do tesouro pegava o zero de uma carteira que falhou e descartava o erro | `Reading<T>` + `sumReadings`, e **remover** `grandTotalUsd` para o compilador apontar 19 lugares | `056ffdd` |
+| 1 | Falha registrada como AUSÊNCIA de linha, indistinguível de "o cron não rodou" | Falha vira linha com `totalUsd` nulo + `failedChains` + `kind`; Hive entra na foto | `4076fce` |
+| 2 | `getTreasuryHistory` e `getTreasuryWalletHistory` sem canal — vazio = "sem histórico" E "banco caiu" | Passam a devolver `Reading<TreasurySeries[]>`; `attempt()` finalmente se aplica | `6c879c3` |
+| 3 | `valueUsd ?? 0` — preço desconhecido valendo zero na soma | Soma dos tokens COM preço, resto nomeado no hero | `217e8bc` |
+| 4 | `connected: !!chain?.connected` afirmava o estado da folha de CADA pessoa a partir de leitura falha | Três estados com badge tracejado; quatro `[]` e o `0` ganham canal | `183604c` |
+| 5 | `findSopaPool().catch(() => null)` **desligava o próprio detector** de falha | Pool vira `Reading`; o detector deixa de depender do que detecta | `03e54b6` |
+| — | A métrica de saúde media o caminho vizinho | Os dois leitores fotografados na mesma hora; divergência visível sob "Operar" | `e11ba91` |
+
+### A hierarquia de gravidade — não é por quantidade
+
+> `isStale: false` é pior que `[]` é pior que `0`
+
+- **`0`** numa contagem ainda é suspeito. Alguém eventualmente estranha.
+- **`[]`** não é nem suspeito: é a resposta mais comum e legítima que aquela
+  função poderia dar. Passa por normal.
+- **Afirmação de saúde não-verificada** é pior que as duas, porque não é
+  omissão — é afirmação POSITIVA que ninguém checou. Ela derrota o maquinário
+  construído para pegar o caso: o dado mente e o detector confirma.
+
+Foi por essa ordem que os itens 4 e 5 foram atacados, e ela pagou: no item 4 o
+que furou a fila foi o badge de "acumulando" em cada membro; no item 5, o
+`poolAddress` que zerava o `streamFailed`. Nenhum dos dois seria o primeiro
+numa lista ordenada por quantidade.
+
+### A unidade de análise é o CAMINHO, não a função
+
+> No caminho COM canal, o erro é um bug. No caminho SEM canal, é o design.
+
+Antes de consertar qualquer `catch`, a pergunta é: **este caminho tem onde
+colocar a informação?** Se não tem, tratar os `catch` não tem destino e o
+próximo nasce depois. O conserto certo é dar canal ao caminho.
+
+Isso separou o trabalho em dois grupos que um search-and-replace teria juntado:
+o item 2 precisou de canal novo; o item 3 já tinha canal (`number | null`) e só
+precisou parar de descartá-lo.
+
+E vale nos dois sentidos: no item 5, sete dos oito `null` eram legitimamente
+"não configurado" — **resposta correta, não bug.** Só um (`getStakePosition`)
+fazia dois trabalhos, e essa classe já havia mordido de verdade (`3af9642`,
+"MOR em stake sumia do saldo e lia como PERDA"). Conferir um por um foi o que
+separou os grupos; varrer teria "consertado" sete acertos.
+
+### Verde não prova que a tua mudança entrou
+
+Aconteceu **duas vezes na mesma noite**: uma substituição automatizada não casou
+por diferença de indentação, o arquivo ficou intacto, e o `tsc` passou limpo —
+porque o código antigo compila. O verde era verdadeiro e irrelevante.
+
+Na segunda vez a regra já existia, a conferência por `grep` veio antes da
+comemoração, e pegou. **Regra que se paga em horas.**
+
+**Cada verificador prova uma coisa específica, e nenhum prova "fiz o que eu
+queria fazer":**
+
+- `tsc` → o que está no disco tem tipos coerentes
+- `next build` → também respeita a fronteira cliente/servidor
+- `grep` → a mudança está no disco
+- `check-client-bundle.sh` → nenhum literal de módulo `server-only` chegou ao
+  bundle do navegador (evidência POSITIVA, não ausência de erro)
+
+Nenhum substitui os outros. E os dois primeiros cobrem **buracos opostos**:
+aqui o `tsc` não enxerga a fronteira cliente/servidor; na SkateHive o `next
+build` roda com *Skipping validation of types* e o `tsc` é o único que pega
+tipo. Passar num não é evidência sobre o outro.
+
+### O que a divergência vai decidir (bloqueado por TEMPO, não por trabalho)
+
+O número aparece na virada de hora do cron. Quando houver alguns pontos:
+
+- **Divergência pequena** ⇒ a **opção 3** (convergir dispensando os
+  extraTokens) deixa de ser aposta e vira verificação.
+- **Divergência grande** ⇒ **opção 1**: convergir trazendo os extraTokens, com
+  chave de identidade **chain + endereço de contrato, nunca símbolo**. Símbolo
+  é a chave que faz dois contratos diferentes casarem — é assim que se publica
+  erro de ordem de grandeza.
+
+Pré-requisito das duas: **`EvmToken` ganhar o endereço do contrato.** Hoje ele
+carrega símbolo + chain, e é por isso que a comparação de hoje é só do TOTAL.
+
 ## O que mudou
 
 ### Custos subiu pro lado do saldo (`1a4a214`)
@@ -388,38 +486,62 @@ prova uma coisa específica, e nenhum deles prova "fiz o que eu queria fazer".**
 
 Nenhum dos três substitui os outros dois.
 
-### Item 5: a ordem de novo, e o que furou a fila
+### Item 2: dar canal ao caminho, em vez de remendar três catch
 
-Os `null` restantes, atacados na ordem por disfarce e não por quantidade.
+A pergunta antes de consertar os três `.catch(() => [])` do `treasury-history`
+foi: **este caminho tem canal?** A verificação:
 
-**1. `poolAddress` — a pior classe, furou tudo.** `findSopaPool().catch(() => null)`
-fazia poolAddress virar null; sem pool o status nem era buscado; e o sinal de
-falha era `!!poolAddress && !streamStatus`, que **com poolAddress null dá
-FALSE**. A página passava a jurar que estava tudo bem porque falhou ao
-perguntar — **o catch desligava o próprio detector.** Agora o pool é
-`Reading<string | null>` (`ok(null)` = procurou e não há; `unread` = a busca
-falhou) e o detector é `poolUnknown || (pool existe && status não leu)`: ele
-deixou de depender daquilo que detecta.
+| função | retorno antes | canal? |
+|---|---|---|
+| `getTreasuryHistory` | `TreasurySeries[]` | não |
+| `getTreasuryWalletHistory` | `TreasurySeries[]` | não |
+| `getTreasuryWalletChart` | `{series, failed}` | **sim** |
 
-**2. `jobsRes` / `payrollRes` — caminho COM canal, contornado.** As duas
-funções devolvem `Result` (`ok`/`error`), e o `.catch(() => null)` passava por
-fora dele. Erro é bug, não design: o catch agora constrói o próprio `Result` de
-falha em vez de descartá-lo.
+Dois dos três não tinham onde colocar a informação, então tratar os `catch`
+não teria destino — e o quarto nasceria depois, que é exatamente o que o
+SwapPro descreveu. O conserto foi **dar canal ao caminho**: as duas funções
+passam a devolver `Reading<TreasurySeries[]>`, e o `attempt()` do módulo
+finalmente se aplica (na primeira leva eu tinha recusado usá-lo, porque lá a
+camada de fetch já produzia dois estados corretos por chain — aqui não produzia
+nada).
 
-**3. `allocation` e `getPipelineStatus` — seção sumindo em silêncio.** Ambas
-guardadas por `x && <Painel/>`. Nunca-configurado sumir é legítimo; **não ter
-lido** sumir é afirmar que não existe. Viraram `Reading`, e o não-lido rende
-uma placa que diz o motivo e avisa que a ausência do painel é da leitura, não
-do mundo.
+Havia uma SEGUNDA camada de colapso: a página refazia `.catch(() => [])` no
+call site. Dar canal à lib sem tirar isso não teria mudado a tela.
 
-**4. `fetchVaultApy` — legítimo, NÃO foi mexido.** A função já tem try/catch
-próprio e nunca lança; o `.catch` externo é redundância, não colapso. E o
-consumidor renderiza "os valores em $/mês aparecem quando a Morpho indexar o
-APY — as fatias já estão corretas", que é honesto nos dois casos e nunca vira
-número. Única imprecisão conhecida: a frase atribui a ausência à indexação da
-Morpho, e uma falha de rede daria a mesma frase. Erra o PORQUÊ, não o QUÊ.
-Anotado, não consertado — mexer no que está certo só para fechar lista é como
-se cria a próxima variante.
+Um `catch` ficou de pé de propósito, e a distinção vale: o que busca os TÍTULOS
+dos cards. Ele degrada um rótulo — a série aparece com o id do card, feia e
+visivelmente incompleta — não um número. A regra dos três estados protege
+VALOR; rótulo caindo para id é degradação à vista, não valor errado se passando
+por certo.
+
+### Item 3: caminho COM canal — o erro é bug, não design
+
+`EvmToken.valueUsd` já era `number | null`, com o comentário certo ao lado
+("unknown is not zero"). O canal existia; as duas somas é que o jogavam fora
+com `?? 0`. Pela unidade do SwapPro: **no caminho com canal, o erro é um bug.**
+Não havia o que projetar, havia o que consertar.
+
+**A medição, e ela é estrutural — custo zero de cota.** A pergunta era se
+"token sem preço ⇒ carteira incompleta" seria sinal ou barulho. Dos extraTokens
+configurados, `gnars` na carteira da SOPA é `usd: "none"` — **sem preço por
+configuração, toda hora, para sempre.** A regra estrita deixaria o hero da SOPA
+permanentemente incompleto: ruído constante, não sinal.
+
+**Mas a escolha não se apoia no barulho — se apoia numa distinção real:**
+
+| buraco | o que se sabe | o que o total é |
+|---|---|---|
+| chain que não respondeu | não se sabe O QUE tem | desconhecido → recusa o número |
+| token sem preço | sabe-se exatamente o que tem, não quanto vale | **piso correto** → mostra e nomeia o que falta |
+
+Conflar os dois seria um erro próprio, na direção oposta. Então a soma passa a
+somar os tokens COM preço — escrita como filtro, não como `?? 0`, para que ler
+a linha diga o que ela faz — e o resto sobe até o hero como nota: *"Não inclui
+gnars (N) — em carteira, sem preço confiável."*
+
+Num tesouro este é o pior lugar possível para essa confusão: **token sem preço
+conhecido é comum, token que vale zero é raro.** O caso frequente estava sendo
+renderizado como o caso raro.
 
 ### Item 4: a ordem é por quão bem a falha se disfarça
 
@@ -453,62 +575,38 @@ estava certo para a maioria — e errado para um. `getStakePosition` colapsava
 se sabe" — e o painel não desenha barra nem conselho sobre um termo que ninguém
 leu.
 
-### Item 3: caminho COM canal — o erro é bug, não design
+### Item 5: a ordem de novo, e o que furou a fila
 
-`EvmToken.valueUsd` já era `number | null`, com o comentário certo ao lado
-("unknown is not zero"). O canal existia; as duas somas é que o jogavam fora
-com `?? 0`. Pela unidade do SwapPro: **no caminho com canal, o erro é um bug.**
-Não havia o que projetar, havia o que consertar.
+Os `null` restantes, atacados na ordem por disfarce e não por quantidade.
 
-**A medição, e ela é estrutural — custo zero de cota.** A pergunta era se
-"token sem preço ⇒ carteira incompleta" seria sinal ou barulho. Dos extraTokens
-configurados, `gnars` na carteira da SOPA é `usd: "none"` — **sem preço por
-configuração, toda hora, para sempre.** A regra estrita deixaria o hero da SOPA
-permanentemente incompleto: ruído constante, não sinal.
+**1. `poolAddress` — a pior classe, furou tudo.** `findSopaPool().catch(() => null)`
+fazia poolAddress virar null; sem pool o status nem era buscado; e o sinal de
+falha era `!!poolAddress && !streamStatus`, que **com poolAddress null dá
+FALSE**. A página passava a jurar que estava tudo bem porque falhou ao
+perguntar — **o catch desligava o próprio detector.** Agora o pool é
+`Reading<string | null>` (`ok(null)` = procurou e não há; `unread` = a busca
+falhou) e o detector é `poolUnknown || (pool existe && status não leu)`: ele
+deixou de depender daquilo que detecta.
 
-**Mas a escolha não se apoia no barulho — se apoia numa distinção real:**
+**2. `jobsRes` / `payrollRes` — caminho COM canal, contornado.** As duas
+funções devolvem `Result` (`ok`/`error`), e o `.catch(() => null)` passava por
+fora dele. Erro é bug, não design: o catch agora constrói o próprio `Result` de
+falha em vez de descartá-lo.
 
-| buraco | o que se sabe | o que o total é |
-|---|---|---|
-| chain que não respondeu | não se sabe O QUE tem | desconhecido → recusa o número |
-| token sem preço | sabe-se exatamente o que tem, não quanto vale | **piso correto** → mostra e nomeia o que falta |
+**3. `allocation` e `getPipelineStatus` — seção sumindo em silêncio.** Ambas
+guardadas por `x && <Painel/>`. Nunca-configurado sumir é legítimo; **não ter
+lido** sumir é afirmar que não existe. Viraram `Reading`, e o não-lido rende
+uma placa que diz o motivo e avisa que a ausência do painel é da leitura, não
+do mundo.
 
-Conflar os dois seria um erro próprio, na direção oposta. Então a soma passa a
-somar os tokens COM preço — escrita como filtro, não como `?? 0`, para que ler
-a linha diga o que ela faz — e o resto sobe até o hero como nota: *"Não inclui
-gnars (N) — em carteira, sem preço confiável."*
-
-Num tesouro este é o pior lugar possível para essa confusão: **token sem preço
-conhecido é comum, token que vale zero é raro.** O caso frequente estava sendo
-renderizado como o caso raro.
-
-### Aplicando a mesma unidade ao passo 2, item 2
-
-A pergunta antes de consertar os três `.catch(() => [])` do `treasury-history`
-foi: **este caminho tem canal?** A verificação:
-
-| função | retorno antes | canal? |
-|---|---|---|
-| `getTreasuryHistory` | `TreasurySeries[]` | não |
-| `getTreasuryWalletHistory` | `TreasurySeries[]` | não |
-| `getTreasuryWalletChart` | `{series, failed}` | **sim** |
-
-Dois dos três não tinham onde colocar a informação, então tratar os `catch`
-não teria destino — e o quarto nasceria depois, que é exatamente o que o
-SwapPro descreveu. O conserto foi **dar canal ao caminho**: as duas funções
-passam a devolver `Reading<TreasurySeries[]>`, e o `attempt()` do módulo
-finalmente se aplica (na primeira leva eu tinha recusado usá-lo, porque lá a
-camada de fetch já produzia dois estados corretos por chain — aqui não produzia
-nada).
-
-Havia uma SEGUNDA camada de colapso: a página refazia `.catch(() => [])` no
-call site. Dar canal à lib sem tirar isso não teria mudado a tela.
-
-Um `catch` ficou de pé de propósito, e a distinção vale: o que busca os TÍTULOS
-dos cards. Ele degrada um rótulo — a série aparece com o id do card, feia e
-visivelmente incompleta — não um número. A regra dos três estados protege
-VALOR; rótulo caindo para id é degradação à vista, não valor errado se passando
-por certo.
+**4. `fetchVaultApy` — legítimo, NÃO foi mexido.** A função já tem try/catch
+próprio e nunca lança; o `.catch` externo é redundância, não colapso. E o
+consumidor renderiza "os valores em $/mês aparecem quando a Morpho indexar o
+APY — as fatias já estão corretas", que é honesto nos dois casos e nunca vira
+número. Única imprecisão conhecida: a frase atribui a ausência à indexação da
+Morpho, e uma falha de rede daria a mesma frase. Erra o PORQUÊ, não o QUÊ.
+Anotado, não consertado — mexer no que está certo só para fechar lista é como
+se cria a próxima variante.
 
 ## Cuidados pra quem mexer aqui depois
 
