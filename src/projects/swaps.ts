@@ -15,7 +15,11 @@ import type { ProjectConfig } from "./types";
 const swaps: ProjectConfig = {
   slug: "swaps",
   name: "swaps.pro",
-  description: "Internal ops portal for swaps.pro — the swap/bridge product.",
+  // Da própria documentação para máquina do produto (swaps.pro/llms.txt), que
+  // é a descrição que a marca publica de si mesma — melhor que uma paráfrase
+  // nossa, e ela se mantém alinhada quando o produto mudar.
+  description:
+    "Terminal de swap cross-chain não-custodial, sem conta e sem chave de API — com HTTP público que agentes autônomos podem usar.",
   // Same crew as KeepKey, its sibling in the switcher. Trim or extend as the
   // swaps.pro team takes shape.
   allowlist: ["xvlad", "bielcx", "keepkey", "illithics", "humbertoperes", "r4topunk", "nogenta", "louzoshi", "highlander22", "vaipraonde"],
@@ -39,7 +43,9 @@ const swaps: ProjectConfig = {
   farcaster: {
     channel: "",
   },
-  repos: [],
+  // Repo público do produto. O board de issues já aponta para a mesma org
+  // (coinmastersguild/projects/2), então as duas pontas do GitHub combinam.
+  repos: ["coinmastersguild/swapspro"],
   socials: [],
   // Sits right under KeepKey, below the divider that separates that org from
   // the Reelflip family.
