@@ -289,6 +289,40 @@ Convergir os dois — a fonte injetável que já está adiada aqui — é o que 
 a medição medir a coisa e não a vizinha. Fica nomeado como o próximo passo
 estrutural desta página, acima de qualquer conserto pontual restante.
 
+## Evidência de fronteira: `scripts/check-client-bundle.sh`
+
+Procura, nos chunks que o NAVEGADOR baixa, literais de string que só existem
+dentro de módulos `server-only` nossos. Achar qualquer um é falha.
+
+**O que ele prova e o que NÃO prova** — importa, porque a primeira versão dele
+mentiu duas vezes em direções opostas:
+
+1. **Falso positivo, na primeira tentativa.** Os marcadores eram strings de
+   PROTOCOLO (`condenser_api`, `eth_getBalance`) e acusaram vazamento na linha
+   de base. Vinham do `@hiveio/dhive` e do `viem`, que estão legitimamente no
+   navegador. O detector não distinguia "nosso módulo vazou" de "uma biblioteca
+   cliente fala o mesmo protocolo" — **o espelho exato do bug que este repo
+   passou a noite consertando: medir o vizinho.** E é pior que inútil: alarme
+   falso é o que faz alguém desligar a verificação. Trocado por literais em
+   português do nosso próprio código.
+
+2. **Controle negativo NÃO disparou.** Reintroduzi a forma exata do vazamento de
+   `0809550` — um import de valor de `treasury.ts` dentro de `treasury-aggregate`
+   — e a verificação passou limpa. Não porque falhou em ver: porque **o
+   `next build` abortou antes de emitir chunk nenhum.** A guarda do `server-only`
+   do Next dispara primeiro.
+
+   Então o valor real deste script é ser uma **segunda rede**, para o caso que a
+   primeira não cobre: um módulo que NÃO declara `import "server-only"` e mesmo
+   assim carrega lógica ou segredo de servidor. Nada obriga um arquivo novo a
+   declarar. Esse caso não trava o build e chegaria no bundle em silêncio.
+
+   **Eu não consegui demonstrar o script pegando um vazamento real** — só
+   demonstrei que o mecanismo de busca funciona (foi ele que achou os falsos
+   positivos). Isso é o limite honesto da evidência que tenho.
+
+Linha de base em `03e54b6`: seis marcadores, todos ausentes, 81 chunks.
+
 ## Verde não prova que a tua mudança entrou
 
 Escrito depois de acontecer duas vezes no mesmo turno.
