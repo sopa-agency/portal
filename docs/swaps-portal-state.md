@@ -283,14 +283,37 @@ muda — usa-se a que já existe em vez de reusar a da SkateHive ou do Gnars.)*
 
 ### Três achados de graça na mesma consulta
 
-- **`314448625 "Gnars.com"`**, na conta **Gnars DAO**, já legível pela
-  `bobgnarley@`. O portal do gnars usa `527420949` ("Gnars", conta *Vlad
-  Projects*) — **propriedade diferente**. Se o item bloqueado no gnars.com era
-  medir tráfego daquele site, é provável que a propriedade certa seja esta, e o
-  acesso **já existe**.
+- **`314448625 "Gnars.com"`** — parecia a propriedade "certa" do gnars.com, e
+  **não é**. Verificado em 28/08 e escrito abaixo, porque a suspeita estava
+  invertida.
 - **`541423360 "Reelflip"`** — acessível pelas duas contas, **usada por nenhum
   portal**. Uma linha de config à espera.
 - **`525358748 "Detector de Golpes"`** — idem.
+
+### O falso alarme do Gnars, resolvido (28/08)
+
+A suspeita era que o portal do gnars medisse a propriedade errada. **Mede a
+certa.** A prova não é o nome da propriedade — é o measurement ID:
+
+```
+527420949 "Gnars"      criada 03/2026  tz São Paulo  → stream gnars.com  G-S0R9RBJDKL
+314448625 "Gnars.com"  criada 05/2022  tz Singapura  → stream gnars.com  G-W41VLT4PNY
+
+o HTML de gnars.com e www.gnars.com carrega   gtag/js?id=G-S0R9RBJDKL
+```
+
+O site envia para a que o portal lê. As duas declaram `gnars.com` no stream, e é
+por isso que o nome sozinho enganava.
+
+Confirmado pelos dados: em 28 dias, `527420949` tem **783 sessões** em
+www.gnars.com; `314448625` tem **zero linhas**. A de 2022 é herança morta.
+
+**Não trocar a linha.** Trocar mudaria um painel com dados por um painel vazio.
+
+**Mas a credencial existia mesmo.** A `bobgnarley@` lê as duas propriedades pela
+**Data API**, não só pela Admin — as duas chamadas acima voltaram `OK`. Se o
+item do gnars.com estava parado por "falta credencial da GA4 Data API", o
+bloqueio era de informação, não de acesso.
 
 ## O achado do Gnars, e a regra que saiu dele
 
