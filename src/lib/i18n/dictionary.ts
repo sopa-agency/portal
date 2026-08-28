@@ -525,6 +525,8 @@ const en = {
         `${n} ${n === 1 ? "member hasn't connected their wallet yet" : "members haven't connected their wallets yet"} — their share still accrues, but it doesn't drip in real time. It's one click, once.`,
       receiving: "receiving",
       accruing: "accruing",
+      /** The pool read failed — this member's state was never verified. */
+      unknown: "unknown",
       accrued: "accrued",
       withdrawn: (value: string) => `${value} withdrawn`,
       nothingWithdrawn: "nothing withdrawn",
@@ -630,6 +632,8 @@ const en = {
       save: "Save slices",
       inVault: "Earning in the vault",
       ofTotal: (staked: string, total: string, pct: number) => `**${staked}** of ${total} · ${pct}%`,
+      /** The staked position couldn't be read — not the same as nothing staked. */
+      stakeUnread: "staked position couldn't be read — not the same as zero",
       idle: (value: string) =>
         `${value} sitting idle — put it in the vault (Controls → Put the money to work). It stays available: you withdraw whenever you need it.`,
       buckets: {
@@ -1919,6 +1923,7 @@ const pt: typeof en = {
         `${n} ${n === 1 ? "membro ainda não conectou a carteira" : "membros ainda não conectaram a carteira"} — a fatia deles acumula, mas não pinga em tempo real. É um clique, uma vez só.`,
       receiving: "recebendo",
       accruing: "acumulando",
+      unknown: "desconhecido",
       accrued: "acumulado",
       withdrawn: (value: string) => `${value} sacado`,
       nothingWithdrawn: "nada sacado",
@@ -2020,6 +2025,7 @@ const pt: typeof en = {
       save: "Salvar fatias",
       inVault: "No cofre rendendo",
       ofTotal: (staked: string, total: string, pct: number) => `**${staked}** de ${total} · ${pct}%`,
+      stakeUnread: "a posição em stake não pôde ser lida — não é o mesmo que zero",
       idle: (value: string) =>
         `${value} parado sem render — guarde no cofre (Controles → Guardar dinheiro rendendo). Continua disponível: você saca quando precisar.`,
       buckets: {

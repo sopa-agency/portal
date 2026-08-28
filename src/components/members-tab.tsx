@@ -44,11 +44,19 @@ export type MemberRow = {
   label: string;
   address: string;
   units: number;
-  connected: boolean;
-  /** Total already streamed to them since joining. */
-  receivedUsd?: number;
-  /** How much of that they already pulled out. */
-  claimedUsd?: number;
+  /**
+   * NULL = a leitura on-chain do pool não respondeu.
+   *
+   * Era `boolean`, e `!!chain?.connected` sobre uma leitura falha afirmava
+   * "acumulando" para TODO membro, com badge colorido. Isso não é omissão, é
+   * afirmação positiva sobre a folha de pagamento de cada pessoa que ninguém
+   * verificou — o pior formato dos três, porque não levanta suspeita nenhuma.
+   */
+  connected: boolean | null;
+  /** Total already streamed to them since joining. NULL = não leu. */
+  receivedUsd?: number | null;
+  /** How much of that they already pulled out. NULL = não leu. */
+  claimedUsd?: number | null;
 };
 
 function Stat({ label, value, sub, hint, tone = "text-foreground" }: { label: string; value: string; sub?: string; hint?: string; tone?: string }) {
@@ -74,7 +82,9 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
   const active = members.filter((m) => m.units > 0);
   const total = active.reduce((s, m) => s + m.units, 0);
   if (!active.length) return null;
-  const notConnected = active.filter((m) => !m.connected).length;
+  // Só conta quem se SABE desconectado. Membro cuja leitura falhou não entra
+  // numa contagem de problema — inventaria um problema que ninguém verificou.
+  const notConnected = active.filter((m) => m.connected === false).length;
 
   return (
     <section className="rounded-2xl border border-border bg-surface p-5">
@@ -107,12 +117,18 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
                 <div className="truncate text-sm font-medium text-foreground">{m.label}</div>
                 <div className="font-mono text-[11px] text-foreground-faint">{shortAddr(m.address)}</div>
               </div>
+              {/* Três estados, três FORMATOS: o desconhecido é tracejado, não
+                  só cinza — um badge sólido de qualquer cor afirma. */}
               <span
                 className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                  m.connected ? "bg-success/15 text-success" : "bg-foreground/10 text-foreground-muted"
+                  m.connected == null
+                    ? "border border-dashed border-warning/50 text-warning"
+                    : m.connected
+                      ? "bg-success/15 text-success"
+                      : "bg-foreground/10 text-foreground-muted"
                 }`}
               >
-                {m.connected ? t.members.receiving : t.members.accruing}
+                {m.connected == null ? t.members.unknown : m.connected ? t.members.receiving : t.members.accruing}
               </span>
               <div className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-border sm:block">
                 <div className="h-full rounded-full" style={{ width: `${Math.max(share, 2)}%`, backgroundColor: color }} />
@@ -125,9 +141,15 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
               </div>
               <div className="w-24 shrink-0 border-l border-border pl-2 text-right">
                 <div className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.members.accrued}</div>
-                <div className="text-sm font-semibold tabular-nums text-success">{usdTiny(m.receivedUsd ?? 0)}</div>
+                <div className="text-sm font-semibold tabular-nums text-success">
+                  {m.receivedUsd == null ? "—" : usdTiny(m.receivedUsd)}
+                </div>
                 <div className="text-[10px] tabular-nums text-foreground-faint">
-                  {(m.claimedUsd ?? 0) > 0 ? t.members.withdrawn(usdTiny(m.claimedUsd ?? 0)) : t.members.nothingWithdrawn}
+                  {m.claimedUsd == null
+                    ? t.members.unknown
+                    : m.claimedUsd > 0
+                      ? t.members.withdrawn(usdTiny(m.claimedUsd))
+                      : t.members.nothingWithdrawn}
                 </div>
               </div>
             </li>
@@ -174,7 +196,7 @@ export function MembersTab({
   const dict = useT().treasury;
   const t = dict.members;
   const [tab, setTab] = useState<"painel" | "controles">("painel");
-  const connectedCount = members.filter((m) => m.units > 0 && m.connected).length;
+  const connectedCount = members.filter((m) => m.units > 0 && m.connected === true).length;
   const activeCount = members.filter((m) => m.units > 0).length;
 
   return (

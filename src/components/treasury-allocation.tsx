@@ -38,7 +38,10 @@ export function TreasuryAllocation({
   /** Everything the treasury holds (staked + free + reserve). */
   totalUsd: number;
   /** How much of it is already earning in the vault. */
-  stakedUsd: number;
+  /** NULL = a posição em stake não pôde ser lida. Não é zero: a barra e a
+   *  porcentagem dependem dela, e desconhecido virando 0 desenharia "nada em
+   *  stake" — que foi literalmente o incidente 3af9642. */
+  stakedUsd: number | null;
   canEdit: boolean;
   streamMonthlyUsd: number;
   apy: number | null;
@@ -78,7 +81,7 @@ export function TreasuryAllocation({
       } else setErr(res.error);
     });
 
-  const stakedPct = totalUsd > 0 ? (stakedUsd / totalUsd) * 100 : 0;
+  const stakedPct = stakedUsd != null && totalUsd > 0 ? (stakedUsd / totalUsd) * 100 : 0;
 
   return (
     <section className="rounded-2xl border border-border bg-surface p-5">
@@ -247,13 +250,21 @@ export function TreasuryAllocation({
             <PiggyBank className="h-3.5 w-3.5 text-success" /> {t.inVault}
           </span>
           <span className="tabular-nums text-foreground-muted">
-            {rich(t.ofTotal(usd(stakedUsd), usd(totalUsd), Math.round(stakedPct)))}
+            {stakedUsd == null
+              ? t.stakeUnread
+              : rich(t.ofTotal(usd(stakedUsd), usd(totalUsd), Math.round(stakedPct)))}
           </span>
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-border">
-          <div className="h-full rounded-full bg-success" style={{ width: `${Math.max(stakedPct, stakedUsd > 0 ? 2 : 0)}%` }} />
+          <div
+            className="h-full rounded-full bg-success"
+            style={{ width: `${Math.max(stakedPct, (stakedUsd ?? 0) > 0 ? 2 : 0)}%` }}
+          />
         </div>
-        {stakedPct < 80 && (
+        {/* "Parado: $X" é conselho, e conselho sobre subtração com um termo
+            desconhecido é palpite. Sem a posição, o aviso não aparece — some o
+            conselho, não o motivo, que já está dito acima. */}
+        {stakedUsd != null && stakedPct < 80 && (
           <p className="mt-1.5 text-[11px] text-warning">
             {t.idle(usd(totalUsd - stakedUsd))}
           </p>

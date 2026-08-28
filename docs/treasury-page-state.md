@@ -289,6 +289,38 @@ Convergir os dois — a fonte injetável que já está adiada aqui — é o que 
 a medição medir a coisa e não a vizinha. Fica nomeado como o próximo passo
 estrutural desta página, acima de qualquer conserto pontual restante.
 
+### Item 4: a ordem é por quão bem a falha se disfarça
+
+Hierarquia de gravidade portada do SwapPro, e ela NÃO é por quantidade:
+
+> `isStale: false` é pior que `[]` é pior que `0`
+
+`0` numa contagem ainda é suspeito — alguém eventualmente estranha. `[]` não é
+nem suspeito: é a resposta mais comum e legítima que aquela função poderia dar.
+E afirmação de saúde não-verificada é pior que as duas, porque não é omissão —
+é afirmação positiva que ninguém checou.
+
+**O que furou a fila aqui:** `connected: !!chain?.connected` na aba de Membros.
+`chain` vem de `streamStatus`, que era `.catch(() => null)`. Leitura falha ⇒
+TODO membro recebia badge sólido de "acumulando", mais `receivedUsd: 0` e
+`claimedUsd: 0`. Afirmação positiva sobre a folha de pagamento de cada pessoa,
+com cor de confirmação, a partir de leitura que não houve. Havia um
+`streamFailed` que mostrava aviso — em outro sub-componente, sem tocar nos
+badges. **Aviso ao lado não desfaz afirmação.**
+
+Agora `connected` é `boolean | null`, o badge desconhecido é TRACEJADO (formato,
+não só cor), e as contagens de problema (`notConnected`) só contam quem se sabe
+desconectado — inventar um problema não verificado é o mesmo erro ao contrário.
+
+**Sobre os `null`:** o palpite de que seriam legitimamente "não configurado"
+estava certo para a maioria — e errado para um. `getStakePosition` colapsava
+"não há posição" e "não consegui ler" no mesmo `null`, e daí saía
+`stakedUsd ?? 0` no painel de earmarks. **Esta classe já mordeu de verdade**
+(`3af9642`, "MOR em stake sumia do saldo e lia como PERDA"). Virou
+`Reading<StakePosition | null>`: `ok(null)` é "não há posição", `unread` é "não
+se sabe" — e o painel não desenha barra nem conselho sobre um termo que ninguém
+leu.
+
 ### Item 3: caminho COM canal — o erro é bug, não design
 
 `EvmToken.valueUsd` já era `number | null`, com o comentário certo ao lado

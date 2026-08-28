@@ -32,7 +32,7 @@ import { BrandTreasury } from "@/components/brand-treasury";
 import { TreasuryAllocation } from "@/components/treasury-allocation";
 import { getAllocation } from "@/app/actions/allocation";
 import { StakingPanel } from "@/components/staking-panel";
-import { getStakePosition } from "@/lib/staking";
+import { getStakePosition, type StakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
@@ -64,7 +64,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { ChevronRight } from "lucide-react";
 import { rich } from "@/components/rich-text";
-import { isOk, ok, unread, type Reading } from "@/lib/reading";
+import { attempt, isOk, ok, unread, type Reading } from "@/lib/reading";
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
@@ -111,7 +111,15 @@ treasury: {
   // unknown → probe Base + mainnet) plus the project's configured bounty Safes
   // (known chain). A wallet may be a Safe on either chain.
   const slugs = [project.slug, ...(project.treasury?.includeProjects ?? [])];
-  const bountyConfigs = await prisma.bountyConfig.findMany({ where: { projectSlug: { in: slugs } } }).catch(() => []);
+  // `attempt` em vez de `.catch(() => [])`: lançar JÁ é um canal — a exceção
+  // carrega o motivo. O catch é que jogava fora. Lista vazia aqui afirmava
+  // "não há orçamentos", que é a resposta mais legítima que esta função pode
+  // dar e por isso a mentira menos suspeita das três.
+  const bountyRead = await attempt(
+    () => prisma.bountyConfig.findMany({ where: { projectSlug: { in: slugs } } }),
+    (e) => `orçamentos não leram: ${e instanceof Error ? e.message : String(e)}`,
+  );
+  const bountyConfigs = isOk(bountyRead) ? bountyRead.value : [];
   const nameOf = (slug: string) => getAllProjects().find((p) => p.slug === slug)?.name ?? slug;
 
   // address(lower) → { label, address, chains[] }. Bounty Safes pin their chain.
@@ -190,40 +198,75 @@ treasury: {
   // SOPA data used to be a long serial waterfall of awaits. Now two parallel waves:
   // wave 1 = everything with no cross-dependency; wave 2 = reads that need a wave-1
   // result (the pool address, and the SOPA-owned vault).
-  const [payrollRes, rosterRaw, poolAddress, stakePosition, allocation, communityVaults] = await Promise.all([
+  const [payrollRes, rosterRaw, poolAddress, stakeRead, allocation, communityVaults] = await Promise.all([
     isSopa ? listPayrollMembers().catch(() => null) : Promise.resolve(null),
-    isSopa ? getTeamRoster(project).catch(() => []) : Promise.resolve([]),
+    isSopa
+      ? attempt(() => getTeamRoster(project), (e) => `elenco não leu: ${e instanceof Error ? e.message : String(e)}`)
+      : Promise.resolve(ok([] as Awaited<ReturnType<typeof getTeamRoster>>)),
     isSopa ? (SOPA_POOL_ADDRESS ? Promise.resolve(SOPA_POOL_ADDRESS) : findSopaPool().catch(() => null)) : Promise.resolve(null),
-    isSopa ? getStakePosition(SOPA_SAFE).catch(() => null) : Promise.resolve(null),
+    // O null aqui fazia DOIS trabalhos: "não há posição em stake" e "não
+    // consegui ler". Colapsavam com a mesma facilidade que zero colapsa com
+    // desconhecido — e esta classe já mordeu de verdade (3af9642, "MOR em stake
+    // sumia do saldo e lia como PERDA"). Agora a falha é `unread`; ausência de
+    // posição continua sendo `ok(null)`, que é resposta legítima.
+    isSopa
+      ? attempt<StakePosition | null>(
+          () => getStakePosition(SOPA_SAFE),
+          (e) => `posição em stake não leu: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      : Promise.resolve(ok<StakePosition | null>(null)),
     isSopa ? getAllocation(project.slug).catch(() => null) : Promise.resolve(null),
-    isSopa ? getCommunityVaults().catch(() => []) : Promise.resolve([]),
+    isSopa
+      ? attempt(() => getCommunityVaults(), (e) => `cofres não leram: ${e instanceof Error ? e.message : String(e)}`)
+      : Promise.resolve(ok([] as Awaited<ReturnType<typeof getCommunityVaults>>)),
   ]);
 
   const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
   const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
   // Team roster → payroll member picker (auto-detect an EVM wallet in contacts).
-  const roster: PayrollRosterOption[] = isSopa
-    ? rosterRaw.map((m) => ({
+  // Elenco que não leu vira lista vazia AQUI, mas o consumidor é um seletor de
+  // pessoas: vazio ali é visivelmente estranho e não vira número em lugar
+  // nenhum. O motivo fica em `rosterRaw` para quem quiser mostrar.
+  const roster: PayrollRosterOption[] = isSopa && isOk(rosterRaw)
+    ? rosterRaw.value.map((m) => ({
         username: m.username,
         avatarUrl: m.avatarUrl,
         address: m.contacts.find((c) => /^0x[a-fA-F0-9]{40}$/.test(c.value.trim()))?.value.trim(),
       }))
     : [];
   // Backers of the SOPA-owned vault (the one whose fee funds the payroll).
-  const sopaVault = communityVaults.find((v) => v.paysSopa) ?? null;
+  // `ok(null)` = leu e não há posição — zero legítimo. `unread` = não se sabe,
+  // e aí nem zero nem número.
+  const stakePosition = isOk(stakeRead) ? stakeRead.value : null;
+  const stakeUnknown = !isOk(stakeRead);
+  const vaults = isOk(communityVaults) ? communityVaults.value : [];
+  const sopaVault = vaults.find((v) => v.paysSopa) ?? null;
 
   // Wave 2 — depends on wave 1 (poolAddress, sopaVault); parallel with each other.
   // vaultGrossApy = the underlying Moonwell APY (the vault deploys 100% there); the
   // vault's own netApy isn't indexed by Morpho yet, so this fills the flow's $/month.
   const [streamStatus, vaultDepositors, vaultGrossApy, sopaVaultEarned] = await Promise.all([
     poolAddress ? getStreamStatus(poolAddress).catch(() => null) : Promise.resolve(null),
-    sopaVault ? getVaultDepositors(sopaVault.vault.address).catch(() => []) : Promise.resolve([]),
+    sopaVault
+      ? attempt(
+          () => getVaultDepositors(sopaVault.vault.address),
+          (e) => `apoiadores não leram: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      : Promise.resolve(ok([] as Awaited<ReturnType<typeof getVaultDepositors>>)),
     sopaVault
       ? sopaVault.apy != null
         ? Promise.resolve(sopaVault.apy)
         : fetchVaultApy("0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca").catch(() => null)
       : Promise.resolve(null),
-    sopaVault ? getVaultFeeAccrued(sopaVault.vault.address, SOPA_SAFE).catch(() => 0) : Promise.resolve(0),
+    // Último na ordem de gravidade — um 0 numa cifra ainda levanta suspeita,
+    // enquanto [] passa por resposta legítima. Mas é dinheiro, e o briefing FALA
+    // este número: "a SOPA acumulou $0 de taxa" é frase que alguém usa pra decidir.
+    sopaVault
+      ? attempt(
+          () => getVaultFeeAccrued(sopaVault.vault.address, SOPA_SAFE),
+          (e) => `taxa acumulada não leu: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      : Promise.resolve(ok(0)),
   ]);
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
@@ -358,7 +401,9 @@ treasury: {
           // SOPA's OWN pot and SOPA's OWN costs — not the brand treasuries it
           // merely reports on (those are separate money, own multisigs).
           totalUsd={ownTotal.value}
-          stakedUsd={stakePosition?.valueUsd ?? 0}
+          // Posição desconhecida não entra como 0 num painel de porcentagens:
+          // o earmark ficaria dividindo por um bolo que ninguém leu.
+          stakedUsd={stakeUnknown ? null : stakePosition?.valueUsd ?? 0}
           canEdit={!!session}
           streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
           apy={stakePosition?.apy ?? null}
@@ -450,15 +495,19 @@ treasury: {
       .sort((a, b) => a.nonce - b.nonce)
       .map((q) => ({ nonce: q.nonce, action: q.action, confirmations: q.confirmations, required: q.required })),
     allocationSaved: allocation?.saved ?? true,
-    vault: sopaVault
+    // O briefing DIZ estes números em voz alta. Apoiadores que não leram viravam
+    // "0 apoiadores, $0 depositados" — a forma mais grave das três: afirmação
+    // positiva sobre pessoas e sobre dinheiro, a partir de leitura que não houve.
+    // Sem leitura, o bloco inteiro do cofre simplesmente não é afirmado.
+    vault: sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned)
       ? (() => {
-          const backers = vaultDepositors.filter((d) => !d.isDeadDeposit && d.assets > 0);
+          const backers = vaultDepositors.value.filter((d) => !d.isDeadDeposit && d.assets > 0);
           return {
             depositedUsd: backers.reduce((s, d) => s + d.assets, 0),
             backers: backers.length,
             // A depositor with a resolved label is a known payroll member.
             teamBackers: backers.filter((d) => d.label != null).length,
-            sopaEarnedUsd: sopaVaultEarned,
+            sopaEarnedUsd: sopaVaultEarned.value,
             apy: vaultGrossApy,
             feeToSopa: sopaVault.fee,
           };
@@ -516,9 +565,12 @@ treasury: {
                     label: m.label,
                     address: m.address,
                     units: m.units,
-                    connected: !!chain?.connected,
-                    receivedUsd: chain?.receivedUsd ?? 0,
-                    claimedUsd: chain?.claimedUsd ?? 0,
+                    // `chain` ausente = a leitura do pool falhou. Antes isso
+                    // virava `false` e dois zeros, afirmando o estado da folha
+                    // de cada pessoa a partir de uma leitura que não houve.
+                    connected: chain ? chain.connected : null,
+                    receivedUsd: chain ? chain.receivedUsd : null,
+                    claimedUsd: chain ? chain.claimedUsd : null,
                   };
                 })}
               monthlyUsd={streamStatus?.monthlyUsd ?? null}
@@ -588,24 +640,40 @@ treasury: {
             />
           }
           apoiar={
-            communityVaults.length > 0 ? (
+            // Cofres que não leram NÃO somem da tela. Sumir é afirmar que não
+            // existem — e uma aba inteira que desaparece em silêncio é a
+            // omissão mais difícil de notar que existe.
+            !isOk(communityVaults) ? (
+              <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+                ⚠ Os cofres da comunidade não puderam ser lidos
+                {communityVaults.state === "unread" ? ` — ${communityVaults.reason}` : ""}. Isto NÃO quer dizer que
+                não há cofre.
+              </p>
+            ) : vaults.length > 0 ? (
               <div className="space-y-6">
-                {sopaVault && (
+                {!isOk(vaultDepositors) && (
+                  <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+                    ⚠ Os apoiadores não puderam ser lidos
+                    {vaultDepositors.state === "unread" ? ` — ${vaultDepositors.reason}` : ""}. Os totais abaixo
+                    ficam de fora — zero apoiadores seria afirmação, não leitura.
+                  </p>
+                )}
+                {sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned) && (
                   <VaultSupportSummary
-                    depositedUsd={vaultDepositors.filter((d) => !d.isDeadDeposit).reduce((s, d) => s + d.assets, 0)}
+                    depositedUsd={vaultDepositors.value.filter((d) => !d.isDeadDeposit).reduce((s, d) => s + d.assets, 0)}
                     apy={sopaVault.apy}
-                    liveYieldUsd={sopaVaultEarned + vaultDepositors.reduce((s, d) => s + d.earned, 0)}
-                    sopaEarnedUsd={sopaVaultEarned}
+                    liveYieldUsd={sopaVaultEarned.value + vaultDepositors.value.reduce((s, d) => s + d.earned, 0)}
+                    sopaEarnedUsd={sopaVaultEarned.value}
                     feeToSopa={sopaVault.fee}
                   />
                 )}
                 {/* The yield flow is a wide horizontal diagram — it reads best at
                     full width, so everything stacks rather than sitting half-width. */}
-                <VaultStaking vaults={communityVaults} />
-                {sopaVault && (
+                <VaultStaking vaults={vaults} />
+                {sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned) && (
                   <>
-                    <VaultFlowView depositors={vaultDepositors} apy={vaultGrossApy} feeToSopa={sopaVault.fee} sopaEarned={sopaVaultEarned} />
-                    <VaultDepositors depositors={vaultDepositors} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
+                    <VaultFlowView depositors={vaultDepositors.value} apy={vaultGrossApy} feeToSopa={sopaVault.fee} sopaEarned={sopaVaultEarned.value} />
+                    <VaultDepositors depositors={vaultDepositors.value} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
                   </>
                 )}
               </div>
