@@ -52,12 +52,58 @@ que existe sem estar publicado produzem a mesma tela vazia.
 **Ainda falta dele:** o handle do Twitter, e o canal do Farcaster quando estiver
 de pé.
 
-## 3. Conta de analytics do site
+## 3. Analytics — RESPONDIDA EM PARTE (28/08), e falta MAIS do que parecia
 
-O bloco `analytics` do portal precisa das credenciais do provedor.
+O provedor está resolvido: **GA4 está no ar no swaps.pro**, measurement ID
+`G-93QVXQ3NLY`. Mas o portal não usa o `G-` — o bloco `analytics` pede o
+`ga4PropertyId`, que é o **ID numérico da propriedade** (como `527345741` da
+SkateHive e `527420949` da Gnars).
 
-**Por que só ele responde:** é acesso a conta. Nada em código ou on-chain
-revela qual provedor é, nem dá a credencial.
+**Faltam DUAS coisas, e a segunda foi surpresa.**
+
+### 3a. O ID numérico da propriedade GA4
+
+Está no admin do GA4, em Detalhes da propriedade. Uma linha no `swaps.ts`.
+
+### 3b. Uma service account para o prefixo SWAPS — não existe global
+
+A hipótese era que a service account que já serve os outros portais só
+precisaria ganhar leitura na nova propriedade. **Metade certa.**
+
+O código resolve assim:
+
+```
+${gatewayEnvPrefix}_GOOGLE_SERVICE_ACCOUNT_JSON  ??  GOOGLE_SERVICE_ACCOUNT_JSON
+```
+
+Só que **a global não existe neste ambiente.** O que existe são duas com
+prefixo, e são contas DIFERENTES, em projetos Google diferentes:
+
+- `SKATEHIVE_…` → `skatehive-268@skatehive-94e95.iam.gserviceaccount.com`
+- `GNARS_…` → `bobgnarley@gnars-489819.iam.gserviceaccount.com`
+
+Ou seja, o padrão desta base é **uma service account por marca**, não uma
+compartilhada. Para o swaps existem dois caminhos, e nenhum exige criar conta:
+
+1. Setar `SWAPS_GOOGLE_SERVICE_ACCOUNT_JSON` com o JSON de uma das que já
+   existem, e dar **Visualizador** a ela na propriedade do swaps.pro.
+2. Setar a global `GOOGLE_SERVICE_ACCOUNT_JSON`, que passa a servir de fallback
+   para qualquer marca sem a sua.
+
+A opção 1 mantém o padrão da casa; a 2 muda o padrão para toda marca futura.
+**É decisão dele, não minha.**
+
+**Por que ele responde:** o ID da propriedade e o acesso no admin do GA4 são
+conta dele; e escolher entre os dois caminhos é decisão de padrão.
+
+**O e-mail para colar no Gerenciamento de acesso** (identificador, não segredo)
+é o da conta que ele escolher — os dois estão acima.
+
+### 3c. Search Console é OPCIONAL
+
+`gscSiteUrl` é opcional no tipo, e a ausência **degrada com aviso, não quebra**:
+o painel de GSC renderiza "Search Console not configured" e o resto da página
+funciona só com GA4. Se ele não tiver GSC para o swaps.pro, tudo bem.
 
 ## 4. `SWAPS_GATEWAY_URL` e `SWAPS_TOKEN`
 
