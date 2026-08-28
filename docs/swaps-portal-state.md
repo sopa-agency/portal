@@ -135,26 +135,47 @@ nem por terminal. A conferência (o agente respondendo) é feita depois.
 
 ---
 
-## De onde veio o logo
+## De onde veio o logo — e a correção de um erro meu
 
-A pergunta 1 do doc de perguntas dizia que o arquivo era placeholder e que **só
-o Vlad teria o asset**. Isso mudou, e a procedência importa registrar porque
-logo de marca não é coisa de se descobrir depois que está em produção.
+**O arquivo em uso é `swaps.pro/icon.png`**, o que o próprio site declara no
+HTML (`<link rel="icon" href="/icon.png" sizes="256x256">`). Confirmado byte a
+byte como o `public/brand/swappro-logo.png` do repo do produto.
 
-**Origem:** `public/icon.svg` do repositório do próprio produto,
-`coinmastersguild/swapspro` — o repo que o portal já tem permissão de ler e que
-já está declarado em `project.repos`. **Não é derivação nem inferência: é o
-asset da marca, tirado do código da marca.**
+### O que aconteceu antes, e por que vale registrar
 
-O repo tem várias variantes (`public/brand/swappro-logo.png`,
-`public/logo/swaps-mark-*.png`, `public/logo/swaps-mark-solid.svg`). Escolhi o
-`icon.svg` por um motivo verificável: a variante `swaps-mark-solid.svg` tem um
-hexágono quase preto (`#050A06`) por baixo do gradiente, que **sumiria no tema
-escuro** — e aqui os dois temas são obrigatórios. O `icon.svg` é o mesmo
-hexágono com o gradiente como preenchimento, legível nos dois.
+O commit `8d24369` se chamava **"logo real"** e instalou o `public/icon.svg` do
+repo do swapspro — um mark pequeno da marca, **não** o que ela publica como sua
+identidade. Duas coisas erradas de uma vez:
 
-**Se a marca tiver um mark oficial diferente do que está no repo dela, este deve
-ser substituído.** A pergunta 1 continua valendo para esse caso.
+1. **O nome do commit afirmava mais do que o conteúdo entregava.** "Logo real"
+   descrevendo o arquivo errado da pasta certa é a mesma classe do "verde que
+   não prova nada": o rótulo dizendo uma coisa e o conteúdo outra.
+2. **A documentação continuou dizendo que o campo estava aberto.** A pergunta 1
+   seguia como "só o Vlad responde, o asset não existe em repositório público
+   nem se deduz do site" — enquanto o repo já tinha um arquivo instalado. Quem
+   lesse o doc não saberia que já havia coisa lá.
+
+E a afirmação original — "não se deduz do site" — **era falsa e eu não a tinha
+verificado**. Bastava ler o HTML da página inicial.
+
+**Por que isso é grave num logo especificamente:** identidade visual é o tipo de
+coisa que ninguém audita depois. Entra no portal, vira favicon, aparece em
+preview de link, e em seis meses é "o logo do swaps".
+
+### Nota de procedência, para a pergunta "algo foi inventado?"
+
+**Nada foi gerado.** O SVG que estava lá era byte a byte idêntico ao
+`public/icon.svg` do repo do produto — verificado por `diff` contra o arquivo
+baixado do GitHub. O erro foi de **escolha entre arquivos reais**, não de
+invenção. Nenhum asset, endereço, credencial ou identificador nestas branches
+foi gerado por mim: todos vieram de repositório, de banco, de env, ou do site.
+
+### Ressalva do arquivo atual
+
+É RGB **sem canal alfa**, com fundo escuro (média RGB 1,28,14). No tema claro
+aparece como um quadrado escuro em vez de um mark solto — fiel à marca e menos
+elegante que os outros portais. Se incomodar, o conserto é um PNG com alfa
+vindo da marca, **não um desenho gerado**.
 
 ### E o tema não é a cor da marca
 

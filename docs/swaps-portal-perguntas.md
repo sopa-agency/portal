@@ -25,14 +25,35 @@ produto, e o tesouro provisório — ver a pergunta 8.
 
 ---
 
-## 1. Logo real do swaps.pro
+## 1. Logo real do swaps.pro — RESOLVIDA (28/08), e eu errei duas vezes antes
 
-O arquivo em `public/projects/swaps/logo.svg` é placeholder, e o comentário do
-próprio `swaps.ts` diz isso: *"Placeholder mark — swap for the real swaps.pro
-asset when it lands."*
+**O logo estava público o tempo todo.** O próprio site declara no HTML:
 
-**Por que só ele responde:** é o asset da marca. Não existe em repositório
-público nem se deduz do site.
+```html
+<link rel="icon" href="/icon.png" type="image/png" sizes="256x256">
+```
+
+`swaps.pro/icon.png` — 256×256, e confirmado byte a byte como o
+`public/brand/swappro-logo.png` do repo do produto. Mesma origem, dois caminhos.
+Estava a uma requisição de distância.
+
+**Esta pergunta sai da lista**, a não ser que a marca tenha um asset melhor que
+o que ela mesma publica — e aí é escolha, não bloqueio.
+
+**Onde eu errei:**
+
+1. Escrevi aqui que o asset "não existe em repositório público nem se deduz do
+   site". Era falso, e eu não tinha verificado — bastava ler o HTML da página
+   inicial.
+2. Depois instalei o `public/icon.svg` do repo do produto: um mark pequeno, da
+   marca, mas **não o que o site publica como sua identidade**. E deixei este
+   doc dizendo "placeholder" enquanto o repo já tinha outra coisa — documentação
+   e código afirmando o oposto um do outro.
+
+**Ressalva do arquivo atual:** é RGB sem canal alfa, com fundo escuro (média RGB
+1,28,14). No tema claro aparece como um quadrado escuro em vez de um mark solto.
+É fiel à marca e menos elegante que os outros portais. Se incomodar, o conserto
+é um PNG com alfa **vindo da marca** — não um desenho gerado.
 
 ## 2. Existem redes sociais do swaps.pro? — RESPONDIDA EM PARTE (28/08)
 

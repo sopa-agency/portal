@@ -39,11 +39,20 @@ const swaps: ProjectConfig = {
     accentBgDark: "rgba(34, 211, 238, 0.12)",
     accentBorderLight: "rgba(14, 116, 144, 0.3)",
     accentBorderDark: "rgba(34, 211, 238, 0.35)",
-    // Marca real, tirada do repo do produto (public/icon.svg do swapspro).
-    // Escolhi essa variante e não a `swaps-mark-solid.svg`: aquela tem um
-    // hexágono quase preto (#050A06) por baixo, que some no tema escuro — e
-    // aqui os dois temas são obrigatórios.
-    logo: "/projects/swaps/logo.svg",
+    // O logo que o PRÓPRIO SITE declara: <link rel="icon" href="/icon.png">.
+    // Baixado de swaps.pro/icon.png, 256×256, e confirmado byte a byte como o
+    // public/brand/swappro-logo.png do repo do produto — mesma origem, dois
+    // caminhos.
+    //
+    // Antes daqui esteve o public/icon.svg do repo: um mark pequeno, também da
+    // marca, mas NÃO o que o site publica como sua identidade. Escolher o
+    // arquivo errado da pasta certa continua sendo escolher errado.
+    //
+    // Ele é RGB sem canal alfa, com fundo ESCURO (média RGB 1,28,14). No tema
+    // claro isso aparece como um quadrado escuro em vez de um mark solto —
+    // fiel à marca e menos elegante que os outros portais. Se incomodar, o
+    // conserto é um PNG com alfa vindo da marca, não um desenho meu.
+    logo: "/projects/swaps/logo.png",
   },
   // No Hive presence yet.
   hive: {
