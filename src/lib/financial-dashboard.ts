@@ -3,6 +3,7 @@ import type { OrgRevenue } from "@/lib/org-revenue";
 import type { TreasuryGroup } from "@/lib/treasury";
 import { combinedTreasury } from "@/lib/treasury-aggregate";
 import { isOk, type Reading } from "@/lib/reading";
+import type { TreasurySeries } from "@/lib/treasury-history";
 
 type JobLike = {
   amountUsd: number;
@@ -23,6 +24,19 @@ export type FinancialDashboardView = {
   slug: string;
   name: string;
   series: FinanceMonthPoint[];
+  /**
+   * Saldo de FECHAMENTO de cada mês da janela, alinhado 1:1 com `series`.
+   *
+   * Existe para o saldo poder ser desenhado sobre o MESMO eixo de tempo das
+   * barras de entrada/saída. As duas coisas pertencem juntas — o fluxo é o que
+   * explica o saldo — mas são medidas de naturezas diferentes: saldo é estoque
+   * (um valor num instante), fluxo é vazão (um valor por período). Por isso
+   * compartilham o eixo X e NUNCA o Y.
+   *
+   * `null` = não há foto daquele mês. Não é zero: um zero aqui desenharia uma
+   * queda a pico que nunca aconteceu.
+   */
+  balanceByMonth: (number | null)[];
   /** Renamed from `treasuryUsd` on purpose: the rename is what forced every
    *  consumer to face the three states instead of inheriting a number. */
   treasury: Reading<number>;
@@ -85,15 +99,28 @@ export function buildFinancialDashboardViews({
   revenue,
   costs,
   jobs,
+  balanceHistory = [],
 }: {
   groups: TreasuryGroup[];
   revenue: OrgRevenue | null;
   costs: FixedCostDTO[];
   jobs: JobLike[];
+  /** Série diária por projeto (snapshot). Vazia = o painel não desenha a linha. */
+  balanceHistory?: TreasurySeries[];
 }): FinancialDashboardView[] {
   const currentMonth = costs[0]?.currentMonth ?? new Date().toISOString().slice(0, 7);
   const months = monthWindow(currentMonth, 12);
   const monthIndex = new Map(months.map((month, idx) => [month, idx]));
+
+  // Fechamento MENSAL por projeto: o último ponto de cada mês, não a média. A
+  // média de um saldo que subiu em degrau inventa valores que nunca existiram —
+  // mesma regra que o fechamento diário já seguia um nível abaixo.
+  const monthlyBalance = new Map<string, Map<string, number>>();
+  for (const s of balanceHistory) {
+    const byMonth = new Map<string, number>();
+    for (const p of s.points) byMonth.set(p.t.slice(0, 7), p.usd); // ordenado: o último vence
+    monthlyBalance.set(s.cardId, byMonth);
+  }
 
   // Paid jobs by month + total pending. Jobs are SOPA agency revenue, so they're
   // attributed to the SOPA group (not only the aggregate) — see the map below.
@@ -154,6 +181,7 @@ export function buildFinancialDashboardViews({
       name: group.name,
       series,
       treasury,
+      balanceByMonth: months.map((m) => monthlyBalance.get(group.slug)?.get(m) ?? null),
       burnUsd,
       // Runway is treasury ÷ burn. An unreadable treasury makes it unknowable,
       // and an unknown runway is null — never a number derived from a partial.
@@ -194,6 +222,14 @@ export function buildFinancialDashboardViews({
       slug: "all",
       name: "Tudo",
       series: allSeries,
+      // Soma dos projetos, e mês em que QUALQUER projeto não tem foto vira
+      // null. Somar só quem respondeu daria um total menor apresentado como se
+      // fosse o total — a mesma mentira que o hero deixou de contar.
+      balanceByMonth: months.map((m): number | null => {
+        const each = groups.map((g) => monthlyBalance.get(g.slug)?.get(m));
+        if (!each.length || each.some((v) => v == null)) return null;
+        return (each as number[]).reduce((sum, v) => sum + v, 0);
+      }),
       treasury: totalTreasury,
       burnUsd: totalBurnUsd,
       runwayMonths: totalBurnUsd > 0 && isOk(totalTreasury) ? totalTreasury.value / totalBurnUsd : null,

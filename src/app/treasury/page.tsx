@@ -351,6 +351,9 @@ treasury: {
     revenue: orgRevenue,
     costs: initialCosts,
     jobs: isSopa ? jobs : [],
+    // Série diária do snapshot, agrupada por projeto. O painel a reamostra em
+    // fechamento MENSAL para dividir o eixo do tempo com as barras.
+    balanceHistory: isOk(walletHistory) ? walletHistory.value : [],
   });
 
   // SOPA: one project selector filters balances + revenue together. Brand
