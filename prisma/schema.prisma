@@ -1301,6 +1301,16 @@ model TreasuryWalletSnapshot {
   /** "evm" | "hive" — as contas Hive também entram no total do hero, então uma
    *  medição de saúde que só olhasse EVM pareceria completa sem ser. */
   kind        String   @default("evm")
+  /**
+   * QUAL FUNÇÃO leu — distinto de `source`, que diz por qual rede ela passou.
+   *
+   * "address" = fetchAddressBalance (Zerion primeiro, RPC como queda), o leitor
+   * histórico deste snapshot. "wallet" = fetchEvmWallet (fan-out de RPC puro),
+   * que é o leitor da PÁGINA. Os dois passam a ser fotografados na mesma hora
+   * para a divergência entre eles virar número em vez de suposição — enquanto
+   * lerem por caminhos diferentes, a saúde medida aqui é a do caminho vizinho.
+   */
+  reader      String   @default("address")
   /** Leitor que produziu o número, para o caso de divergência entre eles. */
   source      String?
   takenAt     DateTime @default(now())

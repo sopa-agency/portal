@@ -289,6 +289,45 @@ Convergir os dois — a fonte injetável que já está adiada aqui — é o que 
 a medição medir a coisa e não a vizinha. Fica nomeado como o próximo passo
 estrutural desta página, acima de qualquer conserto pontual restante.
 
+## Opção 2: os dois leitores viram número, sem convergir ainda
+
+A reclamação era "a métrica de `failedChains` mede o caminho vizinho". A
+convergência conserta isso, mas **nenhuma das formas de convergir responde
+quanto os dois leitores divergem hoje** — e as duas precisam dessa resposta
+para serem feitas direito. Então: medir primeiro.
+
+O snapshot horário passa a fotografar os DOIS leitores da mesma carteira na
+mesma hora, distinguidos pela coluna `reader`:
+
+- `address` = `fetchAddressBalance` — Zerion primeiro, enxerga posição de
+  protocolo, **não conhece extraToken nenhum**
+- `wallet` = `fetchEvmWallet` — fan-out de RPC puro, cego para protocolo, é o
+  **único** que lê os extraTokens da config (USDCx, gnars)
+
+A série do gráfico filtra `reader: "address"`. Sem esse filtro ela pegaria a
+linha que chegasse por último a cada hora e alternaria entre dois leitores — um
+degrau por hora vindo do instrumento, não do tesouro.
+
+Custo: um fan-out de RPC público por carteira por hora. **Não consome cota da
+Zerion.**
+
+**Só o TOTAL é comparado, e isso é decisão, não preguiça.** Um diff por token
+exigiria chave de identidade, e o que `EvmToken` carrega hoje é símbolo +
+chain. Símbolo é a chave errada — dois contratos podem carregar o mesmo, e
+casar por símbolo é como se publica erro de ordem de grandeza. **Dar endereço
+de contrato ao token é pré-requisito tanto do diff por token quanto da opção 1.**
+
+A divergência aparece sob "Operar", na tela. Contagem que vive só no JSON é a
+próxima ocorrência esperando acontecer: se ninguém vê, ninguém age, e ela volta
+a ser suposição — o estado do qual esta medição existe para sair.
+
+### O que este número vai decidir
+
+- Divergência pequena ⇒ **opção 3** (converger e dispensar os extraTokens)
+  deixa de ser aposta e vira verificação.
+- Divergência grande ⇒ **opção 1** (converger trazendo os extraTokens, com
+  chave chain + endereço de contrato), porque aí a diferença É o USDCx.
+
 ## Evidência de fronteira: `scripts/check-client-bundle.sh`
 
 Procura, nos chunks que o NAVEGADOR baixa, literais de string que só existem

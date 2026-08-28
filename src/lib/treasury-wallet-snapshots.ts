@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getAllProjects } from "@/projects/index";
-import { fetchAddressBalance, getPrices, hiveAccountBalances } from "@/lib/treasury";
+import { fetchAddressBalance, fetchEvmWallet, getPrices, hiveAccountBalances, type ExtraToken } from "@/lib/treasury";
 
 // Fotografa o saldo de cada carteira de tesouro configurada, de hora em hora.
 //
@@ -29,13 +29,17 @@ export function treasuryHiveAccounts(): { projectSlug: string; label: string; ac
 
 /** Carteiras únicas por endereço. Uma mesma carteira listada em dois portais
  *  (a SOPA agrega gnars e skatehive) é UMA leitura, não duas. */
-export function treasuryWallets(): { projectSlug: string; label: string; address: string }[] {
-  const seen = new Map<string, { projectSlug: string; label: string; address: string }>();
+type SnapshotWallet = { projectSlug: string; label: string; address: string; extraTokens?: ExtraToken[] };
+
+export function treasuryWallets(): SnapshotWallet[] {
+  const seen = new Map<string, SnapshotWallet>();
   for (const p of getAllProjects()) {
     for (const w of p.treasury?.ethWallets ?? []) {
       const key = w.address.trim().toLowerCase();
       if (!/^0x[a-f0-9]{40}$/.test(key) || seen.has(key)) continue;
-      seen.set(key, { projectSlug: p.slug, label: w.label, address: key });
+      // extraTokens viajam junto porque o leitor da PÁGINA os usa e o leitor
+      // deste snapshot não — e essa diferença é exatamente o que se quer medir.
+      seen.set(key, { projectSlug: p.slug, label: w.label, address: key, extraTokens: w.extraTokens });
     }
   }
   return [...seen.values()];
@@ -50,6 +54,10 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
   const list = treasuryWallets();
   let wrote = 0;
   let failed = 0;
+
+  // Preços uma vez só, para o leitor da página (ele precisa de ETH e MOR) e
+  // para as contas Hive mais abaixo.
+  const prices = await getPrices().catch(() => null);
 
   for (const w of list) {
     const bal = await fetchAddressBalance(w.address, null).catch((e) => ({ error: String(e) }) as const);
@@ -69,6 +77,7 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
           label: w.label,
           address: w.address,
           kind: "evm",
+          reader: "address",
           totalUsd: bad ? null : (bal as { totalUsd: number }).totalUsd,
           failedChains: "failedChains" in bal ? (bal.failedChains ?? []) : [],
           reason: bad ? (bal.error ?? "leitura falhou") : null,
@@ -78,6 +87,44 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
       .catch(() => {});
     if (bad) failed++;
     else wrote++;
+
+    // ── O SEGUNDO leitor, na mesma hora ────────────────────────────────────
+    // fetchEvmWallet é o que a PÁGINA usa: fan-out de RPC puro, cego para
+    // posição de protocolo, mas o único que lê os extraTokens declarados na
+    // config (USDCx, gnars). O de cima é Zerion-primeiro: enxerga protocolo e
+    // não conhece extraToken nenhum.
+    //
+    // Enquanto os dois existirem, qualquer métrica de saúde colhida por um fala
+    // do caminho DELE. Fotografar os dois na mesma hora transforma "eles
+    // divergem" de suposição em número — e é esse número que decide se a
+    // convergência deve trazer os extraTokens junto (opção 1) ou pode
+    // dispensá-los (opção 3).
+    //
+    // Custo: fan-out de RPC público por carteira por hora. Não consome cota da
+    // Zerion.
+    if (prices) {
+      const page = await fetchEvmWallet(
+        { label: w.label, address: w.address, extraTokens: w.extraTokens },
+        prices.eth,
+        prices.mor,
+      ).catch(() => null);
+      const pageBad = !page || page.failedChains.length > 0;
+      await prisma.treasuryWalletSnapshot
+        .create({
+          data: {
+            projectSlug: w.projectSlug,
+            label: w.label,
+            address: w.address,
+            kind: "evm",
+            reader: "wallet",
+            totalUsd: pageBad ? null : page!.totalUsd,
+            failedChains: page?.failedChains ?? [],
+            reason: pageBad ? (page?.error ?? "leitura da página falhou") : null,
+            source: "rpc",
+          },
+        })
+        .catch(() => {});
+    }
   }
 
   // Hive na mesma foto. As contas Hive entram no total do hero exatamente como
@@ -86,7 +133,6 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
   // Uma chamada só para todas as contas, não uma por conta.
   const hive = treasuryHiveAccounts();
   if (hive.length > 0) {
-    const prices = await getPrices().catch(() => null);
     const reports = prices ? await hiveAccountBalances(hive, prices).catch(() => null) : null;
     for (const a of hive) {
       const r = reports?.find((x) => x.account === a.account);

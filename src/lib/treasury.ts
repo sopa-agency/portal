@@ -461,7 +461,7 @@ const keepAndSort = (tokens: EvmToken[]): EvmToken[] =>
     .filter((t) => (t.valueUsd == null ? t.balance > 0 : t.valueUsd >= 0.5))
     .sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
 
-async function fetchEvmWallet(
+export async function fetchEvmWallet(
   wallet: { label: string; address: string; extraTokens?: ExtraToken[] },
   ethPrice: number | null,
   morPrice: number | null = null,

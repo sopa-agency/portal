@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { zerionChart, type ChartPeriod } from "@/lib/zerion";
 import { treasuryWallets } from "@/lib/treasury-wallet-snapshots";
 import { getProject } from "@/projects";
-import { attempt, insufficient, ok, unread, type Reading } from "@/lib/reading";
+import { attempt, insufficient, ok, type Reading } from "@/lib/reading";
 
 // Série histórica de saldo por tesouro, a partir dos snapshots que o cron já
 // grava de hora em hora (RevenueSnapshot). Nada aqui vai à rede: é leitura de
@@ -158,6 +158,10 @@ export async function getTreasuryWalletHistory(
         // uma subida que nunca aconteceu. Elas entram na medição de saúde; a
         // série ganha Hive quando houver histórico para ela desde o começo.
         kind: "evm",
+        // UM leitor por série. Sem isto o gráfico pegaria a linha que chegou
+        // por último a cada hora e a série alternaria entre dois leitores —
+        // um degrau por hora, vindo do instrumento e não do tesouro.
+        reader: "address",
       },
         orderBy: { takenAt: "asc" },
         select: { address: true, label: true, totalUsd: true, takenAt: true, projectSlug: true },
@@ -235,4 +239,74 @@ export async function getTreasuryWalletChart(
   // `failed`, which the chart prints, so a partial total announces itself
   // instead of quietly reading as a drop in the project's line.
   return { series: foldByProject(tagged), failed };
+}
+
+/** Uma carteira vista pelos DOIS leitores na mesma hora. */
+export type ReaderDivergence = {
+  label: string;
+  address: string;
+  /** fetchAddressBalance — Zerion primeiro, enxerga posição de protocolo. */
+  addressUsd: number | null;
+  /** fetchEvmWallet — fan-out de RPC, lê os extraTokens da config. */
+  walletUsd: number | null;
+  /** walletUsd − addressUsd. Positivo = a página vê MAIS que o snapshot. */
+  deltaUsd: number | null;
+  /** |delta| sobre o maior dos dois. Null quando algum lado não leu. */
+  deltaPct: number | null;
+  takenAt: Date;
+};
+
+/**
+ * Quanto os dois leitores do tesouro discordam, na foto mais recente.
+ *
+ * Existe porque a métrica de saúde colhida por um leitor fala do caminho DELE:
+ * enquanto a página lê por `fetchEvmWallet` e o snapshot por
+ * `fetchAddressBalance`, um não mede o outro. Isto põe os dois lado a lado.
+ *
+ * Só o TOTAL é comparado, de propósito. Um diff por token exigiria uma chave de
+ * identidade, e o que existe hoje em `EvmToken` é símbolo + chain — que é
+ * exatamente a chave errada: dois contratos podem carregar o mesmo símbolo, e
+ * casar por símbolo é como se publica um erro de ordem de grandeza. O diff por
+ * token vem quando o token carregar o endereço do contrato.
+ */
+export async function getReaderDivergence(): Promise<Reading<ReaderDivergence[]>> {
+  const read = await attempt(
+    () =>
+      prisma.treasuryWalletSnapshot.findMany({
+        where: { kind: "evm", takenAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } },
+        orderBy: { takenAt: "desc" },
+        select: { address: true, label: true, totalUsd: true, reader: true, takenAt: true },
+      }),
+    (e) => `divergência não leu: ${e instanceof Error ? e.message : String(e)}`,
+  );
+  if (read.state !== "ok") return read as Reading<ReaderDivergence[]>;
+
+  // A leitura MAIS RECENTE de cada (carteira, leitor). Comparar médias
+  // esconderia justamente o caso em que um leitor falhou numa hora.
+  const latest = new Map<string, (typeof read.value)[number]>();
+  for (const r of read.value) {
+    const key = `${r.address}:${r.reader}`;
+    if (!latest.has(key)) latest.set(key, r); // ordenado desc: o primeiro é o mais novo
+  }
+
+  const out: ReaderDivergence[] = [];
+  for (const [key, row] of latest) {
+    if (!key.endsWith(":address")) continue;
+    const pair = latest.get(`${row.address}:wallet`);
+    const a = row.totalUsd;
+    const w = pair?.totalUsd ?? null;
+    const delta = a != null && w != null ? w - a : null;
+    const biggest = a != null && w != null ? Math.max(Math.abs(a), Math.abs(w)) : 0;
+    out.push({
+      label: row.label,
+      address: row.address,
+      addressUsd: a,
+      walletUsd: w,
+      deltaUsd: delta,
+      deltaPct: delta != null && biggest > 0 ? (Math.abs(delta) / biggest) * 100 : null,
+      takenAt: row.takenAt,
+    });
+  }
+  if (!out.length) return insufficient("os dois leitores ainda não coincidiram numa mesma hora");
+  return ok(out.sort((x, y) => (y.deltaPct ?? -1) - (x.deltaPct ?? -1)));
 }

@@ -12,7 +12,8 @@ import { FixedCostsPanel } from "@/components/fixed-costs-panel";
 import { CostsTab } from "@/components/costs-tab";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue, type OrgRevenue } from "@/lib/org-revenue";
-import { getTreasuryHistory, getTreasuryWalletHistory, getTreasuryWalletChart } from "@/lib/treasury-history";
+import { getReaderDivergence, getTreasuryHistory, getTreasuryWalletHistory, getTreasuryWalletChart } from "@/lib/treasury-history";
+import { ReaderDivergencePanel } from "@/components/reader-divergence";
 import { TreasuryHistoryChart } from "@/components/treasury-history-chart";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
@@ -354,6 +355,9 @@ treasury: {
 
   // SOPA: one project selector filters balances + revenue together. Brand
   // portals show their single treasury + their own revenue directly.
+  // Leitura de banco, sem rede — o custo da comparação foi pago no cron.
+  const divergence = isSopa ? await getReaderDivergence() : null;
+
   const pipelineRead = isSopa
     ? await attempt<Awaited<ReturnType<typeof getPipelineStatus>> | null>(
         () => getPipelineStatus(),
@@ -434,6 +438,7 @@ treasury: {
             </p>
           )}
           {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
+          {divergence && <ReaderDivergencePanel data={divergence} />}
           {/* TEMP: deploy + dry-run the native-swap flash filler (haxixe only). Delete after wiring the real Swap A/B buttons. */}
           <NativeSwapDeployPanel />
           <SopaStakePanel />
