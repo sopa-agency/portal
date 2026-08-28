@@ -91,7 +91,41 @@ fazia dois trabalhos, e essa classe já havia mordido de verdade (`3af9642`,
 "MOR em stake sumia do saldo e lia como PERDA"). Conferir um por um foi o que
 separou os grupos; varrer teria "consertado" sete acertos.
 
-### Verde não prova que a tua mudança entrou
+### O silenciador é que esconde o instrumento quebrado
+
+Terceiro e quarto casos do mesmo dia, ao apagar o painel temporário de deploy.
+
+Rodei uma varredura para saber quais chaves de tradução ficariam órfãs:
+
+```
+grep -rl "\.$k\b" src --include=*.tsx 2>/dev/null   # ERRADO
+```
+
+No zsh o glob sem aspas não casa e o comando **falha**; o `2>/dev/null` engoliu
+o erro; a busca nunca rodou; e o resultado foi "as 18 são órfãs". Eu quase
+apaguei uma chave que o painel do pipeline usa — **quem pegou foi o `tsc`**, não
+a minha verificação.
+
+Logo depois, uma tentativa de extrair a assinatura do bytecode devolveu string
+vazia, e o `grep` por string vazia casou com os 81 chunks — "prova" de vazamento
+que era o oposto do que estava acontecendo.
+
+**O padrão:** um instrumento que não roda e um instrumento que casa com tudo
+produzem saídas *confiantes*. Nenhum dos dois se anuncia. E `2>/dev/null` é
+exatamente o que transforma "quebrou" em "limpo".
+
+**Regras que saíram daqui:**
+
+- Nunca `2>/dev/null` numa verificação. Se o erro incomoda, é porque ele é
+  informação.
+- Uma varredura que devolve "todos" ou "nenhum" é suspeita antes de ser
+  conclusão — o resultado extremo é o formato típico do instrumento que não
+  rodou.
+- Prefira dedução a busca quando ela existir. "O arquivo foi apagado e tem zero
+  importadores, logo não está no bundle" é mais forte que qualquer `grep`, e não
+  tem como dar falso positivo.
+
+## Verde não prova que a tua mudança entrou
 
 Aconteceu **duas vezes na mesma noite**: uma substituição automatizada não casou
 por diferença de indentação, o arquivo ficou intacto, e o `tsc` passou limpo —

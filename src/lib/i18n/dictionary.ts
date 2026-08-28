@@ -835,26 +835,8 @@ const en = {
       withdraw: "Withdraw",
       withdrawFailed: "Withdrawal failed (7-day lock?).",
       /** The temporary native-swap deploy/dry-run panel. */
-      deployTitle: "Native swap — deploy + test",
-      deployTemp: "TEMPORARY",
-      deployHint:
-        "Deploys the **SwapperFlashFiller** (fork-tested) and runs a live fill with **minOut=0** — the principal is not at risk (the tx reverts if UniV3 can't cover the swapper's price; worst case is 0 surplus). Surplus goes to SOPA. Once it works, I wire the real buttons and delete this tab.",
       wrongWallet: "wrong wallet",
-      connectShort: "Connect",
-      deployStep: "1 · Deploy the filler",
-      deployAction: "Deploy",
-      fillerPlaceholder: "deployed filler address (0x…)",
-      fillStep: "2 · Test a fill (needs the address above)",
       fill: (label: string) => `Fill ${label}`,
-      fillNote: (addr: string) =>
-        `Only runs if the swapper holds a balance of the input token. minOut=0 (dry run) · surplus → SOPA ${addr}.`,
-      connectOwner: "Connect with haxixe.eth — only it can deploy/test here.",
-      connectOwnerIdle: "Connect haxixe.eth to deploy and test the native swap.",
-      noWalletShort: "No wallet detected.",
-      softParams:
-        "The wallet complained about the params but probably broadcast anyway — check basescan and paste the address.",
-      softParamsHop: (hop: string) =>
-        `${hop}: the wallet complained about the params but probably broadcast anyway — check basescan.`,
     },
   },
   /**
@@ -2225,26 +2207,8 @@ const pt: typeof en = {
       withdrawStake: (amount: string) => `Saque seus **${amount} MOR** (depois do lock de 7 dias)`,
       withdraw: "Sacar",
       withdrawFailed: "Falha ao sacar (lock de 7 dias?).",
-      deployTitle: "Swap nativo — deploy + teste",
-      deployTemp: "TEMPORÁRIO",
-      deployHint:
-        "Deploya o **SwapperFlashFiller** (fork-testado) e testa um fill ao vivo com **minOut=0** — o principal não corre risco (a tx reverte se o UniV3 não cobrir o preço do swapper; pior caso é surplus 0). Surplus vai pra SOPA. Depois de funcionar, fio os botões reais e apago esta aba.",
       wrongWallet: "carteira errada",
-      connectShort: "Conectar",
-      deployStep: "1 · Deploy do filler",
-      deployAction: "Deployar",
-      fillerPlaceholder: "endereço do filler deployado (0x…)",
-      fillStep: "2 · Testar fill (precisa do endereço acima)",
       fill: (label: string) => `Fill ${label}`,
-      fillNote: (addr: string) =>
-        `Só roda se houver saldo do token de entrada no swapper. minOut=0 (dry-run) · surplus → SOPA ${addr}.`,
-      connectOwner: "Conecte com a haxixe.eth — só ela deploya/testa aqui.",
-      connectOwnerIdle: "Conecte a haxixe.eth pra deployar e testar o swap nativo.",
-      noWalletShort: "Nenhuma carteira detectada.",
-      softParams:
-        "A carteira reclamou de params mas provavelmente transmitiu — confere no basescan e cola o endereço.",
-      softParamsHop: (hop: string) =>
-        `${hop}: carteira reclamou de params mas provavelmente transmitiu — confere no basescan.`,
     },
   },
   meetings: {
