@@ -289,6 +289,65 @@ Convergir os dois — a fonte injetável que já está adiada aqui — é o que 
 a medição medir a coisa e não a vizinha. Fica nomeado como o próximo passo
 estrutural desta página, acima de qualquer conserto pontual restante.
 
+## Verde não prova que a tua mudança entrou
+
+Escrito depois de acontecer duas vezes no mesmo turno.
+
+Uma substituição automatizada não casou (diferença de indentação), o arquivo
+ficou como estava, e `tsc` passou **limpo** — porque o código antigo compila.
+O verde era verdadeiro e irrelevante: ele prova que **o que está lá** compila,
+não que o que eu queria escrever chegou lá. São afirmações diferentes e é
+fácil ler uma como a outra, ainda mais quando se está encadeando muitos passos.
+
+Na segunda vez eu já esperava, conferi por `grep` antes de comemorar, e era
+outra falha silenciosa — a mesma causa.
+
+**Regra:** depois de qualquer edição programática, confirme por busca que o
+texto novo existe e o antigo sumiu. `assert` no script de substituição serve
+para o mesmo, e é mais barato.
+
+É a mesma família do par `tsc`/`next build` anotado acima: **cada verificador
+prova uma coisa específica, e nenhum deles prova "fiz o que eu queria fazer".**
+
+- `tsc` prova: o que está no disco tem tipos coerentes.
+- `next build` prova: também respeita a fronteira cliente/servidor.
+- `grep` prova: a mudança está no disco.
+
+Nenhum dos três substitui os outros dois.
+
+### Item 5: a ordem de novo, e o que furou a fila
+
+Os `null` restantes, atacados na ordem por disfarce e não por quantidade.
+
+**1. `poolAddress` — a pior classe, furou tudo.** `findSopaPool().catch(() => null)`
+fazia poolAddress virar null; sem pool o status nem era buscado; e o sinal de
+falha era `!!poolAddress && !streamStatus`, que **com poolAddress null dá
+FALSE**. A página passava a jurar que estava tudo bem porque falhou ao
+perguntar — **o catch desligava o próprio detector.** Agora o pool é
+`Reading<string | null>` (`ok(null)` = procurou e não há; `unread` = a busca
+falhou) e o detector é `poolUnknown || (pool existe && status não leu)`: ele
+deixou de depender daquilo que detecta.
+
+**2. `jobsRes` / `payrollRes` — caminho COM canal, contornado.** As duas
+funções devolvem `Result` (`ok`/`error`), e o `.catch(() => null)` passava por
+fora dele. Erro é bug, não design: o catch agora constrói o próprio `Result` de
+falha em vez de descartá-lo.
+
+**3. `allocation` e `getPipelineStatus` — seção sumindo em silêncio.** Ambas
+guardadas por `x && <Painel/>`. Nunca-configurado sumir é legítimo; **não ter
+lido** sumir é afirmar que não existe. Viraram `Reading`, e o não-lido rende
+uma placa que diz o motivo e avisa que a ausência do painel é da leitura, não
+do mundo.
+
+**4. `fetchVaultApy` — legítimo, NÃO foi mexido.** A função já tem try/catch
+próprio e nunca lança; o `.catch` externo é redundância, não colapso. E o
+consumidor renderiza "os valores em $/mês aparecem quando a Morpho indexar o
+APY — as fatias já estão corretas", que é honesto nos dois casos e nunca vira
+número. Única imprecisão conhecida: a frase atribui a ausência à indexação da
+Morpho, e uma falha de rede daria a mesma frase. Erra o PORQUÊ, não o QUÊ.
+Anotado, não consertado — mexer no que está certo só para fechar lista é como
+se cria a próxima variante.
+
 ### Item 4: a ordem é por quão bem a falha se disfarça
 
 Hierarquia de gravidade portada do SwapPro, e ela NÃO é por quantidade:

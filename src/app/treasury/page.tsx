@@ -177,7 +177,12 @@ treasury: {
     // on a brand portal show only that project's own streams.
     getOrgRevenue(isSopa ? undefined : { name: project.name, slug: project.slug }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) })),
     // SOPA agency revenue: client jobs (manual).
-    isSopa ? listSopaJobs().catch(() => null) : Promise.resolve(null),
+    // Caminho COM canal: listSopaJobs devolve Result (`ok`/`error`). O catch
+    // CONTORNAVA esse canal, virando null e depois `[]` — o erro aqui é bug,
+    // não design, e o conserto é só parar de contornar.
+    isSopa
+      ? listSopaJobs().catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
+      : Promise.resolve(null),
     // Histórico do gráfico: leitura de banco (snapshots), zero requisição de rede.
     // Sem `.catch(() => [])`: a função já devolve Reading e engolir aqui seria
     // reintroduzir o colapso um andar acima do que acabou de ganhar canal.
@@ -198,12 +203,27 @@ treasury: {
   // SOPA data used to be a long serial waterfall of awaits. Now two parallel waves:
   // wave 1 = everything with no cross-dependency; wave 2 = reads that need a wave-1
   // result (the pool address, and the SOPA-owned vault).
-  const [payrollRes, rosterRaw, poolAddress, stakeRead, allocation, communityVaults] = await Promise.all([
-    isSopa ? listPayrollMembers().catch(() => null) : Promise.resolve(null),
+  const [payrollRes, rosterRaw, poolRead, stakeRead, allocRead, communityVaults] = await Promise.all([
+    isSopa
+      ? listPayrollMembers().catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
+      : Promise.resolve(null),
     isSopa
       ? attempt(() => getTeamRoster(project), (e) => `elenco não leu: ${e instanceof Error ? e.message : String(e)}`)
       : Promise.resolve(ok([] as Awaited<ReturnType<typeof getTeamRoster>>)),
-    isSopa ? (SOPA_POOL_ADDRESS ? Promise.resolve(SOPA_POOL_ADDRESS) : findSopaPool().catch(() => null)) : Promise.resolve(null),
+    // A PIOR classe das três, e por isso vem antes de tudo no item 5: este
+    // catch DESLIGAVA O PRÓPRIO DETECTOR. Se a descoberta do pool falhava,
+    // poolAddress virava null; sem pool, o status nem era buscado; e o sinal de
+    // falha era `!!poolAddress && !streamStatus`, que com poolAddress null dá
+    // FALSE. A página passava a jurar que estava tudo bem porque falhou ao
+    // perguntar — o dado mente e o detector confirma.
+    isSopa
+      ? SOPA_POOL_ADDRESS
+        ? Promise.resolve(ok<string | null>(SOPA_POOL_ADDRESS))
+        : attempt<string | null>(
+            () => findSopaPool(),
+            (e) => `pool não pôde ser descoberto: ${e instanceof Error ? e.message : String(e)}`,
+          )
+      : Promise.resolve(ok<string | null>(null)),
     // O null aqui fazia DOIS trabalhos: "não há posição em stake" e "não
     // consegui ler". Colapsavam com a mesma facilidade que zero colapsa com
     // desconhecido — e esta classe já mordeu de verdade (3af9642, "MOR em stake
@@ -215,7 +235,15 @@ treasury: {
           (e) => `posição em stake não leu: ${e instanceof Error ? e.message : String(e)}`,
         )
       : Promise.resolve(ok<StakePosition | null>(null)),
-    isSopa ? getAllocation(project.slug).catch(() => null) : Promise.resolve(null),
+    // `ok(null)` = nunca foi configurado (resposta legítima). `unread` = não
+    // consegui ler, e aí a seção sumia sem dizer nada — sumir é afirmar que
+    // não existe.
+    isSopa
+      ? attempt<Awaited<ReturnType<typeof getAllocation>> | null>(
+          () => getAllocation(project.slug),
+          (e) => `earmarks não leram: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      : Promise.resolve(ok<Awaited<ReturnType<typeof getAllocation>> | null>(null)),
     isSopa
       ? attempt(() => getCommunityVaults(), (e) => `cofres não leram: ${e instanceof Error ? e.message : String(e)}`)
       : Promise.resolve(ok([] as Awaited<ReturnType<typeof getCommunityVaults>>)),
@@ -237,6 +265,12 @@ treasury: {
   // Backers of the SOPA-owned vault (the one whose fee funds the payroll).
   // `ok(null)` = leu e não há posição — zero legítimo. `unread` = não se sabe,
   // e aí nem zero nem número.
+  // `ok(null)` = procurou e não há pool. `unread` = a busca falhou, e aí não se
+  // sabe nem se existe — estados que precisam chegar SEPARADOS até a aba.
+  const allocation = isOk(allocRead) ? allocRead.value : null;
+  const allocUnknown = !isOk(allocRead);
+  const poolAddress = isOk(poolRead) ? poolRead.value : null;
+  const poolUnknown = !isOk(poolRead);
   const stakePosition = isOk(stakeRead) ? stakeRead.value : null;
   const stakeUnknown = !isOk(stakeRead);
   const vaults = isOk(communityVaults) ? communityVaults.value : [];
@@ -245,8 +279,13 @@ treasury: {
   // Wave 2 — depends on wave 1 (poolAddress, sopaVault); parallel with each other.
   // vaultGrossApy = the underlying Moonwell APY (the vault deploys 100% there); the
   // vault's own netApy isn't indexed by Morpho yet, so this fills the flow's $/month.
-  const [streamStatus, vaultDepositors, vaultGrossApy, sopaVaultEarned] = await Promise.all([
-    poolAddress ? getStreamStatus(poolAddress).catch(() => null) : Promise.resolve(null),
+  const [streamRead, vaultDepositors, vaultGrossApy, sopaVaultEarned] = await Promise.all([
+    poolAddress
+      ? attempt(
+          () => getStreamStatus(poolAddress),
+          (e) => `status do stream não leu: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      : Promise.resolve(ok(null)),
     sopaVault
       ? attempt(
           () => getVaultDepositors(sopaVault.vault.address),
@@ -268,6 +307,10 @@ treasury: {
         )
       : Promise.resolve(ok(0)),
   ]);
+  // Idem ao pool: `ok(null)` é "não há pool para consultar"; `unread` é "não
+  // consegui ler o status". Só a segunda é falha, e só ela acende o aviso.
+  const streamStatus = isOk(streamRead) ? streamRead.value : null;
+  const streamUnknown = poolUnknown || (!!poolAddress && !isOk(streamRead));
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
   // both halves are surfaced so the page shows the whole fee, not just our cut.
@@ -311,7 +354,13 @@ treasury: {
 
   // SOPA: one project selector filters balances + revenue together. Brand
   // portals show their single treasury + their own revenue directly.
-  const pipelineStatus = isSopa ? await getPipelineStatus().catch(() => null) : null;
+  const pipelineRead = isSopa
+    ? await attempt<Awaited<ReturnType<typeof getPipelineStatus>> | null>(
+        () => getPipelineStatus(),
+        (e) => `pipeline MOR não leu: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    : ok<Awaited<ReturnType<typeof getPipelineStatus>> | null>(null);
+  const pipelineStatus = isOk(pipelineRead) ? pipelineRead.value : null;
 
   // Two halves of the same component, one per tab: they share the project
   // filter, which is why they aren't two components.
@@ -377,6 +426,13 @@ treasury: {
           <span className="text-xs font-normal text-foreground-faint">{t.treasury.ops.morHint}</span>
         </summary>
         <div className="mt-5 space-y-6">
+          {!isOk(pipelineRead) && (
+            <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+              ⚠ O pipeline MOR não pôde ser lido
+              {pipelineRead.state === "unread" ? ` — ${pipelineRead.reason}` : ""}. O painel abaixo está ausente por
+              isso, não porque não haja pipeline.
+            </p>
+          )}
           {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
           {/* TEMP: deploy + dry-run the native-swap flash filler (haxixe only). Delete after wiring the real Swap A/B buttons. */}
           <NativeSwapDeployPanel />
@@ -390,6 +446,15 @@ treasury: {
       {/* Earmarks are PERCENTAGES OF the pot, so an incomplete pot makes every
           slice wrong in a way that still looks plausible. The panel is withheld
           rather than shown with a denominator we couldn't finish reading. */}
+      {/* Earmarks nunca configurados é resposta legítima e some em silêncio de
+          propósito. Earmarks que NÃO LERAM é outra coisa, e precisa dizer. */}
+      {allocUnknown && (
+        <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          ⚠ Os earmarks não puderam ser lidos
+          {!isOk(allocRead) && allocRead.state === "unread" ? ` — ${allocRead.reason}` : ""}. Isto NÃO quer dizer que
+          não haja destinação definida.
+        </p>
+      )}
       {allocation && ownTotal.state !== "ok" && (
         <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
           {t.treasury.hero.incomplete} — {ownTotal.state === "unread" ? ownTotal.reason : ownTotal.note}
@@ -577,7 +642,9 @@ treasury: {
               streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
               runwayDays={streamStatus?.runwayDays ?? null}
               bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
-              streamFailed={!!poolAddress && !streamStatus}
+              // O detector deixa de depender do que ele detecta: pool que não
+              // pôde ser DESCOBERTO agora acende o aviso, em vez de apagá-lo.
+              streamFailed={streamUnknown}
               flow={
                 <>
                   <StreamFlowView
