@@ -34,14 +34,23 @@ asset when it lands."*
 **Por que só ele responde:** é o asset da marca. Não existe em repositório
 público nem se deduz do site.
 
-## 2. Existem redes sociais do swaps.pro?
+## 2. Existem redes sociais do swaps.pro? — RESPONDIDA EM PARTE (28/08)
 
 Procurei em `swaps.pro/llms.txt`, em `llms-full.txt` e na página `/about`:
-**nenhum handle publicado** — nem X, nem Discord, nem Telegram, nem Farcaster.
+nenhum handle publicado. A ausência era ambígua — canal que não existe e canal
+que existe sem estar publicado produzem a mesma tela vazia.
 
-**Por que só ele responde:** ou os canais não existem, ou existem e não estão
-publicados. As duas hipóteses produzem a mesma ausência, e só quem opera a marca
-sabe distinguir.
+**Resposta do Vlad:**
+
+- **Twitter/X: EXISTE.** Falta o handle — é o que ainda impede preencher
+  `socials`.
+- **Farcaster: sendo criado agora.** Deixou de ser "não sei se existe" e virou
+  "vai existir em breve".
+- **Discord e Telegram: não mencionados.** Registrado como não-mencionado, não
+  como inexistente — a distinção é a mesma de antes.
+
+**Ainda falta dele:** o handle do Twitter, e o canal do Farcaster quando estiver
+de pé.
 
 ## 3. Conta de analytics do site
 
@@ -101,6 +110,48 @@ o que a marca considera "seu" dinheiro antes da distribuição. É decisão de q
 é dono do dinheiro.
 
 **Se a resposta for outra carteira, são três linhas em `src/projects/swaps.ts`.**
+
+## 9. `FARCASTER_SPONSOR_MNEMONIC` e `_FID` estão setados na Vercel de produção?
+
+O fluxo de conectar Farcaster por QR (`/api/farcaster/project-signer/start`)
+responde **503** sem essas duas variáveis. E a ordem das checagens importa: o
+`role !== "admin"` é avaliado ANTES do 503, então um não-admin recebe 403 e
+nunca descobre se as variáveis existem.
+
+**Verificado:** as duas estão presentes no `.env.local` **local**. Isso não diz
+nada sobre produção — são ambientes diferentes, e é a produção que serve o
+endpoint.
+
+**Por que só ele responde:** ler a env de produção exige o token Vercel da SOPA,
+que não deve ser cruzado com outras credenciais. Ele tem acesso; eu não, por
+regra.
+
+**Vale saber antes do QR na mão, não durante.**
+
+---
+
+## Resolvido sem precisar dele: papéis no swaps
+
+Chegou a dúvida de se **semear `TeamMember` seria pré-requisito** para conectar
+o Farcaster, já que o endpoint exige `role === "admin"` e o swaps tem zero
+linhas. **Não é.**
+
+O `getAccess` tem duas portas para `admin` que passam por fora das linhas do
+projeto, e ambas são avaliadas ANTES do fallback de config:
+
+1. Linha em `TeamMember` com `projectSlug = "*"` — existem quatro:
+   `xvlad`, `highlander22`, `bithighlander22`, `r4topunk`, todas `admin`.
+2. `GLOBAL_ALLOWLIST` em `auth.ts`, fixa no código:
+   `["xvlad", "highlander22", "bithighlander22"]`.
+
+**O Vlad é admin global** e recebe `role: "admin"` em todos os portais,
+incluindo o swaps, sem nenhuma linha de swaps. Pode conectar o Farcaster hoje.
+
+Os outros seis do allowlist (`bielcx`, `keepkey`, `illithics`,
+`humbertoperes`, `nogenta`, `louzoshi`, `vaipraonde`) recebem `member` e **não**
+conseguem. Se a conexão precisar ser feita por algum deles, aí sim semear vira
+pré-requisito — e isso é decisão de papéis, que é assunto diferente de quem
+entra no allowlist.
 
 ---
 
