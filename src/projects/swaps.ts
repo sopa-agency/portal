@@ -99,6 +99,25 @@ const swaps: ProjectConfig = {
   // Sits right under KeepKey, below the divider that separates that org from
   // the Reelflip family.
   switcher: { rank: 110, parent: "keepkey" },
+  /**
+   * GA4. O `ga4PropertyId` é o ID NUMÉRICO da propriedade, não o measurement ID
+   * (`G-93QVXQ3NLY`) que aparece no HTML do site — são coisas diferentes e é
+   * fácil confundir.
+   *
+   * Este veio do agente do swapspro, que tem o repo e o .env.local do produto.
+   *
+   * NÃO ACENDE SOZINHO: falta o outro lado, que é do Vlad — uma service account
+   * com Visualizador nesta propriedade, e o JSON dela em
+   * SWAPS_GOOGLE_SERVICE_ACCOUNT_JSON. Verificado em 28/08 pela GA4 Admin API:
+   * nenhuma das duas contas existentes (skatehive-268@, bobgnarley@) enxerga
+   * esta propriedade ainda.
+   *
+   * `gscSiteUrl` fica de fora de propósito: é opcional, e sem ele o painel do
+   * Search Console diz "not configured" enquanto o resto funciona só com GA4.
+   */
+  analytics: {
+    ga4PropertyId: "551907009",
+  },
   briefingAgents: [],
   // O board já existia: coinmastersguild/projects/2 tem os 11 issues do
   // coinmastersguild/swapspro (subdomínio app.swaps.pro, ZEROX_API_KEY em prod,

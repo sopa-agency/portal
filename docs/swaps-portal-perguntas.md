@@ -82,9 +82,13 @@ SkateHive e `527420949` da Gnars).
 
 **Faltam DUAS coisas, e a segunda foi surpresa.**
 
-### 3a. O ID numérico da propriedade GA4
+### 3a. O ID numérico da propriedade GA4 — RESOLVIDO (28/08)
 
-Está no admin do GA4, em Detalhes da propriedade. Uma linha no `swaps.ts`.
+**`551907009`**, já no `swaps.ts`. Veio do agente do swapspro, que tem o repo e
+o `.env.local` do produto — do lado deles o GA4 já está integrado.
+
+Não confundir com o measurement ID `G-93QVXQ3NLY` do HTML: o portal usa o
+numérico.
 
 ### 3b. Uma service account para o prefixo SWAPS — não existe global
 

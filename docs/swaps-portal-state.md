@@ -26,19 +26,27 @@ lista commits e enxerga o board. Testado, não suposto.
 
 ---
 
-## Os quatro commits da `feat/swaps-shared-agent`
+## Onde está o trabalho
+
+**Uma única branch aberta: `feat/swaps-shared-agent`.** Todas as outras desta
+operação já foram mescladas na `main` (`feat/swaps-portal-slice-a`,
+`feat/treasury-aligned-panel`, `feat/treasury-converge-readers`,
+`chore/drop-temp-swap-deploy-panel`).
 
 | commit | o que faz |
 |---|---|
-| `b48b3cd` | separa credencial de **computação** de credencial de **identidade** (desenho abaixo) |
-| `8d24369` | logo real da marca; tesouro passa a ser "sem tesouro próprio" |
+| `b48b3cd` | separa credencial de **computação** de **identidade** (desenho abaixo) |
+| `8d24369` | ⚠️ dizia "logo real" e instalou o arquivo ERRADO — corrigido em `407ae67` |
 | `9ed9347` | doc: analytics — não existe service account global, e isso muda o pedido |
 | `d2e5e47` | doc: e-mails das service accounts, e as duas regras da rodada |
+| `8886916` | este handoff |
+| `65075bd` | liga `postCreator`; cura a lista de repos que nascia vazia |
+| `407ae67` | o logo que o SITE declara, e a correção do erro anterior |
 
-Antes deles, já na `main`: `7ebf198` (descrição oficial + repo) e `d9fc90c`
-(tesouro provisório, depois substituído).
+Antes deles, já na `main`: `7ebf198` (descrição + repo) e `d9fc90c` (tesouro
+provisório, depois substituído).
 
-**Nenhum commit da branch foi mesclado.** Ficam esperando o Vlad.
+**Nenhum commit desta branch foi mesclado.** Esperam o Vlad.
 
 ---
 
@@ -236,6 +244,10 @@ skatehive-268@skatehive-94e95.iam.gserviceaccount.com
 bobgnarley@gnars-489819.iam.gserviceaccount.com
 ```
 
+**Property ID resolvido em 28/08: `551907009`**, já no `swaps.ts`. Veio do
+agente do swapspro. Ele **não acende sozinho** — ver a consulta à Admin API
+acima: nenhuma conta existente enxerga essa propriedade ainda.
+
 O padrão da casa é **uma service account por marca**. Encaminhado ao Vlad:
 setar `SWAPS_GOOGLE_SERVICE_ACCOUNT_JSON` com o JSON de uma das existentes e dar
 **Visualizador** a ela na propriedade do swaps — mantém o padrão. Setar a global
@@ -247,6 +259,38 @@ arquitetura que não deve sair de carona numa tarefa de ligar analytics.
 not configured" e o resto funciona só com GA4.
 
 ---
+
+## O que a GA4 Admin API respondeu (28/08)
+
+Consultei as propriedades que cada service account existente **já enxerga**,
+usando o fluxo de JWT da própria conta. Resultado literal:
+
+```
+skatehive-268@  →  525358748 Detector de Golpes · 527345741 Skatehive
+                   527420949 Gnars · 541423360 Reelflip     [conta: Vlad Projects]
+
+bobgnarley@     →  314448625 Gnars.com · 339904745 pod.link/gnars  [conta: Gnars DAO]
+                   + as quatro acima
+```
+
+**Nenhuma das duas enxerga a propriedade do swaps.pro (`551907009`).** É por
+isso que pôr o `ga4PropertyId` no config não acende nada sozinho: falta
+conceder Visualizador a uma delas, no admin do GA4, e setar
+`SWAPS_GOOGLE_SERVICE_ACCOUNT_JSON`.
+
+*(Em aberto: o swapspro pode ter service account própria. Se tiver, o pedido
+muda — usa-se a que já existe em vez de reusar a da SkateHive ou do Gnars.)*
+
+### Três achados de graça na mesma consulta
+
+- **`314448625 "Gnars.com"`**, na conta **Gnars DAO**, já legível pela
+  `bobgnarley@`. O portal do gnars usa `527420949` ("Gnars", conta *Vlad
+  Projects*) — **propriedade diferente**. Se o item bloqueado no gnars.com era
+  medir tráfego daquele site, é provável que a propriedade certa seja esta, e o
+  acesso **já existe**.
+- **`541423360 "Reelflip"`** — acessível pelas duas contas, **usada por nenhum
+  portal**. Uma linha de config à espera.
+- **`525358748 "Detector de Golpes"`** — idem.
 
 ## O achado do Gnars, e a regra que saiu dele
 
