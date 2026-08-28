@@ -125,6 +125,28 @@ exatamente o que transforma "quebrou" em "limpo".
   importadores, logo não está no bundle" é mais forte que qualquer `grep`, e não
   tem como dar falso positivo.
 
+## Dívida conhecida: escrita não checa papel
+
+As quatro ações de escrita do portal — `fixed-costs`, `allocation`, `payroll`,
+`sopa-boards` — chamam `verifySession(cookie, project)` e **nenhuma verifica
+`role`**. Na tela, `canEdit={!!session}`. Papel só trava uma coisa:
+`team-admin.ts` exige `role === "admin"` para gerenciar pessoas.
+
+Ou seja: **membro = ler e escrever tudo, menos administrar quem entra.**
+
+**Isto NÃO é problema hoje, e a condição importa mais que o fato:** é seguro
+enquanto o allowlist for CURADO à mão — hoje são listas pequenas de gente que o
+Vlad escolheu um a um. **Deixa de ser seguro no dia em que um allowlist virar
+lista de acesso de leitura**, quando alguém for adicionado para "só ver uma
+coisa" e ganhar escrita em tudo junto.
+
+Enquanto nenhum projeto tiver linhas em `TeamMember`, o array da config é a
+autoridade (`getAccess` só consulta o banco quando ele tem linhas para aquele
+projeto). É por isso que editar um array é hoje mais simples que administrar
+papéis — e está certo assim enquanto a condição acima se sustentar.
+
+Semear `TeamMember` é decisão do Vlad e não foi tomada.
+
 ## Verde não prova que a tua mudança entrou
 
 Aconteceu **duas vezes na mesma noite**: uma substituição automatizada não casou

@@ -47,6 +47,29 @@ const swaps: ProjectConfig = {
   // (coinmastersguild/projects/2), então as duas pontas do GitHub combinam.
   repos: ["coinmastersguild/swapspro"],
   socials: [],
+  /**
+   * Tesouro — PROVISÓRIO, e o rótulo diz por quê.
+   *
+   * O único endereço EVM conhecido do swaps.pro é o 0xSplits que recebe as
+   * taxas: dinheiro EM TRÂNSITO, do qual a SOPA leva 20% e o resto segue para
+   * os demais destinatários. Não é uma carteira própria da marca.
+   *
+   * Ele entra rotulado como o que é, em vez de como "tesouro", porque o total
+   * do hero soma tudo que estiver aqui — e um número que afirma posse de
+   * dinheiro de terceiros é exatamente a classe de coisa que esta base passou
+   * a semana removendo. O rótulo é o que impede a soma de mentir sozinha.
+   *
+   * Fica assim até a pergunta B8 ser respondida ("qual carteira é o tesouro do
+   * swaps.pro"). Se a resposta for outra carteira, isto vira três linhas.
+   */
+  treasury: {
+    ethWallets: [
+      {
+        label: "Split de taxas (em trânsito · SOPA 20%)",
+        address: "0xAccF0dB4b6B55Ba692467988D0a1188f26428C2b",
+      },
+    ],
+  },
   // Sits right under KeepKey, below the divider that separates that org from
   // the Reelflip family.
   switcher: { rank: 110, parent: "keepkey" },
