@@ -273,10 +273,33 @@ resolvedor em `src/lib/google-analytics.ts`, que é onde a próxima pessoa olha.
 ## O que está ligado, e o que não está
 
 `postCreator` ligado em 28/08, como mecanismo do pedido do Vlad — *"ligar o
-github que importa no repo to social"*. O `/repo-to-social` já funcionava (rota
-sem flag, lê `project.repos`, usa o `GITHUB_TOKEN` global cujo acesso à org foi
-testado); o que faltava era o `postCreator`, que é o que gateia o compositor e
-o item de nav.
+github que importa no repo to social"*.
+
+**Correção de uma afirmação minha:** eu havia dito que "o `/repo-to-social` já
+funcionava, rota sem flag". Estava errado, e o erro foi ter verificado a
+existência da rota em vez do que ela faz. `/repo-to-social` é apenas um
+**redirecionamento** para `/marketing-suggestions?tab=repo` — a funcionalidade
+mora na aba de Post Suggestions, que é gateada pelo `postCreator`.
+
+### E havia um bug por baixo
+
+Relatado como "não parece configurado", e era. `getRepoToSocialConfig` faz
+`upsert`: o **create** preenche `repoUrl` a partir de `project.repos`, mas o
+**update** só toca o `agentId`.
+
+A linha do `swaps` no `RepoToSocialConfig` nasceu **antes** de o projeto
+declarar repos — naquele momento `project.repos` era `[]` — então nasceu vazia.
+Depois que o repo foi declarado, o default nunca mais foi aplicado: a linha já
+existe, o upsert não recria, e não havia cura para esse campo.
+
+O código já curava o campo vizinho (`prompt` vazio) com um comentário
+explicando por quê. A cura foi estendida ao `repoUrl`, com a mesma regra: **só
+cura o vazio** — lista que alguém editou, inclusive para remover um repo, é
+escolha e não se mexe.
+
+Verificado no banco: `gnars` e `skatehive` têm repos preenchidos; `reelflip`,
+`keepkey` e `nogenta` estão vazios **corretamente**, porque esses projetos não
+declaram `repos`. Só o `swaps` estava vazio por engano.
 
 **O `lab` NÃO foi ligado** — não foi pedido, nem implicitamente. E não é
 pré-requisito: são flags independentes; o `lab/page.tsx` lê `postCreator`, não

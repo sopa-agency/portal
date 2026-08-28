@@ -185,11 +185,22 @@ export async function getRepoToSocialConfig() {
   });
   // Same healing as the suggestions config: an empty prompt would otherwise
   // show an empty editor AND make the worker generate without guidelines.
-  if (!row.prompt.trim()) {
-    return prisma.repoToSocialConfig.update({
-      where: { id: project.slug },
-      data: { prompt: defaultPrompt(project) },
-    });
+  //
+  // A MESMA cura vale para a lista de repos, e a falta dela era um bug: o
+  // `create` acima preenche `repoUrl` a partir de `project.repos`, mas o
+  // `update` só toca o `agentId`. Um projeto cuja linha nasceu ANTES de ele
+  // declarar repos ficava com a lista vazia para sempre — a config existe, o
+  // upsert não recria, e o default nunca mais é aplicado. Foi exatamente o que
+  // aconteceu com o swaps: a linha nasceu quando `repos` era `[]`, e continuou
+  // vazia depois que o repo foi declarado.
+  //
+  // Só cura o VAZIO. Lista que alguém editou — inclusive para remover um repo —
+  // é escolha e não se mexe.
+  const patch: { prompt?: string; repoUrl?: string } = {};
+  if (!row.prompt.trim()) patch.prompt = defaultPrompt(project);
+  if (!row.repoUrl.trim() && defaultRepoUrls.length > 0) patch.repoUrl = defaultRepoUrls.join("\n");
+  if (Object.keys(patch).length > 0) {
+    return prisma.repoToSocialConfig.update({ where: { id: project.slug }, data: patch });
   }
   return row;
 }

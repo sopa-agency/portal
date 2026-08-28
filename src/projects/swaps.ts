@@ -77,6 +77,16 @@ const swaps: ProjectConfig = {
   treasury: {
     ethWallets: [],
   },
+  /**
+   * Ligado como mecanismo do pedido "ligar o github que importa no repo to
+   * social": o /repo-to-social é só um redirecionamento para a aba de Post
+   * Suggestions, e é o `postCreator` que acende o compositor e o item de nav.
+   * Sem ele o pedido fica pela metade.
+   *
+   * O `lab` NÃO foi ligado — não foi pedido, e não é pré-requisito: são flags
+   * independentes (o lab lê `postCreator`, não o contrário).
+   */
+  postCreator: true,
   // Sits right under KeepKey, below the divider that separates that org from
   // the Reelflip family.
   switcher: { rank: 110, parent: "keepkey" },
