@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="swaps.pro">
-  <rect width="128" height="128" rx="24" fill="#0a1417"/>
-  <path d="M34 50h48l-14-14" stroke="#22d3ee" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <path d="M94 78H46l14 14" stroke="#22d3ee" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs><linearGradient id="g" x1="82%" y1="2%" x2="18%" y2="98%"><stop offset="0" stop-color="#4DF98A"></stop><stop offset="1" stop-color="#12A34F"></stop></linearGradient></defs>
+  <path fill="url(#g)" fill-rule="evenodd" d="M64 0 L119.4 32 L119.4 96 L64 128 L8.6 96 L8.6 32 Z M64 7.4 L113 35.7 L113 92.3 L64 120.6 L15 92.3 L15 35.7 Z"></path>
+  <g stroke="#4DF98A" stroke-width="5.25" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M45.25 57.5 H77.75 M68.75 48.5 L77.75 57.5 L68.75 66.5"></path>
+    <path d="M82.75 72 H50.25 M59.25 63 L50.25 72 L59.25 81"></path>
+  </g>
 </svg>

@@ -90,9 +90,16 @@ export function TreasuryHealthHero({
         </div>
         {complete ? (
           <div className="mt-1.5 text-3xl font-bold tabular-nums tracking-tight text-foreground">{usd(total.value)}</div>
+        ) : total.state === "insufficient" ? (
+          // Terceiro estado, e ele NÃO é aviso: "não há fonte configurada" é
+          // uma resposta correta, não uma falha. Pintar de amarelo mandaria
+          // alguém investigar um problema que não existe — que é o erro que a
+          // gente já cometeu ao contrário, tratando falha como número.
+          <div className="mt-1.5 text-xl font-semibold tracking-tight text-foreground-muted">{t.noTreasury}</div>
         ) : (
-          // Deliberately NOT a number, and deliberately not the size of one:
-          // a partial sum shown where the total goes is the lie, just quieter.
+          // Deliberadamente NÃO é um número, e deliberadamente não do tamanho de
+          // um: uma soma parcial no lugar do total é a mentira, só que mais
+          // baixinho.
           <div className="mt-1.5 text-xl font-bold uppercase tracking-tight text-warning">{t.incomplete}</div>
         )}
         <p className="mt-1 text-xs text-foreground-faint">

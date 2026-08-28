@@ -1,6 +1,6 @@
 import "server-only";
 import { zerionBalances } from "@/lib/zerion";
-import { readHealth, sumReadings, type Reading } from "@/lib/reading";
+import { insufficient, readHealth, sumReadings, type Reading } from "@/lib/reading";
 import { evmWalletReading, hiveAccountReading, mergeUnpriced } from "@/lib/treasury-readings";
 import type { ProjectConfig } from "@/projects/types";
 import { sanitizeTokenLabel, labelLooksHostile, SYMBOL_MAX, NAME_MAX } from "@/lib/token-label";
@@ -733,12 +733,18 @@ export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryRep
   const evmReadings = evm.map(evmWalletReading);
   const hiveReadings = hive.map(hiveAccountReading);
   const all = [...evmReadings, ...hiveReadings];
+  // Nenhuma fonte configurada NÃO é "temos zero". `sumReadings([])` devolve
+  // ok(0), que é aritmeticamente correto e semanticamente errado aqui: somar
+  // conjunto vazio não é a mesma coisa que somar e dar zero. Numa marca que
+  // tem receita mas não guarda tesouro próprio, o "$0" é o número que engana.
+  const noSources = all.length === 0;
+  const empty = insufficient<number>("nenhuma fonte de tesouro configurada");
   return {
     evm,
     hive,
-    evmTotal: sumReadings(evmReadings),
-    hiveTotal: sumReadings(hiveReadings),
-    total: sumReadings(all),
+    evmTotal: noSources ? empty : sumReadings(evmReadings),
+    hiveTotal: noSources ? empty : sumReadings(hiveReadings),
+    total: noSources ? empty : sumReadings(all),
     health: readHealth(all),
     unreadLabels: [
       ...evm.filter((w) => w.failedChains.length > 0).map((w) => w.label),

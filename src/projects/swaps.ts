@@ -26,13 +26,23 @@ const swaps: ProjectConfig = {
   theme: {
     // Cyan — the one accent no other portal uses (lime SH, red Gnars, amber
     // SOPA, gold KeepKey, violet Vlad, monochrome Nogenta).
+    //
+    // NÃO é a cor da marca: o swaps.pro é verde (#4DF98A → #12A34F, o gradiente
+    // do próprio logo). O ciano foi escolhido por ser distinto dos outros
+    // portais, e trocar por verde colidiria com o lime da SkateHive — que é
+    // justamente o motivo de existir o ciano. Fica como está até alguém decidir
+    // qual das duas coisas importa mais: fidelidade à marca ou distinção entre
+    // portais. É decisão de design, não achado de código.
     accentLight: "#0e7490",
     accentDark: "#22d3ee",
     accentBgLight: "rgba(14, 116, 144, 0.1)",
     accentBgDark: "rgba(34, 211, 238, 0.12)",
     accentBorderLight: "rgba(14, 116, 144, 0.3)",
     accentBorderDark: "rgba(34, 211, 238, 0.35)",
-    // Placeholder mark — swap for the real swaps.pro asset when it lands.
+    // Marca real, tirada do repo do produto (public/icon.svg do swapspro).
+    // Escolhi essa variante e não a `swaps-mark-solid.svg`: aquela tem um
+    // hexágono quase preto (#050A06) por baixo, que some no tema escuro — e
+    // aqui os dois temas são obrigatórios.
     logo: "/projects/swaps/logo.svg",
   },
   // No Hive presence yet.
@@ -48,27 +58,24 @@ const swaps: ProjectConfig = {
   repos: ["coinmastersguild/swapspro"],
   socials: [],
   /**
-   * Tesouro — PROVISÓRIO, e o rótulo diz por quê.
+   * SEM TESOURO PRÓPRIO — e isso é a resposta, não uma lacuna.
    *
-   * O único endereço EVM conhecido do swaps.pro é o 0xSplits que recebe as
-   * taxas: dinheiro EM TRÂNSITO, do qual a SOPA leva 20% e o resto segue para
-   * os demais destinatários. Não é uma carteira própria da marca.
+   * A fee do swaps.pro não fica com ele: aponta para o parceiro KeepKey
+   * (coinmastersguild.eth) e para o ENS da SOPA. Então não existe carteira da
+   * marca para somar, e o split que eu tinha posto aqui antes era justamente o
+   * dinheiro que NÃO é dela — a distribuição para os outros dois.
    *
-   * Ele entra rotulado como o que é, em vez de como "tesouro", porque o total
-   * do hero soma tudo que estiver aqui — e um número que afirma posse de
-   * dinheiro de terceiros é exatamente a classe de coisa que esta base passou
-   * a semana removendo. O rótulo é o que impede a soma de mentir sozinha.
+   * O bloco fica com a lista vazia de propósito. Sem ele, a página inteira vira
+   * guia de configuração e a receita some junto; com ele vazio, a página abre e
+   * o assunto dela passa a ser o que realmente existe: as fontes de receita,
+   * que vêm do card do org-chart e já casam por nome.
    *
-   * Fica assim até a pergunta B8 ser respondida ("qual carteira é o tesouro do
-   * swaps.pro"). Se a resposta for outra carteira, isto vira três linhas.
+   * E o hero não diz "$0": conjunto vazio não é o mesmo que somar e dar zero.
+   * Ele diz "sem tesouro próprio", em cinza e não em amarelo, porque isto é uma
+   * resposta correta e não uma falha de leitura.
    */
   treasury: {
-    ethWallets: [
-      {
-        label: "Split de taxas (em trânsito · SOPA 20%)",
-        address: "0xAccF0dB4b6B55Ba692467988D0a1188f26428C2b",
-      },
-    ],
+    ethWallets: [],
   },
   // Sits right under KeepKey, below the divider that separates that org from
   // the Reelflip family.

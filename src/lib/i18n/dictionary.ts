@@ -198,6 +198,8 @@ const en = {
       /** The total could not be completed — say WHICH sources are missing, or
        *  "incomplete" is just anxiety. */
       incomplete: "incomplete",
+      /** Nothing configured — a correct answer, not a failure. */
+      noTreasury: "no treasury of its own",
       incompleteNote: (failed: number, total: number, names: string) =>
         `${failed} of ${total} sources didn't answer — ${names}. What did answer is listed below.`,
       /** Held, counted, and impossible to value — the total is a floor, and the
@@ -1612,6 +1614,7 @@ const pt: typeof en = {
       runwayTitle: "Quanto tempo o caixa dura se o gasto continuar no ritmo atual.",
       months: "meses",
       incomplete: "incompleto",
+      noTreasury: "sem tesouro próprio",
       incompleteNote: (failed: number, total: number, names: string) =>
         `${failed} de ${total} fontes não responderam — ${names}. O que respondeu está listado abaixo.`,
       unvalued: (names: string) => `Não inclui ${names} — em carteira, sem preço confiável.`,
