@@ -108,6 +108,24 @@ function resolveServiceAccount(envValue: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(trimmed, "utf8")) as Record<string, unknown>;
 }
 
+/**
+ * A credencial circula; a permissão não.
+ *
+ * Este resolvedor NÃO usa `brandEnvByPrefix` de propósito — não tem a trava de
+ * dono que protege credencial de identidade (HIVE_POSTING_KEY,
+ * NEYNAR_SIGNER_UUID e companhia). E está certo assim: ler relatório não é
+ * postar como ninguém.
+ *
+ * Mas o motivo real de ser seguro é melhor que "não é identidade": a service
+ * account **só lê a propriedade em que foi concedida** no admin do GA4. O
+ * mesmo JSON pode servir várias marcas sem que nenhuma enxergue a propriedade
+ * da outra, porque quem separa é a concessão por propriedade, não o prefixo da
+ * variável. Trava de prefixo protegeria menos e atrapalharia mais.
+ *
+ * Consequência prática, antes de pedir credencial nova: verifique se a que já
+ * existe tem acesso. Em 28/08 um item ficou um dia parado por "falta credencial
+ * da GA4 Data API" quando a conta do Gnars já existia e já lia a propriedade.
+ */
 function getServiceAccountJson(project: ProjectConfig): Record<string, unknown> {
   const prefixKey = `${project.agent.gatewayEnvPrefix}_GOOGLE_SERVICE_ACCOUNT_JSON`;
   const raw = process.env[prefixKey] ?? process.env.GOOGLE_SERVICE_ACCOUNT_JSON;

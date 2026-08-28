@@ -79,8 +79,18 @@ ${gatewayEnvPrefix}_GOOGLE_SERVICE_ACCOUNT_JSON  ??  GOOGLE_SERVICE_ACCOUNT_JSON
 Só que **a global não existe neste ambiente.** O que existe são duas com
 prefixo, e são contas DIFERENTES, em projetos Google diferentes:
 
-- `SKATEHIVE_…` → `skatehive-268@skatehive-94e95.iam.gserviceaccount.com`
-- `GNARS_…` → `bobgnarley@gnars-489819.iam.gserviceaccount.com`
+Os dois `client_email`, completos (são identificadores, não segredos — podem
+circular e é isso que se cola no Gerenciamento de acesso do GA4):
+
+```
+skatehive-268@skatehive-94e95.iam.gserviceaccount.com
+```
+
+```
+bobgnarley@gnars-489819.iam.gserviceaccount.com
+```
+
+Projetos Google: `skatehive-94e95` e `gnars-489819`, respectivamente.
 
 Ou seja, o padrão desta base é **uma service account por marca**, não uma
 compartilhada. Para o swaps existem dois caminhos, e nenhum exige criar conta:
@@ -91,7 +101,13 @@ compartilhada. Para o swaps existem dois caminhos, e nenhum exige criar conta:
    para qualquer marca sem a sua.
 
 A opção 1 mantém o padrão da casa; a 2 muda o padrão para toda marca futura.
-**É decisão dele, não minha.**
+
+**Encaminhado: opção 1.** Setar a global mudaria o comportamento de toda marca
+futura sem a própria — decisão de arquitetura que não deve sair de carona numa
+tarefa de ligar analytics.
+
+**Quem seta é o Vlad, no painel.** Mover JSON de service account por chat ou por
+terminal não acontece; eu confiro depois que estiver setado.
 
 **Por que ele responde:** o ID da propriedade e o acesso no admin do GA4 são
 conta dele; e escolher entre os dois caminhos é decisão de padrão.
@@ -104,6 +120,10 @@ conta dele; e escolher entre os dois caminhos é decisão de padrão.
 `gscSiteUrl` é opcional no tipo, e a ausência **degrada com aviso, não quebra**:
 o painel de GSC renderiza "Search Console not configured" e o resto da página
 funciona só com GA4. Se ele não tiver GSC para o swaps.pro, tudo bem.
+
+**Confirmado no código, não suposto:** o campo é `gscSiteUrl?: string` no tipo, e
+o componente tem um estado `NotConfigured` dedicado. **Esta pergunta sai da lista
+do Vlad** — não há nada a decidir nem a fornecer.
 
 ## 4. `SWAPS_GATEWAY_URL` e `SWAPS_TOKEN`
 
@@ -217,3 +237,48 @@ valem conversa, não resposta rápida:
 - **Quem entra no allowlist.** Herdou os 10 do KeepKey. Já decidido em 28/08:
   **fica como está** — é o time do KeepKey, e a config já dizia que era
   proposital.
+
+
+---
+
+## Duas regras que saíram deste levantamento
+
+### Antes de pedir credencial nova, verifique se a antiga já tem acesso
+
+Custo de checar: minutos. Custo de não checar, medido: **um item parado um dia
+inteiro** na lista do Vlad.
+
+Em 27/08 um agente ficou bloqueado no gnars.com por "falta credencial da GA4
+Data API". Em 28/08, ao olhar de fato, a conta `bobgnarley@gnars-489819` já
+existia, já estava configurada no portal, e a propriedade `527420949` já estava
+lá — a leitura de GA4 do Gnars **já funcionava**. A pergunta talvez já
+estivesse respondida antes de ser feita.
+
+A verificação é barata e mecânica:
+
+1. `grep` no ambiente por `*_GOOGLE_SERVICE_ACCOUNT_JSON` (ou o equivalente do
+   provedor) — existe alguma?
+2. Extraia o `client_email` de cada e veja se são a mesma conta ou contas
+   distintas.
+3. Veja quais projetos já têm a propriedade configurada.
+
+Foi assim que se descobriu, na mesma passada, que **não existe global** e que o
+padrão da casa é uma conta por marca — as duas coisas que mudaram o pedido.
+
+### A credencial circula; a permissão não
+
+Por que a service account de LEITURA pode ser compartilhada entre marcas, e a
+de identidade não pode:
+
+O resolvedor de GA4 (`getServiceAccountJson`) não usa `brandEnvByPrefix`, então
+não tem a trava de dono que protege `HIVE_POSTING_KEY`, `NEYNAR_SIGNER_UUID` e
+companhia. E está certo: ler relatório não é postar como ninguém.
+
+Mas o motivo real de ser seguro é melhor que "não é identidade": **a service
+account só lê a propriedade em que foi concedida**, no admin do GA4. O mesmo
+JSON pode servir várias marcas sem que nenhuma enxergue a propriedade da outra,
+porque quem separa é a concessão por propriedade — não o prefixo da variável.
+
+Trava de prefixo protegeria menos e atrapalharia mais. Está escrito também em
+`src/lib/google-analytics.ts`, junto do resolvedor, que é onde a próxima pessoa
+olha.
