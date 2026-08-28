@@ -23,6 +23,29 @@ if [ ! -d "$CHUNKS" ]; then
   exit 2
 fi
 
+# ── O verificador precisa provar que rodou sobre o que você acha ────────────
+# Este script já aprovou um build que FALHOU: o next build morreu buscando a
+# fonte do Google, não emitiu chunk nenhum, e a verificação leu os chunks que
+# tinham sobrado da execução anterior — devolvendo "OK" sobre código velho.
+# Numa checagem de vazamento de credencial isso é o pior modo de falha: se a
+# chave tivesse voltado ao bundle naquele build, o script teria aprovado.
+#
+# BUILD_ID só é escrito quando o build TERMINA. Sem ele, o diretório é restos.
+if [ ! -f "$DIST/BUILD_ID" ]; then
+  echo "✗ $DIST/BUILD_ID não existe — o build não terminou. Não há o que verificar."
+  exit 2
+fi
+
+# E terminar não basta: se algum fonte é mais novo que o build, os chunks
+# descrevem outra versão do código.
+NEWER=$(find src -type f -newer "$DIST/BUILD_ID" 2>/dev/null | head -3)
+if [ -n "$NEWER" ]; then
+  echo "✗ o build é ANTERIOR a mudanças em src — verificaria a versão errada:"
+  echo "$NEWER" | sed 's/^/    /'
+  echo "  rode o next build de novo."
+  exit 2
+fi
+
 # Cada marcador é uma string que aparece SOMENTE em código NOSSO de servidor.
 #
 # A primeira versão deste script usava strings de PROTOCOLO — `condenser_api`,
