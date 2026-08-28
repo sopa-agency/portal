@@ -114,6 +114,17 @@ aqui o `tsc` não enxerga a fronteira cliente/servidor; na SkateHive o `next
 build` roda com *Skipping validation of types* e o `tsc` é o único que pega
 tipo. Passar num não é evidência sobre o outro.
 
+### Pendência nomeada: `readHealth` exportado e nunca chamado
+
+Portado junto do `reading.ts` e não usado em lugar nenhum. **Ou ganha uso no
+painel de divergência** — dizendo "5 de 5 carteiras leram nesta hora" — **ou
+sai.** As duas resolvem; escolher é do turno seguinte.
+
+Não é zelo de arrumação. Função exportada, morta, com nome que promete garantia
+é irmã do `assertNeynarApiKey` do gnars-website: existia, não era chamada por
+quem importava, e o nome dizia mais do que ela entregava. É a próxima variante
+esperando alguém achar que precisa escrever a dela.
+
 ### O que a divergência vai decidir (bloqueado por TEMPO, não por trabalho)
 
 O número aparece na virada de hora do cron. Quando houver alguns pontos:
