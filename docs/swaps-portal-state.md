@@ -244,9 +244,33 @@ skatehive-268@skatehive-94e95.iam.gserviceaccount.com
 bobgnarley@gnars-489819.iam.gserviceaccount.com
 ```
 
-**Property ID resolvido em 28/08: `551907009`**, já no `swaps.ts`. Veio do
-agente do swapspro. Ele **não acende sozinho** — ver a consulta à Admin API
-acima: nenhuma conta existente enxerga essa propriedade ainda.
+**Property ID `551907009` — e em 29/08 o acesso saiu.** O Vlad concedeu
+Visualizador à `skatehive-268@`, e eu confirmei chamando as duas APIs:
+
+```
+Admin API OK: "swapspro", criada 2026-08-28, tz America/Sao_Paulo
+   stream: https://swaps.pro  →  G-93QVXQ3NLY
+Data API  OK: 28 dias → www.swaps.pro  14 sessões / 14 usuários
+```
+
+**É a propriedade certa, e não pelo nome.** O measurement ID do stream,
+`G-93QVXQ3NLY`, é o mesmo que o HTML do swaps.pro carrega — o teste que
+desmontou o falso alarme do Gnars, aplicado antes de confiar em vez de depois
+de errar. Os números pequenos são idade: a propriedade nasceu no dia 28.
+
+A `bobgnarley@` continua sem acesso (PERMISSION_DENIED), o que está certo: uma
+service account por marca, e quem lê o swaps é a que o Vlad autorizou.
+
+**Faltam DUAS coisas, e nenhuma é minha:**
+
+1. `SWAPS_GOOGLE_SERVICE_ACCOUNT_JSON` na Vercel, com o JSON da MESMA conta
+   (`.secrets/skatehive-google-sa.json`). O portal procura por esse nome porque
+   analytics resolve pelo `gatewayEnvPrefix` (`SWAPS`), não pelo `gatewayFrom` —
+   não adianta estar em `KEEPKEY_*`, e não existe global neste ambiente. Sem
+   ela a página não fica vazia: ela ERRA, com "No Google service account env
+   found".
+2. **Mesclar esta branch.** O `ga4PropertyId` mora aqui, não na `main` — então
+   hoje a produção não sabe que essa propriedade existe.
 
 O padrão da casa é **uma service account por marca**. Encaminhado ao Vlad:
 setar `SWAPS_GOOGLE_SERVICE_ACCOUNT_JSON` com o JSON de uma das existentes e dar
