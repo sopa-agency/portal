@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Crosshair, MessageCircle, Plus, Send, X } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -293,7 +294,23 @@ function makeSessionId(): string {
 
 const DEFAULT_GREETING = "Olá! Como posso ajudar?";
 
-export function FloatingAgentChat({
+/**
+ * O balão flutuante some no /chat, e não é só para não colidir com o botão de
+ * enviar (media: 99px entre os dois, e a página em largura cheia encosta os
+ * dois de vez). É que ali ele não faz sentido: o /chat É esta conversa, com o
+ * MESMO agente, em página inteira. Dois campos de conversa com o mesmo
+ * interlocutor na mesma tela é escolha que a pessoa não deveria ter que fazer.
+ *
+ * O guarda mora num invólucro, e não dentro do componente, porque lá dentro um
+ * `return null` antecipado passaria na frente de dezenas de hooks.
+ */
+export function FloatingAgentChat(props: FloatingAgentChatProps) {
+  const pathname = usePathname();
+  if (pathname === "/chat" || pathname.startsWith("/chat/")) return null;
+  return <FloatingAgentChatPanel {...props} />;
+}
+
+function FloatingAgentChatPanel({
   projectSlug,
   agentId,
   agentName,
