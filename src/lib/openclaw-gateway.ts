@@ -449,3 +449,208 @@ export async function callOpenClaw(
   // "token missing" error when neither is configured).
   return hasDeviceAuth ? callOverWs(prompt, agentId, opts) : callOverHttp(prompt, agentId, opts);
 }
+
+// ---------------------------------------------------------------------------
+// Streaming
+// ---------------------------------------------------------------------------
+//
+// O gateway FALA streaming: com `stream: true` o /v1/responses devolve SSE com
+// eventos `response.output_text.delta`. Verificado contra o gateway local.
+//
+// O problema nunca foi o gateway, foi o caminho: na Vercel a chamada passa pelo
+// queue (o funnel nao fecha TLS de la), e queue e uma linha de banco — nao tem
+// canal para pedaco de texto. Por isso o AgentJob ganhou a coluna `partial`: o
+// worker escreve o texto crescendo e aqui a gente le o crescimento e emite a
+// diferenca. Quem chama recebe deltas dos dois lados sem saber por onde veio.
+//
+// Nenhum caminho e "quase streaming": quando nao ha delta possivel, a resposta
+// vem inteira de uma vez e a interface mostra isso. Nao simulamos digitacao
+// para fingir algo que nao aconteceu.
+
+export type OpenClawStreamOpts = {
+  timeoutMs?: number;
+  project?: ProjectConfig;
+  sessionSuffix?: string;
+  /** Recebe cada pedaco NOVO de texto, na ordem. */
+  onDelta?: (chunk: string) => void;
+  /** Chamado quando o texto ja entregue foi invalidado — ver streamViaQueue. */
+  onReset?: (full: string) => void;
+  /** Id do AgentJob, quando o transporte e o queue — deixa o cliente retomar. */
+  onJobId?: (id: string) => void;
+};
+
+/** Le um corpo SSE e chama onEvent para cada bloco `event:`/`data:`. */
+async function readSse(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: string, data: unknown) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) {
+      const lines = block.split("\n");
+      const event = lines.find((l) => l.startsWith("event:"))?.slice(6).trim() || "message";
+      const dataLine = lines.find((l) => l.startsWith("data:"));
+      if (!dataLine) continue;
+      try {
+        onEvent(event, JSON.parse(dataLine.slice(5).trim()));
+      } catch {
+        // bloco parcial ou nao-JSON — ignora; o proximo chega inteiro
+      }
+    }
+  }
+}
+
+/** Caminho direto (Mac): SSE do gateway, delta a delta. */
+async function streamOverHttp(
+  prompt: string,
+  agentId: string,
+  opts: OpenClawStreamOpts,
+): Promise<string> {
+  const url =
+    (opts.project ? projectEnv(opts.project, "GATEWAY_URL") : null) ??
+    trimmed("OPENCLAW_GATEWAY_URL") ??
+    "http://127.0.0.1:18789";
+  const token =
+    (opts.project ? projectEnv(opts.project, "GATEWAY_TOKEN") : null) ??
+    trimmed("OPENCLAW_GATEWAY_TOKEN") ??
+    trimmed("GATEWAY_TOKEN");
+  if (!token) throw new Error("GATEWAY_TOKEN / OPENCLAW_GATEWAY_TOKEN not set for HTTP transport.");
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${url.replace(/\/$/, "")}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: `openclaw/${agentId}`, input: prompt, stream: true }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok || !res.body) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Gateway HTTP ${res.status}: ${body.slice(0, 300)}`);
+    }
+    let full = "";
+    let failure = "";
+    await readSse(res.body, (event, data) => {
+      const d = data as { delta?: unknown; text?: unknown; error?: { message?: string } };
+      if (event === "response.output_text.delta" && typeof d.delta === "string") {
+        full += d.delta;
+        opts.onDelta?.(d.delta);
+        return;
+      }
+      // O `.done` traz o texto completo do bloco. So usamos se NENHUM delta
+      // veio (gateway mais antigo), senao duplicaria tudo o que ja foi entregue.
+      if (event === "response.output_text.done" && typeof d.text === "string" && !full) {
+        full = d.text;
+        opts.onDelta?.(d.text);
+        return;
+      }
+      if (event === "response.failed" || event === "error") {
+        failure = d.error?.message || "O gateway falhou no meio da resposta.";
+      }
+    });
+    if (failure) throw new Error(failure);
+    return full.trim();
+  } catch (err) {
+    if ((err as { name?: string })?.name === "AbortError") {
+      throw new Error(`OpenClaw timed out after ${opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Caminho da Vercel: enfileira e le o `partial` crescendo.
+ *
+ * O delta e o SUFIXO do que ja foi entregue, e so quando o texto novo comeca
+ * com o antigo. Se o worker reescrever o comeco (retry do turno), isso nao e
+ * continuacao: avisamos reset e mandamos o texto inteiro. Melhor a interface
+ * substituir do que emendar duas respostas diferentes numa so.
+ */
+async function streamViaQueue(
+  prompt: string,
+  agentId: string,
+  timeoutMs: number,
+  opts: OpenClawStreamOpts,
+): Promise<string> {
+  const { prisma } = await import("@/lib/prisma");
+  const job = await prisma.agentJob.create({
+    data: { agentSlug: agentId, prompt: sanitizeForDb(prompt), timeoutMs },
+  });
+  opts.onJobId?.(job.id);
+
+  const deadline = Date.now() + Math.min(timeoutMs + 30_000, 290_000);
+  let delivered = "";
+  let delay = 700;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, delay));
+    // Escrevendo, vale olhar de perto; parado, vale espacar.
+    delay = Math.min(delay * 1.15, 2_500);
+    let row;
+    try {
+      row = await prisma.agentJob.findUnique({ where: { id: job.id } });
+    } catch {
+      continue; // piscada do banco — segue tentando
+    }
+    if (!row) continue;
+
+    const soFar = row.status === "done" ? (row.result ?? "") : (row.partial ?? "");
+    if (soFar && soFar !== delivered) {
+      if (soFar.startsWith(delivered)) {
+        opts.onDelta?.(soFar.slice(delivered.length));
+      } else {
+        opts.onReset?.(soFar);
+      }
+      delivered = soFar;
+      delay = 700; // voltou a escrever — volta a olhar de perto
+    }
+
+    if (row.status === "done") return (row.result ?? delivered).trim();
+    if (row.status === "error") throw new Error(row.error || "Agent job failed");
+  }
+  throw new Error("Agent job timed out waiting for the worker");
+}
+
+/**
+ * Mesma escolha de transporte do callOpenClaw, com deltas.
+ *
+ * Devolve o texto completo no fim — quem chama pode ignorar os deltas e usar so
+ * o retorno, que e exatamente o que o caminho sem streaming sempre fez.
+ */
+export async function callOpenClawStream(
+  prompt: string,
+  agentId: string,
+  opts: OpenClawStreamOpts = {},
+): Promise<string> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS;
+  if (shouldUseQueue()) return streamViaQueue(prompt, agentId, timeoutMs, opts);
+
+  try {
+    return await streamOverHttp(prompt, agentId, opts);
+  } catch (err) {
+    console.warn(
+      `[openclaw] stream transport failed: ${err instanceof Error ? err.message : err}; ` +
+        "caindo para a chamada sem streaming",
+    );
+    // Sem streaming a resposta vem inteira. Entregamos como um delta unico em
+    // vez de inventar digitacao: o usuario ve a resposta aparecer de uma vez,
+    // que e o que de fato aconteceu.
+    const reply = await callOpenClaw(prompt, agentId, {
+      timeoutMs,
+      project: opts.project,
+      sessionSuffix: opts.sessionSuffix,
+      onJobId: opts.onJobId,
+    });
+    if (reply) opts.onDelta?.(reply);
+    return reply;
+  }
+}

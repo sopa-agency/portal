@@ -203,6 +203,17 @@ export type ProjectConfig = {
    */
   briefs?: boolean;
   /**
+   * When true, the Chat nav item + /chat route are enabled — the full-page
+   * conversation with this project's agent (streaming, attachments, history
+   * kept on the server, one thread per conversation).
+   *
+   * É outra coisa do chat flutuante, que continua existindo: aquele é para
+   * perguntar sobre a tela em que a pessoa está, guarda histórico no
+   * localStorage e vive por cima do conteúdo. Este é o lugar de sentar e
+   * trabalhar — e a conversa dele sobrevive a trocar de máquina.
+   */
+  chat?: boolean;
+  /**
    * When true, the Reuniões nav item + /reunioes route are enabled — a weekly
    * meetings calendar (SOPA-only). Absent = nav hidden + 404.
    */

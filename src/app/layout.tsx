@@ -173,7 +173,7 @@ export default async function RootLayout({
                 aboutEnabled={!!project.about}
                 orgChartEnabled={!!project.orgChart}
                 portfolioEnabled={!!project.portfolio}
-                briefsEnabled={!!project.briefs}
+                chatEnabled={!!project.chat}
                 labEnabled={!!project.lab}
                 zineEnabled={!!project.zineStudio}
                 meetingsEnabled={!!project.meetings}

@@ -62,6 +62,8 @@ const sopa: ProjectConfig = {
   portfolio: true,
   // Triage queue for briefs sent through the public site's contact form.
   briefs: true,
+  // Conversa longa com o agente da SOPA, em página inteira.
+  chat: true,
   meetings: true,
   // SOPA is the hub: its Kanban aggregates every registered portal's board
   // (read-only). Reelflip's board drops out automatically now that the project

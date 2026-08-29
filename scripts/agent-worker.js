@@ -26,6 +26,7 @@ const STALE_LOCK_MS = Number(process.env.WORKER_STALE_LOCK_MS ?? 10 * 60_000);
 const GATEWAY_URL = process.env.AGENT_GATEWAY_URL ?? process.env.BRIEFING_GATEWAY_URL ?? "http://127.0.0.1:18789";
 const OPENCLAW_ENV_FILE = process.env.OPENCLAW_ENV_FILE ?? path.join(os.homedir(), ".openclaw", ".env");
 const CONCURRENCY = Number(process.env.AGENT_WORKER_CONCURRENCY ?? 4);
+const PARTIAL_FLUSH_MS = Number(process.env.AGENT_WORKER_PARTIAL_FLUSH_MS ?? 500);
 
 const prisma = new PrismaClient({ log: ["error"] });
 
@@ -78,21 +79,74 @@ function isTransientFetchError(err) {
   );
 }
 
-async function callAgentOnce(input, agentId, timeoutMs) {
+// O gateway responde em SSE quando pedimos stream:true, com eventos
+// response.output_text.delta. Quem espera do outro lado (a Vercel) nao tem
+// como ouvir esse socket — ele mora aqui. Por isso o worker escuta os deltas e
+// vai gravando o texto em AgentJob.partial: o banco e o unico canal que
+// atravessa, e o crescimento daquela coluna E o stream, do ponto de vista de
+// quem esta la fora.
+//
+// onPartial recebe o texto acumulado (nao o pedaco), porque e assim que ele vai
+// para a coluna, e quem le compara com o que ja entregou.
+async function callAgentOnce(input, agentId, timeoutMs, onPartial) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${GATEWAY_URL.replace(/\/$/, "")}/v1/responses`, {
       method: "POST",
       headers: { Authorization: `Bearer ${GATEWAY_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: `openclaw/${agentId}`, input }),
+      body: JSON.stringify({ model: `openclaw/${agentId}`, input, stream: true }),
       signal: controller.signal,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`OpenClaw HTTP ${res.status}: ${body.slice(0, 300)}`);
     }
-    const text = extractOutputText(await res.json());
+
+    // Sem streaming (gateway antigo ou proxy que engole SSE) o corpo volta como
+    // JSON. Detectamos pelo content-type e caimos no caminho de sempre.
+    const ctype = res.headers.get("content-type") || "";
+    if (!ctype.includes("text/event-stream")) {
+      const text = extractOutputText(await res.json());
+      if (!text) throw new Error("OpenClaw returned an empty response");
+      return text;
+    }
+
+    let full = "";
+    let failure = "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const lines = block.split("\n");
+        const event = lines.find((l) => l.startsWith("event:"))?.slice(6).trim() || "message";
+        const dataLine = lines.find((l) => l.startsWith("data:"));
+        if (!dataLine) continue;
+        let data;
+        try {
+          data = JSON.parse(dataLine.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (event === "response.output_text.delta" && typeof data.delta === "string") {
+          full += data.delta;
+          onPartial?.(full);
+        } else if (event === "response.output_text.done" && typeof data.text === "string" && !full) {
+          full = data.text;
+          onPartial?.(full);
+        } else if (event === "response.failed" || event === "error") {
+          failure = data?.error?.message || "OpenClaw failed mid-response";
+        }
+      }
+    }
+    if (failure) throw new Error(failure);
+    const text = full.trim();
     if (!text) throw new Error("OpenClaw returned an empty response");
     return text;
   } catch (err) {
@@ -103,14 +157,16 @@ async function callAgentOnce(input, agentId, timeoutMs) {
   }
 }
 
-async function callAgent(input, agentId, timeoutMs) {
+async function callAgent(input, agentId, timeoutMs, onPartial) {
   try {
-    return await callAgentOnce(input, agentId, timeoutMs);
+    return await callAgentOnce(input, agentId, timeoutMs, onPartial);
   } catch (err) {
     if (!isTransientFetchError(err)) throw err;
     console.warn(`[agent-worker] transient gateway error (${err?.message}); retrying once`);
     await new Promise((r) => setTimeout(r, 2_000));
-    return await callAgentOnce(input, agentId, timeoutMs);
+    // O retry recomeca a resposta do zero. Quem le o `partial` percebe que o
+    // texto novo nao continua o antigo e substitui em vez de emendar.
+    return await callAgentOnce(input, agentId, timeoutMs, onPartial);
   }
 }
 
@@ -144,8 +200,37 @@ async function processJob(job) {
       .updateMany({ where: { id: job.id, status: "running" }, data: { lockedAt: new Date() } })
       .catch(() => {});
   }, 60_000);
+  // Grava o parcial no maximo a cada PARTIAL_FLUSH_MS. Sem isso seria um UPDATE
+  // por token: o banco vira o gargalo e o texto chega mais devagar do que sem
+  // streaming nenhum. Meio segundo e curto para o olho e barato para o banco.
+  let pending = null;
+  let lastFlush = 0;
+  let flushing = false;
+  const flushPartial = async () => {
+    if (flushing || pending === null) return;
+    const text = pending;
+    pending = null;
+    flushing = true;
+    lastFlush = Date.now();
+    try {
+      await prisma.agentJob.updateMany({
+        where: { id: job.id, status: "running" },
+        data: { partial: text },
+      });
+    } catch {
+      // parcial e conforto, nao resultado: perder um flush nao perde a resposta
+    } finally {
+      flushing = false;
+    }
+  };
+  const onPartial = (text) => {
+    pending = text;
+    if (Date.now() - lastFlush >= PARTIAL_FLUSH_MS) void flushPartial();
+  };
+  const partialTimer = setInterval(() => void flushPartial(), PARTIAL_FLUSH_MS);
+
   try {
-    const text = await callAgent(job.prompt, job.agentSlug, job.timeoutMs ?? 285_000);
+    const text = await callAgent(job.prompt, job.agentSlug, job.timeoutMs ?? 285_000, onPartial);
     await prisma.agentJob.update({
       where: { id: job.id },
       data: { status: "done", result: text },
@@ -159,6 +244,7 @@ async function processJob(job) {
       .catch(() => {});
   } finally {
     clearInterval(heartbeat);
+    clearInterval(partialTimer);
   }
 }
 
