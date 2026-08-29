@@ -304,7 +304,13 @@ export function AppSidebar({ username, avatarUrl, projectName, projectLogo, curr
   return (
     <>
       {/* Mobile top bar — hamburger + brand. The static column takes over at lg. */}
-      <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-surface px-3 py-2.5 lg:hidden">
+      {/*
+        Altura FIXA de propósito (h-14 = 56px). Antes era altura automática e
+        dava 57px por acaso, e o /chat precisa saber quanto sobra da janela para
+        ocupar o resto exato — ver APP_ROUTES em content-shell.tsx. Constante
+        combinada vale mais que constante adivinhada; se mudar aqui, muda lá.
+      */}
+      <div className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-surface px-3 lg:hidden">
         <button
           type="button"
           onClick={() => setMobileOpen(true)}

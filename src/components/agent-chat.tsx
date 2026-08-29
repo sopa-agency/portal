@@ -14,8 +14,8 @@ import {
   Check,
   RefreshCw,
   ArrowDown,
-  PanelLeftClose,
-  PanelLeftOpen,
+  ChevronsLeft,
+  ChevronsRight,
   FileText,
   Link2,
   X,
@@ -488,7 +488,7 @@ export function AgentChat({
 
   return (
     <div
-      className="flex h-[calc(100vh-4rem)] min-h-0 w-full overflow-hidden"
+      className="flex h-full min-h-0 w-full overflow-hidden"
       onDragEnter={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
         dragDepth.current += 1;
@@ -605,7 +605,13 @@ export function AgentChat({
             title={t.conversations}
             className="hidden rounded-lg p-1.5 text-foreground-subtle transition-colors hover:bg-surface hover:text-foreground md:block"
           >
-            {railOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
+            {/*
+              NÃO usa o ícone de painel: a barra lateral do portal já tem um
+              PanelLeftClose idêntico, e dois glifos iguais na mesma tela, a
+              800px um do outro, colapsam coisas diferentes sem dizer qual.
+              Chevron diz "recolhe isto aqui, para este lado".
+            */}
+            {railOpen ? <ChevronsLeft className="size-4" /> : <ChevronsRight className="size-4" />}
           </button>
           <span className="text-sm font-medium text-foreground">
             {agentEmoji} {agentName}
@@ -625,9 +631,18 @@ export function AgentChat({
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto"
         >
-          <div className="mx-auto w-full max-w-3xl px-4 py-6">
+          {/*
+            `justify-end` com `min-h-full` é o que faz duas mensagens parecerem
+            uma conversa começando em vez de duas frases penduradas no teto.
+            Medido antes: com dois turnos curtos, a última mensagem terminava em
+            y=235 e sobravam 813px de nada até o compositor. Conversa curta é o
+            estado MAIS comum, não o excepcional — então é ele que tem que estar
+            bem resolvido. Quando o conteúdo passa da altura, o `justify-end`
+            deixa de ter efeito e a rolagem normal assume.
+          */}
+          <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 py-6">
             {showEmpty ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-24 text-center">
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
                 <span className="text-4xl">{agentEmoji}</span>
                 <h2 className="text-lg font-semibold text-foreground">{t.emptyTitle(agentName)}</h2>
                 <p className="max-w-md text-sm text-foreground-subtle">{t.emptyHint}</p>
@@ -671,7 +686,18 @@ export function AgentChat({
                   </div>
                 ) : (
                   <div key={m.id} className="group flex flex-col gap-2">
-                    {m.content ? <MarkdownContent markdown={m.content} /> : null}
+                    {/*
+                      A resposta tem superfície própria. Sem ela o texto do
+                      agente ficava solto no fundo escuro e parecia não ter
+                      chegado — o balão do usuário tinha corpo e a resposta não.
+                      Continua largura cheia e sem cauda: não é uma troca de
+                      bolhas, é a pessoa perguntando e o agente respondendo.
+                    */}
+                    {m.content ? (
+                      <div className="rounded-2xl border border-border bg-surface px-4 py-3">
+                        <MarkdownContent markdown={m.content} />
+                      </div>
+                    ) : null}
                     {m.error ? (
                       <p className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
                         {t.failedTurn}: {m.error}
@@ -815,9 +841,7 @@ export function AgentChat({
                 >
                   {t.deep}
                 </button>
-                <span className="ml-auto hidden pr-1 text-[11px] text-foreground-faint sm:block">
-                  {t.enterToSend}
-                </span>
+                <span className="ml-auto" />
                 {sending ? (
                   <button
                     type="button"
@@ -833,7 +857,7 @@ export function AgentChat({
                     type="button"
                     onClick={() => void send()}
                     disabled={!draft.trim() && files.length === 0}
-                    title={t.send}
+                    title={`${t.send} — ${t.enterToSend}`}
                     aria-label={t.send}
                     className="rounded-lg bg-accent p-2 text-background transition-opacity disabled:opacity-30"
                   >
@@ -842,9 +866,18 @@ export function AgentChat({
                 )}
               </div>
             </div>
-            <p className="mt-1.5 text-center text-[11px] text-foreground-faint">
-              {t.attachmentNote}
-            </p>
+            {/*
+              Antes havia DUAS linhas de instrução para um campo de texto: a
+              dica de Enter dentro da barra de botões e esta nota embaixo. A
+              dica virou `title` do botão de enviar, e a nota só aparece quando
+              tem a ver com o que está acontecendo — com arquivo na mão. Vazio,
+              o compositor não explica nada a ninguém.
+            */}
+            {files.length > 0 ? (
+              <p className="mt-1.5 text-center text-[11px] text-foreground-faint">
+                {t.attachmentNote}
+              </p>
+            ) : null}
           </div>
         </div>
 
