@@ -22,9 +22,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { MarkdownContent } from "@/components/markdown-content";
-import type { Dictionary } from "@/lib/i18n/dictionary";
-
-type T = Dictionary["chat"];
+import { useT } from "@/components/locale-provider";
 
 const MAX_FILES = 10;
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -60,16 +58,19 @@ function formatBytes(size: number): string {
 }
 
 export function AgentChat({
-  t,
   agentName,
   agentEmoji,
   initialConversations,
 }: {
-  t: T;
   agentName: string;
   agentEmoji: string;
   initialConversations: ConversationRow[];
 }) {
+  // O dicionario vem do LocaleProvider, no cliente — NAO como prop do servidor.
+  // Esta fatia tem funcoes (emptyTitle, tooManyFiles, fileTooBig), e funcao nao
+  // atravessa a fronteira server->client: o React derruba o render inteiro.
+  // Foi exatamente assim que esta pagina quebrou em producao.
+  const t = useT().chat;
   const [conversations, setConversations] = useState<ConversationRow[]>(initialConversations);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
