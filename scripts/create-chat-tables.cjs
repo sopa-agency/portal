@@ -77,6 +77,18 @@ async function main() {
     ALTER TABLE "ChatAttachment" ADD COLUMN IF NOT EXISTS "token" TEXT NOT NULL DEFAULT '';
   `);
 
+  // Entrega assíncrona: a resposta pertence à conversa desde que foi pedida.
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "ChatMessage" ADD COLUMN IF NOT EXISTS "status" TEXT NOT NULL DEFAULT 'done';
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "ChatMessage" ADD COLUMN IF NOT EXISTS "agentJobId" TEXT;
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "ChatMessage_pending_idx"
+      ON "ChatMessage" ("status") WHERE "status" = 'pending';
+  `);
+
   console.log("ok — tabelas do chat, AgentJob.partial e ChatAttachment.token no lugar.");
 }
 

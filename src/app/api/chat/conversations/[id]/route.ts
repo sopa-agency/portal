@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { chatSession, ownedConversation, conversationWithMessages } from "@/lib/chat-store";
+import {
+  chatSession,
+  ownedConversation,
+  conversationWithMessages,
+  settlePendingMessages,
+  partialFor,
+} from "@/lib/chat-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,10 +17,26 @@ export async function GET(_req: Request, { params }: Ctx): Promise<Response> {
   const s = await chatSession();
   if (!s) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   const { id } = await params;
+  // Antes de ler, fecha o que o worker já terminou. É isto que faz a resposta
+  // estar aqui quando você volta, mesmo tendo fechado a aba no meio.
+  const owned = await ownedConversation(s, id);
+  if (!owned) {
+    return NextResponse.json({ ok: false, error: "Conversa não encontrada." }, { status: 404 });
+  }
+  await settlePendingMessages(id);
+
   const conversation = await conversationWithMessages(s, id);
   if (!conversation) {
     return NextResponse.json({ ok: false, error: "Conversa não encontrada." }, { status: 404 });
   }
+
+  // O que sobrou pendente mostra o texto que o agente já escreveu, em vez de um
+  // vazio: a resposta continua crescendo mesmo depois de recarregar a página.
+  const partials = new Map<string, string>();
+  for (const m of conversation.messages) {
+    if (m.status === "pending") partials.set(m.id, await partialFor(m.agentJobId));
+  }
+
   return NextResponse.json({
     ok: true,
     conversation: {
@@ -24,8 +46,9 @@ export async function GET(_req: Request, { params }: Ctx): Promise<Response> {
       messages: conversation.messages.map((m) => ({
         id: m.id,
         role: m.role,
-        content: m.content,
+        content: m.status === "pending" ? partials.get(m.id) || m.content : m.content,
         error: m.error,
+        status: m.status,
         createdAt: m.createdAt,
         attachments: m.attachments.map((a) => ({
           id: a.id,

@@ -48,6 +48,8 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   error?: string | null;
+  /** pending = o worker ainda está escrevendo esta resposta. */
+  status?: "pending" | "done" | "error";
   attachments?: Attachment[];
 };
 
@@ -92,6 +94,7 @@ export function AgentChat({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const assistantIdRef = useRef<string | null>(null);
   const dragDepth = useRef(0);
 
   // O texto chega token a token. Reagir a cada delta com setState re-renderiza
@@ -173,6 +176,32 @@ export function AgentChat({
     },
     [scrollToBottom, t.loadFailed],
   );
+
+  /** Rebusca a conversa sem piscar a tela — usada enquanto há turno pendente. */
+  const refreshMessages = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/chat/conversations/${id}`);
+      const data = (await res.json()) as { ok: boolean; conversation?: { messages: Message[] } };
+      if (data.ok && data.conversation) setMessages(data.conversation.messages);
+    } catch {
+      // rede piscou — a próxima volta pega
+    }
+  }, []);
+
+  /**
+   * Enquanto existir resposta pendente, pergunta de novo.
+   *
+   * A leitura da conversa é que fecha o turno no servidor, então esta busca não
+   * é só para atualizar a tela: é ela que aciona o fechamento. E como o
+   * fechamento também acontece ao abrir a conversa, fechar a aba aqui não perde
+   * nada — só adia.
+   */
+  useEffect(() => {
+    if (!activeId) return;
+    if (!messages.some((m) => m.status === "pending")) return;
+    const timer = setInterval(() => void refreshMessages(activeId), 5000);
+    return () => clearInterval(timer);
+  }, [activeId, messages, refreshMessages]);
 
   const newConversation = useCallback(() => {
     setActiveId(null);
@@ -319,6 +348,8 @@ export function AgentChat({
           if (event === "start") {
             const id = String(data.conversationId ?? "");
             if (id && id !== activeId) setActiveId(id);
+            assistantIdRef.current =
+              typeof data.assistantMessageId === "string" ? data.assistantMessageId : null;
             const atts = data.attachments as Attachment[] | undefined;
             if (atts) {
               // Troca os chips locais pelos de verdade: agora sabemos quais o
@@ -360,6 +391,27 @@ export function AgentChat({
             void refreshConversations();
             return;
           }
+          if (event === "pending") {
+            // O teto da função chegou antes da resposta. NÃO é falha: a linha
+            // fica pendente e a resposta aparece sozinha — é o ponto de tudo isto.
+            finished = true;
+            const partial = String(data.partial ?? bufferRef.current);
+            bufferRef.current = "";
+            stopFlushing();
+            setStreamed("");
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: String(data.messageId ?? `p-${Date.now()}`),
+                role: "assistant",
+                content: partial,
+                status: "pending",
+              },
+            ]);
+            setStatus("");
+            void refreshConversations();
+            return;
+          }
           if (event === "error") {
             finished = true;
             const partial = String(data.partial ?? bufferRef.current);
@@ -396,24 +448,32 @@ export function AgentChat({
         bufferRef.current = "";
         stopFlushing();
         setStreamed("");
+        // Se o servidor chegou a criar a linha da resposta, o trabalho continua
+        // lá — a conexão ter caído (ou você ter parado de olhar) não desfaz o
+        // turno. Vira pendente, e a busca periódica traz a resposta.
+        const known = assistantIdRef.current;
         setMessages((prev) => [
           ...prev,
-          {
-            id: `e-${Date.now()}`,
-            role: "assistant",
-            content: partial,
-            // Parar é escolha, não falha: a resposta segue sendo gravada no
-            // servidor e reaparece inteira ao reabrir a conversa.
-            error: aborted
-              ? `${t.stopped} ${t.partialKept}`
-              : err instanceof Error
-                ? err.message
-                : t.sendFailed,
-          },
+          known
+            ? {
+                id: known,
+                role: "assistant" as const,
+                content: partial,
+                status: "pending" as const,
+              }
+            : {
+                id: `e-${Date.now()}`,
+                role: "assistant" as const,
+                content: partial,
+                status: "error" as const,
+                error: aborted ? `${t.stopped} ${t.partialKept}` : err instanceof Error ? err.message : t.sendFailed,
+              },
         ]);
-        if (!aborted) setError(err instanceof Error ? err.message : t.sendFailed);
+        if (!known && !aborted) setError(err instanceof Error ? err.message : t.sendFailed);
+        if (known && aborted) setError(t.keepsWorking);
         void refreshConversations();
       } finally {
+        assistantIdRef.current = null;
         abortRef.current = null;
         setSending(false);
         setStatus("");
@@ -692,18 +752,28 @@ export function AgentChat({
                       chegado — o balão do usuário tinha corpo e a resposta não.
                       Continua largura cheia e sem cauda: não é uma troca de
                       bolhas, é a pessoa perguntando e o agente respondendo.
+
+                      O conteúdo aparece TAMBÉM enquanto está pendente: o que o
+                      agente já escreveu é resposta, não rascunho, e some-lo
+                      atrás de um "carregando" seria esconder o que já chegou.
                     */}
                     {m.content ? (
                       <div className="rounded-2xl border border-border bg-surface px-4 py-3">
                         <MarkdownContent markdown={m.content} />
                       </div>
                     ) : null}
+                    {m.status === "pending" ? (
+                      <p className="flex items-center gap-2 text-xs text-foreground-subtle">
+                        <Loader2 className="size-3.5 animate-spin" />
+                        {t.stillWorking}
+                      </p>
+                    ) : null}
                     {m.error ? (
                       <p className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
                         {t.failedTurn}: {m.error}
                       </p>
                     ) : null}
-                    {m.content ? (
+                    {m.content && m.status !== "pending" ? (
                       <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                         <button
                           type="button"

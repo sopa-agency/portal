@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { callOpenClawStream } from "@/lib/openclaw-gateway";
+import { callOpenClawStream, WorkerStillRunningError } from "@/lib/openclaw-gateway";
 import {
   chatSession,
   ownedConversation,
@@ -202,10 +202,19 @@ export async function POST(req: Request): Promise<Response> {
         }
       }, 10_000);
 
+      // A resposta ganha linha ANTES de existir. É o que a torna um trabalho da
+      // conversa em vez de um resultado desta requisição: se esta função morrer
+      // agora, a linha continua aqui esperando o worker, e a leitura da conversa
+      // a preenche depois (settlePendingMessages).
+      const assistantMessage = await prisma.chatMessage.create({
+        data: { conversationId: conv.id, role: "assistant", content: "", status: "pending" },
+      });
+
       send("start", {
         conversationId: conv.id,
         title: conv.title,
         userMessageId: userMessage.id,
+        assistantMessageId: assistantMessage.id,
         attachments: prompted.map((a) => ({
           id: a.id,
           name: a.name,
@@ -221,7 +230,14 @@ export async function POST(req: Request): Promise<Response> {
           project: s.project,
           sessionSuffix: conv.sessionKey,
           timeoutMs: heavy ? HEAVY_TIMEOUT_MS : LIGHT_TIMEOUT_MS,
-          onJobId: (jobId) => send("job", { jobId }),
+          onJobId: (jobId) => {
+            send("job", { jobId });
+            // Amarra a linha ao job: é por aqui que a resposta é reencontrada
+            // depois, sem o navegador ter participado.
+            void prisma.chatMessage
+              .update({ where: { id: assistantMessage.id }, data: { agentJobId: jobId } })
+              .catch(() => {});
+          },
           onDelta: (chunk) => {
             text += chunk;
             send("delta", { chunk });
@@ -233,33 +249,47 @@ export async function POST(req: Request): Promise<Response> {
           },
         });
 
-        const saved = await prisma.chatMessage.create({
-          data: {
-            conversationId: conv.id,
-            role: "assistant",
-            content: sanitizeForDb(text),
-          },
+        await prisma.chatMessage.update({
+          where: { id: assistantMessage.id },
+          data: { content: sanitizeForDb(text), status: "done", error: null },
         });
         await prisma.chatConversation.update({
           where: { id: conv.id },
           data: { updatedAt: new Date() },
         });
-        send("final", { messageId: saved.id, content: text });
+        send("final", { messageId: assistantMessage.id, content: text });
       } catch (err) {
-        const error = err instanceof Error && err.message ? err.message : "O agente não respondeu.";
-        // O que já chegou não se joga fora: fica gravado, marcado com o erro.
-        // Meia resposta explicada vale mais que uma conversa com um buraco.
-        const saved = await prisma.chatMessage
-          .create({
-            data: {
-              conversationId: conv.id,
-              role: "assistant",
-              content: sanitizeForDb(text),
-              error: error.slice(0, 500),
-            },
-          })
-          .catch(() => null);
-        send("error", { error, messageId: saved?.id ?? null, partial: text });
+        // O TETO DA FUNÇÃO NÃO É UMA FALHA DO AGENTE.
+        //
+        // Este é o bug que motivou tudo isto: dois turnos foram marcados como
+        // erro enquanto o worker os completava (549s e 293s, respostas de 986 e
+        // 1350 chars, jogadas fora). Aqui o turno fica PENDENTE, ligado ao job,
+        // e quem terminar de ler a conversa depois encontra a resposta pronta.
+        if (err instanceof WorkerStillRunningError) {
+          await prisma.chatMessage
+            .update({
+              where: { id: assistantMessage.id },
+              data: { content: sanitizeForDb(err.partial || text), status: "pending" },
+            })
+            .catch(() => {});
+          send("pending", {
+            messageId: assistantMessage.id,
+            jobId: err.jobId,
+            partial: err.partial || text,
+          });
+        } else {
+          const error =
+            err instanceof Error && err.message ? err.message : "O agente não respondeu.";
+          // Falha de verdade: o que já chegou fica gravado, marcado com o motivo.
+          // Meia resposta explicada vale mais que uma conversa com um buraco.
+          await prisma.chatMessage
+            .update({
+              where: { id: assistantMessage.id },
+              data: { content: sanitizeForDb(text), status: "error", error: error.slice(0, 500) },
+            })
+            .catch(() => {});
+          send("error", { error, messageId: assistantMessage.id, partial: text });
+        }
       } finally {
         clearInterval(heartbeat);
         if (open) {
