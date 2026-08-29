@@ -598,6 +598,7 @@ model MemberSkills {
   // ── Perfil público, consumido pelo site da SOPA via /api/sopa/site-data ──
   /**
    * /**
+   * /**
    * /** como a pessoa se apresenta: ["dev", "web3", "criativo"]
    */
   roles     String[] @default([])
@@ -1391,6 +1392,18 @@ model ChatMessage {
   content        String           @db.Text
   /// Preenchido quando o turno falhou — a mensagem fica, marcada, em vez de sumir.
   error          String?
+  /**
+   * pending | done | error.
+   * `pending` é o que faz esta conversa se parecer com o Telegram: o turno é um
+   * TRABALHO, não uma requisição. A resposta pertence à conversa desde que foi
+   * pedida; se o navegador fechar, se a função da Vercel bater no teto de 290s,
+   * se a rede cair — a linha continua aqui esperando o worker, e é preenchida
+   * quando ele termina. Ninguém precisa estar olhando para a resposta chegar.
+   */
+  status         String           @default("done")
+  /// O job do worker que responde por esta mensagem. É por ele que a linha
+  /// pendente descobre, depois, o que o agente respondeu.
+  agentJobId     String?
   createdAt      DateTime         @default(now())
 
   attachments ChatAttachment[]

@@ -467,6 +467,25 @@ export async function callOpenClaw(
 // vem inteira de uma vez e a interface mostra isso. Nao simulamos digitacao
 // para fingir algo que nao aconteceu.
 
+/**
+ * O worker AINDA ESTA TRABALHANDO — nao e falha.
+ *
+ * A funcao serverless tem teto (290s) e o agente nao tem. Quando o teto chega
+ * primeiro, quem espera precisa saber que a resposta continua vindo, e nao que
+ * ela morreu: uma vira "aguarde", a outra vira "deu erro". Foi exatamente essa
+ * confusao que marcou como falha dois turnos que o worker completou.
+ */
+export class WorkerStillRunningError extends Error {
+  readonly jobId: string | null;
+  readonly partial: string;
+  constructor(jobId: string | null, partial: string) {
+    super("O agente ainda esta trabalhando nesta resposta.");
+    this.name = "WorkerStillRunningError";
+    this.jobId = jobId;
+    this.partial = partial;
+  }
+}
+
 export type OpenClawStreamOpts = {
   timeoutMs?: number;
   project?: ProjectConfig;
@@ -617,7 +636,9 @@ async function streamViaQueue(
     if (row.status === "done") return (row.result ?? delivered).trim();
     if (row.status === "error") throw new Error(row.error || "Agent job failed");
   }
-  throw new Error("Agent job timed out waiting for the worker");
+  // Teto da funcao, nao fim do trabalho. Quem chamou decide o que fazer — e a
+  // resposta certa NAO e apagar o turno.
+  throw new WorkerStillRunningError(job.id, delivered);
 }
 
 /**
