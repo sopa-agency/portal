@@ -11,7 +11,7 @@ import { FloatingActions } from "@/components/floating-actions";
 import { LocaleProvider } from "@/components/locale-provider";
 import { getLocale } from "@/lib/i18n/server";
 import { prisma } from "@/lib/prisma";
-import { hiveAvatarUrl } from "@/lib/team-roster";
+import { hiveAvatarUrl, accessiblePortalSlugs } from "@/lib/team-roster";
 import { dictionaryFor } from "@/lib/i18n/dictionary";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
@@ -98,10 +98,16 @@ export default async function RootLayout({
     }
   `;
 
-  // Portals the user can switch to (shared by the sidebar + ⌘K palette).
+  // Portais para os quais a pessoa pode trocar (barra lateral + paleta ⌘K).
+  //
+  // Vem do BANCO, pela mesma regra que decide quem entra. Filtrar pelo
+  // `allowlist` do config dava o pior dos mundos: quem foi adicionado pelo
+  // painel entrava digitando a URL, mas não via o menu para trocar de portal —
+  // tinha o acesso e não tinha a porta.
+  const reachable = session ? await accessiblePortalSlugs(session.username) : null;
   const switchProjects = session
     ? getSwitcherProjects()
-        .filter((p) => p.allowlist.includes(session.username.toLowerCase()))
+        .filter((p) => reachable?.has(p.slug) ?? false)
         .map((p) => ({
           slug: p.slug,
           subdomain: p.subdomain,
