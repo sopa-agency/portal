@@ -191,6 +191,10 @@ const skatehive: ProjectConfig = {
   analytics: {
     ga4PropertyId: "527345741",
     gscSiteUrl: "sc-domain:skatehive.app",
+    // Idem gnars: preview de deploy e de fork. Aqui o nome muda a cada deploy
+    // (skatehive3-0-git-fork-…-sktbrds-projects.vercel.app), que é justamente
+    // por que a entrada casa por sufixo em vez de ser lista exata.
+    excludeHostnames: [".vercel.app"],
     // Singapore traffic is overwhelmingly bots — exclude from GA4 reports.
     excludeCountries: ["SG"],
     brandedTerms: ["skatehive", "skate hive"],

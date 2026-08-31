@@ -6,6 +6,18 @@ import type { ProjectConfig } from "@/projects/types";
 // Types
 // ---------------------------------------------------------------------------
 
+type Ga4StringFilter = {
+  matchType: "EXACT" | "ENDS_WITH" | "BEGINS_WITH" | "CONTAINS" | "FULL_REGEXP";
+  value: string;
+};
+
+type Ga4FilterExpression =
+  | { notExpression: Ga4FilterExpression }
+  | { andGroup: { expressions: Ga4FilterExpression[] } }
+  | { orGroup: { expressions: Ga4FilterExpression[] } }
+  | { filter: { fieldName: string; inListFilter: { values: string[] } } }
+  | { filter: { fieldName: string; stringFilter: Ga4StringFilter } };
+
 export type MetricWithDelta = { value: number; deltaPct: number | null };
 
 export type Ga4Summary = {
@@ -168,6 +180,40 @@ interface Ga4ReportResponse {
   metricHeaders?: { name: string }[];
 }
 
+/**
+ * Hostnames que NUNCA são produção de ninguém, e por isso saem de todo portal
+ * sem ninguém precisar configurar: a máquina de quem está desenvolvendo.
+ *
+ * Isto não é cosmético. Na propriedade do gnars, `localhost` sozinho era 6,5%
+ * das sessões de 90 dias (162 de 2502) — e número de tráfego sai daqui para
+ * documento que vai para terceiro, tipo candidatura de grant. Inflado em 6% é
+ * pior que ausente: o ausente a pessoa vai buscar, o inflado ela cita.
+ *
+ * O que fica de FORA daqui de propósito: preview de Vercel. Existe portal cujo
+ * site de verdade poderia ser um `*.vercel.app`, e um default assim zeraria o
+ * painel dele. Isso vai no `excludeHostnames` de cada marca, onde é visível.
+ */
+const DEV_HOSTNAME_EXCLUSIONS: Ga4StringFilter[] = [
+  { matchType: "EXACT", value: "localhost" },
+  { matchType: "EXACT", value: "127.0.0.1" },
+  { matchType: "EXACT", value: "0.0.0.0" },
+  { matchType: "EXACT", value: "::1" },
+  { matchType: "ENDS_WITH", value: ".local" },
+  // IP privado — a máquina de alguém acessada pela LAN (apareceu como
+  // 10.0.10.197 na propriedade da SkateHive). As três faixas da RFC 1918.
+  {
+    matchType: "FULL_REGEXP",
+    value: "(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.).*",
+  },
+];
+
+/** Uma entrada que começa com ponto casa por sufixo; o resto é hostname exato. */
+function hostMatcher(entry: string): Ga4StringFilter {
+  return entry.startsWith(".")
+    ? { matchType: "ENDS_WITH", value: entry }
+    : { matchType: "EXACT", value: entry };
+}
+
 async function runGa4Report(
   propertyId: string,
   token: string,
@@ -236,17 +282,33 @@ export async function fetchGa4(project: ProjectConfig, days: 7 | 28 | 90 = 28): 
     // Exclude bot-heavy countries (e.g. Singapore) from every report via a
     // countryId dimensionFilter. Works even on reports not grouped by country.
     const excludeCountries = project.analytics.excludeCountries ?? [];
-    const dimensionFilter =
-      excludeCountries.length > 0
-        ? {
-            notExpression: {
-              filter: {
-                fieldName: "countryId",
-                inListFilter: { values: excludeCountries },
-              },
-            },
-          }
-        : undefined;
+    const exclusions: Ga4FilterExpression[] = [];
+    if (excludeCountries.length > 0) {
+      exclusions.push({
+        notExpression: {
+          filter: { fieldName: "countryId", inListFilter: { values: excludeCountries } },
+        },
+      });
+    }
+
+    // E o mesmo tratamento para tráfego de DESENVOLVIMENTO, que não é bot nem
+    // gente: é a equipe. Ver DEV_HOSTNAME_EXCLUSIONS acima.
+    const hostMatchers = [
+      ...DEV_HOSTNAME_EXCLUSIONS,
+      ...(project.analytics.excludeHostnames ?? []).map(hostMatcher),
+    ];
+    exclusions.push({
+      notExpression: {
+        orGroup: {
+          expressions: hostMatchers.map((stringFilter) => ({
+            filter: { fieldName: "hostName", stringFilter },
+          })),
+        },
+      },
+    });
+
+    const dimensionFilter: Ga4FilterExpression | undefined =
+      exclusions.length === 1 ? exclusions[0] : { andGroup: { expressions: exclusions } };
     const filterPart = dimensionFilter ? { dimensionFilter } : {};
 
     // Date ranges:

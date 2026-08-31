@@ -144,6 +144,11 @@ const gnars: ProjectConfig = {
   analytics: {
     ga4PropertyId: "527420949",
     gscSiteUrl: "sc-domain:gnars.com",
+    // Preview de Vercel é a equipe testando, não público. Eram 31 sessões em
+    // 90 dias (gnars-shadcn, gnars-com, hackertestdao) somadas a 162 de
+    // localhost — junto, 7,7% do total. O site de verdade é gnars.com, então
+    // cortar *.vercel.app aqui não corre risco de zerar nada.
+    excludeHostnames: [".vercel.app"],
     brandedTerms: ["gnars"],
   },
   // Steve assembles the weekly recap from live governance, not Hive clips.

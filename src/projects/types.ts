@@ -302,6 +302,22 @@ export type ProjectConfig = {
      */
     excludeCountries?: string[];
     /**
+     * Hostnames to EXCLUDE from GA4 reports — tráfego de desenvolvimento, não
+     * de gente. Mesma forma do excludeCountries, com uma diferença que a
+     * realidade impôs: uma entrada que **começa com ponto** casa por SUFIXO.
+     *
+     * Sem isso o campo não serviria: preview de Vercel gera um hostname NOVO por
+     * deploy (`skatehive3-0-git-fork-bielcx-…vercel.app`), e uma lista exata
+     * viraria caça a nomes que nunca acaba. `".vercel.app"` pega todos.
+     *
+     * Localhost e IP privado NÃO precisam entrar aqui: já saem por padrão em
+     * todo portal (DEV_HOSTNAME_EXCLUSIONS em src/lib/google-analytics.ts).
+     * Aqui vai só o que é dev PARA ESTA MARCA — e por isso mora no config dela,
+     * onde dá pra ver. Um portal cujo site de verdade FOSSE um *.vercel.app
+     * seria zerado por um default assim; por isso não é default.
+     */
+    excludeHostnames?: string[];
+    /**
      * Queries containing these terms (case-insensitive substring) are "branded".
      * Used in the GSC branded vs non-branded split. Defaults to [project.name.toLowerCase()].
      */
