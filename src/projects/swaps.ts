@@ -85,8 +85,22 @@ const swaps: ProjectConfig = {
     number: 2,
   },
   agent: {
+    /**
+     * PENSA com o agente do KeepKey, FALA como swaps.pro.
+     *
+     * `id` é o agente que o gateway executa (`openclaw/<id>`). O swaps.pro não
+     * tem agente próprio registrado lá — `openclaw/swaps` devolve
+     * "Unknown agent 'swaps'", e era por isso que o repo-to-social daqui
+     * falhava em silêncio. Aponta para o do KeepKey, que existe e é o que a
+     * equipe já usa para este produto.
+     *
+     * `gatewayEnvPrefix` continua SWAPS de propósito, e essa metade importa:
+     * qualquer credencial de PUBLICAR (Hive, Farcaster, Discord, Instagram,
+     * TikTok) é procurada como SWAPS_*, nunca KEEPKEY_*. Compartilhar quem
+     * pensa não é compartilhar quem assina.
+     */
     gatewayEnvPrefix: "SWAPS",
-    id: "swaps",
+    id: "keepkey-awesome",
     displayName: "swaps.pro",
     emoji: "🔁",
     greeting: "Hey! I'm the swaps.pro agent. How can I help you today?",
