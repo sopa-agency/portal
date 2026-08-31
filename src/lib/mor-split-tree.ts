@@ -118,6 +118,25 @@ export async function getMorSplitTree(): Promise<Reading<SplitLeaf[]>> {
       let nestedState: SplitLeaf["nestedState"] = "no";
       let nestedReason: string | null = null;
       let nested: SplitLeaf["nested"] = null;
+
+      // Destinos que a gente CONHECE não são interrogados.
+      //
+      // O multisig da SOPA e o tesouro da Gnars têm código (são Safes), então a
+      // regra genérica os classificava como "tem código e não achei evento de
+      // split" — e a tela avisava que talvez houvesse gente atrás deles. Aviso
+      // falso é pior que aviso nenhum: ensina a ignorar o aviso verdadeiro,
+      // que é o do split da equipe quando ele não lê.
+      //
+      // Isto fixa IDENTIDADE (este endereço é o tesouro da SOPA), não SHARE —
+      // e identidade é o que o PIPELINE já declara. As porcentagens seguem
+      // vindo todas da cadeia. De quebra, poupa duas varreduras de log por
+      // montagem.
+      const conhecidos = [PIPELINE.sopa, PIPELINE.gnarsTreasury].map((a) => a.toLowerCase());
+      if (conhecidos.includes(r.address.toLowerCase())) {
+        leaves.push({ address: r.address, share: r.share, ens: null, nestedState: "no", nestedReason: null, nested: null });
+        continue;
+      }
+
       try {
         const inner = await getSplitConfig(r.address, "base");
         if (inner) {
