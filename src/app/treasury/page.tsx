@@ -38,6 +38,7 @@ import { TreasuryTabs } from "@/components/treasury-tabs";
 import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
 import { MorFlowDiagram } from "@/components/mor-flow-diagram";
+import { getMorSplitTree } from "@/lib/mor-split-tree";
 import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
 import { SopaStakePanel } from "@/components/sopa-stake-panel";
 import { getPipelineStatus } from "@/lib/mor-pipeline";
@@ -83,6 +84,8 @@ export default async function TreasuryPage() {
   // arquivo faz o trabalho que depende do saldo. O await continua onde
   // sempre esteve, entao a ordem de leitura do arquivo nao muda.
   const groupsP = fetchTreasuryGroups(project);
+  // Destinatários do split final, da cadeia. Entra no bando de promessas do topo.
+  const morTreeP = getMorSplitTree();
 
   const restoP = Promise.all([
     verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
@@ -464,7 +467,7 @@ treasury: {
           {/* O didático mora junto da coisa que ele explica, não na tela de
               consulta. Vem por último: quem abriu "Operar" quer a ferramenta;
               a explicação fica embaixo, para quem precisa dela. */}
-          <MorFlowDiagram />
+          <MorFlowDiagram tree={await morTreeP} />
         </div>
       </details>
       {/* Earmarks are PERCENTAGES OF the pot, so an incomplete pot makes every

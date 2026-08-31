@@ -7,6 +7,8 @@
 
 import { useState } from "react";
 import { PIPELINE } from "@/lib/mor-pipeline";
+import type { SplitLeaf } from "@/lib/mor-split-tree";
+import { isOk, type Reading } from "@/lib/reading";
 import { Check, ExternalLink, ArrowDown, GitBranch, Bot } from "lucide-react";
 import { useT } from "@/components/locale-provider";
 import { rich } from "@/components/rich-text";
@@ -71,7 +73,7 @@ ARCHITECTURE (Base mainnet addresses are the live SOPA/Gnars ones — for a new 
 
 To stand up a NEW project's pipeline: register its own Builders subnet; deploy two 0xSplits Swappers (UniV3 oracle pointing at your-token/WETH and WETH/USDC pools) via the SwapperFactory; wire a top split (MOR X%/Y%) and a downstream split (USDC treasury%/SOPA%); deploy the SwapperFlashFiller; build the panel from the reads above.`;
 
-export function MorFlowDiagram() {
+export function MorFlowDiagram({ tree }: { tree: Reading<SplitLeaf[]> }) {
   const t = useT().treasury.mor;
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -119,10 +121,73 @@ export function MorFlowDiagram() {
         <Arrow />
         <Node title={t.nodeSwapperB} desc={t.nodeSwapperBDesc} addr={PIPELINE.swapperB} href={scan(PIPELINE.swapperB)} tone="swap" />
         <Arrow label={t.arrowDistributeShort} />
-        <Node title={t.nodeFinalSplit} desc={t.nodeFinalSplitDesc} addr={PIPELINE.downstreamSplit} href={splitsUrl(PIPELINE.downstreamSplit)} tone="split" />
-        <Branch pct="20%" to={t.gnarsTreasury} token="USDC" addr={PIPELINE.gnarsTreasury} href={scan(PIPELINE.gnarsTreasury)} />
-        <Arrow label="80%" />
-        <Node title={t.nodeSopa} desc={t.nodeSopaDesc} addr={PIPELINE.sopa} href={scan(PIPELINE.sopa)} tone="out" />
+        <Node
+          title={t.nodeFinalSplit}
+          desc={
+            isOk(tree)
+              ? `Divide o USDC entre ${tree.value.length} destinatários, lidos da cadeia agora.`
+              : t.nodeFinalSplitDesc
+          }
+          addr={PIPELINE.downstreamSplit}
+          href={splitsUrl(PIPELINE.downstreamSplit)}
+          tone="split"
+        />
+
+        {/*
+          Os destinatários vêm da CADEIA, não do dicionário. O texto fixo dizia
+          "80% SOPA, 20% Gnars" e ficou um dia inteiro errado depois que o split
+          foi refeito para 40/40/20 — afirmando com a mesma confiança de antes.
+        */}
+        {!isOk(tree) ? (
+          <div className="ml-6 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+            ⚠ Não consegui ler os destinatários deste split na cadeia
+            {tree.state === "unread" ? ` — ${tree.reason}` : ""}. Isto NÃO quer dizer que ele não
+            tem destinatários; quer dizer que eu não sei quais são agora.
+          </div>
+        ) : (
+          tree.value.map((leaf) => {
+            const pct = `${(leaf.share * 100).toFixed(leaf.share * 100 % 1 === 0 ? 0 : 1)}%`;
+            const nome =
+              leaf.ens ??
+              (leaf.address.toLowerCase() === PIPELINE.sopa.toLowerCase()
+                ? "SOPA (tesouro)"
+                : leaf.address.toLowerCase() === PIPELINE.gnarsTreasury.toLowerCase()
+                  ? t.gnarsTreasury
+                  : leaf.nested
+                    ? `split da equipe — ${leaf.nested.length} pessoas`
+                    : short(leaf.address));
+            return (
+              <div key={leaf.address}>
+                <Branch
+                  pct={pct}
+                  to={nome}
+                  token="USDC"
+                  addr={leaf.address}
+                  href={leaf.nested ? splitsUrl(leaf.address) : scan(leaf.address)}
+                />
+                {leaf.nested && (
+                  <ul className="ml-14 mt-1 space-y-0.5 border-l border-border pl-3">
+                    {leaf.nested.map((n) => (
+                      <li key={n.address} className="flex items-center gap-2 text-[11px]">
+                        <span className="tabular-nums font-medium text-foreground-muted">
+                          {(n.share * 100).toFixed(n.share * 100 % 1 === 0 ? 0 : 1)}%
+                        </span>
+                        <a
+                          href={scan(n.address)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-foreground-subtle hover:text-accent"
+                        >
+                          {n.ens ?? short(n.address)}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
     </section>
   );
