@@ -18,6 +18,7 @@ import {
   type PromptAttachment,
 } from "@/lib/chat-attachments";
 import { sanitizeForDb } from "@/lib/sanitize";
+import { buildChatContext } from "@/lib/chat-context";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -158,10 +159,16 @@ export async function POST(req: Request): Promise<Response> {
   history.reverse();
 
   const origin = await publicOrigin(req);
+  // O bloco [contexto] — o portal contando ao agente o que ele já sabe. Mesmo
+  // padrão do caminho de briefing (ver prompts/secretario.md e chat-context.ts).
+  // Nunca lança: no pior caso vem só a camada A, que não faz I/O.
+  const context = await buildChatContext(s.project);
+
   const header =
     `[Portal: ${s.project.name} — agent ${s.project.agent.id}]\n` +
     `[Você está no CHAT do portal, falando com @${s.username}, do time. ` +
-    `Responda em markdown quando ajudar: título, lista, bloco de código com a linguagem.]`;
+    `Responda em markdown quando ajudar: título, lista, bloco de código com a linguagem.]\n\n` +
+    context.block;
   const transcript =
     history.length > 0
       ? `\n\n[Conversa até aqui]\n${history
