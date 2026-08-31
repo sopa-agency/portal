@@ -242,8 +242,20 @@ async function readMeetings(project: ProjectConfig): Promise<Reading<string>> {
  */
 async function readTreasury(project: ProjectConfig): Promise<Reading<string>> {
   return withTimeout(TIMEOUT_MS.tesouro, async () => {
+    // ESCOLHER O LEITOR É PARTE DA LEITURA.
+    //
+    // Cada carteira é fotografada por DOIS leitores toda hora: `wallet` (RPC,
+    // o mesmo da página de tesouro) e `address` (Zerion). Eu pegava a linha
+    // mais recente por endereço — e com duas linhas por hora, o número que o
+    // agente afirmava dependia da ordem que o banco devolvesse.
+    //
+    // Fixei no `wallet`, e não por acaso: medindo os dois lado a lado por 88
+    // horas, o Zerion lê o multisig da SkateHive em US$ 2.201 contra US$ 84 do
+    // RPC. A diferença é airdrop — 27 tokens, quase todos lixo sem liquidez,
+    // que o Zerion precifica e o RPC ignora. O leitor da página é o conservador,
+    // e é o mesmo número que a pessoa vê na tela.
     const rows = await prisma.treasuryWalletSnapshot.findMany({
-      where: { projectSlug: project.slug },
+      where: { projectSlug: project.slug, reader: "wallet" },
       orderBy: { takenAt: "desc" },
       take: 40,
       select: {
@@ -301,6 +313,9 @@ async function readTreasury(project: ProjectConfig): Promise<Reading<string>> {
     if (falhas.length > 0) {
       out.push("  Este total está INCOMPLETO. Não o apresente como o tesouro inteiro.");
     }
+    out.push(
+      "  Vem do leitor por RPC, o mesmo da página de Tesouro — conta o que está declarado na config e ignora token de airdrop sem liquidez.",
+    );
     return out.join("\n");
   });
 }
