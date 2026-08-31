@@ -132,6 +132,60 @@ export function TreasuryHistoryChart({
 
   const ticks = log ? [FLOOR, 1, 100, 10_000] .filter((t) => t <= maxUsd * 10) : [0, maxUsd / 2, maxUsd];
 
+  /**
+   * VARIAÇÃO LÍQUIDA — e o nome é a definição, não um rótulo simpático.
+   *
+   * É a diferença do total entre uma foto e a anterior. NÃO é "quanto entrou":
+   * o saldo também muda porque o preço dos ativos mudou, e uma barra positiva
+   * pode ser ETH subindo sem ninguém ter transferido nada. Também não separa
+   * entrada de saída — o que sobe e o que desce no mesmo dia chega aqui já
+   * somado, e some um dentro do outro.
+   *
+   * Para responder "quanto entrou" é preciso ler transferência, não saldo. A
+   * especificação disso está em docs/indexador-fluxo-tesouro.md.
+   *
+   * Só existe barra onde as DUAS fotos existem. Dia sem a foto anterior não
+   * vira zero: fica sem barra, porque não saber o quanto variou é diferente de
+   * ter variado nada — e num painel de dinheiro essa diferença é a que importa.
+   */
+  const variation = useMemo(() => {
+    const totalOf = (day: string) => {
+      const vals = series
+        .map((s) => s.points.find((p) => p.t === day)?.usd)
+        .filter((v): v is number => typeof v === "number");
+      return vals.length ? { usd: vals.reduce((a, b) => a + b, 0), n: vals.length } : null;
+    };
+    const out: { t: string; delta: number | null }[] = [];
+    for (let i = 0; i < allDays.length; i++) {
+      if (i === 0) {
+        out.push({ t: allDays[i], delta: null });
+        continue;
+      }
+      const cur = totalOf(allDays[i]);
+      const prev = totalOf(allDays[i - 1]);
+      // Se o número de séries lidas mudou entre as duas fotos, a diferença
+      // mediria a mudança da AMOSTRA e não do dinheiro. Isso não é variação.
+      out.push({
+        t: allDays[i],
+        delta: cur && prev && cur.n === prev.n ? cur.usd - prev.usd : null,
+      });
+    }
+    return out;
+  }, [series, allDays]);
+
+  const maxAbsDelta = Math.max(
+    1,
+    ...variation.map((v) => (v.delta == null ? 0 : Math.abs(v.delta))),
+  );
+  const VH = 88;
+  const VPAD = { t: 12, b: 18 };
+  const vy = (d: number) => {
+    const inner = VH - VPAD.t - VPAD.b;
+    const zero = VPAD.t + inner / 2;
+    return zero - (d / maxAbsDelta) * (inner / 2);
+  };
+  const semLeitura = variation.filter((v) => v.delta == null).length - (allDays.length ? 1 : 0);
+
   if (!series.length) {
     // Três estados, três FORMATOS — não só três cores. Quem lê rápido lê forma:
     // a falha é uma placa com moldura de aviso e um motivo; a espera é texto
@@ -343,6 +397,97 @@ export function TreasuryHistoryChart({
         </svg>
       )}
 
+      {/* ── Variação, colada embaixo, mesmo eixo do tempo ────────────────── */}
+      {!table && series.length > 0 && (
+        <div className="mt-1 border-t border-border pt-2">
+          {/*
+            A ressalva vem ANTES do gráfico e é a definição do número, não um
+            rodapé. Quem bate o olho no painel tem que já saber o que está
+            olhando: uma barra positiva aqui pode ser preço subindo, não
+            dinheiro entrando.
+          */}
+          <p className="mb-1.5 text-[11px] leading-relaxed text-foreground-subtle">
+            <span className="font-semibold text-foreground-muted">Variação do total</span> — diferença
+            entre uma leitura e a anterior. <span className="text-warning">Mistura movimento de preço
+            com dinheiro que entrou e saiu</span>, e não separa entrada de saída: por isso{" "}
+            <strong className="text-foreground-muted">não responde &ldquo;quanto entrou&rdquo;</strong>.
+            Para isso é preciso ler transferência, não saldo.
+          </p>
+          <svg
+            viewBox={`0 0 ${W} ${VH}`}
+            className="w-full"
+            role="img"
+            aria-label="Variação do total entre leituras consecutivas"
+            onMouseLeave={() => setHover(null)}
+            onMouseMove={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              const px = ((e.clientX - r.left) / r.width) * W;
+              const inner = W - PAD.l - PAD.r;
+              const i = Math.round(((px - PAD.l) / inner) * (allDays.length - 1));
+              setHover(i >= 0 && i < allDays.length ? i : null);
+            }}
+          >
+            <line
+              x1={PAD.l}
+              x2={W - PAD.r}
+              y1={vy(0)}
+              y2={vy(0)}
+              stroke="var(--border-strong)"
+              strokeWidth={1}
+            />
+            <text x={PAD.l - 6} y={vy(0) + 3} textAnchor="end" className="fill-foreground-faint" style={{ fontSize: 9 }}>
+              0
+            </text>
+            <text x={PAD.l - 6} y={vy(maxAbsDelta) + 3} textAnchor="end" className="fill-foreground-faint" style={{ fontSize: 9 }}>
+              {money(maxAbsDelta)}
+            </text>
+            <text x={PAD.l - 6} y={vy(-maxAbsDelta) + 3} textAnchor="end" className="fill-foreground-faint" style={{ fontSize: 9 }}>
+              −{money(maxAbsDelta)}
+            </text>
+
+            {hoverDay && (
+              <line
+                x1={x(hoverDay)}
+                x2={x(hoverDay)}
+                y1={VPAD.t}
+                y2={VH - VPAD.b}
+                stroke="var(--border-strong)"
+                strokeWidth={1}
+                strokeDasharray="3 3"
+              />
+            )}
+
+            {variation.map((v) => {
+              if (v.delta == null) return null;
+              const bw = Math.max(
+                3,
+                Math.min(18, (W - PAD.l - PAD.r) / Math.max(allDays.length, 1) - 3),
+              );
+              const top = v.delta >= 0 ? vy(v.delta) : vy(0);
+              const h = Math.max(1, Math.abs(vy(v.delta) - vy(0)));
+              return (
+                <rect
+                  key={v.t}
+                  x={x(v.t) - bw / 2}
+                  y={top}
+                  width={bw}
+                  height={h}
+                  rx={2}
+                  fill={v.delta >= 0 ? "var(--success)" : "var(--danger)"}
+                  opacity={0.85}
+                />
+              );
+            })}
+          </svg>
+          {semLeitura > 0 && (
+            <p className="mt-1 text-[11px] text-warning">
+              ⚠ {semLeitura} intervalo(s) sem barra — faltou uma das duas leituras, ou o conjunto de
+              tesouros lidos mudou entre elas. Sem barra NÃO quer dizer variação zero.
+            </p>
+          )}
+        </div>
+      )}
+
       {hoverDay && !table && (
         <div className="mt-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5">
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">
@@ -359,6 +504,20 @@ export function TreasuryHistoryChart({
                 </span>
               );
             })}
+            {(() => {
+              const v = variation.find((z) => z.t === hoverDay);
+              if (!v) return null;
+              return (
+                <span className="inline-flex items-center gap-1.5 text-[11px]">
+                  <span className="text-foreground-muted">variação</span>
+                  <span className="tabular-nums font-medium text-foreground">
+                    {v.delta == null
+                      ? "sem leitura"
+                      : `${v.delta >= 0 ? "+" : "−"}${money(Math.abs(v.delta))}`}
+                  </span>
+                </span>
+              );
+            })()}
           </div>
         </div>
       )}
