@@ -21,11 +21,39 @@ export type SplitLeaf = {
   share: number;
   /** ENS, quando existe. Nunca inventado: sem nome, a interface mostra o endereço. */
   ens: string | null;
-  /** Preenchido quando este destinatário é ELE MESMO um split. */
+  /**
+   * Este destinatário é ele mesmo um split?
+   *
+   *   "no"      — lido, e não é split: é carteira/contrato final
+   *   "unread"  — NÃO consegui ler. Não é o mesmo que "não é split", e por isso
+   *               não compartilha o mesmo valor. Foi assim que a versão
+   *               anterior mentiu: `.catch(() => null)` juntava as duas, e a
+   *               tela mostrava o split da equipe como se fosse um endereço
+   *               qualquer, sem dizer que havia gente atrás.
+   *   "ok"      — lido, é split, e `nested` traz quem recebe.
+   */
+  nestedState: "no" | "unread" | "ok";
+  nestedReason: string | null;
   nested: { address: string; share: number; ens: string | null }[] | null;
 };
 
 const ENS_TIMEOUT_MS = 4_000;
+
+/** Endereço sem bytecode é carteira: não pode ser split, e isso é afirmável. */
+async function hasNoCode(address: string): Promise<boolean> {
+  try {
+    const res = await fetch("https://mainnet.base.org", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: AbortSignal.timeout(5_000),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getCode", params: [address, "latest"] }),
+    });
+    const j = (await res.json()) as { result?: string };
+    return j.result === "0x";
+  } catch {
+    return false; // não deu para saber → não afirmamos "não é split"
+  }
+}
 const TTL_MS = 10 * 60_000;
 let cache: { at: number; value: Reading<SplitLeaf[]> } | null = null;
 
@@ -43,7 +71,10 @@ async function resolveEns(addresses: string[]): Promise<Map<string, string>> {
     const { mainnet } = await import("viem/chains");
     const client = createPublicClient({
       chain: mainnet,
-      transport: http("https://ethereum-rpc.publicnode.com"),
+      // Tenderly, e não publicnode: RPC público costuma recusar IP de
+      // datacenter, e esta chamada roda na Vercel. É a mesma rota que o
+      // splits.ts já usa para ler log de lá.
+      transport: http("https://gateway.tenderly.co/public/mainnet"),
     });
     const names = await Promise.race([
       Promise.all(
@@ -84,13 +115,29 @@ export async function getMorSplitTree(): Promise<Reading<SplitLeaf[]>> {
       // Um destinatário que é split abre em mais um nível. Um nível só: se um
       // dia houver split dentro de split dentro de split, isso vira decisão de
       // desenho e não recursão silenciosa.
-      const inner = await getSplitConfig(r.address, "base").catch(() => null);
-      leaves.push({
-        address: r.address,
-        share: r.share,
-        ens: null,
-        nested: inner ? inner.recipients.map((x) => ({ address: x.address, share: x.share, ens: null })) : null,
-      });
+      let nestedState: SplitLeaf["nestedState"] = "no";
+      let nestedReason: string | null = null;
+      let nested: SplitLeaf["nested"] = null;
+      try {
+        const inner = await getSplitConfig(r.address, "base");
+        if (inner) {
+          nestedState = "ok";
+          nested = inner.recipients.map((x) => ({ address: x.address, share: x.share, ens: null }));
+        }
+        // inner === null: getSplitConfig devolve null tanto para "não é split"
+        // quanto para "não achei o evento". Só dá para separar as duas com um
+        // sinal a mais — endereço SEM CÓDIGO não pode ser split, e aí "no" é
+        // afirmação segura. Com código e sem evento, fica "unread".
+        else if (await hasNoCode(r.address)) nestedState = "no";
+        else {
+          nestedState = "unread";
+          nestedReason = "tem código, mas não achei o evento SplitUpdated";
+        }
+      } catch (e) {
+        nestedState = "unread";
+        nestedReason = e instanceof Error ? e.message : String(e);
+      }
+      leaves.push({ address: r.address, share: r.share, ens: null, nestedState, nestedReason, nested });
     }
 
     const todos = [

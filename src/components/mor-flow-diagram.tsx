@@ -152,10 +152,9 @@ export function MorFlowDiagram({ tree }: { tree: Reading<SplitLeaf[]> }) {
               (leaf.address.toLowerCase() === PIPELINE.sopa.toLowerCase()
                 ? "SOPA (tesouro)"
                 : leaf.address.toLowerCase() === PIPELINE.gnarsTreasury.toLowerCase()
-                  ? t.gnarsTreasury
-                  : leaf.nested
-                    ? `split da equipe — ${leaf.nested.length} pessoas`
-                    : short(leaf.address));
+                  ? t.gnarsTreasury                    : leaf.nestedState === "ok" && leaf.nested
+                      ? `split da equipe — ${leaf.nested.length} pessoas`
+                      : short(leaf.address));
             return (
               <div key={leaf.address}>
                 <Branch
@@ -165,7 +164,14 @@ export function MorFlowDiagram({ tree }: { tree: Reading<SplitLeaf[]> }) {
                   addr={leaf.address}
                   href={leaf.nested ? splitsUrl(leaf.address) : scan(leaf.address)}
                 />
-                {leaf.nested && (
+                {leaf.nestedState === "unread" && (
+                  <p className="ml-14 mt-1 text-[11px] text-warning">
+                    ⚠ não consegui ler quem recebe deste endereço
+                    {leaf.nestedReason ? ` — ${leaf.nestedReason}` : ""}. Pode haver gente atrás
+                    dele; eu é que não sei dizer quem agora.
+                  </p>
+                )}
+                {leaf.nestedState === "ok" && leaf.nested && (
                   <ul className="ml-14 mt-1 space-y-0.5 border-l border-border pl-3">
                     {leaf.nested.map((n) => (
                       <li key={n.address} className="flex items-center gap-2 text-[11px]">

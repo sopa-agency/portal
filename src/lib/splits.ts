@@ -62,7 +62,15 @@ const BLOCKSCOUT: Record<string, string> = {
 // medido, e uma rede ausente aqui falha FECHADA (readSplitRaw devolve null) em
 // vez de ler a rede errada.
 const LOG_RPCS: Record<string, string[]> = {
-  base: ["https://base.gateway.tenderly.co", "https://gateway.tenderly.co/public/base"],
+  // mainnet.base.org entrou depois de medido: e o unico RPC publico de Base que
+  // aceitou eth_getLogs de faixa completa nos testes (publicnode exige token de
+  // archive, llamarpc devolveu HTML). Fica por ultimo, como rede de seguranca
+  // quando os dois da Tenderly nao respondem.
+  base: [
+    "https://base.gateway.tenderly.co",
+    "https://gateway.tenderly.co/public/base",
+    "https://mainnet.base.org",
+  ],
   ethereum: ["https://gateway.tenderly.co/public/mainnet"],
   optimism: ["https://gateway.tenderly.co/public/optimism"],
   arbitrum: ["https://gateway.tenderly.co/public/arbitrum"],
