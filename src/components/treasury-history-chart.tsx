@@ -50,7 +50,9 @@ export function TreasuryHistoryChart({
   const [src, setSrc] = useState<"wallets" | "streams">(
     isOk(wallets) && wallets.value.length ? "wallets" : "streams",
   );
-  const [period, setPeriod] = useState("month");
+  // Três meses por padrão: um mês mostra pouco movimento num tesouro que se
+  // move devagar, e a pergunta que as pessoas fazem olhando isto é de trimestre.
+  const [period, setPeriod] = useState("3months");
   const [live, setLive] = useState<TreasurySeries[] | null>(null);
   const [liveFailed, setLiveFailed] = useState<string[]>(failed);
   const [loading, setLoading] = useState(false);

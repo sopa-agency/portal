@@ -502,9 +502,9 @@ treasury: {
         group={brandView}
         monthlyBurnUsd={brandBurn}
         dashboard={
-          dashboardViews.some((v) => v.slug === project.slug) ? (
-            <FinancialDashboard views={dashboardViews} selectedView={project.slug} />
-          ) : null
+          /* "Money in vs out" saiu também dos portais de marca: a variação
+             agora mora colada no gráfico de saldo. Ver sopa-treasury.tsx. */
+          null
         }
         revenue={
           <>

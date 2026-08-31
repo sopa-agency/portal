@@ -187,6 +187,7 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
   const hiveTotal = sumReadings(groups.map((g) => g.report.hiveTotal));
   const unreadLabels = groups.flatMap((g) => g.report.unreadLabels);
   const assets = useMemo(() => aggregateAssets(groups), [groups]);
+  const [dustOpen, setDustOpen] = useState(false);
   /**
    * Denominator for the shares and the bars: what is actually LISTED below,
    * not the treasury total.
@@ -295,8 +296,23 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
           liquidez diferente e não podem ler como a mesma linha. Padrão vindo do
           portfolio do swaps.pro, que usa abas para a mesma distinção. */}
       {(() => {
-        const liquid = assets.filter((a) => !a.protocol);
+        // POEIRA ATRÁS DE UM BOTÃO.
+        //
+        // O multisig da SkateHive tem 27 tokens: fora US$ 63 de USDC, o resto é
+        // airdrop sem liquidez. Listar tudo com o mesmo peso faz a lista mentir
+        // sobre onde o dinheiro está — que é exatamente o que este bloco se
+        // propõe a responder.
+        //
+        // O corte é em US$ 10 e a poeira NÃO some: fica atrás de "ver mais",
+        // contada e somada no rótulo do botão. Esconder sem dizer quanto foi
+        // escondido seria trocar uma lista ruim por um número incompleto.
+        const DUST = 10;
+        const poeira = assets.filter((a) => !a.protocol && !a.usdUnknown && a.valueUsd < DUST);
+        const liquid = assets.filter(
+          (a) => !a.protocol && !(!a.usdUnknown && a.valueUsd < DUST),
+        );
         const earning = assets.filter((a) => a.protocol);
+        const poeiraUsd = poeira.reduce((sum, a) => sum + a.valueUsd, 0);
         const renderRow = (a: Asset) => {
             const share = listedUsd > 0 ? (a.valueUsd / listedUsd) * 100 : 0;
             const color = assetColor(a.symbol);
@@ -393,6 +409,22 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
         return (
           <>
             {liquid.length > 0 && <ul className="divide-y divide-border border-t border-border">{liquid.map(renderRow)}</ul>}
+            {poeira.length > 0 && (
+              <>
+                {dustOpen && (
+                  <ul className="divide-y divide-border border-t border-border">{poeira.map(renderRow)}</ul>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDustOpen((v) => !v)}
+                  className="w-full border-t border-border px-6 py-2.5 text-left text-[11px] font-medium text-foreground-subtle transition-colors hover:bg-surface-elevated hover:text-foreground"
+                >
+                  {dustOpen
+                    ? "esconder os menores"
+                    : `ver mais ${poeira.length} abaixo de US$ 10 (somam ${usd(poeiraUsd)})`}
+                </button>
+              </>
+            )}
             {earning.length > 0 && (
               <>
                 <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">

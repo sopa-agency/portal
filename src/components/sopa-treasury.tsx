@@ -141,7 +141,15 @@ export function SopaTreasury({
           }
         />
 
-        <FinancialDashboard views={dashboardViews} selectedView={view} />
+        {/*
+          O card "Money in vs out" saiu daqui: a mesma pergunta agora vive
+          colada no gráfico de Saldo por Tesouro, como painel de variação —
+          mesmo eixo do tempo, mesmo cursor. Dois lugares mostrando movimento
+          de dinheiro obrigavam a pessoa a decidir em qual acreditar.
+
+          O componente continua no repo (FinancialDashboard) e as views seguem
+          sendo montadas: voltar é uma linha, se fizer falta.
+        */}
 
         <Section title={t.sections.where} hint={isAll ? t.sections.whereHintAll : t.sections.whereHint}>
           <TreasuryViews groups={visibleGroups} hideSelector hideTotal />
