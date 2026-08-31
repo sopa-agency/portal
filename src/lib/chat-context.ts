@@ -55,7 +55,7 @@ import { getProjectMeetingsContext } from "@/lib/meetings-context";
  * quais ações já viraram card feito. Com 3s ela estourava sempre, e um sinal
  * que nunca chega é o mesmo que não existir.
  */
-const TIMEOUT_MS = { board: 4_000, atas: 6_000, tesouro: 3_000 } as const;
+const TIMEOUT_MS = { board: 4_000, atas: 6_000, tesouro: 3_000, receita: 3_000, equipe: 3_000 } as const;
 
 /**
  * DOIS CACHES, e o segundo é o que resolve de verdade.
@@ -305,6 +305,156 @@ async function readTreasury(project: ProjectConfig): Promise<Reading<string>> {
   });
 }
 
+/**
+ * Receita, da ÚLTIMA sincronização gravada — não da rede.
+ *
+ * As fontes vivem nos cards do org-chart (`SopaBoard`, board "orgchart", em
+ * `meta.revenueStreams`) e o cron grava o saldo em RevenueSnapshot. Aqui a
+ * gente só lê o que já foi sincronizado.
+ *
+ * Detalhe que torna esta leitura confiável: quando o saldo falha, o cron NÃO
+ * grava linha (`if (!bal) continue`). Então um 0 nesta tabela é um zero de
+ * verdade, e não uma falha disfarçada. O que pode enganar é o contrário —
+ * fonte SEM linha parecer que não existe — e é por isso que o bloco compara o
+ * que tem leitura contra o que está cadastrado, e diz a diferença.
+ */
+async function readRevenue(): Promise<Reading<string>> {
+  return withTimeout(TIMEOUT_MS.receita, async () => {
+    const cards = await prisma.sopaBoard.findMany({
+      where: { board: "orgchart" },
+      select: { id: true, title: true, meta: true },
+    });
+
+    type Alvo = { cardId: string; card: string; address: string; label: string };
+    const rastreadas: Alvo[] = [];
+    let manuais = 0;
+    for (const c of cards) {
+      const meta =
+        c.meta && typeof c.meta === "object" && !Array.isArray(c.meta)
+          ? (c.meta as Record<string, unknown>)
+          : {};
+      const streams = Array.isArray(meta.revenueStreams)
+        ? (meta.revenueStreams as Record<string, unknown>[])
+        : [];
+      for (const st of streams) {
+        const address = typeof st.address === "string" ? st.address.trim().toLowerCase() : "";
+        const label = typeof st.label === "string" ? st.label : "(sem rótulo)";
+        if (!/^0x[a-f0-9]{40}$/.test(address)) {
+          manuais++;
+          continue;
+        }
+        rastreadas.push({ cardId: c.id, card: c.title ?? "(sem título)", address, label });
+      }
+    }
+    if (rastreadas.length === 0 && manuais === 0) {
+      throw Object.assign(new Error("nenhuma fonte de receita cadastrada no org-chart"), {
+        empty: true,
+      });
+    }
+
+    const snaps = await prisma.revenueSnapshot.findMany({
+      orderBy: { takenAt: "desc" },
+      take: 400,
+      select: { cardId: true, address: true, label: true, totalUsd: true, takenAt: true },
+    });
+    if (snaps.length === 0) {
+      throw Object.assign(new Error("nenhuma sincronização de receita gravada ainda"), {
+        empty: true,
+      });
+    }
+
+    // A mais recente de cada (card, endereço).
+    const ultima = new Map<string, (typeof snaps)[number]>();
+    for (const sn of snaps) {
+      const k = `${sn.cardId}:${sn.address}`;
+      if (!ultima.has(k)) ultima.set(k, sn);
+    }
+
+    // Duas fontes do mesmo card podem ter o MESMO rótulo em endereços
+    // diferentes — e aí a linha aparece duplicada e parece defeito. Quando
+    // isso acontece, o fim do endereço desempata.
+    const repetido = new Map<string, number>();
+    for (const a of rastreadas) {
+      const k = `${a.cardId}:${a.label}`;
+      repetido.set(k, (repetido.get(k) ?? 0) + 1);
+    }
+
+    const porCard = new Map<string, string[]>();
+    let comLeitura = 0;
+    for (const alvo of rastreadas) {
+      const sn = ultima.get(`${alvo.cardId}:${alvo.address}`);
+      if (!sn) continue;
+      comLeitura++;
+      const rotulo = sn.label || alvo.label;
+      const desempate =
+        (repetido.get(`${alvo.cardId}:${alvo.label}`) ?? 0) > 1 ? ` (…${alvo.address.slice(-4)})` : "";
+      const linha = `${rotulo}${desempate}: US$ ${Math.round(sn.totalUsd).toLocaleString("pt-BR")}`;
+      porCard.set(alvo.card, [...(porCard.get(alvo.card) ?? []), linha]);
+    }
+
+    const quando = snaps[0].takenAt.toISOString().slice(0, 16).replace("T", " ");
+    const out = [...porCard.entries()].map(([card, ls]) => `- ${card} — ${ls.join(" · ")}`);
+    out.push(
+      `Sincronização de ${quando}. Cobre ${comLeitura} de ${rastreadas.length} fontes on-chain cadastradas` +
+        (manuais > 0 ? `; ${manuais} fonte(s) são manuais e não têm leitura automática` : "") +
+        ".",
+    );
+    if (comLeitura < rastreadas.length) {
+      out.push(
+        "  As fontes sem leitura NÃO valem zero — não há número para elas nesta sincronização.",
+      );
+    }
+    return out.join("\n");
+  });
+}
+
+/**
+ * Quem é a equipe deste portal.
+ *
+ * Junta as duas metades que o catálogo da equipe já usa: quem tem ACESSO
+ * (TeamMember, a mesma tabela que decide o login) e quem a pessoa É
+ * (MemberSkills — papéis, território, cidade, bio). Sem isto o agente sabia o
+ * username de quem está falando e mais nada sobre o time em volta.
+ */
+async function readTeam(project: ProjectConfig): Promise<Reading<string>> {
+  return withTimeout(TIMEOUT_MS.equipe, async () => {
+    const membros = await prisma.teamMember.findMany({
+      where: { projectSlug: { in: ["*", project.slug] } },
+      select: { username: true, role: true, projectSlug: true },
+    });
+    if (membros.length === 0) {
+      throw Object.assign(new Error("nenhum membro cadastrado para este portal"), { empty: true });
+    }
+    const perfis = await prisma.memberSkills.findMany({
+      where: { username: { in: membros.map((m) => m.username) } },
+      select: { username: true, roles: true, territory: true, location: true, bio: true },
+    });
+    const porUser = new Map(perfis.map((p) => [p.username, p]));
+
+    // Global manda: quem tem linha "*" é admin em todo portal.
+    const vistos = new Map<string, string>();
+    for (const m of membros) {
+      const atual = vistos.get(m.username);
+      if (m.projectSlug === "*") vistos.set(m.username, "admin global");
+      else if (!atual) vistos.set(m.username, m.role);
+    }
+
+    const linhas = [...vistos.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([user, papel]) => {
+        const p = porUser.get(user);
+        const extras = [
+          p?.roles?.length ? p.roles.join(", ") : "",
+          p?.territory ?? "",
+          p?.location ?? "",
+        ].filter(Boolean);
+        const bio = p?.bio ? ` — ${trim(p.bio, 120)}` : "";
+        return `- @${user} (${papel})${extras.length ? ` — ${extras.join(" · ")}` : ""}${bio}`;
+      });
+    return linhas.join("\n");
+  });
+}
+
 /** Como cada leitura vira texto — os três estados, todos visíveis. */
 function renderReading(titulo: string, r: Reading<string>): string {
   if (r.state === "ok") return `## ${titulo}\n${r.value}`;
@@ -320,10 +470,13 @@ export type ChatContext = { block: string; chars: number };
 
 /** Monta o bloco do zero, sem olhar cache nenhum. */
 async function assembleChatContext(project: ProjectConfig): Promise<ChatContext> {
-  const [board, meetings, treasury] = await Promise.all([
-    readBoard(project).catch((e) => ({ state: "unread", reason: String(e) }) as Reading<string>),
-    readMeetings(project).catch((e) => ({ state: "unread", reason: String(e) }) as Reading<string>),
-    readTreasury(project).catch((e) => ({ state: "unread", reason: String(e) }) as Reading<string>),
+  const falha = (e: unknown) => ({ state: "unread", reason: String(e) }) as Reading<string>;
+  const [board, meetings, treasury, revenue, team] = await Promise.all([
+    readBoard(project).catch(falha),
+    readMeetings(project).catch(falha),
+    readTreasury(project).catch(falha),
+    readRevenue().catch(falha),
+    readTeam(project).catch(falha),
   ]);
 
   // A camada A não faz I/O, mas lê config escrito à mão: um campo com formato
@@ -354,6 +507,8 @@ async function assembleChatContext(project: ProjectConfig): Promise<ChatContext>
     renderReading("Board", board),
     renderReading("Ações em aberto das atas", meetings),
     renderReading("Tesouro", treasury),
+    renderReading("Receita (última sincronização)", revenue),
+    renderReading("Equipe deste portal", team),
     "[/contexto]",
   ].filter((p) => p !== "");
 
