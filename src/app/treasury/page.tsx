@@ -69,6 +69,91 @@ import { attempt, isOk, ok, unread, type Reading } from "@/lib/reading";
 export default async function TreasuryPage() {
   const project = await getActiveProject();
   const t = await getDictionary();
+  const isSopa = project.slug === "sopa";
+
+  // ── Tudo que NAO depende do saldo on-chain comeca AGORA ───────────────
+  //
+  // A pagina era nove estagios em serie: cada Promise.all so comecava quando
+  // o anterior terminava, e o total virava a SOMA de todos. Medido: 33s em
+  // producao, com o estagio da folha/elenco/cofres sozinho em 21,7s enquanto
+  // o do saldo levava 10s — dois estagios que nao dependem um do outro e
+  // mesmo assim se esperavam.
+  //
+  // Estas promessas sao criadas sem await: elas correm enquanto o resto do
+  // arquivo faz o trabalho que depende do saldo. O await continua onde
+  // sempre esteve, entao a ordem de leitura do arquivo nao muda.
+  const groupsP = fetchTreasuryGroups(project);
+
+  const restoP = Promise.all([
+    verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
+    // Revenue is tracked on the org-chart. On SOPA show every project (grouped);
+    // on a brand portal show only that project's own streams.
+    getOrgRevenue(isSopa ? undefined : { name: project.name, slug: project.slug }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) })),
+    // SOPA agency revenue: client jobs (manual).
+    // Caminho COM canal: listSopaJobs devolve Result (`ok`/`error`). O catch
+    // CONTORNAVA esse canal, virando null e depois `[]` — o erro aqui é bug,
+    // não design, e o conserto é só parar de contornar.
+    isSopa
+      ? listSopaJobs().catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
+      : Promise.resolve(null),
+    // Histórico do gráfico: leitura de banco (snapshots), zero requisição de rede.
+    // Sem `.catch(() => [])`: a função já devolve Reading e engolir aqui seria
+    // reintroduzir o colapso um andar acima do que acabou de ganhar canal.
+    getTreasuryHistory(60, isSopa ? undefined : { name: project.name, slug: project.slug }),
+    // A SOPA agrega as carteiras de todos; portal de marca vê só as suas.
+    getTreasuryWalletHistory(60, isSopa ? undefined : { slug: project.slug }),
+    // A Zerion NÃO é chamada no carregamento. Uma carteira é uma requisição, e
+    // toda visita de todo mundo a cada TTL somava rápido contra a cota. A linha
+    // abre com o snapshot do banco, que é de graça, e quem quiser a profundidade
+    // da Zerion pede pelo botão de sincronizar.
+    Promise.resolve({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[] }),
+  ]);
+
+  const pesadoP = Promise.all([
+    isSopa
+      ? listPayrollMembers().catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
+      : Promise.resolve(null),
+    isSopa
+      ? attempt(() => getTeamRoster(project), (e) => `elenco não leu: ${e instanceof Error ? e.message : String(e)}`)
+      : Promise.resolve(ok([] as Awaited<ReturnType<typeof getTeamRoster>>)),
+    // A PIOR classe das três, e por isso vem antes de tudo no item 5: este
+    // catch DESLIGAVA O PRÓPRIO DETECTOR. Se a descoberta do pool falhava,
+    // poolAddress virava null; sem pool, o status nem era buscado; e o sinal de
+    // falha era `!!poolAddress && !streamStatus`, que com poolAddress null dá
+    // FALSE. A página passava a jurar que estava tudo bem porque falhou ao
+    // perguntar — o dado mente e o detector confirma.
+    isSopa
+      ? SOPA_POOL_ADDRESS
+        ? Promise.resolve(ok<string | null>(SOPA_POOL_ADDRESS))
+        : attempt<string | null>(
+            () => findSopaPool(),
+            (e) => `pool não pôde ser descoberto: ${e instanceof Error ? e.message : String(e)}`,
+          )
+      : Promise.resolve(ok<string | null>(null)),
+    // O null aqui fazia DOIS trabalhos: "não há posição em stake" e "não
+    // consegui ler". Colapsavam com a mesma facilidade que zero colapsa com
+    // desconhecido — e esta classe já mordeu de verdade (3af9642, "MOR em stake
+    // sumia do saldo e lia como PERDA"). Agora a falha é `unread`; ausência de
+    // posição continua sendo `ok(null)`, que é resposta legítima.
+    isSopa
+      ? attempt<StakePosition | null>(
+          () => getStakePosition(SOPA_SAFE),
+          (e) => `posição em stake não leu: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      : Promise.resolve(ok<StakePosition | null>(null)),
+    // `ok(null)` = nunca foi configurado (resposta legítima). `unread` = não
+    // consegui ler, e aí a seção sumia sem dizer nada — sumir é afirmar que
+    // não existe.
+    isSopa
+      ? attempt<Awaited<ReturnType<typeof getAllocation>> | null>(
+          () => getAllocation(project.slug),
+          (e) => `earmarks não leram: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      : Promise.resolve(ok<Awaited<ReturnType<typeof getAllocation>> | null>(null)),
+    isSopa
+      ? attempt(() => getCommunityVaults(), (e) => `cofres não leram: ${e instanceof Error ? e.message : String(e)}`)
+      : Promise.resolve(ok([] as Awaited<ReturnType<typeof getCommunityVaults>>)),
+  ]);
 
   if (!project.treasury) {
     return (
@@ -104,7 +189,7 @@ treasury: {
     );
   }
 
-  const groups = await fetchTreasuryGroups(project);
+  const groups = await groupsP;
   const combined = combinedTreasury(groups);
 
   // Surface Safe transaction activity. Candidates = EVM treasury wallets (chain
@@ -169,32 +254,10 @@ treasury: {
     name: g.name,
     treasury: g.report.total,
   }));
-  const isSopa = project.slug === "sopa";
-  const [costScope, session, orgRevenueResult, jobsRes, history, walletHistory, walletChart] = await Promise.all([
-    fetchCostScope(costGroups.map((g) => g.slug)),
-    verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
-    // Revenue is tracked on the org-chart. On SOPA show every project (grouped);
-    // on a brand portal show only that project's own streams.
-    getOrgRevenue(isSopa ? undefined : { name: project.name, slug: project.slug }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) })),
-    // SOPA agency revenue: client jobs (manual).
-    // Caminho COM canal: listSopaJobs devolve Result (`ok`/`error`). O catch
-    // CONTORNAVA esse canal, virando null e depois `[]` — o erro aqui é bug,
-    // não design, e o conserto é só parar de contornar.
-    isSopa
-      ? listSopaJobs().catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
-      : Promise.resolve(null),
-    // Histórico do gráfico: leitura de banco (snapshots), zero requisição de rede.
-    // Sem `.catch(() => [])`: a função já devolve Reading e engolir aqui seria
-    // reintroduzir o colapso um andar acima do que acabou de ganhar canal.
-    getTreasuryHistory(60, isSopa ? undefined : { name: project.name, slug: project.slug }),
-    // A SOPA agrega as carteiras de todos; portal de marca vê só as suas.
-    getTreasuryWalletHistory(60, isSopa ? undefined : { slug: project.slug }),
-    // A Zerion NÃO é chamada no carregamento. Uma carteira é uma requisição, e
-    // toda visita de todo mundo a cada TTL somava rápido contra a cota. A linha
-    // abre com o snapshot do banco, que é de graça, e quem quiser a profundidade
-    // da Zerion pede pelo botão de sincronizar.
-    Promise.resolve({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[] }),
-  ]);
+  // costScope depende de costGroups, que depende do saldo — fica aqui.
+  // O resto do bloco foi para o topo e ja terminou (ou esta terminando).
+  const [costScope, [session, orgRevenueResult, jobsRes, history, walletHistory, walletChart]] =
+    await Promise.all([fetchCostScope(costGroups.map((g) => g.slug)), restoP]);
   // Unwrap the revenue Result: data on success, null on FAILURE — and keep a
   // distinct `revenueFailed` so the UI shows "leitura falhou", never an empty
   // org chart that reads as "SOPA has nobody".
@@ -203,51 +266,7 @@ treasury: {
   // SOPA data used to be a long serial waterfall of awaits. Now two parallel waves:
   // wave 1 = everything with no cross-dependency; wave 2 = reads that need a wave-1
   // result (the pool address, and the SOPA-owned vault).
-  const [payrollRes, rosterRaw, poolRead, stakeRead, allocRead, communityVaults] = await Promise.all([
-    isSopa
-      ? listPayrollMembers().catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
-      : Promise.resolve(null),
-    isSopa
-      ? attempt(() => getTeamRoster(project), (e) => `elenco não leu: ${e instanceof Error ? e.message : String(e)}`)
-      : Promise.resolve(ok([] as Awaited<ReturnType<typeof getTeamRoster>>)),
-    // A PIOR classe das três, e por isso vem antes de tudo no item 5: este
-    // catch DESLIGAVA O PRÓPRIO DETECTOR. Se a descoberta do pool falhava,
-    // poolAddress virava null; sem pool, o status nem era buscado; e o sinal de
-    // falha era `!!poolAddress && !streamStatus`, que com poolAddress null dá
-    // FALSE. A página passava a jurar que estava tudo bem porque falhou ao
-    // perguntar — o dado mente e o detector confirma.
-    isSopa
-      ? SOPA_POOL_ADDRESS
-        ? Promise.resolve(ok<string | null>(SOPA_POOL_ADDRESS))
-        : attempt<string | null>(
-            () => findSopaPool(),
-            (e) => `pool não pôde ser descoberto: ${e instanceof Error ? e.message : String(e)}`,
-          )
-      : Promise.resolve(ok<string | null>(null)),
-    // O null aqui fazia DOIS trabalhos: "não há posição em stake" e "não
-    // consegui ler". Colapsavam com a mesma facilidade que zero colapsa com
-    // desconhecido — e esta classe já mordeu de verdade (3af9642, "MOR em stake
-    // sumia do saldo e lia como PERDA"). Agora a falha é `unread`; ausência de
-    // posição continua sendo `ok(null)`, que é resposta legítima.
-    isSopa
-      ? attempt<StakePosition | null>(
-          () => getStakePosition(SOPA_SAFE),
-          (e) => `posição em stake não leu: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      : Promise.resolve(ok<StakePosition | null>(null)),
-    // `ok(null)` = nunca foi configurado (resposta legítima). `unread` = não
-    // consegui ler, e aí a seção sumia sem dizer nada — sumir é afirmar que
-    // não existe.
-    isSopa
-      ? attempt<Awaited<ReturnType<typeof getAllocation>> | null>(
-          () => getAllocation(project.slug),
-          (e) => `earmarks não leram: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      : Promise.resolve(ok<Awaited<ReturnType<typeof getAllocation>> | null>(null)),
-    isSopa
-      ? attempt(() => getCommunityVaults(), (e) => `cofres não leram: ${e instanceof Error ? e.message : String(e)}`)
-      : Promise.resolve(ok([] as Awaited<ReturnType<typeof getCommunityVaults>>)),
-  ]);
+  const [payrollRes, rosterRaw, poolRead, stakeRead, allocRead, communityVaults] = await pesadoP;
 
   const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
   const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
