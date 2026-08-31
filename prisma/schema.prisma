@@ -599,6 +599,7 @@ model MemberSkills {
   /**
    * /**
    * /**
+   * /**
    * /** como a pessoa se apresenta: ["dev", "web3", "criativo"]
    */
   roles     String[] @default([])
@@ -1433,4 +1434,17 @@ model ChatAttachment {
 
   @@index([conversationId])
   @@index([messageId])
+}
+
+/// Bloco [contexto] do /chat, pronto, por portal.
+///
+/// A memória de um lambda não atravessa requisições: em produção quase toda
+/// mensagem cai num processo novo e pagava a montagem inteira — 2,4s medidos
+/// antes de o agente começar a pensar. O banco atravessa. Esta linha é o bloco
+/// já montado, e o caminho frio vira uma leitura de tabela.
+model ChatContextCache {
+  projectSlug String   @id
+  block       String   @db.Text
+  chars       Int
+  builtAt     DateTime @default(now())
 }

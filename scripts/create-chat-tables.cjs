@@ -89,7 +89,17 @@ async function main() {
       ON "ChatMessage" ("status") WHERE "status" = 'pending';
   `);
 
-  console.log("ok — tabelas do chat, AgentJob.partial e ChatAttachment.token no lugar.");
+  // Bloco [contexto] pronto, para o caminho frio não remontar tudo.
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "ChatContextCache" (
+      "projectSlug" TEXT PRIMARY KEY,
+      "block"       TEXT NOT NULL,
+      "chars"       INTEGER NOT NULL,
+      "builtAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  console.log("ok — tabelas do chat, AgentJob.partial, ChatAttachment.token e ChatContextCache no lugar.");
 }
 
 main()

@@ -58,15 +58,26 @@ import { getProjectMeetingsContext } from "@/lib/meetings-context";
 const TIMEOUT_MS = { board: 4_000, atas: 6_000, tesouro: 3_000 } as const;
 
 /**
- * O bloco inteiro é cacheado por um minuto, por portal.
+ * DOIS CACHES, e o segundo é o que resolve de verdade.
  *
- * Sem isto, cada mensagem do chat pagaria o tempo da fonte mais lenta — até 6s
- * antes de o agente começar a pensar. Com isto, paga a primeira mensagem do
- * minuto e as seguintes saem de graça. O bloco diz de quando é, para que
- * ninguém confunda cache com agora.
+ * MEMÓRIA (60s): dentro do mesmo processo, mensagens seguidas não remontam.
+ *
+ * BANCO: a memória de um lambda não atravessa requisições. Em produção quase
+ * toda mensagem cai num processo novo, e medindo deu 2373ms no frio contra
+ * 265ms no quente — ou seja, o caso comum era o caro. A tabela atravessa, e o
+ * caminho frio vira uma leitura de linha.
+ *
+ * E VELHO SERVE NA HORA. Passado o frescor, devolvemos o bloco que temos e
+ * remontamos POR TRÁS: quem perguntou não espera. O preço é o bloco poder estar
+ * alguns minutos atrás — e por isso ele carrega a hora em que foi montado, no
+ * próprio texto, onde o agente lê. Cache que se esconde vira mentira; cache que
+ * se declara é só uma leitura de alguns minutos atrás.
  */
-const BLOCK_TTL_MS = 60_000;
+const MEM_TTL_MS = 60_000;
+const FRESH_MS = 5 * 60_000;
 const blockCache = new Map<string, { at: number; ctx: ChatContext }>();
+/** Remontagens em voo, para não disparar dez ao mesmo tempo. */
+const refreshing = new Set<string>();
 
 /** Quantos canais sociais do projeto atual entram por inteiro. */
 const MAX_SOCIALS = 6;
@@ -307,14 +318,8 @@ function renderReading(titulo: string, r: Reading<string>): string {
 
 export type ChatContext = { block: string; chars: number };
 
-/**
- * Monta o bloco [contexto]. Nunca lança: uma falha aqui não pode derrubar o
- * chat — no pior caso o bloco sai só com a camada A, que não faz I/O.
- */
-export async function buildChatContext(project: ProjectConfig): Promise<ChatContext> {
-  const cached = blockCache.get(project.slug);
-  if (cached && Date.now() - cached.at < BLOCK_TTL_MS) return cached.ctx;
-
+/** Monta o bloco do zero, sem olhar cache nenhum. */
+async function assembleChatContext(project: ProjectConfig): Promise<ChatContext> {
   const [board, meetings, treasury] = await Promise.all([
     readBoard(project).catch((e) => ({ state: "unread", reason: String(e) }) as Reading<string>),
     readMeetings(project).catch((e) => ({ state: "unread", reason: String(e) }) as Reading<string>),
@@ -355,5 +360,48 @@ export async function buildChatContext(project: ProjectConfig): Promise<ChatCont
   const block = partes.join("\n");
   const ctx = { block, chars: block.length };
   blockCache.set(project.slug, { at: Date.now(), ctx });
+  // Grava para o próximo processo — é isto que tira os 2,4s do caminho frio.
+  await prisma.chatContextCache
+    .upsert({
+      where: { projectSlug: project.slug },
+      create: { projectSlug: project.slug, block, chars: ctx.chars },
+      update: { block, chars: ctx.chars, builtAt: new Date() },
+    })
+    .catch(() => {});
   return ctx;
+}
+
+/**
+ * O bloco [contexto] para este portal. Nunca lança: uma falha aqui não pode
+ * derrubar a mensagem, e no pior caso o chat volta a ser o que era antes.
+ */
+export async function buildChatContext(project: ProjectConfig): Promise<ChatContext> {
+  const mem = blockCache.get(project.slug);
+  if (mem && Date.now() - mem.at < MEM_TTL_MS) return mem.ctx;
+
+  const row = await prisma.chatContextCache
+    .findUnique({ where: { projectSlug: project.slug } })
+    .catch(() => null);
+
+  if (row) {
+    const ctx = { block: row.block, chars: row.chars };
+    const idade = Date.now() - row.builtAt.getTime();
+    blockCache.set(project.slug, { at: Date.now(), ctx });
+    if (idade > FRESH_MS && !refreshing.has(project.slug)) {
+      // Velho: entrega este e remonta por trás. Se o processo morrer antes de
+      // terminar, ninguém perde nada — a próxima requisição tenta de novo.
+      refreshing.add(project.slug);
+      void assembleChatContext(project)
+        .catch(() => {})
+        .finally(() => refreshing.delete(project.slug));
+    }
+    return ctx;
+  }
+
+  // Nunca montado: aí sim vale esperar.
+  try {
+    return await assembleChatContext(project);
+  } catch {
+    return { block: "", chars: 0 };
+  }
 }
