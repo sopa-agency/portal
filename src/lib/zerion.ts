@@ -35,6 +35,7 @@ export type ZerionToken = {
   chain: string;
   balance: number;
   valueUsd: number | null;
+  /** Sem verificação da Zerion. É o que acende a etiqueta na linha. */
   untrusted: boolean;
   suspicious: boolean;
   /** URL do logo do token, quando a Zerion tem. É imagem de terceiro: vale como
@@ -152,19 +153,36 @@ export async function zerionBalances(
 
       const rawSymbol = a.fungible_info?.symbol ?? a.fungible_info?.name ?? "?";
       const symbol = sanitizeTokenLabel(rawSymbol, SYMBOL_MAX) || "?";
-      // "verified" é o julgamento da Zerion, não nosso: mesmo verificado o texto
-      // segue vindo de fora, então continua marcado como não-confiável para a UI
-      // decidir como exibir.
-      const suspicious = labelLooksHostile(rawSymbol, a.fungible_info?.name ?? "");
+      const verified = a.fungible_info?.flags?.verified === true;
+
+      // AVISO QUE APARECE EM TUDO NÃO AVISA NADA.
+      //
+      // Antes, TODO token vinha marcado como não-confiável — o texto vem de
+      // fora, então a régua era essa. O resultado na tela: ETH, USDC e stETH
+      // com etiqueta de alerta, lado a lado com o airdrop de verdade. Quem lê
+      // aprende em dois segundos que a etiqueta não quer dizer nada, e aí ela
+      // não protege mais no dia em que aparece no token que importa. É o mesmo
+      // erro do aviso falso de "não consegui ler" que a gente tirou do split.
+      //
+      // `labelLooksHostile` marca quem usa um ticker famoso, e o comentário
+      // dela sempre disse para que serve: "só chame para rótulo de indexador —
+      // um USDC declarado no config é o real". No caminho do RPC isso bastava,
+      // porque o config era a prova. Agora TUDO vem da Zerion, e a prova passou
+      // a ser a flag `verified` dela.
+      //
+      // Então: verificado = o token é quem diz ser, sem etiqueta. Não
+      // verificado = segue como antes, e se ainda por cima usa ticker famoso,
+      // vira o alerta forte — que é exatamente o caso perigoso de verdade.
+      const suspicious = !verified && labelLooksHostile(rawSymbol, a.fungible_info?.name ?? "");
 
       tokens.push({
         symbol,
         chain,
         balance,
         valueUsd: typeof a.value === "number" ? a.value : null,
-        untrusted: true,
+        untrusted: !verified,
         suspicious,
-        verified: a.fungible_info?.flags?.verified === true,
+        verified,
         icon: typeof a.fungible_info?.icon?.url === "string" ? a.fungible_info.icon.url : null,
         kind: typeof a.position_type === "string" ? a.position_type : null,
         protocol: typeof a.protocol === "string" ? sanitizeTokenLabel(a.protocol, SYMBOL_MAX) || null : null,
