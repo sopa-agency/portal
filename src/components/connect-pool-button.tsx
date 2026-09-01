@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createWalletClient, custom, getAddress } from "viem";
 import { base } from "viem/chains";
 import { Plug, Loader2, CheckCircle2, ExternalLink } from "lucide-react";
+import { useWallet } from "@/components/wallet-provider";
 import { useT } from "@/components/locale-provider";
 import { rich } from "@/components/rich-text";
 
@@ -31,28 +32,12 @@ export function ConnectPoolButton({
   const [status, setStatus] = useState<"idle" | "working" | "done" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
   const [tx, setTx] = useState<string | null>(null);
-  // Silently read the already-authorized wallet (eth_accounts, no prompt). If it
-  // is already a connected member, this whole card is noise — hide it.
-  const [selfConnected, setSelfConnected] = useState(false);
-
-  useEffect(() => {
-    const connected = new Set(connectedAddresses.map((a) => a.toLowerCase()));
-    if (connected.size === 0) return;
-    const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-    if (!eth) return;
-    let cancelled = false;
-    eth
-      .request({ method: "eth_accounts" })
-      .then((accs) => {
-        if (cancelled) return;
-        const mine = (accs as string[])?.[0]?.toLowerCase();
-        if (mine && connected.has(mine)) setSelfConnected(true);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [connectedAddresses]);
+  // A carteira do portal já lê em silêncio (eth_accounts, sem popup) quem
+  // autorizou este site. Aqui isso serve para uma coisa só: se quem está
+  // olhando JÁ está conectado ao pool, este card inteiro é ruído — some.
+  const { address: mine, connect: connectWallet, ensureChain } = useWallet();
+  const selfConnected =
+    !!mine && connectedAddresses.some((a) => a.toLowerCase() === mine);
 
   // Already connected (this session or a prior one) → nothing to prompt.
   if (selfConnected && status !== "done") return null;
@@ -63,22 +48,10 @@ export function ConnectPoolButton({
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum;
       if (!eth) throw new Error(t.wallet.none);
-      const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-      const account = getAddress(accounts[0]);
-
-      const cid = (await eth.request({ method: "eth_chainId" })) as string;
-      if (cid !== "0x2105") {
-        try {
-          await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
-        } catch (e) {
-          if ((e as { code?: number })?.code === 4902) {
-            await eth.request({
-              method: "wallet_addEthereumChain",
-              params: [{ chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }],
-            });
-          } else throw e;
-        }
-      }
+      const conta = await connectWallet();
+      if (!conta) throw new Error(t.wallet.none);
+      const account = getAddress(conta);
+      await ensureChain("0x2105");
 
       const wallet = createWalletClient({ account, chain: base, transport: custom(eth) });
       const hash = await wallet.writeContract({

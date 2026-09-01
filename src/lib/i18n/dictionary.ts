@@ -79,6 +79,23 @@ const en = {
     switchWorkspace: "Switch workspace",
     logOut: "Log out",
     connected: "connected",
+    /** Profile menu — the wallet lives here, not on every button in the app. */
+    profile: {
+      wallet: "Ethereum wallet",
+      connect: "Connect wallet",
+      disconnect: "Disconnect",
+      connecting: "Connecting…",
+      none: "No wallet found in this browser",
+      /** Connected wallet matches the one registered on the Team page. */
+      matchesTeam: "matches your Team record",
+      /** It does not — the person is probably on the wrong MetaMask account. */
+      differsFromTeam: (addr: string) => `your Team record is ${addr}`,
+      notRegistered: "not registered on the Team page",
+      copy: "Copy address",
+      copied: "Copied",
+      /** Disconnect only forgets it here; the wallet keeps the site authorized. */
+      forgetNote: "Forgetting it here only affects this portal — revoke access in your wallet to undo it fully.",
+    },
     resizeMenu: "Resize menu",
     resizeHint: "Drag to resize · double-click to restore",
     /** Section headers. Keys are stable; only these strings change. */
@@ -1576,6 +1593,19 @@ const pt: typeof en = {
     switchWorkspace: "Trocar de portal",
     logOut: "Sair",
     connected: "conectado",
+    profile: {
+      wallet: "Carteira Ethereum",
+      connect: "Conectar carteira",
+      disconnect: "Desconectar",
+      connecting: "Conectando…",
+      none: "Nenhuma carteira encontrada neste navegador",
+      matchesTeam: "é a mesma do seu cadastro no Team",
+      differsFromTeam: (addr: string) => `no Team seu cadastro é ${addr}`,
+      notRegistered: "não está cadastrada na página Team",
+      copy: "Copiar endereço",
+      copied: "Copiado",
+      forgetNote: "Desconectar aqui só vale para o portal — para revogar de verdade, tire a autorização na carteira.",
+    },
     resizeMenu: "Redimensionar menu",
     resizeHint: "Arraste para redimensionar · duplo clique para restaurar",
     groups: {

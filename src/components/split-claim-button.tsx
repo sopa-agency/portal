@@ -12,6 +12,7 @@ import { createPublicClient, http, getAddress, encodeFunctionData, type Address 
 import { base } from "viem/chains";
 import { Loader2, Plug, DownloadCloud } from "lucide-react";
 import { fetchSplitClaim } from "@/app/actions/split-claim";
+import { useWallet } from "@/components/wallet-provider";
 import type { SplitClaim } from "@/lib/split-claim";
 
 type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
@@ -74,7 +75,10 @@ export function SplitClaimButton({
   // Tracked separately from `claim`, which goes null again once it is empty.
   const [isSplit, setIsSplit] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [account, setAccount] = useState<string | null>(null);
+  // A conta vem da carteira do portal, não deste botão. Antes cada linha de
+  // receita tinha o seu próprio "Conectar" e o seu próprio estado: conectar num
+  // split não conectava no de baixo, e nada sobrevivia ao refresh.
+  const { address: account, connect: connectWallet, connecting, ensureChain } = useWallet();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -94,21 +98,10 @@ export function SplitClaimButton({
 
   async function connect() {
     setErr(null);
-    try {
-      const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error("Nenhuma carteira detectada.");
-      const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-      // A rede vem da LEITURA do split, não de uma constante aqui: com o split
-      // em oito redes, um 0x2105 fixo mandaria assinar na cadeia errada.
-      const want = claim ? `0x${claim.chainId.toString(16)}` : null;
-      const cid = (await eth.request({ method: "eth_chainId" })) as string;
-      if (want && cid !== want) {
-        await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: want }] }).catch(() => {});
-      }
-      setAccount(getAddress(accs[0]));
-    } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "Falha ao conectar.");
-    }
+    const a = await connectWallet();
+    // A rede vem da LEITURA do split, não de uma constante aqui: com o split
+    // em oito redes, um 0x2105 fixo mandaria assinar na cadeia errada.
+    if (a && claim) await ensureChain(`0x${claim.chainId.toString(16)}`);
   }
 
   // Send one raw eth_sendTransaction, tolerant of smart / 7702 wallets that
@@ -137,6 +130,10 @@ export function SplitClaimButton({
     setErr(null);
     try {
       const eth = (window as unknown as { ethereum?: Eth }).ethereum!;
+      // Com a conexão compartilhada, quem chega aqui pode ter conectado em
+      // OUTRO componente, numa outra rede. A troca era feita no connect; agora
+      // ela tem que ser feita também na hora de assinar.
+      await ensureChain(`0x${claim.chainId.toString(16)}`);
       const from = getAddress(account);
       const struct = {
         recipients: claim.config.recipients.map((r) => getAddress(r)),
@@ -165,7 +162,7 @@ export function SplitClaimButton({
     } finally {
       setBusy(false);
     }
-  }, [account, claim, address, chain, load]);
+  }, [account, claim, address, chain, load, ensureChain]);
 
   if (!claim) {
     // A read that FAILED or has not finished must never render as "nothing
@@ -199,7 +196,8 @@ export function SplitClaimButton({
         <button
           type="button"
           onClick={connect}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-accent-bg px-2.5 py-1 text-[11px] font-semibold text-accent transition hover:bg-accent/20"
+          disabled={connecting}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-accent-bg px-2.5 py-1 text-[11px] font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-40"
         >
           <Plug className="h-3 w-3" /> Conectar
         </button>

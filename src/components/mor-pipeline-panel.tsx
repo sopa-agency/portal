@@ -12,6 +12,7 @@ import { useState } from "react";
 import { createPublicClient, http, getAddress, encodeFunctionData } from "viem";
 import { base } from "viem/chains";
 import { Loader2, ExternalLink, CheckCircle2, AlertTriangle, Plug, RefreshCw, Zap } from "lucide-react";
+import { useWallet } from "@/components/wallet-provider";
 import {
   PIPELINE, TOKENS, TOP_SPLIT_STRUCT, DOWNSTREAM_SPLIT_STRUCT, pipelineAbis,
   getPipelineStatus, type PipelineStatus,
@@ -34,7 +35,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
   const mor = (n: number) => morIn(n, intlLocale);
   const usd = (n: number) => usdIn(n, intlLocale);
   const [status, setStatus] = useState<PipelineStatus>(initial);
-  const [account, setAccount] = useState<string | null>(null);
+  const { address: account, connect: connectWallet, connecting, ensureChain } = useWallet();
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // Restake = propose (not execute). Server builds the Safe batch and hands back
@@ -63,22 +64,8 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
 
   async function connect() {
     setErr(null);
-    try {
-      const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error(dict.treasury.wallet.none);
-      const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-      const cid = (await eth.request({ method: "eth_chainId" })) as string;
-      if (cid !== "0x2105") {
-        await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }).catch(async (e) => {
-          if ((e as { code?: number })?.code === 4902) {
-            await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }] });
-          } else throw e;
-        });
-      }
-      setAccount(getAddress(accs[0]));
-    } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? dict.treasury.wallet.connectFailed);
-    }
+    const a = await connectWallet();
+    if (a) await ensureChain("0x2105");
   }
 
   const refresh = () => getPipelineStatus().then(setStatus).catch(() => {});
@@ -95,6 +82,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
     setErr(null);
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
+      await ensureChain("0x2105");
       const eth = (window as unknown as { ethereum?: Eth }).ethereum!;
       const from = getAddress(account);
       for (const c of calls) {
@@ -221,7 +209,7 @@ export function MorPipelinePanel({ initial }: { initial: PipelineStatus }) {
               {isOwner ? t.ownerConnected : t.canAdvance}
             </span>
           ) : (
-            <button type="button" onClick={connect} className={`${btn} border border-accent-border bg-accent-bg text-accent hover:bg-accent/20`}>
+            <button type="button" onClick={connect} disabled={connecting} className={`${btn} border border-accent-border bg-accent-bg text-accent hover:bg-accent/20 disabled:opacity-40`}>
               <Plug className="h-3.5 w-3.5" /> {dict.treasury.wallet.connect}
             </button>
           )}

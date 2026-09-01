@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, getAddress, formatUnits, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { ArrowUpFromLine, Loader2, Wallet, ExternalLink } from "lucide-react";
 import { useT } from "@/components/locale-provider";
 import { rich } from "@/components/rich-text";
+import { useWallet } from "@/components/wallet-provider";
 
 // A payee unwraps (downgrades) their streamed USDCx → plain USDC, into their own
 // wallet. USDCx is a Superfluid Super Token: it can't be spent/sold directly, so
@@ -44,7 +45,7 @@ async function ensureBase(eth: Eth) {
 export function WithdrawUsdcx() {
   const dict = useT().treasury;
   const t = dict.withdraw;
-  const [account, setAccount] = useState<string | null>(null);
+  const { address: account, connect: connectWallet, connecting, ensureChain } = useWallet();
   const [balance, setBalance] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,19 +63,16 @@ export function WithdrawUsdcx() {
     }
   }, []);
 
+  // O saldo segue o endereço, não o clique: quem já conectou noutra tela chega
+  // aqui conectado, e o card tem que abrir com o número certo.
+  useEffect(() => {
+    if (account) void refresh(account);
+  }, [account, refresh]);
+
   async function connect() {
     setErr(null);
-    try {
-      const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error(dict.wallet.none);
-      const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-      await ensureBase(eth);
-      const who = getAddress(accs[0]);
-      setAccount(who);
-      await refresh(who);
-    } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message);
-    }
+    const a = await connectWallet();
+    if (a) await ensureChain("0x2105");
   }
 
   async function run() {
@@ -120,7 +118,8 @@ export function WithdrawUsdcx() {
         <button
           type="button"
           onClick={connect}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:brightness-110"
+          disabled={connecting}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:brightness-110 disabled:opacity-40"
         >
           <Wallet className="h-4 w-4" /> {dict.wallet.connectMine}
         </button>
