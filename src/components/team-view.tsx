@@ -41,6 +41,7 @@ import { SkillRadar } from "@/components/skill-radar";
 import { toast } from "sonner";
 import { Toaster } from "@/components/studio/ui/sonner";
 import { setContactPublic } from "@/app/actions/team-admin";
+import { WalletLoginAdmin } from "@/components/wallet-login-admin";
 import { SKILL_CATEGORIES, describeContribution } from "@/lib/skills";
 import { EMPTY_PROFILE, TERRITORIES, formatRoles, parseRoles, type MemberProfile } from "@/lib/member-profile";
 import { CardDialogHost } from "@/components/card-dialog-host";
@@ -1937,6 +1938,9 @@ export function TeamView({ projectName, members, canManage }: TeamViewProps) {
           </button>
         </Collapsible>
       </section>
+
+      {/* Só admin. É uma lista de credenciais, não de contatos. */}
+      {canManage && <WalletLoginAdmin />}
 
       {selectedMember && (
         <MemberModal member={selectedMember} canManage={canManage} onClose={() => setMemberParam(null)} />
