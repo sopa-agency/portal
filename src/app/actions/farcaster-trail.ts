@@ -86,6 +86,33 @@ function fcCastUrl(authorSlug: string, hash: string): string {
   return `https://warpcast.com/${authorSlug}/${hash.slice(0, 10)}`;
 }
 
+/**
+ * Sob quais LABELS este portal age no trail.
+ *
+ * A ação é gravada com o `label` da conta (`xvlad`, `bobgnarley`), e o portal
+ * se identifica pelo `slug` (`vlad`, `gnars`). Para as contas de marca os dois
+ * coincidem por acidente feliz — skatehive é label e é slug — e o código
+ * comparava um com o outro direto.
+ *
+ * Para conta de pessoa isso quebra em silêncio, e quebrou: o portal `vlad`
+ * procurava por `actorSlug = "vlad"`, a conta dele se chama `xvlad`, e a página
+ * de engagement mostrava vazio com 120 ações no banco. Vazio que não é vazio é
+ * a pior resposta que uma tela pode dar.
+ *
+ * O vínculo verdadeiro é o `ownerSlug` do TrailAccount. É ele que responde
+ * "quem é dono desta conta", e é dele que esta função tira a resposta.
+ *
+ * Devolve o próprio slug como fallback: um portal cuja conta tem label igual ao
+ * slug continua funcionando mesmo se a linha do TrailAccount sumir.
+ */
+async function trailLabelsFor(slug: string): Promise<string[]> {
+  const rows = await prisma.trailAccount
+    .findMany({ where: { ownerSlug: slug, enabled: true }, select: { label: true } })
+    .catch(() => [] as { label: string }[]);
+  const labels = rows.map((r) => r.label);
+  return labels.length ? labels : [slug];
+}
+
 /** Partner casts this portal should reply to (pending/failed first, then done). */
 export async function listTrailFeed(): Promise<
   { ok: true; items: TrailItem[]; project: string } | { ok: false; error: string }
@@ -93,10 +120,12 @@ export async function listTrailFeed(): Promise<
   const g = await gate();
   if (!g.ok) return g;
   const slug = g.project.slug;
+  // Os labels sob os quais ESTE portal age — ver trailLabelsFor.
+  const meus = await trailLabelsFor(slug);
 
   const replies = await prisma.farcasterTrailAction
     .findMany({
-      where: { actorSlug: slug, kind: "reply", status: { in: ["pending", "failed", "done"] } },
+      where: { actorSlug: { in: meus }, kind: "reply", status: { in: ["pending", "failed", "done"] } },
       include: { cast: true },
       orderBy: { createdAt: "desc" },
       take: 60,
@@ -105,7 +134,7 @@ export async function listTrailFeed(): Promise<
 
   // Did this portal auto-like each cast? (sibling like action)
   const likeRows = await prisma.farcasterTrailAction
-    .findMany({ where: { actorSlug: slug, kind: "like", castHash: { in: replies.map((r) => r.castHash) } } })
+    .findMany({ where: { actorSlug: { in: meus }, kind: "like", castHash: { in: replies.map((r) => r.castHash) } } })
     .catch(() => []);
   const likedByCast = new Map(likeRows.map((l) => [l.castHash, l.status === "done"]));
 
@@ -113,7 +142,7 @@ export async function listTrailFeed(): Promise<
   // all of them, then grouped — not one query per card.
   const siblingRows = await prisma.farcasterTrailAction
     .findMany({
-      where: { castHash: { in: replies.map((r) => r.castHash) }, kind: "reply", actorSlug: { not: slug } },
+      where: { castHash: { in: replies.map((r) => r.castHash) }, kind: "reply", actorSlug: { notIn: meus } },
       orderBy: { actorSlug: "asc" },
     })
     .catch(() => []);

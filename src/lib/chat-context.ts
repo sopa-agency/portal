@@ -55,7 +55,17 @@ import { getProjectMeetingsContext } from "@/lib/meetings-context";
  * quais ações já viraram card feito. Com 3s ela estourava sempre, e um sinal
  * que nunca chega é o mesmo que não existir.
  */
-const TIMEOUT_MS = { board: 4_000, atas: 6_000, tesouro: 3_000, receita: 3_000, equipe: 3_000 } as const;
+const TIMEOUT_MS = { board: 4_000, atas: 6_000, tesouro: 3_000, receita: 3_000, equipe: 3_000, engajamento: 3_000, briefing: 2_000 } as const;
+
+/**
+ * A partir de quantos dias o home summary entra marcado como velho.
+ *
+ * Não é enfeite: o último briefing do secretário é de 13/07 e abre com
+ * "decidir sobre servidor dedicado, sem decisão sua fica travado". Injetado sem
+ * data, o agente fala disso como se fosse hoje — e a pessoa age sobre uma
+ * fotografia de sete semanas atrás achando que é o presente.
+ */
+const BRIEFING_VELHO_DIAS = 3;
 
 /**
  * DOIS CACHES, e o segundo é o que resolve de verdade.
@@ -222,13 +232,142 @@ async function readMeetings(project: ProjectConfig): Promise<Reading<string>> {
   return withTimeout(TIMEOUT_MS.atas, async () => {
     // A contagem separa "não há ata" de "não consegui ler": se o banco falhar,
     // isto lança e vira não-lida; se voltar 0, é ausência de verdade.
-    const n = await prisma.meetingOccurrence.count({ where: { projectSlug: "sopa" } });
+    //
+    // O escopo era `projectSlug: "sopa"` fixo, herdado de quando só a SOPA
+    // tinha reuniões. Num portal de marca isso contava ata alheia: a contagem
+    // dizia "há atas" e o texto abaixo, que FILTRA por projeto, vinha vazio —
+    // duas leituras discordando sobre o mesmo banco. Agora as duas perguntam a
+    // mesma coisa. A SOPA continua vendo tudo porque ela é a agregadora.
+    const escopo = project.slug === "sopa" ? {} : { projectSlug: project.slug };
+    const n = await prisma.meetingOccurrence.count({ where: escopo });
     if (n === 0) throw Object.assign(new Error("nenhuma ata registrada"), { empty: true });
     const text = await getProjectMeetingsContext(project);
     if (!text.trim()) {
       throw Object.assign(new Error("nenhuma ação em aberto nas atas recentes"), { empty: true });
     }
     return trimMeetings(text);
+  });
+}
+
+/**
+ * O que este portal andou fazendo no trail — o "engagement".
+ *
+ * Lê pelos LABELS que pertencem ao portal (TrailAccount.ownerSlug), nunca pelo
+ * slug direto. A conta de uma pessoa raramente se chama como o portal dela: o
+ * portal `vlad` age como `xvlad`, e comparar slug com label devolvia lista
+ * vazia com 120 ações no banco.
+ */
+async function readEngagement(project: ProjectConfig): Promise<Reading<string>> {
+  return withTimeout(TIMEOUT_MS.engajamento, async () => {
+    const contas = await prisma.trailAccount.findMany({
+      where: { ownerSlug: project.slug, enabled: true },
+      select: { label: true, kind: true, hiveAccount: true },
+    });
+    if (contas.length === 0) {
+      throw Object.assign(new Error("este portal não tem conta no trail de curadoria"), { empty: true });
+    }
+    const labels = contas.map((c) => c.label);
+
+    const acoes = await prisma.farcasterTrailAction.findMany({
+      where: { actorSlug: { in: labels } },
+      include: { cast: true },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+    });
+    if (acoes.length === 0) {
+      throw Object.assign(new Error("nenhuma ação registrada no trail"), { empty: true });
+    }
+
+    // O AGREGADO ANTES DOS EXEMPLOS. "Quantas respostas estão pendentes" é a
+    // pergunta que alguém faz; a lista crua de casts é o que ele usa para
+    // responder "quais". Enterrar a contagem no meio de quarenta linhas fazia o
+    // agente ter que contar de cabeça — e ele conta errado.
+    const porTipo = new Map<string, number>();
+    for (const a of acoes) {
+      const k = `${a.kind}/${a.status}`;
+      porTipo.set(k, (porTipo.get(k) ?? 0) + 1);
+    }
+    const resumo = [...porTipo.entries()].sort().map(([k, n]) => `${k}: ${n}`).join(" · ");
+    const castsDistintos = new Set(acoes.map((a) => a.castHash)).size;
+
+    // UM CAST, UMA LINHA. O trail grava mais de uma ação para o mesmo post
+    // (retentativa, o mesmo cast reaparecendo no poll), e sem deduplicar o
+    // contexto saía com seis cópias do mesmo texto — enchendo o prompt e, pior,
+    // mentindo sobre o volume: seis linhas parecem seis assuntos.
+    //
+    // Dedup em DOIS níveis, porque são dois problemas diferentes:
+    //
+    //   por castHash — o trail grava mais de uma ação para o mesmo post
+    //                  (retentativa, o post reaparecendo no poll);
+    //   por TEXTO    — a mesma publicação sai em casts diferentes, com hashes
+    //                  diferentes. A SkateHive cross-posta, e o mesmo anúncio
+    //                  apareceu em quatro casts. Deduplicar só por hash deixava
+    //                  quatro linhas idênticas no prompt: enche o contexto e
+    //                  mente sobre o volume, porque quatro linhas parecem
+    //                  quatro assuntos.
+    //
+    // Quantas cópias havia vai anotado na linha (×N) em vez de sumir: "este
+    // post saiu quatro vezes" é informação, e escondê-la seria trocar um
+    // exagero por uma omissão.
+    const chave = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+    const dedup = <T extends { castHash: string; cast: { text: string } | null }>(xs: T[], n: number) => {
+      const porHash = new Set<string>();
+      const porTexto = new Map<string, { item: T; copias: number }>();
+      for (const x of xs) {
+        if (porHash.has(x.castHash)) continue;
+        porHash.add(x.castHash);
+        const k = chave(x.cast?.text ?? x.castHash);
+        const ja = porTexto.get(k);
+        if (ja) ja.copias++;
+        else porTexto.set(k, { item: x, copias: 1 });
+      }
+      return [...porTexto.values()].slice(0, n);
+    };
+    const pendentes = dedup(acoes.filter((a) => a.kind === "reply" && a.status === "pending"), 6);
+    const feitas = dedup(acoes.filter((a) => a.kind === "reply" && a.status === "done"), 4);
+
+    const linha = ({ item: a, copias }: { item: (typeof acoes)[number]; copias: number }) => {
+      const autor = a.cast?.authorHandle || a.cast?.authorSlug || "?";
+      const txt = trim(a.cast?.text ?? "", 140).replace(/\s+/g, " ");
+      const quando = a.cast?.postedAt ? new Date(a.cast.postedAt).toISOString().slice(0, 10) : "?";
+      const rep = copias > 1 ? ` [mesmo texto em ${copias} casts]` : "";
+      return `- @${autor} (${quando})${rep}: ${txt}${a.draft ? `\n  rascunho pronto: ${trim(a.draft, 160)}` : ""}`;
+    };
+
+    const partes = [
+      `Contas deste portal no trail: ${contas.map((c) => `${c.label} (${c.kind}${c.hiveAccount ? `, hive @${c.hiveAccount}` : ""})`).join(", ")}.`,
+      `Últimas ${acoes.length} ações sobre ${castsDistintos} post(s) distintos — ${resumo}.`,
+    ];
+    if (pendentes.length) partes.push("", `Respostas PENDENTES (${pendentes.length} das mais recentes):`, ...pendentes.map(linha));
+    if (feitas.length) partes.push("", "Já respondidas recentemente:", ...feitas.map(linha));
+    return partes.join("\n");
+  });
+}
+
+/**
+ * O último home summary — o briefing que o agente deste portal já escreveu.
+ *
+ * A DATA VIAJA COLADA no texto, e um briefing velho entra dito como velho. Sem
+ * isso o agente lê "decidir sobre o servidor dedicado" de julho e responde como
+ * se fosse a pauta de hoje: uma fotografia antiga apresentada como o presente é
+ * pior que nenhuma fotografia.
+ */
+async function readBriefing(project: ProjectConfig): Promise<Reading<string>> {
+  const agentes = project.briefingAgents ?? [];
+  if (agentes.length === 0) return insufficient<string>("este portal não tem agente de briefing configurado");
+  return withTimeout(TIMEOUT_MS.briefing, async () => {
+    const row = await prisma.briefing.findFirst({
+      where: { agentSlug: { in: agentes.map((a) => a.slug) } },
+      orderBy: [{ date: "desc" }, { generatedAt: "desc" }],
+    });
+    if (!row) throw Object.assign(new Error("nenhum briefing gerado ainda"), { empty: true });
+
+    const dias = Math.floor((Date.now() - new Date(row.date).getTime()) / 86_400_000);
+    const velho = dias > BRIEFING_VELHO_DIAS;
+    const cabecalho = velho
+      ? `ATENÇÃO: este briefing é de ${row.date} — ${dias} dias atrás. Trate como registro do passado, não como a situação de hoje, e diga a data se citar algo daqui.`
+      : `Briefing de ${row.date} (${dias === 0 ? "hoje" : `${dias} dia(s) atrás`}).`;
+    return [cabecalho, "", trim(row.body, 3_000)].join("\n");
   });
 }
 
@@ -486,12 +625,14 @@ export type ChatContext = { block: string; chars: number };
 /** Monta o bloco do zero, sem olhar cache nenhum. */
 async function assembleChatContext(project: ProjectConfig): Promise<ChatContext> {
   const falha = (e: unknown) => ({ state: "unread", reason: String(e) }) as Reading<string>;
-  const [board, meetings, treasury, revenue, team] = await Promise.all([
+  const [board, meetings, treasury, revenue, team, engajamento, briefing] = await Promise.all([
     readBoard(project).catch(falha),
     readMeetings(project).catch(falha),
     readTreasury(project).catch(falha),
     readRevenue().catch(falha),
     readTeam(project).catch(falha),
+    readEngagement(project).catch(falha),
+    readBriefing(project).catch(falha),
   ]);
 
   // A camada A não faz I/O, mas lê config escrito à mão: um campo com formato
@@ -524,6 +665,8 @@ async function assembleChatContext(project: ProjectConfig): Promise<ChatContext>
     renderReading("Tesouro", treasury),
     renderReading("Receita (última sincronização)", revenue),
     renderReading("Equipe deste portal", team),
+    renderReading("Engagement (trail de curadoria)", engajamento),
+    renderReading("Último home summary (briefing)", briefing),
     "[/contexto]",
   ].filter((p) => p !== "");
 
