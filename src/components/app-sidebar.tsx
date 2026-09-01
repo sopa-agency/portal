@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useT } from "@/components/locale-provider";
+import { SidebarProfile } from "@/components/sidebar-profile";
 import type { Dictionary } from "@/lib/i18n/dictionary";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect, useCallback } from "react";
-import { Megaphone, Home, LogOut, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Music2, Newspaper, LayoutTemplate, MessagesSquare, Menu, X, PanelLeftClose, PanelLeftOpen, Search, type LucideIcon } from "lucide-react";
+import { Megaphone, Home, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Music2, Newspaper, LayoutTemplate, MessagesSquare, Menu, X, PanelLeftClose, PanelLeftOpen, Search, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 import { portalUrlFor } from "@/lib/portal-host";
 
@@ -107,6 +108,8 @@ type AppSidebarProps = {
   /** Resolved at login and read from the DB; null when the account has no Hive
    *  picture, so the initials stand in rather than Hive's generic silhouette. */
   avatarUrl?: string | null;
+  /** Carteira cadastrada no Team — o menu de perfil compara com a conectada. */
+  registeredWallet?: string | null;
   projectName: string;
   projectLogo: string;
   currentSlug: string;
@@ -127,11 +130,8 @@ type AppSidebarProps = {
   farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, avatarUrl, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, chatEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, avatarUrl, registeredWallet = null, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, chatEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
   const t = useT();
-  // A 404 on the image still has to fall back — hasAvatar answers "did they
-  // ever set one", not "is it serving right now".
-  const [avatarFailed, setAvatarFailed] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -538,44 +538,17 @@ export function AppSidebar({ username, avatarUrl, projectName, projectLogo, curr
         <div className={collapsed ? "lg:hidden" : undefined}>
           <OnlineAvatars />
         </div>
-        <div
-          className={`flex items-center gap-3 rounded-lg py-1.5 ${
-            collapsed ? "px-2 lg:flex-col lg:gap-2 lg:px-0" : "px-2"
-          }`}
-        >
-          {avatarUrl && !avatarFailed ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={avatarUrl}
-              alt=""
-              width={32}
-              height={32}
-              onError={() => setAvatarFailed(true)}
-              title={collapsed ? `@${username}` : undefined}
-              className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
-            />
-          ) : (
-            <div
-              title={collapsed ? `@${username}` : undefined}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-bg text-[11px] font-bold uppercase text-accent"
-            >
-              {username.slice(0, 2)}
-            </div>
-          )}
-          <div className={`min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
-            <p className="truncate text-sm font-medium text-foreground">@{username}</p>
-            <p className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.nav.connected}</p>
-          </div>
-          <button
-            type="button"
-            onClick={logout}
-            disabled={pending}
-            aria-label={t.nav.logOut}
-            className="shrink-0 rounded-lg p-2 text-foreground-faint transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        </div>
+        {/* O perfil deixou de ser um rótulo com um botão de sair ao lado: agora
+            é o lugar da identidade inteira — quem está logado, com qual carteira,
+            e a saída. Ver sidebar-profile.tsx. */}
+        <SidebarProfile
+          username={username}
+          avatarUrl={avatarUrl ?? null}
+          registeredWallet={registeredWallet}
+          collapsed={collapsed}
+          pending={pending}
+          onLogout={logout}
+        />
       </div>
 
       {/* Resize handle — lg+ only, and pointless on the collapsed rail. The strip

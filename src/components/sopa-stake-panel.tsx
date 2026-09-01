@@ -6,13 +6,14 @@
 // on Base. Principal is the wallet's; withdraw after the subnet's 7-day lock.
 // Copy is PT-BR to match the rest of the treasury page.
 
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPublicClient, http, getAddress, parseUnits, formatUnits, encodeFunctionData, type Address } from "viem";
 import { base } from "viem/chains";
 import { useT } from "@/components/locale-provider";
 import { rich } from "@/components/rich-text";
 import { Loader2, Plug } from "lucide-react";
 import { PIPELINE, TOKENS } from "@/lib/mor-pipeline";
+import { useWallet } from "@/components/wallet-provider";
 
 type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 const pub = createPublicClient({ chain: base, transport: http("https://base-rpc.publicnode.com") });
@@ -34,7 +35,7 @@ const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 4 
 export function SopaStakePanel() {
   const dict = useT().treasury;
   const t = dict.mor;
-  const [account, setAccount] = useState<string | null>(null);
+  const { address: account, connect: connectWallet, connecting, ensureChain } = useWallet();
   const [balance, setBalance] = useState(0);
   const [staked, setStaked] = useState(0);
   const [amount, setAmount] = useState("");
@@ -52,32 +53,24 @@ export function SopaStakePanel() {
     } catch { /* leave as-is */ }
   }, []);
 
+  // A carteira já vem conectada de outra tela ou do carregamento anterior, então
+  // a leitura dos saldos não pode morar dentro do `connect()` — ela acompanha o
+  // endereço. Sem isto o painel abriria conectado e com os números zerados.
+  useEffect(() => {
+    if (account) read(account);
+  }, [account, read]);
+
   async function connect() {
     setErr(null);
-    try {
-      const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error(dict.wallet.none);
-      const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-      const cid = (await eth.request({ method: "eth_chainId" })) as string;
-      if (cid !== "0x2105") {
-        await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }).catch(async (e) => {
-          if ((e as { code?: number })?.code === 4902) {
-            await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }] });
-          } else throw e;
-        });
-      }
-      const a = getAddress(accs[0]);
-      setAccount(a);
-      read(a);
-    } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? dict.wallet.connectFailed);
-    }
+    const a = await connectWallet();
+    if (a) await ensureChain("0x2105");
   }
 
   // Raw eth_sendTransaction ({from,to,data}) — the wallet fills gas/fees/nonce.
   // Most compatible with injected wallets (viem's writeContract adds fields some
   // wallet RPCs reject).
   async function send(to: Address, data: `0x${string}`) {
+    await ensureChain("0x2105");
     const eth = (window as unknown as { ethereum?: Eth }).ethereum!;
     const hash = (await eth.request({ method: "eth_sendTransaction", params: [{ from: getAddress(account!), to, data }] })) as `0x${string}`;
     await pub.waitForTransactionReceipt({ hash });
@@ -122,7 +115,7 @@ export function SopaStakePanel() {
           </p>
         </div>
         {!account && (
-          <button type="button" onClick={connect} className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20">
+          <button type="button" onClick={connect} disabled={connecting} className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-40">
             <Plug className="h-3.5 w-3.5" /> {dict.wallet.connect}
           </button>
         )}

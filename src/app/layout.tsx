@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
+import { WalletProvider } from "@/components/wallet-provider";
 import { isTrailParticipant } from "@/lib/farcaster-trail-config";
 import { CommandK } from "@/components/command-k";
 import { ContentShell } from "@/components/content-shell";
@@ -117,6 +118,25 @@ export default async function RootLayout({
           dividerBefore: !!p.switcher?.dividerBefore,
         }))
     : [];
+  // A carteira que a pessoa cadastrou no Team.
+  //
+  // Serve para o perfil da barra lateral dizer se a carteira CONECTADA no
+  // navegador é a mesma que está no cadastro. Sem essa comparação, "conectado"
+  // é só um endereço na tela: a pessoa pode estar operando com a conta errada da
+  // MetaMask e o portal não teria como avisar.
+  //
+  // Contato é por PESSOA, não por portal — a mesma carteira vale em qualquer um
+  // deles — então a busca não filtra por projectSlug.
+  const registeredWallet = session
+    ? await prisma.teamMemberContact
+        .findFirst({
+          where: { username: session.username, label: "Wallet" },
+          select: { value: true },
+        })
+        .then((r) => r?.value ?? null)
+        .catch(() => null)
+    : null;
+
   // Enabled routes for the active portal (for ⌘K). Mirrors the sidebar's gating.
   const navItems = (
     [
@@ -163,10 +183,12 @@ export default async function RootLayout({
           {session ? (
             // Authenticated layout: sidebar + main, with live team presence.
             <PresenceProvider username={session.username} projectSlug={project.slug}>
+            <WalletProvider>
             <div className="min-h-screen lg:flex">
               <AppSidebar
                 username={session.username}
                 avatarUrl={viewerHasAvatar ? hiveAvatarUrl(session.username) : null}
+                registeredWallet={registeredWallet}
                 projectName={project.name}
                 projectLogo={project.theme.logo}
                 currentSlug={project.slug}
@@ -201,6 +223,7 @@ export default async function RootLayout({
               />
               <CommandK navItems={navItems} portals={switchProjects} currentSlug={project.slug} />
             </div>
+            </WalletProvider>
             </PresenceProvider>
           ) : (
             // Only reached on the public /login route (the guard above redirects

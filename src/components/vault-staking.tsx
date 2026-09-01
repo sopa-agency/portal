@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useWallet } from "@/components/wallet-provider";
 import { useT } from "@/components/locale-provider";
 import { rich } from "@/components/rich-text";
 import { createPublicClient, createWalletClient, custom, http, formatUnits, parseUnits, getAddress, erc20Abi } from "viem";
@@ -49,7 +50,7 @@ function VaultCard({ info }: { info: VaultInfo }) {
   const t = dict.vault;
   const { vault } = info;
   const router = useRouter();
-  const [account, setAccount] = useState<string | null>(null);
+  const { address: account, connect: connectWallet, connecting, ensureChain } = useWallet();
   const [walletBal, setWalletBal] = useState<number | null>(null);
   const [position, setPosition] = useState<number | null>(null);
   const [shares, setShares] = useState<bigint>(BigInt(0));
@@ -82,19 +83,16 @@ function VaultCard({ info }: { info: VaultInfo }) {
     [vault.asset, vault.address, vault.assetDecimals],
   );
 
+  // Saldo e posição acompanham o endereço, não o clique: a conexão pode vir de
+  // outro card desta mesma página ou do carregamento anterior.
+  useEffect(() => {
+    if (account) void refresh(account);
+  }, [account, refresh]);
+
   async function connect() {
     setErr(null);
-    try {
-      const eth = (window as unknown as { ethereum?: Eth }).ethereum;
-      if (!eth) throw new Error(dict.wallet.none);
-      const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-      await ensureBase(eth);
-      const who = getAddress(accs[0]);
-      setAccount(who);
-      await refresh(who);
-    } catch (e) {
-      setErr((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message);
-    }
+    const a = await connectWallet();
+    if (a) await ensureChain("0x2105");
   }
 
   async function run() {
@@ -257,7 +255,8 @@ function VaultCard({ info }: { info: VaultInfo }) {
         <button
           type="button"
           onClick={connect}
-          className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:brightness-110"
+          disabled={connecting}
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent hover:brightness-110 disabled:opacity-40"
         >
           <Wallet className="h-4 w-4" /> {dict.wallet.connect}
         </button>
