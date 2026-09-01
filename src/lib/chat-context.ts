@@ -55,7 +55,7 @@ import { getProjectMeetingsContext } from "@/lib/meetings-context";
  * quais ações já viraram card feito. Com 3s ela estourava sempre, e um sinal
  * que nunca chega é o mesmo que não existir.
  */
-const TIMEOUT_MS = { board: 4_000, atas: 6_000, tesouro: 3_000, receita: 3_000, equipe: 3_000, engajamento: 3_000, briefing: 2_000 } as const;
+const TIMEOUT_MS = { board: 4_000, atas: 6_000, tesouro: 3_000, receita: 3_000, equipe: 3_000, engajamento: 3_000, briefing: 2_000, social: 3_000 } as const;
 
 /**
  * A partir de quantos dias o home summary entra marcado como velho.
@@ -345,6 +345,69 @@ async function readEngagement(project: ProjectConfig): Promise<Reading<string>> 
 }
 
 /**
+ * Redes sociais — o que a Meta e as outras plataformas dizem, do snapshot.
+ *
+ * Vem do SocialMetricSnapshot, gravado por cron. Não chama a Graph API aqui:
+ * uma leitura ao vivo por mensagem de chat seria lenta, cara e sujeita a
+ * rate limit — e o número que interessa (seguidores hoje vs. semana passada)
+ * já está gravado.
+ *
+ * A VARIAÇÃO É O DADO, não o total. "3.412 seguidores" não diz nada sozinho;
+ * "3.412, +18 na semana" responde a pergunta que a pessoa realmente faz. E
+ * quando não há leitura anterior para comparar, a variação sai como
+ * desconhecida em vez de zero — porque zero significaria "não cresceu", que é
+ * uma afirmação que não temos como fazer.
+ */
+async function readSocial(project: ProjectConfig): Promise<Reading<string>> {
+  return withTimeout(TIMEOUT_MS.social, async () => {
+    const linhas = await prisma.socialMetricSnapshot.findMany({
+      where: { projectSlug: project.slug },
+      orderBy: { capturedAt: "desc" },
+      take: 200,
+    });
+    if (linhas.length === 0) {
+      throw Object.assign(new Error("nenhuma métrica de rede social capturada para este portal"), { empty: true });
+    }
+
+    // Última leitura por plataforma, e a mais próxima de 7 dias atrás para a
+    // comparação. Uma varredura só; a lista já vem ordenada do mais novo.
+    const agora = Date.now();
+    const seteDias = 7 * 86_400_000;
+    type Ponto = { followers: number; at: Date };
+    const atual = new Map<string, Ponto>();
+    const antes = new Map<string, Ponto>();
+    for (const l of linhas) {
+      const p = { followers: l.followers, at: l.capturedAt };
+      if (!atual.has(l.platform)) {
+        atual.set(l.platform, p);
+        continue;
+      }
+      // O primeiro ponto com pelo menos 7 dias de idade é a base de comparação.
+      if (!antes.has(l.platform) && agora - l.capturedAt.getTime() >= seteDias) {
+        antes.set(l.platform, p);
+      }
+    }
+
+    const fmt = (n: number) => n.toLocaleString("pt-BR");
+    const partes: string[] = [];
+    for (const [plataforma, hoje] of [...atual.entries()].sort()) {
+      const base = antes.get(plataforma);
+      const idade = Math.floor((agora - hoje.at.getTime()) / 86_400_000);
+      const quando = idade === 0 ? "hoje" : `há ${idade} dia(s)`;
+      const delta = base
+        ? (() => {
+            const d = hoje.followers - base.followers;
+            const sinal = d > 0 ? "+" : "";
+            return `${sinal}${fmt(d)} em ${Math.round((hoje.at.getTime() - base.at.getTime()) / 86_400_000)} dia(s)`;
+          })()
+        : "variação desconhecida (sem leitura anterior para comparar — não é o mesmo que não ter variado)";
+      partes.push(`- ${plataforma}: ${fmt(hoje.followers)} seguidores (medido ${quando}) · ${delta}`);
+    }
+    return ["Seguidores por plataforma, do snapshot do portal:", ...partes].join("\n");
+  });
+}
+
+/**
  * O último home summary — o briefing que o agente deste portal já escreveu.
  *
  * A DATA VIAJA COLADA no texto, e um briefing velho entra dito como velho. Sem
@@ -625,7 +688,7 @@ export type ChatContext = { block: string; chars: number };
 /** Monta o bloco do zero, sem olhar cache nenhum. */
 async function assembleChatContext(project: ProjectConfig): Promise<ChatContext> {
   const falha = (e: unknown) => ({ state: "unread", reason: String(e) }) as Reading<string>;
-  const [board, meetings, treasury, revenue, team, engajamento, briefing] = await Promise.all([
+  const [board, meetings, treasury, revenue, team, engajamento, briefing, social] = await Promise.all([
     readBoard(project).catch(falha),
     readMeetings(project).catch(falha),
     readTreasury(project).catch(falha),
@@ -633,6 +696,7 @@ async function assembleChatContext(project: ProjectConfig): Promise<ChatContext>
     readTeam(project).catch(falha),
     readEngagement(project).catch(falha),
     readBriefing(project).catch(falha),
+    readSocial(project).catch(falha),
   ]);
 
   // A camada A não faz I/O, mas lê config escrito à mão: um campo com formato
@@ -665,6 +729,7 @@ async function assembleChatContext(project: ProjectConfig): Promise<ChatContext>
     renderReading("Tesouro", treasury),
     renderReading("Receita (última sincronização)", revenue),
     renderReading("Equipe deste portal", team),
+    renderReading("Redes sociais (seguidores)", social),
     renderReading("Engagement (trail de curadoria)", engajamento),
     renderReading("Último home summary (briefing)", briefing),
     "[/contexto]",
