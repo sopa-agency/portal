@@ -633,6 +633,13 @@ export function TreasuryHistoryChart({
         linha, dentro do SVG, onde não existe reflow.
       */}
 
+      {live && (
+        <p className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+          ⚠ Esta é a série da Zerion — mais histórico, mas ela <strong>não conta posição em
+          stake</strong>. Medido na SkateHive: US$ 285 aqui contra US$ 2.228 nas carteiras. Fazer
+          stake aparece como queda. Para o saldo certo, recarregue a página.
+        </p>
+      )}
       {err && <p className="mt-2 text-[11px] text-danger">⚠ {err}</p>}
       {src === "wallets" && liveFailed.length > 0 && (
         <p className="mt-2 text-[11px] text-warning">

@@ -409,11 +409,19 @@ treasury: {
     <SopaTreasury
       part="treasury"
       chart={
-        <TreasuryHistoryChart
-          wallets={walletChart.series.length ? ok(walletChart.series) : walletHistory}
-          streams={history}
-          failed={walletChart.failed}
-        />
+        // A LINHA VEM DO NOSSO SNAPSHOT, não da série da Zerion.
+        //
+        // Medido: o endpoint /charts da Zerion não inclui posição de protocolo,
+        // e ele IGNORA o filter[positions]=no_filter que resolveu isso no
+        // endpoint de saldo. Na SkateHive a série dele termina em US$ 285
+        // enquanto as carteiras somam US$ 2.228 — a diferença é o stETH e o
+        // depósito na Morpho. Fazer stake tirava o token da carteira e a linha
+        // despencava, como se o dinheiro tivesse sumido.
+        //
+        // O snapshot horário usa a chamada de saldo, com no_filter, e por isso
+        // está certo. Ele tem menos histórico (desde 27/08) — e linha curta e
+        // certa vale mais que linha longa e errada num painel de tesouraria.
+        <TreasuryHistoryChart wallets={walletHistory} streams={history} failed={walletChart.failed} />
       }
       groups={groups}
       revenue={orgRevenue}
@@ -544,7 +552,9 @@ treasury: {
         }
         revenue={
           <>
-            <TreasuryHistoryChart wallets={walletChart.series.length ? ok(walletChart.series) : walletHistory} streams={history} failed={walletChart.failed} />
+            {/* Mesmo motivo do portal da SOPA: a série da Zerion não conta
+                stake, então a linha vem do snapshot. Ver a nota lá em cima. */}
+            <TreasuryHistoryChart wallets={walletHistory} streams={history} failed={walletChart.failed} />
             <div className="mt-4" />
             {revenueFailed ? (
               <p className="text-xs text-warning">⚠ receita não carregou (leitura falhou) — não é zero</p>
