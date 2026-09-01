@@ -27,6 +27,16 @@ export type OrgRevenueStream = {
   tokens: Token[];
   /** Accurate event-based gross income (auction/split); null for plain wallets. */
   realized: RealizedRevenue | null;
+  /**
+   * Por que a leitura de receita realizada não valeu.
+   *
+   * Existe porque `realized: null` sozinho é ambíguo — vale tanto para "li e
+   * não houve distribuição" quanto para "não consegui ler". A tela tratava as
+   * duas como a primeira e escrevia "no distribution yet" em splits com 16
+   * distribuições. Também carrega ressalva de leitura PARCIAL (rede não lida,
+   * token sem preço), caso em que o número existe mas é um piso.
+   */
+  realizedError?: string;
   /** In/out flow proxy, used when there's no auction/split event history. */
   flow: RevenueFlow | null;
   trend: RevenueTrend | null;
@@ -146,6 +156,7 @@ export async function getOrgRevenue(only?: { name: string; slug: string }): Prom
         tokens: b?.tokens ?? [],
         error: b?.error,
         realized: useRealized ? rr : null,
+        realizedError: rr?.error,
         flow: useRealized ? null : flow.get(k) ?? null,
         trend: trendByKey.get(k) ?? null,
       };

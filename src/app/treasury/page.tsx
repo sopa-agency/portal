@@ -113,8 +113,8 @@ export default async function TreasuryPage() {
     // A Zerion NÃO é chamada aqui — mas o ÚLTIMO SYNC que alguém pediu volta do
     // banco, em vez de o gráfico recomeçar do zero a cada F5.
     readChartSync(isSopa ? "all" : project.slug)
-      .then((c) => ({ series: c?.series ?? [], failed: c?.failed ?? [] }))
-      .catch(() => ({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[] })),
+      .then((c) => ({ series: c?.series ?? [], failed: c?.failed ?? [], syncedAt: c?.syncedAt ?? null }))
+      .catch(() => ({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[], syncedAt: null as Date | null })),
   ]);
 
   const pesadoP = Promise.all([
@@ -354,7 +354,7 @@ treasury: {
             // dizer, por omissão, que não há acordo com aquela marca. Some a
             // receita ausente E o arranjo, quando só a receita está ausente.
             s.kind === "split"
-              ? [{ key: `${p.cardId}:${i}`, projectName: p.name, label: s.label, address: s.address, chain: s.chain, realizedUsd: s.realized?.revenueUsd ?? 0 }]
+              ? [{ key: `${p.cardId}:${i}`, projectName: p.name, label: s.label, address: s.address, chain: s.chain, realizedUsd: s.realized?.revenueUsd ?? 0, realizedError: s.realizedError }]
               : [],
           ),
         )
@@ -366,7 +366,10 @@ treasury: {
         key: s.key,
         projectName: s.projectName,
         label: s.label,
+        address: s.address,
+        chain: s.chain,
         realizedUsd: s.realizedUsd,
+        realizedError: s.realizedError,
         sopaShare: cfg?.shareFor(SOPA_SAFE) ?? null,
         recipients:
           cfg?.recipients.map((r) => ({
@@ -403,6 +406,55 @@ treasury: {
     : ok<Awaited<ReturnType<typeof getPipelineStatus>> | null>(null);
   const pipelineStatus = isOk(pipelineRead) ? pipelineRead.value : null;
 
+  // SOPA's own pot, as a reading — the earmark panel's denominator.
+  const ownTotal: Reading<number> =
+    groups.find((g) => g.slug === project.slug)?.report.total ?? unread("tesouro da SOPA não encontrado");
+
+  // Os earmarks, como SLOT da aba e não como irmão dela.
+  //
+  // Eles são porcentagem do caixa da SOPA. Enquanto o card ficava fora do
+  // SopaTreasury, clicar em "SkateHive" filtrava tudo menos ele — e a tela
+  // passava a misturar o tesouro de uma marca com a destinação do dinheiro de
+  // outra. Agora quem manda é a aba.
+  const earmarkPanel = (
+    <>
+      {/* Earmarks are PERCENTAGES OF the pot, so an incomplete pot makes every
+          slice wrong in a way that still looks plausible. The panel is withheld
+          rather than shown with a denominator we couldn't finish reading. */}
+      {/* Earmarks nunca configurados é resposta legítima e some em silêncio de
+          propósito. Earmarks que NÃO LERAM é outra coisa, e precisa dizer. */}
+      {allocUnknown && (
+        <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          ⚠ Os earmarks não puderam ser lidos
+          {!isOk(allocRead) && allocRead.state === "unread" ? ` — ${allocRead.reason}` : ""}. Isto NÃO quer dizer que
+          não haja destinação definida.
+        </p>
+      )}
+      {allocation && ownTotal.state !== "ok" && (
+        <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          {t.treasury.hero.incomplete} — {ownTotal.state === "unread" ? ownTotal.reason : ownTotal.note}
+        </p>
+      )}
+      {allocation && isOk(ownTotal) && (
+        <TreasuryAllocation
+          initial={allocation}
+          // SOPA's OWN pot and SOPA's OWN costs — not the brand treasuries it
+          // merely reports on (those are separate money, own multisigs).
+          totalUsd={ownTotal.value}
+          // Posição desconhecida não entra como 0 num painel de porcentagens:
+          // o earmark ficaria dividindo por um bolo que ninguém leu.
+          stakedUsd={stakeUnknown ? null : stakePosition?.valueUsd ?? 0}
+          canEdit={!!session}
+          streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
+          apy={stakePosition?.apy ?? null}
+          monthlyCostsUsd={initialCosts
+            .filter((c) => c.active && c.projectSlug === project.slug)
+            .reduce((s, c) => s + c.monthlyUsd, 0)}
+        />
+      )}
+    </>
+  );
+
   // Two halves of the same component, one per tab: they share the project
   // filter, which is why they aren't two components.
   const sopaOverview = isSopa ? (
@@ -421,13 +473,24 @@ treasury: {
         // O snapshot horário usa a chamada de saldo, com no_filter, e por isso
         // está certo. Ele tem menos histórico (desde 27/08) — e linha curta e
         // certa vale mais que linha longa e errada num painel de tesouraria.
-        <TreasuryHistoryChart wallets={walletHistory} streams={history} failed={walletChart.failed} />
+        <TreasuryHistoryChart
+          wallets={walletHistory}
+          streams={history}
+          failed={walletChart.failed}
+          // O SYNC VOLTA DO BANCO. Antes só o `failed` voltava e a série era
+          // descartada — por isso era preciso clicar "sincronizar" a cada
+          // carregamento. Ver initialLive no componente.
+          initialLive={walletChart.series}
+          initialSyncedAt={walletChart.syncedAt?.toISOString() ?? null}
+        />
       }
       groups={groups}
       revenue={orgRevenue}
       revenueError={revenueFailed}
       dashboardViews={dashboardViews}
       agency={null}
+      sopaOnly={earmarkPanel}
+      sopaSlug={project.slug}
     />
   ) : null;
 
@@ -452,10 +515,6 @@ treasury: {
   // reads as "quanto temos → está saudável? → de onde vem → onde está → o que sai".
   const brandView = groups.find((g) => g.slug === project.slug) ?? groups[0];
   const brandBurn = initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0);
-
-  // SOPA's own pot, as a reading — the earmark panel's denominator.
-  const ownTotal: Reading<number> =
-    groups.find((g) => g.slug === project.slug)?.report.total ?? unread("tesouro da SOPA não encontrado");
 
   const treasuryContent = isSopa ? (
     <div className="space-y-6">
@@ -492,40 +551,8 @@ treasury: {
           <MorFlowDiagram tree={await morTreeP} />
         </div>
       </details>
-      {/* Earmarks are PERCENTAGES OF the pot, so an incomplete pot makes every
-          slice wrong in a way that still looks plausible. The panel is withheld
-          rather than shown with a denominator we couldn't finish reading. */}
-      {/* Earmarks nunca configurados é resposta legítima e some em silêncio de
-          propósito. Earmarks que NÃO LERAM é outra coisa, e precisa dizer. */}
-      {allocUnknown && (
-        <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-          ⚠ Os earmarks não puderam ser lidos
-          {!isOk(allocRead) && allocRead.state === "unread" ? ` — ${allocRead.reason}` : ""}. Isto NÃO quer dizer que
-          não haja destinação definida.
-        </p>
-      )}
-      {allocation && ownTotal.state !== "ok" && (
-        <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-          {t.treasury.hero.incomplete} — {ownTotal.state === "unread" ? ownTotal.reason : ownTotal.note}
-        </p>
-      )}
-      {allocation && isOk(ownTotal) && (
-        <TreasuryAllocation
-          initial={allocation}
-          // SOPA's OWN pot and SOPA's OWN costs — not the brand treasuries it
-          // merely reports on (those are separate money, own multisigs).
-          totalUsd={ownTotal.value}
-          // Posição desconhecida não entra como 0 num painel de porcentagens:
-          // o earmark ficaria dividindo por um bolo que ninguém leu.
-          stakedUsd={stakeUnknown ? null : stakePosition?.valueUsd ?? 0}
-          canEdit={!!session}
-          streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
-          apy={stakePosition?.apy ?? null}
-          monthlyCostsUsd={initialCosts
-            .filter((c) => c.active && c.projectSlug === project.slug)
-            .reduce((s, c) => s + c.monthlyUsd, 0)}
-        />
-      )}
+      {/* Os earmarks saíram daqui: agora são o slot `sopaOnly` do SopaTreasury,
+          governados pela aba All/SOPA/Gnars/SkateHive. */}
       {(budgets.length > 0 || safes.length > 0) && (
         <details className="group border-t border-border pt-8">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
@@ -554,7 +581,16 @@ treasury: {
           <>
             {/* Mesmo motivo do portal da SOPA: a série da Zerion não conta
                 stake, então a linha vem do snapshot. Ver a nota lá em cima. */}
-            <TreasuryHistoryChart wallets={walletHistory} streams={history} failed={walletChart.failed} />
+            <TreasuryHistoryChart
+          wallets={walletHistory}
+          streams={history}
+          failed={walletChart.failed}
+          // O SYNC VOLTA DO BANCO. Antes só o `failed` voltava e a série era
+          // descartada — por isso era preciso clicar "sincronizar" a cada
+          // carregamento. Ver initialLive no componente.
+          initialLive={walletChart.series}
+          initialSyncedAt={walletChart.syncedAt?.toISOString() ?? null}
+        />
             <div className="mt-4" />
             {revenueFailed ? (
               <p className="text-xs text-warning">⚠ receita não carregou (leitura falhou) — não é zero</p>

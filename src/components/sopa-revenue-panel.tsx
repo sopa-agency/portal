@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Briefcase, Plus, Pencil, Trash2, Check, X, Loader2, Link2 } from "lucide-react";
+import { Briefcase, Plus, Pencil, Trash2, Check, X, Loader2, Link2, ExternalLink } from "lucide-react";
 import {
   createSopaJob,
   updateSopaJob,
@@ -20,13 +20,37 @@ export type OnchainShare = {
   key: string;
   projectName: string;
   label: string;
+  address: string;
+  chain: string | null;
   /** Gross that passed through the split. */
   realizedUsd: number;
+  /**
+   * Por que a leitura falhou, ou com que ressalva ela veio.
+   *
+   * Sem isto, `realizedUsd: 0` era escrito na tela como "no distribution yet" —
+   * e era o que a página vinha dizendo dos quatro splits, enquanto a cadeia
+   * tinha 16, 5 e 3 distribuições neles. O Blockscout da Base estava em 500 e o
+   * silêncio dele virava uma afirmação nossa.
+   */
+  realizedError?: string;
   /** SOPA's cut, read from the split's own config on-chain. Null = unreadable. */
   sopaShare: number | null;
   /** Every recipient, so the page can show where the other half goes. */
   recipients: { address: string; share: number; label: string }[];
 };
+
+/**
+ * O contrato no explorer da 0xSplits.
+ *
+ * `chainId` é obrigatório lá: sem ele o explorer abre na rede errada e mostra
+ * "conta não encontrada" para um contrato que existe. Rede nula (stream que não
+ * declara cadeia) cai na Base, que é onde estes splits vivem.
+ */
+const CHAIN_IDS: Record<string, number> = { base: 8453, ethereum: 1, optimism: 10, arbitrum: 42161 };
+function splitsExplorerUrl(address: string, chain: string | null): string {
+  const id = (chain && CHAIN_IDS[chain]) || 8453;
+  return `https://explorer.splits.org/accounts/${address}/?chainId=${id}`;
+}
 
 type Draft = { client: string; amountUsd: string; occurredOn: string; status: JobStatus; description: string };
 
@@ -140,7 +164,13 @@ export function SopaRevenuePanel({
 
   // Only count a split whose config we could actually read. An unreadable split
   // contributes nothing rather than being guessed at a default share.
-  const shareTotal = onchainShare.reduce((s, o) => s + o.realizedUsd * (o.sopaShare ?? 0), 0);
+  // Split não lido NÃO entra no subtotal — nem como zero. Somar um zero que na
+  // verdade é "não sei" é como o subtotal virava $0 com distribuição acontecendo
+  // nos quatro contratos.
+  const naoLidos = onchainShare.filter((o) => o.realizedUsd === 0 && !!o.realizedError);
+  const shareTotal = onchainShare
+    .filter((o) => !naoLidos.includes(o))
+    .reduce((s, o) => s + o.realizedUsd * (o.sopaShare ?? 0), 0);
   const unreadable = onchainShare.filter((o) => o.sopaShare == null).length;
   const jobsPaid = jobs.filter((j) => j.status === "paid").reduce((s, j) => s + j.amountUsd, 0);
   const jobsPending = jobs.filter((j) => j.status === "pending").reduce((s, j) => s + j.amountUsd, 0);
@@ -235,10 +265,28 @@ export function SopaRevenuePanel({
                   <span className="min-w-0 truncate text-foreground-muted">
                     <span className="font-medium text-foreground">{o.projectName}</span>
                     <span className="text-foreground-faint"> · {o.label}</span>
+                    {/* O contrato, conferível. A seção afirma "lido do contrato";
+                        sem o link, a pessoa tem que acreditar na nossa palavra. */}
+                    <a
+                      href={splitsExplorerUrl(o.address, o.chain)}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={o.address}
+                      className="ml-1.5 inline-flex translate-y-[1px] text-foreground-faint transition-colors hover:text-accent"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
                   </span>
                   <span className="shrink-0 tabular-nums">
                     {o.sopaShare == null ? (
                       <span className="text-warning">{t.unreadShare}</span>
+                    ) : o.realizedUsd === 0 && o.realizedError ? (
+                      // NÃO LIDO. Este era o bug: o indexador da Base devolvia
+                      // 500, o zero descia até aqui e a tela o escrevia como
+                      // "ainda não distribuiu" — em splits com 16, 5 e 3
+                      // distribuições na cadeia. Zero de leitura falha nunca
+                      // mais fala pela cadeia.
+                      <span className="text-warning" title={o.realizedError}>{t.unreadRealized}</span>
                     ) : o.realizedUsd === 0 ? (
                       // "US$ 0,00 de US$ 0,00" é verdade e lê como fracasso.
                       // O split existe, a fatia está lida do contrato — o que
@@ -247,6 +295,11 @@ export function SopaRevenuePanel({
                       <span className="text-foreground-subtle">{t.notDistributed}</span>
                     ) : (
                       <>
+                        {/* Leitura parcial vira "pelo menos", não um total com
+                            cara de exato. */}
+                        {o.realizedError && (
+                          <span className="mr-1 text-[10px] text-warning" title={o.realizedError}>{t.partial}</span>
+                        )}
                         <span className="font-semibold text-success">{usd(o.realizedUsd * o.sopaShare)}</span>
                         <span className="ml-1.5 text-[10px] text-foreground-faint">{t.outOf(usd(o.realizedUsd))}</span>
                       </>
@@ -276,6 +329,13 @@ export function SopaRevenuePanel({
               <span className="shrink-0 font-semibold tabular-nums text-success">{usd(shareTotal)}</span>
             </li>
           </ul>
+          {naoLidos.length > 0 && (
+            <p className="mt-2 text-[11px] text-warning">
+              ⚠ {naoLidos.length === 1 ? "1 split não teve" : `${naoLidos.length} splits não tiveram`} as
+              distribuições lidas e {naoLidos.length === 1 ? "ficou" : "ficaram"} fora do subtotal — isso NÃO
+              quer dizer que não houve distribuição.
+            </p>
+          )}
           {unreadable > 0 && (
             <p className="mt-2 text-[11px] text-warning">
               {t.unreadable(unreadable)}

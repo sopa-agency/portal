@@ -92,6 +92,88 @@ type DecodedLog = {
 
 const REALIZED_MAX_PAGES = 40; // ~2000 logs — full history for these DAOs
 
+// ---------------------------------------------------------------------------
+// Caminho 2: a cadeia, direto. Existe porque o caminho 1 caiu.
+//
+// O Blockscout da Base devolve 500 no /addresses/{addr}/logs — hoje, medido,
+// nos quatro splits que a página acompanha. E o efeito disso era o pior
+// possível: `bs()` devolvia null, o laço dava break, e a função retornava
+// revenueUsd 0 SEM error. A tela lia esse zero e escrevia "no distribution
+// yet" em splits que tinham 16, 5 e 3 distribuições. Não é que não tenha
+// entrado dinheiro — é que ninguém conseguiu ler. São coisas diferentes, e a
+// diferença é toda a diferença num painel de receita.
+//
+// eth_getLogs não depende de indexador. É a mesma rota que o splits.ts já usa
+// para ler a configuração do split, pelos mesmos RPCs.
+// ---------------------------------------------------------------------------
+
+/** SplitDistributed(address indexed token, address indexed distributor, uint256 amount) */
+const SPLIT_DISTRIBUTED_TOPIC = "0x562c19c0e7b3493417e3cf5103baa939f4d0e9c1087be236aebb46b84e09c7d9";
+
+const LOG_RPCS: Record<string, string[]> = {
+  base: ["https://base.gateway.tenderly.co", "https://gateway.tenderly.co/public/base", "https://mainnet.base.org"],
+  ethereum: ["https://gateway.tenderly.co/public/mainnet"],
+  optimism: ["https://gateway.tenderly.co/public/optimism"],
+  arbitrum: ["https://gateway.tenderly.co/public/arbitrum"],
+};
+
+type RpcLeitura = { evs: { t: number; usd: number }[]; semPreco: number } | null;
+
+/**
+ * Distribuições de um split numa rede, lidas por eth_getLogs.
+ *
+ * Devolve null quando NENHUM RPC respondeu — null é "não sei", e quem chama tem
+ * que tratá-lo diferente de uma lista vazia, que é "li e não houve nenhuma".
+ * Foi exatamente essa distinção que faltava e produziu o "no distribution yet".
+ *
+ * `semPreco` conta as distribuições cujo token a gente não sabe precificar. Elas
+ * NÃO entram no total como zero: entram nesta contagem, para a tela poder dizer
+ * que o número é um piso.
+ */
+async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number): Promise<RpcLeitura> {
+  const rpcs = LOG_RPCS[chain] ?? [];
+  for (const rpc of rpcs) {
+    try {
+      const r = await fetch(rpc, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_getLogs",
+          params: [{ address: addr, fromBlock: "0x0", toBlock: "latest", topics: [SPLIT_DISTRIBUTED_TOPIC] }],
+        }),
+      });
+      const j = (await r.json()) as { result?: { topics: string[]; data: string; blockNumber: string }[]; error?: unknown };
+      if (j.error || !Array.isArray(j.result)) continue;
+
+      const evs: { t: number; usd: number }[] = [];
+      let semPreco = 0;
+      for (const log of j.result) {
+        // topic1 = token (endereço nos 20 bytes finais da palavra de 32)
+        const token = ("0x" + (log.topics[1] ?? "").slice(26)).toLowerCase();
+        const raw = Number(BigInt(log.data || "0x0"));
+        let usd = 0;
+        if (STABLE_DECIMALS[token]) usd = raw / 10 ** STABLE_DECIMALS[token];
+        else if (WETH.has(token) || NATIVE.has(token)) usd = (raw / 1e18) * ethPrice;
+        else {
+          semPreco++;
+          continue;
+        }
+        // O log traz bloco, não data. Converter exigiria uma chamada por bloco;
+        // para o TOTAL isso não faz falta, e a série temporal deste caminho fica
+        // vazia de propósito em vez de carregar timestamps inventados.
+        if (usd > 0) evs.push({ t: 0, usd });
+      }
+      return { evs, semPreco };
+    } catch {
+      // próximo RPC
+    }
+  }
+  return null;
+}
+
 /** Sum realized revenue from a contract's decoded events (AuctionSettled / SplitDistributed). */
 export async function fetchOnchainRevenue(address: string, chainKey: string | null): Promise<RealizedRevenue> {
   const addr = address.trim().toLowerCase();
@@ -103,14 +185,6 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
   // instância para bsc nem avalanche (404) e a de polygon responde 500: somar
   // as que existem e chamar de total seria a mesma mentira em outra forma.
   const host = chainKey ? BLOCKSCOUT_HOST[chainKey] : undefined;
-  if (!host) {
-    return {
-      method: "none", revenueUsd: 0, count: 0, series: [], truncated: false,
-      error: chainKey
-        ? `sem indexador para a rede "${chainKey}"`
-        : "stream multi-rede: histórico por indexador não cobre todas as redes",
-    };
-  }
   // getPrices() now returns null when CoinGecko gives no ETH price. Historical
   // revenue math has no honest answer in that case: valuing ETH events at 0
   // undercounts, and failing the whole read turns a price blip into "revenue 0"
@@ -123,14 +197,16 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
   const items: DecodedLog[] = [];
   let next: Record<string, string> | null | undefined = {};
   let pages = 0;
-  while (next && pages < REALIZED_MAX_PAGES) {
+  let indexadorRespondeu = false;
+  while (host && next && pages < REALIZED_MAX_PAGES) {
     const res = await bs(host, `/addresses/${addr}/logs`, pages === 0 ? {} : (next as Record<string, string>));
     if (!res) break;
+    indexadorRespondeu = true;
     items.push(...((res.items as DecodedLog[]) ?? []));
     next = res.next_page_params;
     pages++;
   }
-  const truncated = !!next;
+  const truncated = !!next && indexadorRespondeu;
 
   const param = (log: DecodedLog, name: string): string | undefined =>
     log.decoded?.parameters?.find((p) => p.name === name)?.value as string | undefined;
@@ -152,6 +228,54 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
       else if (WETH.has(token) || NATIVE.has(token)) usd = (raw / 1e18) * ethPrice;
       if (usd > 0) splits.push({ t, usd });
     }
+  }
+
+  // O INDEXADOR NÃO ENTREGOU. Antes isto acabava em `revenueUsd: 0` sem error,
+  // e a tela escrevia "no distribution yet". Agora a cadeia é perguntada direto.
+  if (!auctions.length && !splits.length) {
+    const redes = chainKey ? [chainKey] : Object.keys(LOG_RPCS);
+    let total = 0;
+    let n = 0;
+    let semPreco = 0;
+    const naoLidas: string[] = [];
+    for (const rede of redes) {
+      const r = await distribuicoesPorRpc(addr, rede, ethPrice);
+      if (!r) {
+        naoLidas.push(rede);
+        continue;
+      }
+      for (const e of r.evs) total += e.usd;
+      n += r.evs.length;
+      semPreco += r.semPreco;
+    }
+
+    // Nenhuma rede lida: isso é NÃO SEI, e sai dito. O zero desta linha nunca
+    // mais pode passar por "não houve distribuição".
+    if (naoLidas.length === redes.length) {
+      return {
+        method: "none", revenueUsd: 0, count: 0, series: [], truncated: false,
+        error: `não consegui ler as distribuições (${redes.join(", ")}) — nem indexador nem RPC responderam`,
+      };
+    }
+
+    const ressalvas: string[] = [];
+    // Uma rede não lida NÃO é uma rede sem receita. O total vira piso, e diz.
+    if (naoLidas.length) ressalvas.push(`sem leitura em ${naoLidas.join(", ")}`);
+    if (semPreco) ressalvas.push(`${semPreco} distribuição(ões) em token sem preço`);
+    // Rede nula = o stream não declara cadeia. Varremos as que temos RPC; se
+    // houver receita numa que não está na lista, ela não entra — e some-la em
+    // silêncio seria repetir o erro de comparar coberturas diferentes.
+    if (!chainKey) ressalvas.push(`redes lidas: ${redes.filter((r) => !naoLidas.includes(r)).join(", ")}`);
+
+    return {
+      method: n > 0 ? "split" : "none",
+      revenueUsd: total,
+      count: n,
+      // Sem série: o eth_getLogs devolve bloco, não data (ver distribuicoesPorRpc).
+      series: [],
+      truncated: false,
+      ...(ressalvas.length ? { error: ressalvas.join("; ") } : {}),
+    };
   }
 
   const chosen = auctions.length ? { evs: auctions, method: "auction" as const } : splits.length ? { evs: splits, method: "split" as const } : { evs: [], method: "none" as const };

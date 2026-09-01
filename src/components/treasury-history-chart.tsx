@@ -5,6 +5,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import type { TreasurySeries } from "@/lib/treasury-history";
 import { isOk, ok, type Reading } from "@/lib/reading";
 import { fetchWalletChart } from "@/app/actions/treasury-chart";
+import { reconcileWithTruth } from "@/lib/reconcile-series";
 
 // Uma linha por tesouro, sobrepostas. Substitui a barra empilhada, que só sabia
 // dizer a composição de HOJE e não mostrava movimento nenhum.
@@ -27,6 +28,8 @@ export function TreasuryHistoryChart({
   wallets,
   streams,
   failed = [],
+  initialLive,
+  initialSyncedAt,
 }: {
   /**
    * Saldo por CARTEIRA de tesouro, como LEITURA.
@@ -44,6 +47,19 @@ export function TreasuryHistoryChart({
   /** Carteiras cuja leitura FALHOU. Aparecem nomeadas: some da linha é
    *  diferente de valer zero, e o usuário precisa saber qual é qual. */
   failed?: string[];
+  /**
+   * O último sync que alguém pediu, vindo do banco.
+   *
+   * Sem isto a pessoa tinha que clicar "sincronizar" a cada carregamento — o
+   * resultado era guardado e não era lido de volta. Eu tinha cortado esta volta
+   * de propósito, porque a série da Zerion trazia o stake como queda; a queda
+   * agora é corrigida contra o snapshot (ver reconcileWithTruth), então guardar
+   * e restaurar voltou a ser seguro.
+   */
+  initialLive?: TreasurySeries[];
+  /** Quando esse sync foi feito. Dado guardado que se anuncia não é dado velho
+   *  disfarçado de fresco. */
+  initialSyncedAt?: string | null;
 }) {
   // Começa no que TEM dado: as carteiras só acumulam ponto a partir do segundo
   // tick, então logo depois do deploy a única série com linha é a de streams.
@@ -53,7 +69,10 @@ export function TreasuryHistoryChart({
   // Três meses por padrão: um mês mostra pouco movimento num tesouro que se
   // move devagar, e a pergunta que as pessoas fazem olhando isto é de trimestre.
   const [period, setPeriod] = useState("3months");
-  const [live, setLive] = useState<TreasurySeries[] | null>(null);
+  // A série CRUA da Zerion. A corrigida é derivada logo abaixo — guardar a
+  // corrigida no estado faria a correção rodar sobre ela mesma a cada render.
+  const [live, setLive] = useState<TreasurySeries[] | null>(initialLive?.length ? initialLive : null);
+  const [syncedAt] = useState<string | null>(initialSyncedAt ?? null);
   const [liveFailed, setLiveFailed] = useState<string[]>(failed);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -82,11 +101,26 @@ export function TreasuryHistoryChart({
     if (live) await pull(next);
   };
 
+  // A CORREÇÃO DO STAKE.
+  //
+  // A série da Zerion não conta posição de protocolo, então o dia do stake
+  // aparece como queda — a SkateHive terminava em US$ 285 com US$ 2.228 nas
+  // carteiras. Antes isso virava um aviso amarelo com os números escritos à
+  // mão, e a linha continuava mentindo. Agora o snapshot (que lê a carteira
+  // inteira) dá o total verdadeiro de hoje e a série é reconciliada contra ele.
+  // Ver src/lib/reconcile-series.ts — inclusive o caso em que NÃO dá para
+  // corrigir, que continua sendo declarado em vez de escondido.
+  const reconciliado = useMemo(
+    () => (live && isOk(wallets) ? reconcileWithTruth(live, wallets.value) : null),
+    [live, wallets],
+  );
+  const liveCorrigido = reconciliado?.series ?? live;
+
   // A leitura escolhida, ainda como leitura. Só vira array depois de o
   // componente ter decidido o que fazer com cada estado.
   const reading: Reading<TreasurySeries[]> = useMemo(
-    () => (src === "wallets" ? (live ? ok(live) : wallets) : streams),
-    [src, live, wallets, streams],
+    () => (src === "wallets" ? (liveCorrigido ? ok(liveCorrigido) : wallets) : streams),
+    [src, liveCorrigido, wallets, streams],
   );
   // Memoizado porque um array novo a cada render invalidaria todos os useMemo
   // abaixo (cores, eixo, spread) e recalcularia o gráfico inteiro por nada.
@@ -633,11 +667,22 @@ export function TreasuryHistoryChart({
         linha, dentro do SVG, onde não existe reflow.
       */}
 
-      {live && (
+      {/* O aviso agora RELATA a correção em vez de pedir desculpa por ela.
+          Antes esta caixa trazia dois números escritos à mão no código e
+          mandava a pessoa recarregar a página. */}
+      {live && reconciliado && reconciliado.corrigidos.length > 0 && (
+        <p className="mt-2 text-[11px] leading-relaxed text-foreground-faint">
+          A série da Zerion não conta posição em stake, então o dia do stake vinha como queda.
+          Corrigido contra o saldo medido das carteiras:{" "}
+          {reconciliado.corrigidos.map((c) => `${c.label} +${money(c.usd)}`).join(" · ")}.
+        </p>
+      )}
+      {live && reconciliado && reconciliado.naoCorrigidos.length > 0 && (
         <p className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
-          ⚠ Esta é a série da Zerion — mais histórico, mas ela <strong>não conta posição em
-          stake</strong>. Medido na SkateHive: US$ 285 aqui contra US$ 2.228 nas carteiras. Fazer
-          stake aparece como queda. Para o saldo certo, recarregue a página.
+          ⚠ {reconciliado.naoCorrigidos.map((c) => `${c.label} (${money(c.usd)})`).join(", ")} —
+          o saldo medido é maior que o fim da série da Zerion, mas não achei em que dia a
+          diferença começou, então <strong>não corrigi</strong>: a linha desses tesouros está mais
+          baixa que a realidade. O saldo certo é o do card ao lado.
         </p>
       )}
       {err && <p className="mt-2 text-[11px] text-danger">⚠ {err}</p>}
