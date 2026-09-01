@@ -102,9 +102,37 @@ async function resolveEns(addresses: string[]): Promise<Map<string, string>> {
  * "o split não tem ninguém" — o diagrama mostraria uma caixa vazia com cara de
  * verdade. Falhou, diz que falhou.
  */
+/**
+ * Teto para a leitura inteira.
+ *
+ * Medido: esta função sozinha respondia por 19,4s dos 19,5s da página do
+ * tesouro — varredura de log por destinatário, mais ENS por cima, tudo em rede
+ * pública que às vezes engasga. O Suspense tirou ela do caminho do primeiro
+ * byte, mas ela continuava segurando a resposta aberta por meio minuto.
+ *
+ * Estourar o teto devolve `unread` COM MOTIVO, não uma árvore vazia: uma caixa
+ * sem ninguém dentro seria lida como "este split não tem beneficiários", que é
+ * a mentira que este arquivo inteiro foi escrito para evitar.
+ */
+const BUDGET_MS = 12_000;
+
 export async function getMorSplitTree(): Promise<Reading<SplitLeaf[]>> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.value;
 
+  const estourou = Symbol("estourou");
+  const corrida = await Promise.race([
+    montarArvore(),
+    new Promise<typeof estourou>((r) => setTimeout(() => r(estourou), BUDGET_MS)),
+  ]);
+  if (corrida === estourou) {
+    // NÃO guarda no cache: um estouro é circunstância de rede, e cachear isso
+    // por dez minutos transformaria um engasgo em um diagnóstico persistente.
+    return unread<SplitLeaf[]>(`a leitura passou de ${BUDGET_MS / 1000}s e foi interrompida`);
+  }
+  return corrida as Reading<SplitLeaf[]>;
+}
+
+async function montarArvore(): Promise<Reading<SplitLeaf[]>> {
   let value: Reading<SplitLeaf[]>;
   try {
     const top = await getSplitConfig(PIPELINE.downstreamSplit, "base");

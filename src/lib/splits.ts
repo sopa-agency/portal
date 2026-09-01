@@ -1,4 +1,5 @@
 import "server-only";
+import { prisma } from "@/lib/prisma";
 import { keccak256, toHex, decodeAbiParameters } from "viem";
 
 // 0xSplits v2 (PullSplit) config, read from the chain instead of assumed.
@@ -173,7 +174,55 @@ async function readSplitRaw(address: string, chain: string | null): Promise<Spli
  * readable v2 split (unverified proxy, wrong chain, no event) — callers must
  * treat that as "unknown", never as a default share.
  */
+// A configuração de um split, lembrada.
+//
+// `readSplitRaw` varre log de cadeia. Sem memória nenhuma, a página do tesouro
+// refazia essa varredura por split A CADA render — e com o Blockscout da Base
+// em 500 ela cai no RPC, que é o caminho lento. Medido: era a maior parte dos
+// 30s que sobravam depois de o resto já estar em cache.
+//
+// Memória de processo e não banco, de propósito: recipients de split mudam por
+// transação de governança, não de minuto a minuto, e um Map custa zero. O que
+// isso NÃO cobre é instância fria na Vercel — a primeira visita de cada
+// instância paga a leitura. Cobrir aquilo é tabela, e tabela para um dado que
+// muda uma vez por mês é peso sem retorno.
+//
+// Só guarda SUCESSO. Cachear null transformaria um engasgo de rede num "este
+// endereço não é split" que dura dez minutos — a mesma confusão entre "não li"
+// e "não é" que o resto deste módulo existe para evitar.
+const CFG_TTL_MS = 10 * 60_000;
+const cfgCache = new Map<string, { at: number; value: SplitConfig }>();
+
+/** Monta o objeto a partir dos destinatários já normalizados. */
+function montar(address: string, recipients: SplitRecipient[]): SplitConfig {
+  return {
+    address,
+    recipients,
+    shareFor: (owner) => {
+      const hit = recipients.find((r) => r.address.toLowerCase() === owner.toLowerCase());
+      return hit ? hit.share : null;
+    },
+  };
+}
+
 export async function getSplitConfig(address: string, chain: string | null): Promise<SplitConfig | null> {
+  const ck = `${chain ?? "all"}:${address.trim().toLowerCase()}`;
+  const hit = cfgCache.get(ck);
+  if (hit && Date.now() - hit.at < CFG_TTL_MS) return hit.value;
+
+  // O BANCO ANTES DA CADEIA. O Map acima só serve a segunda visita da mesma
+  // instância; na Vercel, instância fria é a regra e ela pagava 22s de
+  // varredura de log por carregamento. Aqui o dado sobrevive ao processo.
+  const doBanco = await prisma.splitConfigCache.findUnique({ where: { key: ck } }).catch(() => null);
+  if (doBanco) {
+    const recipients = (Array.isArray(doBanco.recipients) ? doBanco.recipients : []) as unknown as SplitRecipient[];
+    if (recipients.length) {
+      const cfg = montar(address, recipients);
+      cfgCache.set(ck, { at: Date.now(), value: cfg });
+      return cfg;
+    }
+  }
+
   const raw = await readSplitRaw(address, chain);
   if (!raw) return null;
   const total = Number(raw.total);
@@ -185,14 +234,18 @@ export async function getSplitConfig(address: string, chain: string | null): Pro
   }));
   if (recipients.some((r) => !Number.isFinite(r.share))) return null;
 
-  return {
-    address,
-    recipients,
-    shareFor: (owner) => {
-      const hit = recipients.find((r) => r.address.toLowerCase() === owner.toLowerCase());
-      return hit ? hit.share : null;
-    },
-  };
+  const cfg = montar(address, recipients);
+  cfgCache.set(ck, { at: Date.now(), value: cfg });
+  // Grava sem esperar: a página já tem a resposta, e uma escrita de cache não
+  // pode ser motivo para alguém olhar mais tempo para uma tela vazia.
+  void prisma.splitConfigCache
+    .upsert({
+      where: { key: ck },
+      create: { key: ck, address, chain, recipients: recipients as unknown as object },
+      update: { recipients: recipients as unknown as object, syncedAt: new Date() },
+    })
+    .catch(() => {});
+  return cfg;
 }
 
 /**

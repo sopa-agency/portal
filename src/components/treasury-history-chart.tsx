@@ -6,6 +6,7 @@ import type { TreasurySeries } from "@/lib/treasury-history";
 import { isOk, ok, type Reading } from "@/lib/reading";
 import { fetchWalletChart } from "@/app/actions/treasury-chart";
 import { reconcileWithTruth } from "@/lib/reconcile-series";
+import { RefreshSkeleton } from "@/components/treasury-refresh";
 
 // Uma linha por tesouro, sobrepostas. Substitui a barra empilhada, que só sabia
 // dizer a composição de HOJE e não mostrava movimento nenhum.
@@ -387,6 +388,11 @@ export function TreasuryHistoryChart({
         </div>
       </div>
 
+      {/* O esqueleto cobre só a ÁREA DO DESENHO (ou da tabela). Título, seletor
+          de período e botões continuam clicáveis durante a atualização —
+          esconder o comando junto com o dado tira da pessoa a chance de trocar
+          de período enquanto espera. */}
+      <RefreshSkeleton className="min-h-[260px]">
       {table ? (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -546,6 +552,7 @@ export function TreasuryHistoryChart({
           )}
         </svg>
       )}
+      </RefreshSkeleton>
 
       {/* ── Variação, colada embaixo, mesmo eixo do tempo ────────────────── */}
       {!table && series.length > 0 && (

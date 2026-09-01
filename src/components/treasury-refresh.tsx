@@ -1,48 +1,145 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { RefreshCw } from "lucide-react";
+// O botão de atualizar do tesouro — e o esqueleto que ele comanda.
+//
+// A página inteira mostrava um esqueleto de página inteira (loading.tsx) a cada
+// navegação. O efeito era o contrário do pretendido: um retângulo cinza do
+// tamanho da tela LÊ como "está tudo por vir" e faz o carregamento parecer mais
+// longo do que é, mesmo quando o primeiro byte chega em 2 segundos.
+//
+// Agora a página aparece pronta, com o que estava guardado, e o esqueleto
+// aparece SÓ onde o dado realmente vai mudar — os números e a área do gráfico —
+// e SÓ quando a pessoa pede a atualização. Esqueleto é para o que está mudando
+// agora, não para o que já está na mão.
+//
+// A COR DO BOTÃO é o estado do dado, não enfeite:
+//   verde    — o último sync é recente; o que você está lendo é de agora
+//   vermelho — o dado está velho, ou a última tentativa não conseguiu ler
+// Um botão neutro obrigaria a pessoa a clicar para descobrir se precisava.
+
+import { createContext, useContext, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { RefreshCw } from "lucide-react";
 import { refreshTreasury } from "@/app/actions/treasury";
-import { useT } from "@/components/locale-provider";
 
-/** Manual refresh — busts the 5-min treasury cache and re-renders with live data. */
-export function TreasuryRefresh() {
-  const t = useT().treasury.refresh;
+type RefreshCtx = {
+  pending: boolean;
+  atualizar: () => void;
+  /** Dado velho ou última leitura incompleta — o botão fica vermelho. */
+  ruim: boolean;
+  syncedAt: string | null;
+  erro: string | null;
+};
+const Ctx = createContext<RefreshCtx>({ pending: false, atualizar: () => {}, ruim: false, syncedAt: null, erro: null });
+
+/** True enquanto uma atualização pedida está em curso. */
+export function useTreasuryRefreshing(): boolean {
+  return useContext(Ctx).pending;
+}
+
+export function TreasuryRefreshProvider({
+  syncedAt,
+  stale,
+  hadFailure = false,
+  children,
+}: {
+  /** ISO do sync mais recente, ou null se nunca sincronizou. Só para exibir. */
+  syncedAt: string | null;
+  /**
+   * O dado está velho. Calculado no SERVIDOR, de propósito.
+   *
+   * Comparar com `Date.now()` aqui seria impuro no render e, pior, o servidor e
+   * o navegador chegariam a respostas diferentes — o botão nasceria verde no
+   * HTML e viraria vermelho na hidratação. Quem tem o relógio de referência é
+   * quem leu o dado.
+   */
+  stale: boolean;
+  /** A última leitura deixou algo por ler. */
+  hadFailure?: boolean;
+  children: React.ReactNode;
+}) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [spinning, setSpinning] = useState(false);
-  const [doneAt, setDoneAt] = useState<number | null>(null);
-  const busy = pending || spinning;
+  const [pending, start] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+  const [falhouAgora, setFalhouAgora] = useState(hadFailure);
 
-  const onClick = () => {
-    setSpinning(true);
-    startTransition(async () => {
-      await refreshTreasury().catch(() => {});
+  const ruim = stale || falhouAgora;
+
+  function atualizar() {
+    setErro(null);
+    start(async () => {
+      try {
+        const r = await refreshTreasury();
+        setFalhouAgora(r.falhas.length > 0);
+        if (r.falhas.length) setErro(`não consegui ler ${r.falhas.length} fonte(s) — o resto está atualizado`);
+      } catch (e) {
+        setFalhouAgora(true);
+        setErro(e instanceof Error ? e.message : String(e));
+      }
       router.refresh();
-      // let the route re-render before clearing the spinner
-      setTimeout(() => {
-        setSpinning(false);
-        setDoneAt(Date.now());
-      }, 700);
     });
-  };
+  }
 
   return (
-    <div className="flex items-center gap-2">
-      {doneAt && !busy && (
-        <span className="text-[11px] text-foreground-faint">{t.done}</span>
-      )}
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={busy}
-        title={t.title}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-60"
-      >
-        <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
-        {busy ? t.busy : t.action}
-      </button>
+    <Ctx.Provider value={{ pending, atualizar, ruim, syncedAt, erro }}>
+      {children}
+    </Ctx.Provider>
+  );
+}
+
+/**
+ * O botão. Fica onde sempre esteve, no cabeçalho — o que mudou é que agora ele
+ * carrega a COR do estado do dado e comanda os esqueletos lá embaixo.
+ */
+export function TreasuryRefresh() {
+  const { pending, atualizar, ruim, syncedAt, erro } = useContext(Ctx);
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+        {erro && <span className="text-[11px] text-warning">{erro}</span>}
+        <span className="text-[11px] text-foreground-faint">
+          {syncedAt
+            ? `dados de ${new Date(syncedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
+            : "nunca sincronizado"}
+        </span>
+        <button
+          type="button"
+          onClick={atualizar}
+          disabled={pending}
+          title={
+            pending
+              ? "atualizando…"
+              : ruim
+                ? "os dados estão velhos ou algo não pôde ser lido — clique para atualizar"
+                : "dados recentes"
+          }
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60 ${
+            ruim
+              ? "border-danger/40 bg-danger/10 text-danger hover:bg-danger/20"
+              : "border-success/40 bg-success/10 text-success hover:bg-success/20"
+          }`}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${pending ? "animate-spin" : ""}`} />
+          {pending ? "atualizando…" : "atualizar"}
+        </button>
+    </div>
+  );
+}
+
+/**
+ * O esqueleto localizado.
+ *
+ * Envolve o que está sendo relido. Fora de uma atualização ele não faz nada —
+ * é o filho que aparece, com o dado guardado, imediatamente.
+ */
+export function RefreshSkeleton({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  const pending = useTreasuryRefreshing();
+  if (!pending) return <>{children}</>;
+  return (
+    <div className={`relative ${className}`} aria-busy="true">
+      {/* O conteúdo velho fica embaixo, apagado: some o número, fica o LAYOUT.
+          Trocar por um retângulo do zero faria a página pular na hora de voltar. */}
+      <div className="pointer-events-none opacity-0">{children}</div>
+      <div className="absolute inset-0 animate-pulse rounded-xl bg-surface-elevated" />
     </div>
   );
 }

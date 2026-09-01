@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { fetchAddressBalance } from "@/lib/treasury";
 import {
-  fetchOnchainRevenue,
+  fetchOnchainRevenueCached,
   fetchAddressFlows,
   type RealizedRevenue,
   type RevenueFlow,
@@ -116,7 +116,9 @@ export async function getOrgRevenue(only?: { name: string; slug: string }): Prom
         // "no data" — but LOG so a Blockscout/RPC failure is observable, not silent.
         // (Making these fully explicit needs a Result refactor of revenue-onchain
         //  itself — disproportionate for a null that's already distinguishable.)
-        fetchOnchainRevenue(t.address, t.chain).catch((e) => { console.error(`[org-revenue] realized failed ${t.address}`, e); return null; }),
+        // CACHE PRIMEIRO. A versão direta lê a cadeia, e ler cadeia dentro de
+        // um render foi o que levou a página do tesouro de 12s para 26s.
+        fetchOnchainRevenueCached(t.address, t.chain).catch((e) => { console.error(`[org-revenue] realized failed ${t.address}`, e); return null; }),
         fetchAddressFlows(t.address, t.chain).catch((e) => { console.error(`[org-revenue] flows failed ${t.address}`, e); return null; }),
       ]);
       bal.set(k, b);
