@@ -28,6 +28,8 @@ export function SopaTreasury({
   agency,
   part = "treasury",
   chart,
+  sopaOnly,
+  sopaSlug,
 }: {
   groups: TreasuryGroup[];
   revenue: OrgRevenue | null;
@@ -36,6 +38,19 @@ export function SopaTreasury({
   dashboardViews: FinancialDashboardView[];
   /** SOPA-level agency revenue (jobs + split share) — shown only on "Tudo". */
   agency: ReactNode;
+  /**
+   * Conteúdo que só faz sentido sob UM tesouro — hoje, os earmarks: eles são
+   * porcentagem do caixa da SOPA, e nada dizem sobre a Gnars ou a SkateHive.
+   *
+   * Entra como slot, e não como irmão da página, porque a ABA MANDA. Enquanto
+   * o card ficava do lado de fora, o filtro não o alcançava: a pessoa clicava
+   * "SkateHive" e continuava lendo, logo abaixo, a destinação do dinheiro da
+   * SOPA. Um filtro que não governa a tela inteira não é um filtro, é uma
+   * sugestão.
+   */
+  sopaOnly?: ReactNode;
+  /** A aba sob a qual `sopaOnly` aparece. Sem ela, o slot não é renderizado. */
+  sopaSlug?: string;
   /**
    * O gráfico de saldo, como NÓ. Vem de fora porque a página é quem tem os
    * dados dele; aqui ele só ganha um lugar na grade, ao lado dos números.
@@ -180,6 +195,9 @@ export function SopaTreasury({
         <Section title={t.sections.where} hint={isAll ? t.sections.whereHintAll : t.sections.whereHint}>
           <TreasuryViews groups={visibleGroups} hideSelector hideTotal />
         </Section>
+
+        {/* Só sob a aba da SOPA. Ver `sopaOnly` acima. */}
+        {sopaSlug && view === sopaSlug && sopaOnly}
         </>
       )}
     </div>

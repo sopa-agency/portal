@@ -719,6 +719,11 @@ const en = {
       unreadShare: "split not read",
       outOf: (value: string) => `of ${value} distributed`,
       notDistributed: "no distribution yet",
+      /** The read itself failed — NEVER to be confused with "nothing came in". */
+      unreadRealized: "couldn't read",
+      /** Read, but with a declared hole: the number is a floor. */
+      partial: "at least",
+      viewOnExplorer: "View on Splits explorer",
       subtotal: "On-chain subtotal",
       unreadable: (n: number) =>
         n === 1
@@ -2149,6 +2154,9 @@ const pt: typeof en = {
       unreadShare: "divisão não lida",
       outOf: (value: string) => `de ${value} distribuídos`,
       notDistributed: "ainda não distribuiu",
+      unreadRealized: "não consegui ler",
+      partial: "pelo menos",
+      viewOnExplorer: "Ver no explorer da Splits",
       subtotal: "Subtotal on-chain",
       unreadable: (n: number) =>
         n === 1
