@@ -27,6 +27,7 @@ export function SopaTreasury({
   dashboardViews,
   agency,
   part = "treasury",
+  chart,
 }: {
   groups: TreasuryGroup[];
   revenue: OrgRevenue | null;
@@ -35,6 +36,11 @@ export function SopaTreasury({
   dashboardViews: FinancialDashboardView[];
   /** SOPA-level agency revenue (jobs + split share) — shown only on "Tudo". */
   agency: ReactNode;
+  /**
+   * O gráfico de saldo, como NÓ. Vem de fora porque a página é quem tem os
+   * dados dele; aqui ele só ganha um lugar na grade, ao lado dos números.
+   */
+  chart?: ReactNode;
   /**
    * Which half to render. Balances and revenue are two questions — how much do
    * we have, and where does it come from — and each earns its own tab. They
@@ -122,24 +128,44 @@ export function SopaTreasury({
         </>
       ) : (
         <>
-        {/* Hero: quanto temos · está saudável? · quanto tempo dura */}
-        <TreasuryHealthHero
-          label={projLabel}
-          total={total}
-        unreadLabels={unreadLabels}
-        unvalued={visibleGroups.flatMap((g) => g.report.unpriced)}
-        sourceCount={walletCount}
-          walletCount={walletCount}
-          runwayMonths={runwayMonths}
-          watermarkLogo="/projects/sopa/logo.png"
-          runwayFooter={
-            burnUsd > 0
-              ? isAll
-                ? t.hero.countingCostsAll(usd2(burnUsd))
-                : t.hero.countingCosts(usd2(burnUsd))
-              : t.hero.noCostsFiled
-          }
-        />
+        {/*
+          A CURVA E OS NÚMEROS DIVIDEM O PALCO, lado a lado.
+          
+          Antes o gráfico ocupava a largura inteira e empurrava total, saúde e
+          "onde está o dinheiro" para baixo da dobra: para ver quanto se tem era
+          preciso rolar por cima de um gráfico que responde outra pergunta.
+          
+          Agora são 7 colunas para a curva e 5 para os números — as duas
+          perguntas que se olham juntas ficam juntas. "Onde está o dinheiro"
+          segue embaixo em largura cheia, que é onde largura serve para alguma
+          coisa: símbolo, rede, quantidade e valor cabem na mesma linha.
+          
+          Empilha abaixo de lg: em tela estreita, coluna ao lado de coluna vira
+          duas colunas ruins.
+        */}
+        <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
+          {chart && <div className="lg:col-span-7">{chart}</div>}
+          <div className={chart ? "lg:col-span-5" : "lg:col-span-12"}>
+            <TreasuryHealthHero
+              layout={chart ? "column" : "row"}
+              label={projLabel}
+              total={total}
+              unreadLabels={unreadLabels}
+              unvalued={visibleGroups.flatMap((g) => g.report.unpriced)}
+              sourceCount={walletCount}
+              walletCount={walletCount}
+              runwayMonths={runwayMonths}
+              watermarkLogo="/projects/sopa/logo.png"
+              runwayFooter={
+                burnUsd > 0
+                  ? isAll
+                    ? t.hero.countingCostsAll(usd2(burnUsd))
+                    : t.hero.countingCosts(usd2(burnUsd))
+                  : t.hero.noCostsFiled
+              }
+            />
+          </div>
+        </div>
 
         {/*
           O card "Money in vs out" saiu daqui: a mesma pergunta agora vive

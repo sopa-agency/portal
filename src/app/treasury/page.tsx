@@ -400,6 +400,13 @@ treasury: {
   const sopaOverview = isSopa ? (
     <SopaTreasury
       part="treasury"
+      chart={
+        <TreasuryHistoryChart
+          wallets={walletChart.series.length ? ok(walletChart.series) : walletHistory}
+          streams={history}
+          failed={walletChart.failed}
+        />
+      }
       groups={groups}
       revenue={orgRevenue}
       revenueError={revenueFailed}
@@ -436,19 +443,13 @@ treasury: {
 
   const treasuryContent = isSopa ? (
     <div className="space-y-6">
-      {/* O gráfico abre a visão: a primeira pergunta é "para onde isto está
-          indo", antes da composição de hoje. Fica FORA do SopaTreasury porque
-          aquele componente recebe receita como dado, não como nó — foi por isso
-          que o gráfico não aparecia aqui na primeira subida. */}
-      <TreasuryHistoryChart
-        wallets={walletChart.series.length ? ok(walletChart.series) : walletHistory}
-        streams={history}
-        failed={walletChart.failed}
-      />
       {/* Esta aba responde UMA pergunta: quanto temos e onde está. De onde vem
           (receita) e o que sai (custos) são perguntas próprias, cada uma na sua
           aba — empilhar as três aqui obrigava a rolar por duas para chegar na
-          terceira, e nenhuma delas ficava sendo o assunto da tela. */}
+          terceira, e nenhuma delas ficava sendo o assunto da tela.
+
+          O gráfico entra por DENTRO do SopaTreasury agora (prop `chart`), para
+          poder dividir a grade com o hero em vez de empurrá-lo para baixo. */}
       {sopaOverview}
       {/* Operações MOR (pipeline + stake) — ferramentas de owner, recolhidas num
           collapsible pra Tesouro ficar uma visão limpa de "quanto temos". */}

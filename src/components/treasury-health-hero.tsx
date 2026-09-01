@@ -37,7 +37,16 @@ export function TreasuryHealthHero({
   unreadLabels = [],
   unvalued = [],
   sourceCount,
+  layout = "row",
 }: {
+  /**
+   * "row" — os três cartões lado a lado, como sempre.
+   * "column" — o total ocupa a linha inteira e os dois indicadores dividem a
+   * de baixo. É o formato para quando o hero divide a tela lateralmente com o
+   * gráfico: em 5 de 12 colunas, três cartões em fila espremem justamente o
+   * número da manchete.
+   */
+  layout?: "row" | "column";
   label: string;
   /**
    * The treasury figure as a READING. It used to be a number that was always
@@ -73,7 +82,18 @@ export function TreasuryHealthHero({
   const shownRunway = complete ? runwayMonths : null;
   const h = health(shownRunway, t.verdicts, !complete);
   return (
-    <section className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
+    <section
+      className={
+        // "column" é para quando o hero divide a tela LATERALMENTE com o
+        // gráfico: em 5 de 12 colunas, três cartões lado a lado espremem o
+        // total — que é o número da manchete — até ele caber em duas linhas.
+        // Empilhado, o total fica com a largura toda e os dois indicadores
+        // dividem a linha de baixo.
+        layout === "column"
+          ? "grid grid-cols-2 gap-3 [&>*:first-child]:col-span-2"
+          : "grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr]"
+      }
+    >
       <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-accent-bg to-transparent p-5">
         {watermarkLogo && (
           <Image
