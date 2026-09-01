@@ -345,8 +345,16 @@ treasury: {
     isSopa && orgRevenue
       ? orgRevenue.projects.flatMap((p) =>
           p.streams.flatMap((s, i) =>
-            s.kind === "split" && s.realized && s.realized.revenueUsd > 0
-              ? [{ key: `${p.cardId}:${i}`, projectName: p.name, label: s.label, address: s.address, chain: s.chain, realizedUsd: s.realized.revenueUsd }]
+            // TODO split entra, tenha ele distribuído ou não.
+            //
+            // Antes a condição exigia `revenueUsd > 0`, e o efeito era o
+            // contrário do que esta seção existe para fazer: ela mostra QUAL É A
+            // NOSSA FATIA em cada split das marcas, lida do contrato. Um split
+            // que ainda não rodou sumia da lista inteira — e a página passava a
+            // dizer, por omissão, que não há acordo com aquela marca. Some a
+            // receita ausente E o arranjo, quando só a receita está ausente.
+            s.kind === "split"
+              ? [{ key: `${p.cardId}:${i}`, projectName: p.name, label: s.label, address: s.address, chain: s.chain, realizedUsd: s.realized?.revenueUsd ?? 0 }]
               : [],
           ),
         )

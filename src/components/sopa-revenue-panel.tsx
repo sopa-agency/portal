@@ -239,6 +239,12 @@ export function SopaRevenuePanel({
                   <span className="shrink-0 tabular-nums">
                     {o.sopaShare == null ? (
                       <span className="text-warning">{t.unreadShare}</span>
+                    ) : o.realizedUsd === 0 ? (
+                      // "US$ 0,00 de US$ 0,00" é verdade e lê como fracasso.
+                      // O split existe, a fatia está lida do contrato — o que
+                      // não houve foi distribuição. São coisas diferentes e a
+                      // linha diz qual das duas é.
+                      <span className="text-foreground-subtle">{t.notDistributed}</span>
                     ) : (
                       <>
                         <span className="font-semibold text-success">{usd(o.realizedUsd * o.sopaShare)}</span>

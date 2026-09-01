@@ -718,6 +718,7 @@ const en = {
         "Each swap's fee lands in a split contract that divides it between SOPA and the brand's treasury. The shares below are read from the contract itself — they are not an assumed value.",
       unreadShare: "split not read",
       outOf: (value: string) => `of ${value} distributed`,
+      notDistributed: "no distribution yet",
       subtotal: "On-chain subtotal",
       unreadable: (n: number) =>
         n === 1
@@ -2147,6 +2148,7 @@ const pt: typeof en = {
         "A taxa de cada swap cai num split contract que divide entre a SOPA e o tesouro da marca. As fatias abaixo são lidas do próprio contrato — não são um valor assumido.",
       unreadShare: "divisão não lida",
       outOf: (value: string) => `de ${value} distribuídos`,
+      notDistributed: "ainda não distribuiu",
       subtotal: "Subtotal on-chain",
       unreadable: (n: number) =>
         n === 1
