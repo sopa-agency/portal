@@ -95,15 +95,22 @@ export async function readWalletComposition(address: string): Promise<CachedComp
     ? (row.unpriced as unknown as { symbol: string; balance: number }[])
     : undefined;
 
+  // SEM `as EvmWalletReport`. O cast que estava aqui calou o compilador sobre
+  // um campo OBRIGATÓRIO que eu não preenchia: `unpriced`. Sem ele o objeto
+  // saía com undefined onde a tela espera lista, e o tesouro da SkateHive
+  // sumiu da página em produção. O tipo tinha a resposta o tempo todo; o cast
+  // é que mandou ele calar a boca.
+  const report: EvmWalletReport = {
+    label: row.label,
+    address: row.address,
+    totalUsd: row.totalUsd,
+    tokens,
+    failedChains: row.failedChains,
+    unpriced: unpriced ?? [],
+  };
+
   return {
-    report: {
-      label: row.label,
-      address: row.address,
-      totalUsd: row.totalUsd,
-      tokens,
-      failedChains: row.failedChains,
-      ...(unpriced ? { unpriced } : {}),
-    } as EvmWalletReport,
+    report,
     source: row.source,
     syncedAt: row.syncedAt,
     unverifiedUsd: row.unverifiedUsd,

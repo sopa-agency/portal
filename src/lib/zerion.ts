@@ -174,17 +174,25 @@ export async function zerionBalances(
 
     tokens.sort((x, y) => (y.valueUsd ?? 0) - (x.valueUsd ?? 0));
 
-    // O TOTAL SÓ CONTA O VERIFICADO, e isto não é preciosismo.
+    // O total conta só o que a Zerion verifica, e o não-verificado viaja ao
+    // lado — contado e somado, para a tela mostrar sem misturar.
     //
-    // Medido em 88 horas: neste mesmo endereço a Zerion lia US$ 2.201 e o RPC
-    // lia US$ 84. Abrindo a carteira, são 27 tokens ERC-20 e, fora US$ 63 de
-    // USDC, o resto é airdrop — GOCHU, SAMOYES, BASEHUSKY, "Visit USD.AC t…".
-    // A Zerion coloca preço nessa poeira, e somá-la ao tesouro põe ~US$ 2.100
-    // que ninguém consegue vender num número que vai para relatório.
+    // CORREÇÃO DE UMA ACUSAÇÃO FALSA QUE ESTEVE AQUI. Este comentário dizia que
+    // a Zerion inflava o multisig da SkateHive em ~US$ 2.100 de airdrop, e que
+    // por isso o filtro era essencial. Medido depois, com o número na mão: os
+    // não-verificados daquela carteira somam US$ 0,02. A diferença de US$ 2.117
+    // para o leitor por RPC era DINHEIRO DE VERDADE que o RPC não enxerga —
+    // stETH travado na MorpheusAI (US$ 1.916) e USDC depositado na Morpho
+    // (US$ 200). A Zerion estava certa e eu estava errado.
     //
-    // O não-verificado NÃO é descartado: viaja ao lado, contado e somado, para
-    // a tela poder mostrar sem misturar. Esconder e inflar são os dois jeitos
-    // de mentir; este é o terceiro caminho.
+    // Como o erro foi cometido, porque a forma dele importa mais que o número:
+    // comparei a lista de ERC-20 da Base no Blockscout (US$ 63 precificados,
+    // resto poeira) contra o total MULTI-REDE E COM PROTOCOLO da Zerion, e
+    // atribuí a diferença à poeira. Duas fontes com COBERTURAS diferentes, e a
+    // lacuna creditada à explicação errada.
+    //
+    // O filtro fica: contar só o verificado continua certo por princípio, e o
+    // custo dele aqui é US$ 0,02. O que não fica é a justificativa inventada.
     const verificados = tokens.filter((t) => t.verified);
     const resto = tokens.filter((t) => !t.verified);
     out = {
