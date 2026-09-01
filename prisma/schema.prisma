@@ -602,6 +602,7 @@ model MemberSkills {
    * /**
    * /**
    * /**
+   * /**
    * /** como a pessoa se apresenta: ["dev", "web3", "criativo"]
    */
   roles     String[] @default([])
@@ -1490,4 +1491,40 @@ model TreasuryChartCache {
   series   Json
   failed   String[] @default([])
   syncedAt DateTime @default(now())
+}
+
+/// Um endereço Ethereum autorizado a ENTRAR no portal.
+///
+/// Deliberadamente separado de `TeamMemberContact` (label "Wallet"). Aquele
+/// campo é dado operacional: QUALQUER membro do portal pode editar o de
+/// qualquer outro — está escrito no team-admin.ts. Se o login lesse dali, um
+/// membro poria o próprio endereço no cadastro de um admin e entraria como ele.
+/// Isso é escalada de privilégio, e nenhuma conveniência paga esse preço.
+///
+/// Então o login lê SÓ desta tabela, e esta tabela não se escreve sozinha: a
+/// primeira leva veio de uma semente única a partir daqueles contatos (auditada
+/// antes: nenhuma linha havia sido escrita por terceiro), e daí em diante cada
+/// endereço entra à mão e precisa ser DESBLOQUEADO num segundo gesto.
+///
+/// Dois gestos, e não um, de propósito: adicionar é digitar; desbloquear é
+/// dizer "sim, esta pessoa entra por aqui". Um clique acidental não vira acesso.
+model WalletLogin {
+  id          String    @id @default(cuid())
+  /// Endereço em MINÚSCULAS, sempre. Único: um endereço = uma pessoa. Sem isso
+  /// dois cadastros com o mesmo endereço tornariam ambíguo quem está entrando,
+  /// e "ambíguo" num login significa "entra como o primeiro que o banco
+  /// devolver" — que é como se abre uma porta sem querer.
+  address     String    @unique
+  username    String
+  /// false = cadastrado, mas NÃO entra. É o "desbloqueia" do segundo gesto.
+  enabled     Boolean   @default(false)
+  /// "seed" (a leva inicial) ou "manual". Serve para auditoria: dali a um ano,
+  /// saber se uma linha veio da migração ou de alguém que a digitou.
+  source      String    @default("manual")
+  addedBy     String
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([username])
 }

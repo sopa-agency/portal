@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { Loader2 } from "lucide-react";
+import { Loader2, Wallet } from "lucide-react";
 
 type State =
   | { kind: "idle" }
@@ -169,6 +169,46 @@ export function LoginForm({ projectName, logo, githubEnabled }: LoginFormProps) 
     router.refresh();
   };
 
+  // Entrar com carteira: assina o mesmo nonce que o Hive assina, com a chave da
+  // carteira. Quem decide se esse endereço entra é a allowlist do servidor —
+  // aqui não há nenhuma decisão de acesso, e é assim que tem que ser.
+  const connectWallet = async () => {
+    const eth = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+    if (!eth) {
+      setState({ kind: "error", msg: "Nenhuma carteira encontrada neste navegador." });
+      return;
+    }
+    setState({ kind: "connecting", msg: "Abrindo a carteira…" });
+    try {
+      const contas = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+      const address = contas?.[0];
+      if (!address) throw new Error("A carteira não devolveu nenhuma conta.");
+
+      setState({ kind: "connecting", msg: "Pedindo o desafio…" });
+      const rc = await fetch("/api/auth/challenge", { method: "POST" });
+      const jc = await rc.json();
+      if (!rc.ok || typeof jc.nonce !== "string") throw new Error(jc.error || "Falha no desafio.");
+
+      setState({ kind: "connecting", msg: "Assine na carteira para provar que é sua…" });
+      const signature = (await eth.request({ method: "personal_sign", params: [jc.nonce, address] })) as string;
+
+      setState({ kind: "connecting", msg: "Conferindo a assinatura…" });
+      const r = await fetch("/api/auth/wallet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address, signature }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Falha no login.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setState({ kind: "error", msg: /user rejected|denied/i.test(msg) ? "Assinatura cancelada na carteira." : msg });
+      return;
+    }
+    router.replace(redirectTo);
+    router.refresh();
+  };
+
   return (
     <div className="auth-scene flex min-h-screen items-center justify-center px-4">
       {/* Decoration only — the scene behind the card. */}
@@ -217,6 +257,22 @@ export function LoginForm({ projectName, logo, githubEnabled }: LoginFormProps) 
           >
             {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
             Connect with Hive Keychain
+          </button>
+
+          {/* CARTEIRA. Terceiro método, ao lado do Hive e do GitHub.
+              O botão não é escondido quando não há carteira instalada: some-lo
+              faria a pessoa achar que o portal não suporta isso. Ele avisa. */}
+          <div className="flex items-center gap-2 py-0.5 text-[10px] uppercase tracking-widest text-foreground-faint">
+            <span className="h-px flex-1 bg-border" /> ou <span className="h-px flex-1 bg-border" />
+          </div>
+          <button
+            type="button"
+            onClick={connectWallet}
+            disabled={isBusy}
+            className="auth-action flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface-elevated px-4 py-2.5 text-sm font-medium text-foreground hover:border-border-strong disabled:opacity-50"
+          >
+            <Wallet className="h-4 w-4" />
+            Entrar com carteira Ethereum
           </button>
 
           {githubEnabled && (

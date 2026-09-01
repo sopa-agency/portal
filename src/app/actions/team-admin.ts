@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { listWalletLogins } from "@/lib/wallet-login";
 import { SESSION_COOKIE, GLOBAL_ALLOWLIST } from "@/lib/auth";
 import { getActiveProject, getAllProjects, getProject } from "@/projects/index";
 import { authorize, getRoles, withSeeded, ROLES, GLOBAL_SLUG, type Role } from "@/lib/team-access";
@@ -564,4 +565,83 @@ export async function getWeeklyMvp(): Promise<MvpResult> {
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+// ── Login por carteira ──────────────────────────────────────────────────────
+//
+// Estas ações mexem numa CREDENCIAL, não num contato. Por isso são de admin, e
+// por isso adicionar e liberar são dois gestos separados: `addWalletLogin` cria
+// a linha BLOQUEADA, e só `setWalletLoginEnabled` abre a porta. Adicionar é
+// digitar; liberar é dizer "sim, esta pessoa entra por aqui".
+//
+// Ver src/lib/wallet-login.ts para o motivo de esta lista existir separada do
+// contato "Wallet" da página Team.
+
+export async function listWalletLoginsAction(): Promise<
+  { ok: true; rows: { address: string; username: string; enabled: boolean; source: string; addedBy: string; lastLoginAt: string | null }[] } | { ok: false; error: string }
+> {
+  const g = await adminGate();
+  if (!g.ok) return g;
+  const rows = await listWalletLogins();
+  return {
+    ok: true,
+    rows: rows.map((r) => ({ ...r, lastLoginAt: r.lastLoginAt?.toISOString() ?? null })),
+  };
+}
+
+export async function addWalletLogin(
+  username: string,
+  address: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await adminGate();
+  if (!g.ok) return g;
+  const addr = address.trim().toLowerCase();
+  const user = username.trim().toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(addr)) return { ok: false, error: "Endereço EVM inválido." };
+  if (!user) return { ok: false, error: "Diga de quem é a carteira." };
+
+  // Um endereço = uma pessoa. Deixar o mesmo endereço em dois cadastros faria o
+  // login ficar ambíguo — e ambíguo, num login, quer dizer "entra o primeiro
+  // que o banco devolver".
+  const existe = await prisma.walletLogin.findUnique({ where: { address: addr } }).catch(() => null);
+  if (existe) {
+    return {
+      ok: false,
+      error: existe.username === user ? "Essa carteira já está cadastrada." : `Essa carteira já é de @${existe.username}.`,
+    };
+  }
+  try {
+    // NASCE BLOQUEADA, de propósito. Ver o comentário do bloco.
+    await prisma.walletLogin.create({
+      data: { address: addr, username: user, enabled: false, source: "manual", addedBy: g.who.username },
+    });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  return { ok: true };
+}
+
+export async function setWalletLoginEnabled(
+  address: string,
+  enabled: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await adminGate();
+  if (!g.ok) return g;
+  try {
+    await prisma.walletLogin.update({ where: { address: address.trim().toLowerCase() }, data: { enabled } });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  return { ok: true };
+}
+
+export async function removeWalletLogin(address: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await adminGate();
+  if (!g.ok) return g;
+  try {
+    await prisma.walletLogin.delete({ where: { address: address.trim().toLowerCase() } });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  return { ok: true };
 }

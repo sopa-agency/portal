@@ -14,6 +14,10 @@ const PUBLIC_PATHS = [
   "/api/auth/login",
   "/api/auth/logout",
   "/api/auth/github",
+  // Entrar com carteira. Sem esta linha a rota cai no próprio guarda de sessão
+  // e devolve o HTML do /login em vez de JSON — uma porta de entrada trancada
+  // por fora, que é como ela nasceu na primeira tentativa.
+  "/api/auth/wallet",
   // Unsubscribe links in newsletter emails land here without a session, and
   // the skatehive.app signup checkbox posts to subscribe cross-origin.
   "/api/newsletter/unsubscribe",
