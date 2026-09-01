@@ -312,11 +312,28 @@ export async function zerionChart(address: string, period: ChartPeriod): Promise
   if (!key) return { ok: false, error: "ZERION_API_KEY não configurada" };
 
   try {
-    const res = await fetch(`https://api.zerion.io/v1/wallets/${addr}/charts/${period}?currency=usd`, {
-      headers: { authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`, accept: "application/json" },
-      next: { revalidate: CHART_TTL_S[period] },
-      signal: AbortSignal.timeout(20_000),
-    });
+    // `filter[positions]=no_filter` É O CONSERTO, e a assimetria era o defeito:
+    // a chamada de SALDO já pedia no_filter (inclui posição de protocolo) e a de
+    // GRÁFICO não pedia nada, ficando no padrão da Zerion, que é só token solto
+    // na carteira.
+    //
+    // O efeito na tela: fazer stake tirava o token da carteira, a linha DESCIA,
+    // e o total ao lado continuava igual — porque ele conta a posição. Movimento
+    // interno aparecia como perda de dinheiro, no gráfico que existe justamente
+    // para mostrar se o tesouro está subindo ou caindo.
+    //
+    // `only_non_trash` acompanha para o gráfico não passar a somar airdrop que o
+    // saldo já descarta — as duas chamadas precisam responder sobre a MESMA
+    // carteira, senão trocamos um desencontro por outro.
+    const res = await fetch(
+      `https://api.zerion.io/v1/wallets/${addr}/charts/${period}` +
+        `?currency=usd&filter[positions]=no_filter&filter[trash]=only_non_trash`,
+      {
+        headers: { authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`, accept: "application/json" },
+        next: { revalidate: CHART_TTL_S[period] },
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
     if (!res.ok) return { ok: false, error: `Zerion HTTP ${res.status}` };
     const body = (await res.json()) as { data?: { attributes?: { points?: unknown[] } } };
     const raw = Array.isArray(body.data?.attributes?.points) ? body.data.attributes.points : [];
