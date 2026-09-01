@@ -6,6 +6,7 @@ import { authorize } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { getTreasuryWalletChart } from "@/lib/treasury-history";
 import { CHART_PERIODS, type ChartPeriod } from "@/lib/zerion";
+import { saveChartSync, chartCacheKey } from "@/lib/treasury-chart-cache";
 
 /**
  * Histórico das carteiras num período. Chamado pelo seletor do gráfico.
@@ -24,5 +25,11 @@ export async function fetchWalletChart(
   const isSopa = project.slug === "sopa";
   const r = await getTreasuryWalletChart(p, isSopa ? undefined : { slug: project.slug }).catch(() => null);
   if (!r) return { ok: false, error: "Falha ao ler o histórico." };
+
+  // GUARDA O RESULTADO. Antes ele vivia só no estado do cliente: sincronizava, e
+  // o próximo F5 jogava fora — a pessoa clicava de novo toda visita, e cada
+  // clique é uma requisição por carteira na Zerion. O desperdício não era só de
+  // paciência.
+  await saveChartSync(chartCacheKey(isSopa ? "all" : project.slug, p), r.series, r.failed);
   return { ok: true, series: r.series, failed: r.failed };
 }

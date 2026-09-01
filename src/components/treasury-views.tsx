@@ -303,10 +303,10 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
         // sobre onde o dinheiro está — que é exatamente o que este bloco se
         // propõe a responder.
         //
-        // O corte é em US$ 10 e a poeira NÃO some: fica atrás de "ver mais",
+        // O corte é em US$ 5 e a poeira NÃO some: fica atrás de "ver mais",
         // contada e somada no rótulo do botão. Esconder sem dizer quanto foi
         // escondido seria trocar uma lista ruim por um número incompleto.
-        const DUST = 10;
+        const DUST = 5;
         const poeira = assets.filter((a) => !a.protocol && !a.usdUnknown && a.valueUsd < DUST);
         const liquid = assets.filter(
           (a) => !a.protocol && !(!a.usdUnknown && a.valueUsd < DUST),
@@ -408,7 +408,35 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
           };
         return (
           <>
-            {liquid.length > 0 && <ul className="divide-y divide-border border-t border-border">{liquid.map(renderRow)}</ul>}
+            {/*
+              RENDENDO VEM PRIMEIRO. Antes o spot abria a lista e o que está em
+              stake ficava no rodapé — e é o contrário do que a lista responde:
+              dinheiro trabalhando é a posição sobre a qual alguém decide, e
+              dinheiro parado é o troco. No multisig da SkateHive, os US$ 1.916
+              de stETH na MorpheusAI apareciam DEPOIS de US$ 63 de USDC solto.
+            */}
+            {earning.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">
+                  <Layers className="h-3.5 w-3.5 text-foreground-faint" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
+                    rendendo — sai com unstake
+                  </span>
+                </div>
+                <ul className="divide-y divide-border">{earning.map(renderRow)}</ul>
+              </>
+            )}
+            {liquid.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">
+                  <Wallet className="h-3.5 w-3.5 text-foreground-faint" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
+                    parado — disponível agora
+                  </span>
+                </div>
+                <ul className="divide-y divide-border">{liquid.map(renderRow)}</ul>
+              </>
+            )}
             {poeira.length > 0 && (
               <>
                 {dustOpen && (
@@ -421,19 +449,8 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                 >
                   {dustOpen
                     ? "esconder os menores"
-                    : `ver mais ${poeira.length} abaixo de US$ 10 (somam ${usd(poeiraUsd)})`}
+                    : `ver mais ${poeira.length} abaixo de US$ 5 (somam ${usd(poeiraUsd)})`}
                 </button>
-              </>
-            )}
-            {earning.length > 0 && (
-              <>
-                <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">
-                  <Layers className="h-3.5 w-3.5 text-foreground-faint" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-                    rendendo — sai com unstake
-                  </span>
-                </div>
-                <ul className="divide-y divide-border">{earning.map(renderRow)}</ul>
               </>
             )}
           </>

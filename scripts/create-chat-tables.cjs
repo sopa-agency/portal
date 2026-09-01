@@ -118,7 +118,16 @@ async function main() {
     CREATE INDEX IF NOT EXISTS "TreasuryBalanceCache_project_idx" ON "TreasuryBalanceCache" ("projectSlug");
   `);
 
-  console.log("ok — tabelas do chat, AgentJob.partial, ChatContextCache e TreasuryBalanceCache no lugar.");
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "TreasuryChartCache" (
+      "key"      TEXT PRIMARY KEY,
+      "series"   JSONB NOT NULL,
+      "failed"   TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+      "syncedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  console.log("ok — tabelas do chat, AgentJob.partial, ChatContextCache, TreasuryBalanceCache e TreasuryChartCache no lugar.");
 }
 
 main()

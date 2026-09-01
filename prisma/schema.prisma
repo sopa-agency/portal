@@ -601,6 +601,7 @@ model MemberSkills {
    * /**
    * /**
    * /**
+   * /**
    * /** como a pessoa se apresenta: ["dev", "web3", "criativo"]
    */
   roles     String[] @default([])
@@ -1476,4 +1477,17 @@ model TreasuryBalanceCache {
   syncedAt        DateTime @default(now())
 
   @@index([projectSlug])
+}
+
+/// O resultado do botao "sincronizar" do grafico de tesouro.
+///
+/// Ele vivia so no estado do cliente: sincronizava, e o proximo F5 jogava fora.
+/// A pessoa tinha que clicar de novo toda vez — e cada clique e uma requisicao
+/// por carteira na Zerion, entao o desperdicio nao era so de paciencia.
+model TreasuryChartCache {
+  /// "<escopo>|<periodo>" — escopo e o slug do portal, ou "all" na SOPA.
+  key      String   @id
+  series   Json
+  failed   String[] @default([])
+  syncedAt DateTime @default(now())
 }

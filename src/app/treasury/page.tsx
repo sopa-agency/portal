@@ -39,6 +39,7 @@ import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
 import { MorFlowDiagram } from "@/components/mor-flow-diagram";
 import { getMorSplitTree } from "@/lib/mor-split-tree";
+import { readChartSync, chartCacheKey } from "@/lib/treasury-chart-cache";
 import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
 import { SopaStakePanel } from "@/components/sopa-stake-panel";
 import { getPipelineStatus } from "@/lib/mor-pipeline";
@@ -109,7 +110,11 @@ export default async function TreasuryPage() {
     // toda visita de todo mundo a cada TTL somava rápido contra a cota. A linha
     // abre com o snapshot do banco, que é de graça, e quem quiser a profundidade
     // da Zerion pede pelo botão de sincronizar.
-    Promise.resolve({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[] }),
+    // A Zerion NÃO é chamada aqui — mas o ÚLTIMO SYNC que alguém pediu volta do
+    // banco, em vez de o gráfico recomeçar do zero a cada F5.
+    readChartSync(chartCacheKey(isSopa ? "all" : project.slug, "3months"))
+      .then((c) => ({ series: c?.series ?? [], failed: c?.failed ?? [] }))
+      .catch(() => ({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[] })),
   ]);
 
   const pesadoP = Promise.all([
