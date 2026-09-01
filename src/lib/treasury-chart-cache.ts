@@ -32,10 +32,19 @@ export async function saveChartSync(
 
 /** O último sync guardado, ou null. Null significa "nunca sincronizaram", que a
  *  tela já sabe mostrar — nunca um gráfico vazio com cara de tesouro zerado. */
+/**
+ * O último sync deste ESCOPO, seja qual for o período.
+ *
+ * Antes a página procurava a chave exata `escopo|3months`. Quem sincronizou
+ * olhando outro período recarregava e não achava nada — e do lado de cá parecia
+ * que o sync não tinha sido guardado, quando o que faltava era procurar direito.
+ */
 export async function readChartSync(
-  key: string,
+  scope: string,
 ): Promise<{ series: TreasurySeries[]; failed: string[]; syncedAt: Date } | null> {
-  const row = await prisma.treasuryChartCache.findUnique({ where: { key } }).catch(() => null);
+  const row = await prisma.treasuryChartCache
+    .findFirst({ where: { key: { startsWith: `${scope}|` } }, orderBy: { syncedAt: "desc" } })
+    .catch(() => null);
   if (!row) return null;
   const series = Array.isArray(row.series) ? (row.series as unknown as TreasurySeries[]) : [];
   if (!series.length) return null;

@@ -335,10 +335,20 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
         // contada e somada no rótulo do botão. Esconder sem dizer quanto foi
         // escondido seria trocar uma lista ruim por um número incompleto.
         const DUST = 5;
-        const poeira = assets.filter((a) => !a.protocol && !a.usdUnknown && a.valueUsd < DUST);
-        const liquid = assets.filter(
-          (a) => !a.protocol && !(!a.usdUnknown && a.valueUsd < DUST),
-        );
+        // SEM PREÇO TAMBÉM É POEIRA, e isto é uma correção de rumo.
+        //
+        // Eu tinha deixado o sem-preço de fora do corte com um argumento que
+        // soa bem — "ele não vale menos de 5, ele não tem preço". Só que na
+        // tela o efeito era o oposto do que a lista existe para fazer: NOGS,
+        // WZRD, cbXRP, Buster, skatehive, DeepSeek desfilando com o mesmo peso
+        // do dinheiro de verdade, todos com "USD n/d". Sem preço confiável, o
+        // token não ajuda a responder onde o dinheiro está.
+        //
+        // Continua sem sumir: entra na mesma gaveta, e o botão diz quantos são.
+        const semPreco = (a: Asset) => a.usdUnknown;
+        const ehPoeira = (a: Asset) => !a.protocol && (semPreco(a) || a.valueUsd < DUST);
+        const poeira = assets.filter(ehPoeira);
+        const liquid = assets.filter((a) => !a.protocol && !ehPoeira(a));
         const earning = assets.filter((a) => a.protocol);
         const poeiraUsd = poeira.reduce((sum, a) => sum + a.valueUsd, 0);
         const renderRow = (a: Asset) => {
@@ -473,7 +483,9 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                 >
                   {dustOpen
                     ? "esconder os menores"
-                    : `ver mais ${poeira.length} abaixo de US$ 5 (somam ${usd(poeiraUsd)})`}
+                    : `ver mais ${poeira.length} — abaixo de US$ 5 ou sem preço${
+                        poeiraUsd > 0 ? ` (os precificados somam ${usd(poeiraUsd)})` : ""
+                      }`}
                 </button>
               </>
             )}
