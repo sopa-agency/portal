@@ -134,6 +134,7 @@ export function TreasuryHistoryChart({
 
   const ticks = log ? [FLOOR, 1, 100, 10_000] .filter((t) => t <= maxUsd * 10) : [0, maxUsd / 2, maxUsd];
 
+
   /**
    * VARIAÇÃO LÍQUIDA — e o nome é a definição, não um rótulo simpático.
    *
@@ -228,6 +229,58 @@ export function TreasuryHistoryChart({
   }
 
   const hoverDay = hover != null ? allDays[hover] : null;
+
+  /** A data do ponto sob o cursor, curta — cabe na etiqueta do topo. */
+  const hoverLabelDate = hoverDay
+    ? hoverDay.length > 10
+      ? new Date(hoverDay).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+      : hoverDay
+    : "";
+
+  /**
+   * Onde cada valor é escrito sobre a linha.
+   *
+   * Duas coisas que o SVG não resolve sozinho:
+   *
+   *   LADO — perto da borda direita a etiqueta sairia do quadro, então ela vira
+   *   para a esquerda do cursor. O ponto de virada é 62% da largura útil, que é
+   *   onde a etiqueta mais larga ainda cabe.
+   *
+   *   COLISÃO — duas séries próximas escreveriam uma por cima da outra. As
+   *   etiquetas são empurradas para baixo até ficarem a 19px uma da outra: elas
+   *   deixam de apontar o pixel exato, mas continuam na ordem das linhas, que é
+   *   o que se lê. Ilegível seria pior que deslocado.
+   */
+  const hoverLabels = (() => {
+    if (!hoverDay) return [] as { cardId: string; bx: number; by: number; bw: number; text: string; color: string }[];
+    const hx = x(hoverDay);
+    const paraEsquerda = hx > PAD.l + (W - PAD.l - PAD.r) * 0.62;
+    const brutos = series
+      .map((s) => {
+        const pt = s.points.find((p) => p.t === hoverDay);
+        if (!pt || (log && pt.usd <= 0)) return null;
+        const text = money(pt.usd);
+        const bw = text.length * 6.1 + 12;
+        return {
+          cardId: s.cardId,
+          y0: y(pt.usd),
+          bw,
+          text,
+          color: colorOf.get(s.cardId) ?? "var(--border-strong)",
+          bx: paraEsquerda ? hx - 10 - bw : hx + 10,
+        };
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null)
+      .sort((a, b) => a.y0 - b.y0);
+
+    const MIN = 19;
+    let ultimo = -Infinity;
+    return brutos.map((b) => {
+      const by = Math.max(b.y0, ultimo + MIN, PAD.t + 10);
+      ultimo = by;
+      return { cardId: b.cardId, bx: b.bx, by: Math.min(by, H - PAD.b - 4), bw: b.bw, text: b.text, color: b.color };
+    });
+  })();
 
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
@@ -396,6 +449,67 @@ export function TreasuryHistoryChart({
                 />
               );
             })}
+
+          {/*
+            OS NÚMEROS FICAM SOBRE A LINHA, dentro do SVG.
+            
+            Antes eles saíam numa caixa ABAIXO do gráfico, e essa caixa entrava
+            no fluxo: aparecia no hover, empurrava o painel de variação e a
+            legenda para baixo, e o cartão inteiro crescia. Passar o mouse
+            deformava a página — o pior tipo de tooltip, porque move justamente
+            o que a pessoa está tentando ler.
+            
+            Dentro do SVG não há reflow possível: o viewBox é o mesmo com e sem
+            hover, então o cartão tem exatamente a mesma altura sempre.
+          */}
+          {hoverDay &&
+            hoverLabels.map((L) => (
+              <g key={L.cardId} pointerEvents="none">
+                <rect
+                  x={L.bx}
+                  y={L.by - 9}
+                  width={L.bw}
+                  height={18}
+                  rx={5}
+                  fill="var(--surface-elevated)"
+                  stroke={L.color}
+                  strokeWidth={1}
+                  opacity={0.97}
+                />
+                <text
+                  x={L.bx + 6}
+                  y={L.by + 4}
+                  className="fill-foreground"
+                  style={{ fontSize: 10, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}
+                >
+                  {L.text}
+                </text>
+              </g>
+            ))}
+
+          {hoverDay && (
+            <g pointerEvents="none">
+              <rect
+                x={Math.min(Math.max(x(hoverDay) - 38, PAD.l), W - PAD.r - 76)}
+                y={1}
+                width={76}
+                height={15}
+                rx={4}
+                fill="var(--surface-elevated)"
+                stroke="var(--border)"
+                strokeWidth={1}
+              />
+              <text
+                x={Math.min(Math.max(x(hoverDay) - 38, PAD.l), W - PAD.r - 76) + 38}
+                y={12}
+                textAnchor="middle"
+                className="fill-foreground-subtle"
+                style={{ fontSize: 9 }}
+              >
+                {hoverLabelDate}
+              </text>
+            </g>
+          )}
         </svg>
       )}
 
@@ -459,6 +573,25 @@ export function TreasuryHistoryChart({
               />
             )}
 
+            {/* O delta do dia também vira etiqueta sobre a barra, pelo mesmo
+                motivo: nada pode mudar a altura do cartão no hover. */}
+            {hoverDay && (() => {
+              const v = variation.find((z) => z.t === hoverDay);
+              if (!v) return null;
+              const txt = v.delta == null ? "sem leitura" : `${v.delta >= 0 ? "+" : "−"}${money(Math.abs(v.delta))}`;
+              const bw = txt.length * 6.1 + 12;
+              const hx = x(v.t);
+              const bx = hx > PAD.l + (W - PAD.l - PAD.r) * 0.62 ? hx - 8 - bw : hx + 8;
+              return (
+                <g pointerEvents="none">
+                  <rect x={bx} y={VPAD.t - 2} width={bw} height={17} rx={5}
+                    fill="var(--surface-elevated)" stroke="var(--border-strong)" strokeWidth={1} opacity={0.97} />
+                  <text x={bx + 6} y={VPAD.t + 10} className="fill-foreground"
+                    style={{ fontSize: 10, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{txt}</text>
+                </g>
+              );
+            })()}
+
             {variation.map((v) => {
               if (v.delta == null) return null;
               const bw = Math.max(
@@ -490,39 +623,15 @@ export function TreasuryHistoryChart({
         </div>
       )}
 
-      {hoverDay && !table && (
-        <div className="mt-2 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-faint">
-            {hoverDay.length > 10 ? new Date(hoverDay).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : hoverDay}
-          </p>
-          <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-            {series.map((s) => {
-              const pt = s.points.find((p) => p.t === hoverDay);
-              return (
-                <span key={s.cardId} className="inline-flex items-center gap-1.5 text-[11px]">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: colorOf.get(s.cardId) }} />
-                  <span className="text-foreground-muted">{s.label}</span>
-                  <span className="tabular-nums font-medium text-foreground">{pt ? money(pt.usd) : "—"}</span>
-                </span>
-              );
-            })}
-            {(() => {
-              const v = variation.find((z) => z.t === hoverDay);
-              if (!v) return null;
-              return (
-                <span className="inline-flex items-center gap-1.5 text-[11px]">
-                  <span className="text-foreground-muted">variação</span>
-                  <span className="tabular-nums font-medium text-foreground">
-                    {v.delta == null
-                      ? "sem leitura"
-                      : `${v.delta >= 0 ? "+" : "−"}${money(Math.abs(v.delta))}`}
-                  </span>
-                </span>
-              );
-            })()}
-          </div>
-        </div>
-      )}
+      {/*
+        A caixa de valores que ficava AQUI saiu.
+        
+        Ela era um <div> no fluxo: nascia no hover e empurrava o painel de
+        variação e a legenda para baixo, fazendo o cartão inteiro crescer.
+        Passar o mouse deformava a página — e deformava justamente o que a
+        pessoa estava tentando ler. Os números agora são desenhados sobre a
+        linha, dentro do SVG, onde não existe reflow.
+      */}
 
       {err && <p className="mt-2 text-[11px] text-danger">⚠ {err}</p>}
       {src === "wallets" && liveFailed.length > 0 && (
