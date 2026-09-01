@@ -600,6 +600,7 @@ model MemberSkills {
    * /**
    * /**
    * /**
+   * /**
    * /** como a pessoa se apresenta: ["dev", "web3", "criativo"]
    */
   roles     String[] @default([])
@@ -1447,4 +1448,32 @@ model ChatContextCache {
   block       String   @db.Text
   chars       Int
   builtAt     DateTime @default(now())
+}
+
+/// Composição de uma carteira de tesouro, já lida e pronta.
+///
+/// A página lia tudo por RPC a cada carregamento: cego para posição de
+/// protocolo (o stETH na Morpheus, cofres) e lento — o estágio do saldo sozinho
+/// levava 7,6s medidos. Esta linha guarda o que a Zerion vê, gravado pelo cron
+/// horário, e a página passa a ler daqui.
+///
+/// `source` diz de onde veio, sempre. Número de tesouro sem procedência é a
+/// mesma armadilha do total sem cobertura: parece exato porque tem vírgula.
+model TreasuryBalanceCache {
+  address         String   @id
+  label           String
+  projectSlug     String
+  /// "zerion" | "rpc"
+  source          String
+  totalUsd        Float
+  /// O que tem preço mas a Zerion não verifica. Fica ao lado, nunca no total.
+  unverifiedUsd   Float    @default(0)
+  unverifiedCount Int      @default(0)
+  /// EvmToken[] serializado.
+  tokens          Json
+  failedChains    String[] @default([])
+  unpriced        Json?
+  syncedAt        DateTime @default(now())
+
+  @@index([projectSlug])
 }

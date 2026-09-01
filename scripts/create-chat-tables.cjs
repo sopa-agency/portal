@@ -99,7 +99,26 @@ async function main() {
     );
   `);
 
-  console.log("ok — tabelas do chat, AgentJob.partial, ChatAttachment.token e ChatContextCache no lugar.");
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "TreasuryBalanceCache" (
+      "address"         TEXT PRIMARY KEY,
+      "label"           TEXT NOT NULL,
+      "projectSlug"     TEXT NOT NULL,
+      "source"          TEXT NOT NULL,
+      "totalUsd"        DOUBLE PRECISION NOT NULL,
+      "unverifiedUsd"   DOUBLE PRECISION NOT NULL DEFAULT 0,
+      "unverifiedCount" INTEGER NOT NULL DEFAULT 0,
+      "tokens"          JSONB NOT NULL,
+      "failedChains"    TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+      "unpriced"        JSONB,
+      "syncedAt"        TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "TreasuryBalanceCache_project_idx" ON "TreasuryBalanceCache" ("projectSlug");
+  `);
+
+  console.log("ok — tabelas do chat, AgentJob.partial, ChatContextCache e TreasuryBalanceCache no lugar.");
 }
 
 main()

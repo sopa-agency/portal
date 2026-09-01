@@ -1,7 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { saveWalletComposition } from "@/lib/treasury-balance-cache";
 import { getAllProjects } from "@/projects/index";
-import { fetchAddressBalance, fetchEvmWallet, getPrices, hiveAccountBalances, type ExtraToken } from "@/lib/treasury";
+import { fetchAddressBalance, fetchEvmWallet, getPrices, hiveAccountBalances, type ExtraToken, type EvmToken } from "@/lib/treasury";
 
 // Fotografa o saldo de cada carteira de tesouro configurada, de hora em hora.
 //
@@ -87,6 +88,36 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
       .catch(() => {});
     if (bad) failed++;
     else wrote++;
+
+    // A MESMA leitura que virou ponto no gráfico vira também a composição que a
+    // página mostra. Zero requisição extra: já pagamos por ela acima.
+    //
+    // Só grava quando a leitura DEU CERTO. Guardar uma falha aqui faria a
+    // página servir um tesouro vazio com cara de fresco — o oposto do que o
+    // fallback existe para evitar.
+    if (!bad) {
+      const okBal = bal as {
+        totalUsd: number;
+        tokens: EvmToken[];
+        failedChains?: string[];
+        unpriced?: { symbol: string; balance: number }[];
+        source?: string | null;
+        unverifiedUsd?: number;
+        unverifiedCount?: number;
+      };
+      await saveWalletComposition({
+        address: w.address,
+        label: w.label,
+        projectSlug: w.projectSlug,
+        source: okBal.source ?? "zerion",
+        totalUsd: okBal.totalUsd,
+        tokens: okBal.tokens ?? [],
+        failedChains: okBal.failedChains ?? [],
+        unpriced: okBal.unpriced,
+        unverifiedUsd: okBal.unverifiedUsd,
+        unverifiedCount: okBal.unverifiedCount,
+      });
+    }
 
     // ── O SEGUNDO leitor, na mesma hora ────────────────────────────────────
     // fetchEvmWallet é o que a PÁGINA usa: fan-out de RPC puro, cego para

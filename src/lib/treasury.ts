@@ -1,4 +1,5 @@
 import "server-only";
+import { readWalletComposition } from "@/lib/treasury-balance-cache";
 import { zerionBalances } from "@/lib/zerion";
 import { readHealth, sumReadings, type Reading } from "@/lib/reading";
 import { evmWalletReading, hiveAccountReading, mergeUnpriced } from "@/lib/treasury-readings";
@@ -523,6 +524,9 @@ export type AddressBalance = {
   tokens: EvmToken[];
   failedChains: string[];
   error?: string;
+  /** O que tem preço e a Zerion não verifica — fora do total, ao lado dele. */
+  unverifiedUsd?: number;
+  unverifiedCount?: number;
   /** Which reader produced this. A multi-chain read prefers Zerion (ONE request
    *  for every chain instead of one per chain); "rpc" means Zerion was absent or
    *  failed and the per-chain fan-out took over. Surfaced so a number is never
@@ -572,7 +576,18 @@ export async function fetchAddressBalance(address: string, chainKey?: string | n
           note: t.kind && t.kind !== "wallet" ? `${t.kind}${t.protocol ? ` · ${t.protocol}` : ""}` : undefined,
         }),
       );
-      return { address: addr, chain: null, totalUsd: z.totalUsd, tokens, failedChains: [], source: "zerion" };
+      return {
+        address: addr,
+        chain: null,
+        totalUsd: z.totalUsd,
+        tokens,
+        failedChains: [],
+        source: "zerion",
+        // Viaja junto para o cache e para a tela: o que tem preço mas a Zerion
+        // não verifica fica CONTADO e SEPARADO, nunca somado ao tesouro.
+        unverifiedUsd: z.unverifiedUsd,
+        unverifiedCount: z.unverifiedCount,
+      };
     }
   }
 
@@ -725,13 +740,33 @@ export async function fetchTreasuryGroups(project: ProjectConfig): Promise<Treas
     .filter((g) => g.report.evm.length > 0 || g.report.hive.length > 0);
 }
 
+/**
+ * A composição guardada pelo cron, e o RPC como rede de segurança.
+ *
+ * A ordem importa e é deliberada: a linha do cache vem da Zerion, que enxerga
+ * posição de protocolo — o cofre da SOPA, o stETH na Morpheus — e o leitor por
+ * RPC não enxerga, porque só lê o que está declarado no código.
+ *
+ * Sem linha fresca, cai no caminho antigo em vez de mostrar tesouro vazio. Um
+ * terceiro fora do ar não pode virar "não temos dinheiro".
+ */
+async function fetchEvmWalletPreferCache(
+  w: { label: string; address: string; extraTokens?: ExtraToken[] },
+  ethPrice: number | null,
+  morPrice: number | null,
+): Promise<EvmWalletReport> {
+  const cached = await readWalletComposition(w.address).catch(() => null);
+  if (cached) return { ...cached.report, label: w.label };
+  return fetchEvmWallet(w, ethPrice, morPrice);
+}
+
 export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryReport | null> {
   const cfg = project.treasury;
   if (!cfg) return null;
 
   const prices = await getPrices();
   const [evm, hiveRes] = await Promise.all([
-    Promise.all(cfg.ethWallets.map((w) => fetchEvmWallet(w, prices.eth, prices.mor))),
+    Promise.all(cfg.ethWallets.map((w) => fetchEvmWalletPreferCache(w, prices.eth, prices.mor))),
     cfg.hiveAccounts?.length
       ? fetchHiveAccounts(cfg.hiveAccounts, prices)
       : Promise.resolve({ reports: [] as HiveAccountReport[], apr: null as HiveApr | null }),
