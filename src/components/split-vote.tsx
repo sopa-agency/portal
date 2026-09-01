@@ -1,0 +1,240 @@
+"use client";
+
+// A urna. Cada um distribui 100 pontos entre OS OUTROS.
+//
+// A tela existe para uma coisa: transformar a conversa da reunião num vetor de
+// proporções que o dono do split assina. Ela não move dinheiro e não deve dar
+// a impressão de que move.
+
+import { useEffect, useState } from "react";
+import { CheckCircle2, Loader2, Lock, LockOpen, Users, Vote } from "lucide-react";
+import { abrirRodada, estadoRodada, fecharRodada, votar, type EstadoRodada } from "@/app/actions/split-vote";
+
+const TOTAL = 100;
+const curto = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+
+export function SplitVote() {
+  const [e, setE] = useState<EstadoRodada | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [pontos, setPontos] = useState<Record<string, number>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [salvo, setSalvo] = useState(false);
+  const [novoLabel, setNovoLabel] = useState("");
+  const [novoSplit, setNovoSplit] = useState("");
+
+  const carregar = () =>
+    estadoRodada().then((r) => {
+      // Falha de leitura NÃO vira urna vazia: uma tela que decide pagamento não
+      // pode mostrar "ninguém elegível" quando o que houve foi rede caindo.
+      if (!r.ok) return setErr(r.error);
+      setErr(null);
+      setE(r.estado);
+      if (r.estado.meuVoto) setPontos(r.estado.meuVoto);
+    });
+
+  useEffect(() => {
+    void carregar();
+  }, []);
+
+  if (err) return <p className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">⚠ {err}</p>;
+  if (!e) return <p className="text-sm text-foreground-faint">carregando…</p>;
+
+  const outros = e.elegiveis.filter((x) => x.address.toLowerCase() !== e.meuEndereco?.toLowerCase());
+  const usados = Object.values(pontos).reduce((s, n) => s + (Number(n) || 0), 0);
+  const faltam = TOTAL - usados;
+
+  async function enviar() {
+    if (!e?.round) return;
+    setBusy("votar");
+    setSalvo(false);
+    const r = await votar(
+      e.round.id,
+      Object.entries(pontos).map(([alvo, p]) => ({ alvo, pontos: Number(p) || 0 })),
+    );
+    setBusy(null);
+    if (!r.ok) return setErr(r.error);
+    setErr(null);
+    setSalvo(true);
+    await carregar();
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* ── Abrir rodada (admin) ── */}
+      {e.souAdmin && (!e.round || e.round.status === "closed") && (
+        <section className="rounded-2xl border border-border bg-surface p-5">
+          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+            <Vote className="h-4 w-4 text-accent" /> Abrir a votação da semana
+          </h2>
+          <p className="mt-1.5 max-w-2xl text-xs text-foreground-subtle">
+            Os elegíveis são lidos do contrato do split, na cadeia — quem está nele hoje é quem vota e
+            quem recebe. Uma rodada aberta por vez.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <input value={novoLabel} onChange={(ev) => setNovoLabel(ev.target.value)} placeholder="Semana de 01/09"
+              className="w-44 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none" />
+            <input value={novoSplit} onChange={(ev) => setNovoSplit(ev.target.value)} placeholder="0x… endereço do split" spellCheck={false}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 font-mono text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none" />
+            <button type="button" disabled={busy === "abrir" || !novoSplit.trim()}
+              onClick={async () => { setBusy("abrir"); const r = await abrirRodada(novoLabel, novoSplit); setBusy(null); if (!r.ok) return setErr(r.error); setNovoSplit(""); setNovoLabel(""); await carregar(); }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-40">
+              {busy === "abrir" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockOpen className="h-3.5 w-3.5" />} Abrir
+            </button>
+          </div>
+        </section>
+      )}
+
+      {!e.round && !e.souAdmin && (
+        <p className="rounded-xl border border-border bg-surface px-4 py-8 text-center text-sm text-foreground-muted">
+          Nenhuma votação aberta. Ela abre depois da reunião de segunda.
+        </p>
+      )}
+
+      {/* ── A cédula ── */}
+      {e.round && e.round.status === "open" && (
+        <section className="rounded-2xl border border-border bg-surface p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">{e.round.label}</h2>
+              <p className="mt-1 max-w-2xl text-xs text-foreground-subtle">
+                Distribua <strong>{TOTAL} pontos</strong> entre as outras pessoas. Você não aparece na
+                lista — a sua fatia é o que os outros te derem.
+                <br />
+                O voto é anônimo: ninguém, nem o admin, vê quem votou o quê. Mas as cédulas sem nome
+                ficam visíveis no fim, para qualquer um poder refazer a conta.
+                <br />
+                <strong className="text-warning">Não votar zera a sua voz e a sua fatia.</strong>
+              </p>
+            </div>
+            {e.souAdmin && (
+              <button type="button" disabled={busy === "fechar"}
+                onClick={async () => { setBusy("fechar"); await fecharRodada(e.round!.id); setBusy(null); await carregar(); }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-40">
+                {busy === "fechar" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />} Fechar e apurar
+              </button>
+            )}
+          </div>
+
+          {!e.souElegivel ? (
+            <p className="mt-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              Você não está no split desta rodada, então não vota nela. Para entrar, sua carteira precisa
+              estar no contrato e cadastrada na página Team.
+            </p>
+          ) : (
+            <>
+              <ul className="mt-4 space-y-1.5">
+                {outros.map((o) => (
+                  <li key={o.address} className="flex items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2">
+                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                      {o.username ? `@${o.username}` : <span className="font-mono text-xs">{curto(o.address)}</span>}
+                      <span className="ml-2 text-[11px] text-foreground-faint">hoje {pct(o.shareAtual)}</span>
+                    </span>
+                    <input type="number" min={0} max={TOTAL} inputMode="numeric"
+                      value={pontos[o.address.toLowerCase()] ?? ""}
+                      onChange={(ev) => setPontos((p) => ({ ...p, [o.address.toLowerCase()]: Number(ev.target.value) || 0 }))}
+                      className="w-20 rounded-md border border-border bg-surface px-2 py-1 text-right font-mono text-sm tabular-nums text-foreground focus:border-accent-border focus:outline-none" />
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <span className={`font-mono text-sm tabular-nums ${faltam === 0 ? "text-success" : "text-foreground-muted"}`}>
+                  {usados} / {TOTAL}
+                  {faltam > 0 && <span className="text-warning"> — faltam {faltam}</span>}
+                  {faltam < 0 && <span className="text-danger"> — {-faltam} a mais</span>}
+                </span>
+                <div className="flex items-center gap-2">
+                  {salvo && <span className="inline-flex items-center gap-1 text-xs text-success"><CheckCircle2 className="h-3.5 w-3.5" /> voto guardado</span>}
+                  <button type="button" onClick={enviar} disabled={busy === "votar" || faltam !== 0}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+                    {busy === "votar" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {e.meuVoto ? "Atualizar meu voto" : "Votar"}
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-foreground-faint">
+                Dá para mudar o voto até a rodada fechar. O resultado só aparece depois disso — ver ao
+                vivo transformaria a votação numa corrida por quem vota por último.
+              </p>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* ── Resultado ── */}
+      {e.round && e.round.status === "closed" && e.resultado && (
+        <section className="rounded-2xl border border-border bg-surface p-5">
+          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+            <Users className="h-4 w-4 text-accent" /> {e.round.label} — apurado
+          </h2>
+          <p className="mt-1 text-xs text-foreground-subtle">
+            {e.resultado.votaram} de {e.resultado.elegiveis} votaram.
+            {e.resultado.abstiveram.length > 0 && (
+              <> {e.resultado.abstiveram.length} abstiveram e por isso ficaram com zero.</>
+            )}
+          </p>
+          {/* Quem não pôde votar aparece SEPARADO de quem escolheu não votar.
+              A régua é a mesma — zero —, mas a razão não é, e só uma delas é
+              resolvível com um cadastro. */}
+          {e.resultado.semCadastro.length > 0 && (
+            <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+              ⚠ {e.resultado.semCadastro.length === 1 ? "Um endereço do split não pôde votar" : `${e.resultado.semCadastro.length} endereços do split não puderam votar`}:{" "}
+              {e.resultado.semCadastro.map((x) => curto(x.address)).join(", ")}. Não têm carteira
+              cadastrada na página Team, então a urna não consegue casar a pessoa com o endereço.
+              Ficaram com zero por <strong>falta de cadastro</strong>, não por escolha — cadastre a
+              carteira e eles votam na próxima.
+            </p>
+          )}
+
+          <ul className="mt-4 space-y-1.5">
+            {e.resultado.linhas.map((l) => (
+              <li key={l.address} className="flex items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1 truncate text-foreground">
+                  {l.username ? `@${l.username}` : <span className="font-mono text-xs">{curto(l.address)}</span>}
+                </span>
+                <span className="font-mono text-xs tabular-nums text-foreground-faint">{l.pontos} pts</span>
+                <span className="w-20 text-right font-mono text-xs tabular-nums text-foreground-faint">era {pct(l.shareAtual)}</span>
+                <span className={`w-20 text-right font-mono text-sm font-semibold tabular-nums ${l.share > l.shareAtual ? "text-success" : l.share < l.shareAtual ? "text-warning" : "text-foreground"}`}>
+                  {pct(l.share)}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          {e.vetor && (
+            <div className="mt-5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Para o updateSplit</p>
+              <p className="mt-1 text-[11px] text-foreground-subtle">
+                A urna produz o número; quem assina é o dono do split. Copie e execute pela carteira dona.
+              </p>
+              <pre className="mt-2 overflow-x-auto rounded-lg border border-border bg-surface-elevated p-3 font-mono text-[11px] leading-relaxed text-foreground">
+{JSON.stringify(e.vetor, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          <details className="mt-5">
+            <summary className="cursor-pointer text-xs font-medium text-foreground-muted hover:text-foreground">
+              Cédulas sem nome ({e.resultado.cedulasAnonimas.length}) — para conferir a conta
+            </summary>
+            <p className="mt-2 text-[11px] text-foreground-faint">
+              Sem autor e em ordem embaralhada de forma estável, para que a ordem não entregue quem votou
+              o quê. Somando as colunas você chega no mesmo resultado acima.
+            </p>
+            <div className="mt-2 space-y-1">
+              {e.resultado.cedulasAnonimas.map((c, i) => (
+                <div key={i} className="overflow-x-auto rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-mono text-[11px] text-foreground-muted">
+                  {Object.entries(c).map(([a, p]) => {
+                    const alvo = e.elegiveis.find((x) => x.address.toLowerCase() === a.toLowerCase());
+                    return `${alvo?.username ? "@" + alvo.username : curto(a)}:${p}`;
+                  }).join("  ·  ")}
+                </div>
+              ))}
+            </div>
+          </details>
+        </section>
+      )}
+    </div>
+  );
+}
