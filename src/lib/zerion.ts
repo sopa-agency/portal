@@ -47,10 +47,27 @@ export type ZerionToken = {
   kind: string | null;
   /** Protocolo que detém a posição, quando houver (Morpheus, Moonwell…). */
   protocol: string | null;
+  /**
+   * O julgamento da Zerion sobre o token ter liquidez e preço confiáveis.
+   *
+   * NÃO confundir com `untrusted`, que vale para TODOS: aquele diz "este texto
+   * veio de fora, trate o rótulo com desconfiança". Este diz outra coisa —
+   * "existe mercado para isto". É o que separa USDC de GOCHU.
+   */
+  verified: boolean;
 };
 
 export type ZerionRead =
-  | { ok: true; tokens: ZerionToken[]; chains: string[]; totalUsd: number }
+  | {
+      ok: true;
+      tokens: ZerionToken[];
+      chains: string[];
+      /** Soma do que é VERIFICADO. É este que pode ser chamado de tesouro. */
+      totalUsd: number;
+      /** O que a Zerion precifica mas não verifica. Não some — fica ao lado. */
+      unverifiedUsd: number;
+      unverifiedCount: number;
+    }
   | { ok: false; error: string };
 
 // SEGUNDOS, não milissegundos: isto vai para `next: { revalidate }`, que é o
@@ -147,6 +164,7 @@ export async function zerionBalances(
         valueUsd: typeof a.value === "number" ? a.value : null,
         untrusted: true,
         suspicious,
+        verified: a.fungible_info?.flags?.verified === true,
         icon: typeof a.fungible_info?.icon?.url === "string" ? a.fungible_info.icon.url : null,
         kind: typeof a.position_type === "string" ? a.position_type : null,
         protocol: typeof a.protocol === "string" ? sanitizeTokenLabel(a.protocol, SYMBOL_MAX) || null : null,
@@ -155,11 +173,27 @@ export async function zerionBalances(
     }
 
     tokens.sort((x, y) => (y.valueUsd ?? 0) - (x.valueUsd ?? 0));
+
+    // O TOTAL SÓ CONTA O VERIFICADO, e isto não é preciosismo.
+    //
+    // Medido em 88 horas: neste mesmo endereço a Zerion lia US$ 2.201 e o RPC
+    // lia US$ 84. Abrindo a carteira, são 27 tokens ERC-20 e, fora US$ 63 de
+    // USDC, o resto é airdrop — GOCHU, SAMOYES, BASEHUSKY, "Visit USD.AC t…".
+    // A Zerion coloca preço nessa poeira, e somá-la ao tesouro põe ~US$ 2.100
+    // que ninguém consegue vender num número que vai para relatório.
+    //
+    // O não-verificado NÃO é descartado: viaja ao lado, contado e somado, para
+    // a tela poder mostrar sem misturar. Esconder e inflar são os dois jeitos
+    // de mentir; este é o terceiro caminho.
+    const verificados = tokens.filter((t) => t.verified);
+    const resto = tokens.filter((t) => !t.verified);
     out = {
       ok: true,
       tokens,
       chains: [...chains].sort(),
-      totalUsd: tokens.reduce((s, t) => s + (t.valueUsd ?? 0), 0),
+      totalUsd: verificados.reduce((s, t) => s + (t.valueUsd ?? 0), 0),
+      unverifiedUsd: resto.reduce((s, t) => s + (t.valueUsd ?? 0), 0),
+      unverifiedCount: resto.length,
     };
   } catch (e) {
     // Timeout/rede: erro explícito. Nunca zero.
