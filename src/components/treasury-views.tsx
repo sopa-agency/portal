@@ -141,6 +141,34 @@ function Monogram({ symbol, color }: { symbol: string; color: string }) {
   return <TokenLogo symbol={symbol} color={color} size={28} />;
 }
 
+/**
+ * O logo do token: a imagem quando existe, o monograma quando não.
+ *
+ * A imagem vem de terceiro e continua valendo como ENFEITE, nunca como prova de
+ * legitimidade — token de phishing também traz logo bonito. Quem decide como a
+ * linha é exibida segue sendo `untrusted`/`hostileLabel`, e a etiqueta de aviso
+ * fica ao lado do nome, não do desenho.
+ *
+ * Se a imagem não carregar, o monograma reaparece no lugar dela: a linha nunca
+ * fica com um buraco onde deveria haver identidade.
+ */
+function TokenAvatar({ symbol, color, icon }: { symbol: string; color: string; icon?: string | null }) {
+  const [broken, setBroken] = useState(false);
+  if (!icon || broken) return <Monogram symbol={symbol} color={color} />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={icon}
+      alt=""
+      aria-hidden
+      width={28}
+      height={28}
+      className="h-7 w-7 shrink-0 rounded-full"
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 function AllocationBar({ segments, total }: { segments: Segment[]; total: number }) {
   if (total <= 0) return null;
   return (
@@ -329,23 +357,19 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                       : undefined
                   }
                 >
-                <Monogram symbol={a.symbol} color={color} />
+                {/*
+                  UM logo por linha. Havia dois: o monograma (o círculo com a
+                  letra, de quando não existia imagem) e o ícone que a Zerion
+                  passou a trazer. O segundo entrou e ninguém tirou o primeiro.
+                  Agora o ícone real OCUPA o lugar do monograma, e o monograma
+                  volta a ser o que sempre foi — o que se mostra quando não há
+                  imagem.
+                */}
+                <TokenAvatar symbol={a.symbol} color={color} icon={a.icon} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     {/* Plain text, always. A token label is never an <a>, never
                         a title-linkified string — see lib/token-label.ts. */}
-                    {a.icon && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={a.icon}
-                        alt=""
-                        aria-hidden
-                        width={18}
-                        height={18}
-                        className="h-[18px] w-[18px] shrink-0 rounded-full"
-                        onError={(e) => { e.currentTarget.style.display = "none"; }}
-                      />
-                    )}
                     <span className="text-sm font-semibold text-foreground">{a.symbol}</span>
                     {a.untrusted && <UnverifiedTag hostile={a.hostileLabel} />}
                     {a.chains.map((c) => (
