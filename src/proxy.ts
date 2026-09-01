@@ -40,7 +40,17 @@ const PUBLIC_PATHS = [
   "/api/sopa/brief",
   // Timeline coletiva do site público — buscada em runtime, paginada.
   "/api/sopa/feed",
+  // Pedido de app: página pública e compartilhável + o endpoint que ela posta.
+  // As duas linhas são obrigatórias — sem a segunda o POST cai no guarda de
+  // sessão e a pessoa recebe o HTML do /login onde esperava JSON.
+  "/app-idea",
+  "/api/app-idea",
 ];
+
+// Páginas públicas de verdade: renderizam SEM a moldura do portal e sem sessão.
+// O cookie é removido de propósito, então quem está logado vê exatamente o que
+// o visitante vê — é isso que torna o link conferível antes de ser mandado.
+const PUBLIC_PAGES = ["/app-idea"];
 
 // Hosts that serve the PUBLIC brand homepage instead of a portal — the apex
 // domain. Portals live on subdomains (admin.reelflip.com, gnars.reelflip.com…).
@@ -132,6 +142,13 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   // 2. Allow public paths through (login page, auth API endpoints) and
   //    self-authenticating machine endpoints (scheduler tick / fallback cron).
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    // Uma PÁGINA pública precisa de mais do que passar por aqui: o layout raiz
+    // redireciona pra /login em qualquer rota sem sessão que não se declare
+    // pública. Sem este carimbo a rota atravessa o proxy e morre no layout.
+    if (PUBLIC_PAGES.includes(pathname)) {
+      requestHeaders.delete("cookie");
+      requestHeaders.set("x-public-page", "1");
+    }
     return withProject();
   }
   if (MACHINE_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
