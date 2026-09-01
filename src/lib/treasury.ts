@@ -196,7 +196,17 @@ const EVM_CHAINS: EvmChain[] = [
     rpcs: ["https://base.gateway.tenderly.co", "https://base-rpc.publicnode.com", "https://base.drpc.org", "https://mainnet.base.org"],
     usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     // Moonwell Flagship USDC (MetaMorpho) — where the SOPA Safe stakes.
-    vaults: [{ address: "0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca", symbol: "USDC (staked)", decimals: 6 }],
+    vaults: [
+      { address: "0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca", symbol: "USDC (staked)", decimals: 6 },
+      // Cofre USDC da SOPA (Vault V2). Estava faltando: o multisig da SkateHive
+      // tem 200,27 USDC aqui e a página não mostrava nada — o leitor de RPC só
+      // enxerga cofre que alguém DECLARA, e este ninguém tinha declarado.
+      //
+      // É a mesma cegueira estrutural que faz posição de protocolo sumir: o
+      // saldo não está no ERC-20 da carteira, está em shares de um cofre que
+      // só significa dinheiro se você souber chamar convertToAssets.
+      { address: "0x3A36a1cc8Dc914D22b1Fd823695a0f4f737bCbD8", symbol: "USDC (cofre SOPA)", decimals: 6 },
+    ],
     // MOR parado na carteira. Nome escrito por nós, não por indexador.
     tokens: [{ address: "0x7431aDa8a591C955a994a21710752EF9b882b8e3", symbol: "MOR", decimals: 18 }],
     // MOR em stake no subnet de Builders — ver BuilderStake.
