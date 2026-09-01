@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { RefreshSkeleton } from "@/components/treasury-refresh";
 import type { ReactNode } from "react";
 import { Wallet, Activity, PiggyBank } from "lucide-react";
 import { formatRunwayMonths, monthsTone } from "@/lib/format";
@@ -82,6 +83,10 @@ export function TreasuryHealthHero({
   const shownRunway = complete ? runwayMonths : null;
   const h = health(shownRunway, t.verdicts, !complete);
   return (
+    // O ESQUELETO VIVE AQUI, e não na página inteira.
+    // Estes são os números que a atualização vai reler; enquanto ela corre, é
+    // este bloco que pisca — o resto da tela continua legível e no lugar.
+    <RefreshSkeleton>
     <section
       className={
         // "column" é para quando o hero divide a tela LATERALMENTE com o
@@ -152,5 +157,6 @@ export function TreasuryHealthHero({
         <p className="mt-1 text-xs text-foreground-faint">{runwayFooter}</p>
       </div>
     </section>
+    </RefreshSkeleton>
   );
 }

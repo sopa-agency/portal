@@ -5,7 +5,7 @@ import { LiveBadge } from "@/components/live-badge";
 import { getDictionary, getLocale } from "@/lib/i18n/server";
 import { SetupGuide, CodeBlock } from "@/components/setup-guide";
 import { TreasuryViews } from "@/components/treasury-views";
-import { TreasuryRefresh } from "@/components/treasury-refresh";
+import { TreasuryRefresh, TreasuryRefreshProvider } from "@/components/treasury-refresh";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
 import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
@@ -64,9 +64,21 @@ import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
+import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
 import { rich } from "@/components/rich-text";
 import { attempt, isOk, ok, unread, type Reading } from "@/lib/reading";
+
+/**
+ * O diagrama do split, esperando por dentro.
+ *
+ * `<Suspense><X tree={await p} /></Suspense>` NÃO suspende: o await roda no
+ * escopo do pai, ao montar os filhos, e o pai inteiro para. Para o Suspense
+ * valer, quem espera tem que ser o filho — que é o que este componente faz.
+ */
+async function MorFlowAsync({ tree }: { tree: Promise<Awaited<ReturnType<typeof getMorSplitTree>>> }) {
+  return <MorFlowDiagram tree={await tree} />;
+}
 
 export default async function TreasuryPage() {
   const project = await getActiveProject();
@@ -196,7 +208,6 @@ treasury: {
       </div>
     );
   }
-
   const groups = await groupsP;
   const combined = combinedTreasury(groups);
 
@@ -226,7 +237,6 @@ treasury: {
     const existing = candidates.get(k);
     candidates.set(k, { label: existing?.label ?? `${nameOf(bc.projectSlug)} bounty Safe`, address: bc.safeAddress, chains: [bc.chainId] });
   }
-
   const probed = await Promise.all(
     [...candidates.values()].map(async (w): Promise<SafeActivityItem | null> => {
       const perChain = await Promise.all(
@@ -275,6 +285,29 @@ treasury: {
   // wave 1 = everything with no cross-dependency; wave 2 = reads that need a wave-1
   // result (the pool address, and the SOPA-owned vault).
   const [payrollRes, rosterRaw, poolRead, stakeRead, allocRead, communityVaults] = await pesadoP;
+
+  // Quando os dados foram lidos pela última vez — é isto que pinta o botão de
+  // atualizar de verde ou vermelho. Duas fontes porque saldo e receita são
+  // lidos por caminhos diferentes; vale o MAIS VELHO dos dois, que é o que
+  // limita a confiança na tela.
+  const [ultimoSaldo, ultimaReceita] = await Promise.all([
+    prisma.treasuryBalanceCache.findFirst({ orderBy: { syncedAt: "desc" }, select: { syncedAt: true } }).catch(() => null),
+    prisma.revenueReadCache.findFirst({ orderBy: { syncedAt: "desc" }, select: { syncedAt: true } }).catch(() => null),
+  ]);
+  const datas = [ultimoSaldo?.syncedAt, ultimaReceita?.syncedAt].filter(Boolean) as Date[];
+  const maisVelho = datas.length ? Math.min(...datas.map((d) => d.getTime())) : null;
+  const syncedAt = maisVelho ? new Date(maisVelho).toISOString() : null;
+  // 90 minutos: o cron grava de hora em hora, então uma rodada pode atrasar sem
+  // o botão gritar. Passou disso, o dado merece aviso.
+  //
+  // O lint reclama de Date.now() no render, e com razão em componente de
+  // cliente: lá ele produz resultado instável entre renders e diverge entre
+  // servidor e navegador. Aqui é Server Component em rota `force-dynamic` —
+  // roda uma vez por requisição, no servidor, e "agora" é exatamente o que a
+  // pergunta precisa. Fazer isso no cliente seria o bug que este cálculo veio
+  // evitar (ver o comentário de `stale` em treasury-refresh.tsx).
+  // eslint-disable-next-line react-hooks/purity
+  const dadoVelho = maisVelho == null || Date.now() - maisVelho > 90 * 60_000;
 
   const jobs = jobsRes && jobsRes.ok ? jobsRes.jobs : [];
   const payroll = payrollRes && payrollRes.ok ? payrollRes.members : [];
@@ -548,7 +581,15 @@ treasury: {
           {/* O didático mora junto da coisa que ele explica, não na tela de
               consulta. Vem por último: quem abriu "Operar" quer a ferramenta;
               a explicação fica embaixo, para quem precisa dela. */}
-          <MorFlowDiagram tree={await morTreeP} />
+          {/* SUSPENSE, e nao await.
+              Medido: esta leitura sozinha respondia por 19,4s dos 19,5s da
+              pagina — a arvore do split e lida da cadeia, com ENS por cima. E
+              ela mora DENTRO de um <details> fechado: a pagina inteira esperava
+              vinte segundos por um diagrama que ninguem estava olhando.
+              Agora o resto da tela nao espera por ela; ela chega quando chegar. */}
+          <Suspense fallback={<div className="h-32 animate-pulse rounded-xl border border-border bg-surface-elevated" />}>
+            <MorFlowAsync tree={morTreeP} />
+          </Suspense>
         </div>
       </details>
       {/* Os earmarks saíram daqui: agora são o slot `sopaOnly` do SopaTreasury,
@@ -676,8 +717,11 @@ treasury: {
         }
       : undefined,
   }, await getLocale());
-
   return (
+    // O provider envolve a página inteira porque o botão vive no cabeçalho e os
+    // esqueletos vivem lá embaixo, nos números e no gráfico — os dois precisam
+    // do mesmo estado de "atualizando agora".
+    <TreasuryRefreshProvider syncedAt={syncedAt} stale={dadoVelho}>
     <div className="space-y-6">
       {/* The project name is the eyebrow and "Tesouraria" the title — it used to
           be the other way round, which said the word twice. The status slot no
@@ -850,5 +894,6 @@ treasury: {
         treasuryContent
       )}
     </div>
+    </TreasuryRefreshProvider>
   );
 }

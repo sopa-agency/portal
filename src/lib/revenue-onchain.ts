@@ -33,7 +33,12 @@ async function bs(host: string, path: string, params: Record<string, string> = {
   const url = new URL(`https://${host}/api/v2${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   try {
-    const r = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(12000), next: { revalidate: 300, tags: ["revenue"] } });
+    const r = await fetch(url, { headers: { accept: "application/json" }, // 5s, nao 12s. Este indexador esta FORA (500 na Base) e cada tentativa
+    // queimava doze segundos antes de desistir — vezes o numero de enderecos,
+    // dentro do caminho do render. Um Blockscout saudavel responde em menos de
+    // um segundo; cinco ja e' generoso, e o fallback existe justamente para
+    // quando ele nao responde.
+    signal: AbortSignal.timeout(5000), next: { revalidate: 300, tags: ["revenue"] } });
     if (!r.ok) return null;
     return (await r.json()) as { items?: unknown[]; next_page_params?: Record<string, string> | null };
   } catch {
@@ -137,7 +142,11 @@ async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number
       const r = await fetch(rpc, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        signal: AbortSignal.timeout(20000),
+        // 6s, e nao 20s. Este fetch ja rodou dentro do caminho do render, com
+        // tres RPCs em cascata: 3 x 20s = um minuto por endereco quando a rede
+        // engasga. Timeout generoso e' generosidade com a maquina e crueldade
+        // com quem esta esperando a pagina.
+        signal: AbortSignal.timeout(6000),
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -287,6 +296,64 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
     if (e.t) series.push({ t: new Date(e.t).toISOString(), usd: cum });
   }
   return { method: chosen.method, revenueUsd: cum, count: chosen.evs.length, series, truncated };
+}
+
+// ---------------------------------------------------------------------------
+// A porta que a PAGINA usa.
+//
+// `fetchOnchainRevenue` le a cadeia. Isso nao pode acontecer dentro de um
+// render — foi assim que a pagina do tesouro foi de 12s para 26s. Aqui o
+// caminho e: cache primeiro; se estiver velho ou vazio, uma leitura ao vivo com
+// ORCAMENTO FECHADO, e o que nao couber no orcamento fica declarado como nao
+// lido em vez de segurar a pagina.
+//
+// O `force` existe para o botao de atualizar: ali a pessoa PEDIU e esta olhando
+// uma ampulheta, entao a espera e' esperada.
+// ---------------------------------------------------------------------------
+
+/** Quanto tempo uma leitura guardada vale. Distribuicao de split e evento raro:
+ *  seis horas de idade nao muda decisao nenhuma, e a data viaja junto. */
+const REVENUE_TTL_MS = 6 * 60 * 60_000;
+/** Teto para a leitura ao vivo quando ela acontece no caminho do render. */
+const REVENUE_BUDGET_MS = 8_000;
+
+export async function fetchOnchainRevenueCached(
+  address: string,
+  chainKey: string | null,
+  opts: { force?: boolean } = {},
+): Promise<RealizedRevenue> {
+  const { readRevenueCache, saveRevenueCache } = await import("@/lib/revenue-cache");
+  if (!opts.force) {
+    const guardado = await readRevenueCache(address, chainKey, REVENUE_TTL_MS);
+    if (guardado) return guardado;
+  }
+
+  const ao_vivo = fetchOnchainRevenue(address, chainKey).then((r) => {
+    void saveRevenueCache(address, chainKey, r);
+    return r;
+  });
+
+  if (opts.force) return ao_vivo;
+
+  // Sem force, a pagina nao espera indefinidamente. Estourou o orcamento: a
+  // leitura CONTINUA em segundo plano e grava no cache (o proximo carregamento
+  // ja acha), e esta resposta diz que nao leu — nunca que nao houve.
+  const estourou = Symbol("estourou");
+  const corrida = await Promise.race([
+    ao_vivo,
+    new Promise<typeof estourou>((r) => setTimeout(() => r(estourou), REVENUE_BUDGET_MS)),
+  ]);
+  if (corrida !== estourou) return corrida as RealizedRevenue;
+
+  // Cache vencido serve melhor que nada — desde que se anuncie como velho.
+  const velho = await readRevenueCache(address, chainKey, Infinity);
+  if (velho) {
+    return { ...velho, error: [velho.error, "leitura ao vivo demorou; este número é do último sync"].filter(Boolean).join("; ") };
+  }
+  return {
+    method: "none", revenueUsd: 0, count: 0, series: [], truncated: false,
+    error: "ainda não lido — a leitura on-chain está em andamento, recarregue em instantes",
+  };
 }
 
 export async function fetchAddressFlows(address: string, chainKey: string | null): Promise<RevenueFlow> {

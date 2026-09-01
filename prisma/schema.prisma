@@ -603,6 +603,8 @@ model MemberSkills {
    * /**
    * /**
    * /**
+   * /**
+   * /**
    * /** como a pessoa se apresenta: ["dev", "web3", "criativo"]
    */
   roles     String[] @default([])
@@ -1527,4 +1529,53 @@ model WalletLogin {
   updatedAt   DateTime  @updatedAt
 
   @@index([username])
+}
+
+/// A leitura de receita on-chain de um endereço, guardada.
+///
+/// Existe porque a leitura ao vivo entrou no caminho do RENDER e derrubou a
+/// página: com o Blockscout da Base em 500, o fallback por RPC varre
+/// `eth_getLogs` do bloco 0 até hoje, por split, a cada carregamento. Medido em
+/// produção: 22 a 26 segundos, com 21s de timeout queimados por endereço quando
+/// o RPC engasga. Uma leitura de cadeia não pode morar dentro de um render.
+///
+/// `error` viaja junto do número, e é isso que impede o cache de repetir o bug
+/// que ele veio consertar: uma linha guardada com zero E sem ressalva seria
+/// indistinguível de "não houve distribuição" — agora e daqui a um mês.
+model RevenueReadCache {
+  /// "chain:address" em minúsculas — rede nula vira "all:0x…", porque o mesmo
+  /// endereço lido em uma rede e lido em todas são leituras diferentes.
+  key        String   @id
+  address    String
+  chain      String?
+  method     String
+  revenueUsd Float
+  count      Int
+  series     Json     @default("[]")
+  truncated  Boolean  @default(false)
+  /// Motivo da falha, ou ressalva de leitura parcial. Null = leitura limpa.
+  error      String?
+  syncedAt   DateTime @default(now())
+
+  @@index([address])
+}
+
+/// A configuração de um split (destinatários e frações), guardada.
+///
+/// O cache de processo em splits.ts resolve a segunda visita da MESMA instância
+/// e não resolve nada na Vercel, onde instância fria é a regra. Medido na
+/// página do tesouro: 22s só para ler a configuração de quatro splits, por
+/// carregamento frio.
+///
+/// Recipients mudam por transação de governança — dias ou meses entre uma e
+/// outra — então guardar é seguro. `syncedAt` viaja junto para a tela poder
+/// dizer de quando é, e o botão de atualizar força a releitura.
+model SplitConfigCache {
+  /// "chain:address" em minúsculas.
+  key        String   @id
+  address    String
+  chain      String?
+  /// [{address, share}] — a fração já normalizada pelo totalAllocation.
+  recipients Json
+  syncedAt   DateTime @default(now())
 }
