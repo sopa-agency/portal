@@ -1206,6 +1206,42 @@ model SopaBrief {
   @@index([createdAt])
 }
 
+/// Um pedido de aplicativo, escrito pela própria pessoa em /app-idea.
+///
+/// Prima do SopaBrief e mesmo assim tabela separada: o brief é "quero falar com
+/// vocês", este é "quero ISTO construído". As perguntas fechadas (kind,
+/// audience, urgency…) só fazem sentido para o segundo, e enfiá-las no primeiro
+/// deixaria metade das colunas nulas em metade das linhas — a triagem passaria a
+/// depender de adivinhar de qual formulário a linha veio.
+model AppIdea {
+  id              String   @id @default(cuid())
+  name            String
+  /// e-mail ou @telegram — como a pessoa quer ser achada
+  contact         String
+  /// respostas de múltipla escolha, uma cada (app web, mobile, automação…)
+  kind            String
+  audience        String
+  existing        String
+  urgency         String
+  budget          String
+  /// o pedido em prosa: a pessoa promptando, não preenchendo formulário
+  pitch           String   @db.Text
+  /// "como você vai saber que funcionou?" — o que separa pedido bom de vago
+  successCriteria String   @db.Text
+  /// links/referências, opcional
+  references      String   @db.Text
+  /// triagem: new | talking | done | archived
+  status          String   @default("new")
+  /// SHA-256 de (ip + SESSION_SECRET). Guardar o IP cru seria guardar dado
+  /// pessoal de um visitante anônimo para uma função — contar quantos pedidos
+  /// vieram da mesma origem na última hora — que o hash cumpre igual.
+  ipHash          String?
+  createdAt       DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([ipHash, createdAt])
+}
+
 // Ledger of cross-post notifications the portal owes the author.
 //
 // The queue and the notifications live in the SkateHive app's Supabase, reached
