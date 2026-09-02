@@ -48,7 +48,7 @@ export const COMMUNITY_VAULTS: CommunityVault[] = [
     // MorphoVaultV1Adapter → Moonwell Flagship USDC. Measured on-chain: 100% of
     // the vault's assets sit here, maxRedeem reads 0 for every depositor, and
     // forceDeallocate carries a 0% penalty.
-    liquidityAdapter: "0x7b43a2573224b8F88a69443E029CAF4812F7d17C",
+    liquidityAdapter: "0x7B43a2573224b8f88A69443E029CAF4812f7d17c",
   },
   // An ETH (WETH) vault goes here once one is deployed. Vaults are per-asset,
   // so ETH needs its own — and depositors would carry ETH price risk while the
