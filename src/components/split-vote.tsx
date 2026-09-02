@@ -7,8 +7,9 @@
 // a impressão de que move.
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, Lock, LockOpen, PenLine, Plug, Users, Vote } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, Lock, LockOpen, PenLine, Pin, PinOff, Plug, Scale, Users, Vote } from "lucide-react";
 import { abrirRodada, estadoRodada, fecharRodada, votar, vetorParaAplicar, type EstadoRodada } from "@/app/actions/split-vote";
+import { SPLIT_DO_TIME } from "@/lib/split-vote-config";
 import { useWallet } from "@/components/wallet-provider";
 
 const TOTAL = 100;
@@ -19,10 +20,15 @@ export function SplitVote() {
   const [e, setE] = useState<EstadoRodada | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pontos, setPontos] = useState<Record<string, number>>({});
+  // Quem você já decidiu. Uma linha travada não é mexida quando outra barra
+  // anda — sem isso, ajustar a última pessoa desfaz a primeira e a votação
+  // vira um jogo de empurra.
+  const [travados, setTravados] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [salvo, setSalvo] = useState(false);
   const [novoLabel, setNovoLabel] = useState("");
-  const [novoSplit, setNovoSplit] = useState("");
+  // Já vem com o split do time. Ver o comentário em split-vote-config.ts.
+  const [novoSplit, setNovoSplit] = useState(SPLIT_DO_TIME);
 
   const carregar = () =>
     estadoRodada().then((r) => {
@@ -31,7 +37,24 @@ export function SplitVote() {
       if (!r.ok) return setErr(r.error);
       setErr(null);
       setE(r.estado);
-      if (r.estado.meuVoto) setPontos(r.estado.meuVoto);
+      if (r.estado.meuVoto) {
+        setPontos(r.estado.meuVoto);
+        return;
+      }
+      // Sem voto anterior, as barras nascem DIVIDIDAS POR IGUAL, não em zero.
+      // Zero seria um chute nosso disfarçado de neutro — e obrigaria a pessoa a
+      // construir os 100 do nada antes de o botão sequer habilitar. Igual é o
+      // único ponto de partida que não afirma preferência nenhuma, e é o que
+      // acontece hoje no contrato: dez destinatários a 10%.
+      const alvos = r.estado.elegiveis
+        .map((x) => x.address.toLowerCase())
+        .filter((a) => a !== r.estado.meuEndereco?.toLowerCase());
+      if (!alvos.length) return;
+      const q = Math.floor(TOTAL / alvos.length);
+      const sobra = TOTAL - q * alvos.length;
+      const inicial: Record<string, number> = {};
+      alvos.forEach((a, i) => (inicial[a] = q + (i < sobra ? 1 : 0)));
+      setPontos(inicial);
     });
 
   useEffect(() => {
@@ -42,6 +65,71 @@ export function SplitVote() {
   if (!e) return <p className="text-sm text-foreground-faint">carregando…</p>;
 
   const outros = e.elegiveis.filter((x) => x.address.toLowerCase() !== e.meuEndereco?.toLowerCase());
+  /**
+   * Move uma barra e reequilibra o resto — o total continua exatamente 100.
+   *
+   * Barra que só escreve um número deixa a conta com quem vota: some 100 na
+   * mão, descubra onde tirar. É a mesma aritmética do campo de digitar, com
+   * aparência de ferramenta. Aqui a diferença que você pediu é ABSORVIDA pelas
+   * outras pessoas, proporcional ao que cada uma já tinha — quem estava alto
+   * cede mais, quem estava baixo cede menos, e a ordem relativa que você já
+   * tinha construído sobrevive ao ajuste.
+   *
+   * Travadas ficam de fora do rateio: são as decisões que você já tomou.
+   */
+  function ajustar(alvo: string, bruto: number) {
+    const alvos = outros.map((o) => o.address.toLowerCase());
+    setPontos((prev) => {
+      const base: Record<string, number> = {};
+      for (const a of alvos) base[a] = Math.max(0, Math.round(prev[a] ?? 0));
+
+      const livres = alvos.filter((a) => a !== alvo && !travados.has(a));
+      const somaTravados = alvos.filter((a) => a !== alvo && travados.has(a)).reduce((s, a) => s + base[a], 0);
+      // O teto não é 100: é o que sobra depois do que você já travou. Deixar
+      // arrastar além disso mostraria um número que não pode virar voto.
+      const teto = Math.max(0, TOTAL - somaTravados);
+
+      // TODAS as outras travadas: não há de onde tirar nem para onde dar, e o
+      // único valor que mantém os 100 é o teto. A barra fica presa nele em vez
+      // de aceitar o arrasto — deixar passar aqui era o caso que quebrava a
+      // soma, e um teste de propriedade com 52 mil movimentos foi o que o
+      // encontrou. Não aparecia em uso normal: só com quase tudo travado.
+      if (livres.length === 0) {
+        base[alvo] = teto;
+        return base;
+      }
+
+      const novo = Math.max(0, Math.min(teto, Math.round(bruto)));
+      base[alvo] = novo;
+      const paraLivres = teto - novo;
+
+      const somaLivres = livres.reduce((s, a) => s + base[a], 0);
+      // Todas em zero: não há proporção a preservar, então divide igual.
+      const exatos = livres.map((a) => paraLivres * (somaLivres > 0 ? base[a] / somaLivres : 1 / livres.length));
+      // MAIOR RESTO: piso em todos e o que sobrar distribuído de um em um para
+      // as maiores frações. Arredondar cada parte por conta própria fazia a
+      // soma estourar, e o corte do negativo que sobrava comia pontos.
+      const pisos = exatos.map(Math.floor);
+      const resto = paraLivres - pisos.reduce((s, n) => s + n, 0);
+      const ordem = exatos.map((v, i) => [v - pisos[i], i] as [number, number]).sort((x, y) => y[0] - x[0]);
+      for (let k = 0; k < resto; k++) pisos[ordem[k % ordem.length][1]]++;
+      livres.forEach((a, i) => (base[a] = pisos[i]));
+      return base;
+    });
+  }
+
+  /** O ponto de partida honesto quando ninguém decidiu nada ainda. */
+  function distribuirIgual() {
+    const alvos = outros.map((o) => o.address.toLowerCase());
+    if (!alvos.length) return;
+    const q = Math.floor(TOTAL / alvos.length);
+    const sobra = TOTAL - q * alvos.length;
+    const novo: Record<string, number> = {};
+    alvos.forEach((a, i) => (novo[a] = q + (i < sobra ? 1 : 0)));
+    setTravados(new Set());
+    setPontos(novo);
+  }
+
   const usados = Object.values(pontos).reduce((s, n) => s + (Number(n) || 0), 0);
   const faltam = TOTAL - usados;
 
@@ -72,13 +160,19 @@ export function SplitVote() {
             Os elegíveis são lidos do contrato do split, na cadeia — quem está nele hoje é quem vota e
             quem recebe. Uma rodada aberta por vez.
           </p>
+          {/* O endereço vem preenchido: pedir que alguém COLE um contrato é a
+              forma mais fácil de dividir dinheiro no lugar errado — um
+              caractere trocado ainda é um endereço "válido", e a urna
+              obedeceria calada. O campo continua editável para o caso raro de
+              outro split, mas o caminho normal não passa pela área de
+              transferência de ninguém. */}
           <div className="mt-4 flex flex-wrap gap-2">
             <input value={novoLabel} onChange={(ev) => setNovoLabel(ev.target.value)} placeholder="Semana de 01/09"
               className="w-44 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none" />
-            <input value={novoSplit} onChange={(ev) => setNovoSplit(ev.target.value)} placeholder="0x… endereço do split" spellCheck={false}
+            <input value={novoSplit} onChange={(ev) => setNovoSplit(ev.target.value)} placeholder="0x… endereço do split" spellCheck={false} title="O split do time vem preenchido. Só troque se a rodada for decidir outro contrato."
               className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 font-mono text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none" />
             <button type="button" disabled={busy === "abrir" || !novoSplit.trim()}
-              onClick={async () => { setBusy("abrir"); const r = await abrirRodada(novoLabel, novoSplit); setBusy(null); if (!r.ok) return setErr(r.error); setNovoSplit(""); setNovoLabel(""); await carregar(); }}
+              onClick={async () => { setBusy("abrir"); const r = await abrirRodada(novoLabel, novoSplit); setBusy(null); if (!r.ok) return setErr(r.error); setNovoSplit(SPLIT_DO_TIME); setNovoLabel(""); await carregar(); }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-40">
               {busy === "abrir" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockOpen className="h-3.5 w-3.5" />} Abrir
             </button>
@@ -124,19 +218,46 @@ export function SplitVote() {
             </p>
           ) : (
             <>
-              <ul className="mt-4 space-y-1.5">
-                {outros.map((o) => (
-                  <li key={o.address} className="flex items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2">
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                      {o.username ? `@${o.username}` : <span className="font-mono text-xs">{curto(o.address)}</span>}
-                      <span className="ml-2 text-[11px] text-foreground-faint">hoje {pct(o.shareAtual)}</span>
-                    </span>
-                    <input type="number" min={0} max={TOTAL} inputMode="numeric"
-                      value={pontos[o.address.toLowerCase()] ?? ""}
-                      onChange={(ev) => setPontos((p) => ({ ...p, [o.address.toLowerCase()]: Number(ev.target.value) || 0 }))}
-                      className="w-20 rounded-md border border-border bg-surface px-2 py-1 text-right font-mono text-sm tabular-nums text-foreground focus:border-accent-border focus:outline-none" />
-                  </li>
-                ))}
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <p className="text-[11px] text-foreground-faint">
+                  Puxe uma barra e as outras cedem na mesma proporção — o total fica em {TOTAL} sozinho.
+                  O cadeado fixa quem você já decidiu.
+                </p>
+                <button type="button" onClick={distribuirIgual}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground">
+                  <Scale className="h-3 w-3" /> tudo igual
+                </button>
+              </div>
+
+              <ul className="mt-2 space-y-1.5">
+                {outros.map((o) => {
+                  const k = o.address.toLowerCase();
+                  const v = Math.round(pontos[k] ?? 0);
+                  const travado = travados.has(k);
+                  return (
+                    <li key={o.address} className="rounded-lg border border-border bg-surface-elevated px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                          {o.username ? `@${o.username}` : <span className="font-mono text-xs">{curto(o.address)}</span>}
+                          <span className="ml-2 text-[11px] text-foreground-faint">hoje {pct(o.shareAtual)}</span>
+                        </span>
+                        <span className={`w-12 text-right font-mono text-sm tabular-nums ${v === 0 ? "text-foreground-faint" : "text-foreground"}`}>
+                          {v}
+                        </span>
+                        <button type="button" aria-label={travado ? "destravar" : "travar"} title={travado ? "destravar" : "travar este valor"}
+                          onClick={() => setTravados((t) => { const n = new Set(t); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
+                          className={`rounded p-1 transition-colors ${travado ? "text-accent" : "text-foreground-faint hover:text-foreground"}`}>
+                          {travado ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <input type="range" min={0} max={TOTAL} step={1} value={v} disabled={travado}
+                        aria-label={`pontos para ${o.username ?? o.address}`}
+                        onChange={(ev) => ajustar(k, Number(ev.target.value))}
+                        style={{ accentColor: "var(--accent)" }}
+                        className="mt-1.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border disabled:cursor-not-allowed disabled:opacity-40" />
+                    </li>
+                  );
+                })}
               </ul>
 
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
