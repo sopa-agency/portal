@@ -1,7 +1,7 @@
 import type { ProjectConfig } from "./types";
 
 // swaps.pro — the swap/bridge product in the KeepKey family, and one
-// of SOPA's live revenue streams: the EVM swap split pays SOPA 20%, and the
+// of SOPA's live revenue streams: the EVM swap split pays SOPA 50%, and the
 // THORChain multi-affiliate memo `keep/thor1ujdj…:24/6` pays the KeepKey
 // THORName 24 bps + SOPA 6 bps (= 20% of the 0.30% fee). Both are already
 // tracked on the SOPA revenue orbit as project "swaps.pro"
@@ -51,8 +51,16 @@ const swaps: ProjectConfig = {
    * Tesouro — PROVISÓRIO, e o rótulo diz por quê.
    *
    * O único endereço EVM conhecido do swaps.pro é o 0xSplits que recebe as
-   * taxas: dinheiro EM TRÂNSITO, do qual a SOPA leva 20% e o resto segue para
-   * os demais destinatários. Não é uma carteira própria da marca.
+   * taxas: dinheiro EM TRÂNSITO, do qual a SOPA leva METADE e o resto segue
+   * para os demais destinatários. Não é uma carteira própria da marca.
+   *
+   * A fatia dizia 20% aqui e no rótulo abaixo. A cadeia diz 50%: o
+   * `SplitUpdated` vigente reparte 50/50 entre a coinmastersguild.eth
+   * (0x21c9…Ad3e) e o Safe da SOPA. A tela nunca errou o número, porque lê a
+   * fatia ao vivo pelo getSplitConfig — quem errava era o texto em volta dela,
+   * que é justamente o que alguém lê quando quer conferir se o número está
+   * certo. Número lido e texto escrito à mão discordando é pior que não ter
+   * texto: dá a impressão de confirmação.
    *
    * Ele entra rotulado como o que é, em vez de como "tesouro", porque o total
    * do hero soma tudo que estiver aqui — e um número que afirma posse de
@@ -65,7 +73,7 @@ const swaps: ProjectConfig = {
   treasury: {
     ethWallets: [
       {
-        label: "Split de taxas (em trânsito · SOPA 20%)",
+        label: "Split de taxas (em trânsito · SOPA 50%)",
         address: "0xAccF0dB4b6B55Ba692467988D0a1188f26428C2b",
       },
     ],
