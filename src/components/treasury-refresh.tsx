@@ -20,6 +20,7 @@
 import { createContext, useContext, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
+import { useLocale } from "@/components/locale-provider";
 import { refreshTreasury } from "@/app/actions/treasury";
 
 type RefreshCtx = {
@@ -59,6 +60,7 @@ export function TreasuryRefreshProvider({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const t = useLocale().t.treasury.refresh;
   const [pending, start] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
   const [falhouAgora, setFalhouAgora] = useState(hadFailure);
@@ -71,7 +73,7 @@ export function TreasuryRefreshProvider({
       try {
         const r = await refreshTreasury();
         setFalhouAgora(r.falhas.length > 0);
-        if (r.falhas.length) setErro(`não consegui ler ${r.falhas.length} fonte(s) — o resto está atualizado`);
+        if (r.falhas.length) setErro(t.readFail(r.falhas.length));
       } catch (e) {
         setFalhouAgora(true);
         setErro(e instanceof Error ? e.message : String(e));
@@ -93,24 +95,29 @@ export function TreasuryRefreshProvider({
  */
 export function TreasuryRefresh() {
   const { pending, atualizar, ruim, syncedAt, erro } = useContext(Ctx);
+  const { locale, t: dict } = useLocale();
+  const t = dict.treasury.refresh;
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
         {erro && <span className="text-[11px] text-warning">{erro}</span>}
         <span className="text-[11px] text-foreground-faint">
           {syncedAt
-            ? `dados de ${new Date(syncedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
-            : "nunca sincronizado"}
+            ? t.dataFrom(
+                new Date(syncedAt).toLocaleString(locale === "pt" ? "pt-BR" : "en-US", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              )
+            : t.neverSynced}
         </span>
         <button
           type="button"
           onClick={atualizar}
           disabled={pending}
           title={
-            pending
-              ? "atualizando…"
-              : ruim
-                ? "os dados estão velhos ou algo não pôde ser lido — clique para atualizar"
-                : "dados recentes"
+            pending ? t.busy : ruim ? t.staleTitle : t.freshTitle
           }
           className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60 ${
             ruim
@@ -119,7 +126,7 @@ export function TreasuryRefresh() {
           }`}
         >
           <RefreshCw className={`h-3.5 w-3.5 ${pending ? "animate-spin" : ""}`} />
-          {pending ? "atualizando…" : "atualizar"}
+          {pending ? t.busy : t.action}
         </button>
     </div>
   );

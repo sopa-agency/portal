@@ -49,9 +49,14 @@ type Log = { decoded?: { method_call?: string; parameters?: Param[] } | null };
  * POSITION instead: in both ERC-4626 Deposit(sender, owner, …) and
  * Withdraw(sender, receiver, owner, …) the share owner is the LAST address arg.
  */
-async function fetchNetPrincipal(vault: string): Promise<Map<string, number>> {
+async function fetchNetPrincipal(vault: string): Promise<{ net: Map<string, number>; lido: boolean }> {
   const net = new Map<string, number>();
   const addr = (v: unknown) => (typeof v === "string" && /^0x[a-fA-F0-9]{40}$/.test(v) ? v.toLowerCase() : null);
+  // A PRIMEIRA página é o que decide se houve leitura. Falhar nela é não saber
+  // nada; falhar na terceira é ter uma lista incompleta, que ainda assim é
+  // melhor que lista nenhuma. `lido` separa os dois casos — sem ele, o
+  // Blockscout fora do ar vira "ninguém depositou".
+  let lido = false;
   try {
     let next: Record<string, string> | null | undefined = {};
     let pages = 0;
@@ -63,6 +68,7 @@ async function fetchNetPrincipal(vault: string): Promise<Map<string, number>> {
         next: { revalidate: 300, tags: ["treasury"] },
       });
       if (!res.ok) break;
+      lido = true;
       const json = (await res.json()) as { items?: Log[]; next_page_params?: Record<string, string> | null };
       for (const log of json.items ?? []) {
         const call = log.decoded?.method_call ?? "";
@@ -82,9 +88,9 @@ async function fetchNetPrincipal(vault: string): Promise<Map<string, number>> {
       pages++;
     }
   } catch {
-    /* fall through — treated as "unknown principal", earned falls back to 0 */
+    /* cai fora com o que já deu tempo de ler; `lido` diz se foi alguma coisa */
   }
-  return net;
+  return { net, lido };
 }
 
 const client = () =>
@@ -116,7 +122,14 @@ export async function getVaultFeeAccrued(vault: string, feeRecipient: string): P
 }
 
 export async function getVaultDepositors(vault: string): Promise<VaultDepositor[]> {
-  const netPrincipal = await fetchNetPrincipal(vault.toLowerCase());
+  const { net: netPrincipal, lido } = await fetchNetPrincipal(vault.toLowerCase());
+  // LANÇAR, não devolver vazio. Quem chama embrulha em `attempt()`, e a tela já
+  // sabe dizer "não li" — mas só se a falha CHEGAR até ela. Devolver [] aqui
+  // transformava uma fonte fora do ar numa lista vazia bem-sucedida, o guarda
+  // da página nunca disparava, e o resumo somava US$ 0 do lado de um card que
+  // lia 13 USDC da cadeia. Duas afirmações contraditórias na mesma tela, e a
+  // errada era a que parecia mais confiante.
+  if (!lido) throw new Error("o índice de eventos do cofre (Blockscout) não respondeu");
   if (netPrincipal.size === 0) return [];
 
   const c = client();
