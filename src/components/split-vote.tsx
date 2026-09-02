@@ -158,7 +158,8 @@ export function SplitVote() {
                 O voto é anônimo: ninguém, nem o admin, vê quem votou o quê. Mas as cédulas sem nome
                 ficam visíveis no fim, para qualquer um poder refazer a conta.
                 <br />
-                <strong className="text-warning">Não votar zera a sua voz e a sua fatia.</strong>
+                <strong className="text-warning">Não votar tira a sua voz, não a sua fatia:</strong> quem
+                não vota não influencia a de ninguém, mas continua recebendo o que os colegas lhe deram.
               </p>
             </div>
             {e.souAdmin && (
@@ -177,6 +178,29 @@ export function SplitVote() {
             </p>
           ) : (
             <>
+              {/* Quem já votou, enquanto a urna está aberta. Participação não é
+                  resultado: dizer que faltam três pessoas não conta o voto de
+                  ninguém, e é o que permite decidir a hora de fechar. */}
+              {(e.jaVotaram.length > 0 || e.faltamVotar.length > 0) && (
+                <div className="mt-4 rounded-xl border border-border bg-surface-elevated p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">
+                    Participação · {e.jaVotaram.length} de {e.jaVotaram.length + e.faltamVotar.length}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {e.jaVotaram.map((v) => (
+                      <span key={v.address} className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+                        ✓ @{v.username}
+                      </span>
+                    ))}
+                    {e.faltamVotar.map((v) => (
+                      <span key={v.address} className="rounded-full border border-border px-2 py-0.5 text-[10px] text-foreground-faint">
+                        @{v.username}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <MeritoPainel merito={e.merito} pontos={e.pontosDeMerito} />
 
               <div className="mt-4 flex items-center justify-between gap-3">
@@ -257,7 +281,7 @@ export function SplitVote() {
           <p className="mt-1 text-xs text-foreground-subtle">
             {e.resultado.votaram} de {e.resultado.elegiveis} votaram.
             {e.resultado.abstiveram.length > 0 && (
-              <> {e.resultado.abstiveram.length} abstiveram e por isso ficaram com zero.</>
+              <> {e.resultado.abstiveram.length} não votaram — sem voz na conta, mas com fatia.</>
             )}
           </p>
           {/* O caso que parece bug e não é: com pouca gente votando, quase todo
@@ -265,10 +289,14 @@ export function SplitVote() {
               zero — inclusive os pontos que QUEM votou distribuiu. Sem esta
               frase, a leitura natural é "a urna perdeu meu voto". */}
           {e.resultado.votaram < e.resultado.elegiveis && (
-            <p className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
-              Faltam {e.resultado.elegiveis - e.resultado.votaram} pessoas. Os pontos dados a quem não
-              votou são zerados pela regra — então, com poucos votos, o resultado sai quase todo em zero.
-              Isso não é voto perdido: reabra, junte o resto da turma e feche de novo.
+            <p className="mt-2 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-[11px] leading-relaxed text-foreground-muted">
+              {e.resultado.elegiveis - e.resultado.votaram} pessoa
+              {e.resultado.elegiveis - e.resultado.votaram === 1 ? "" : "s"} ainda não votaram
+              {e.resultado.abstiveram.length > 0 && (
+                <> — {e.resultado.abstiveram.map((a) => `@${a.username}`).join(", ")}</>
+              )}
+              . Elas continuam recebendo o que os outros lhes deram; o que falta é a voz delas na conta.
+              Dá para <strong>reabrir</strong>, juntar o resto da turma e fechar de novo.
             </p>
           )}
           {/* Quem não pôde votar aparece SEPARADO de quem escolheu não votar.
