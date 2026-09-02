@@ -682,7 +682,6 @@ const en = {
       stepsHint:
         "Every action becomes a proposal in the multisig wallet — signers approve before it executes. Follow the steps in order.",
       /** Ordered admin steps (the page supplies the panels). */
-      stepStake: "Put the money to work",
       stepCreatePool: "Create the payment pool",
       stepTeam: "Set the team and the shares",
       stepTurnOn: "Turn on the payment",
@@ -2247,7 +2246,6 @@ const pt: typeof en = {
       receivingLive: "Recebendo ao vivo",
       stepsHint:
         "Cada ação vira uma proposta na carteira multisig — os signatários aprovam antes de executar. Siga os passos na ordem.",
-      stepStake: "Guardar dinheiro rendendo",
       stepCreatePool: "Criar a pool de pagamento",
       stepTeam: "Definir o time e as fatias",
       stepTurnOn: "Ligar o pagamento",
