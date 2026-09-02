@@ -7,6 +7,7 @@ import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import { apurar, elegiveis, validarCedula, vetorParaContrato, type Cedula } from "@/lib/split-vote";
 import { getSplitDistributeConfig } from "@/lib/splits";
+import { fetchOnchainRevenueCached } from "@/lib/revenue-onchain";
 import { JANELA_MS } from "@/lib/split-vote-weekly";
 import { calcularMerito, PONTOS_DE_MERITO, type Merito } from "@/lib/merit";
 import { type Reading } from "@/lib/reading";
@@ -234,4 +235,152 @@ export async function reabrirRodada(roundId: string): Promise<{ ok: true } | { o
   if (round.status === "open") return { ok: false, error: "Essa rodada já está aberta." };
   await prisma.splitVoteRound.update({ where: { id: roundId }, data: { status: "open", closedAt: null } });
   return { ok: true };
+}
+
+/**
+ * Congela o peso aplicado, no instante em que ele virou transação.
+ *
+ * Chamada pelo botão logo depois de a carteira devolver o hash. É o passo que
+ * transforma apuração em REGISTRO: a apuração se recalcula a cada leitura, a
+ * partir dos elegíveis de hoje e das cédulas de hoje — troque um destinatário
+ * no split e o passado inteiro muda de forma retroativa. Um pagamento precisa
+ * do contrário.
+ *
+ * Guardar o hash é o que amarra o registro à cadeia: qualquer um confere se
+ * aquele peso é mesmo o que o contrato passou a obedecer.
+ */
+export async function registrarAplicacao(
+  roundId: string,
+  txHash: string,
+  vetor: { recipients: string[]; allocations: string[]; totalAllocation: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await porta();
+  if (!g.ok) return g;
+  if (g.who.role !== "admin") return { ok: false, error: "Só quem administra registra a aplicação." };
+  if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) return { ok: false, error: "Hash de transação inválido." };
+
+  const round = await prisma.splitVoteRound.findUnique({ where: { id: roundId } }).catch(() => null);
+  if (!round) return { ok: false, error: "Rodada não encontrada." };
+  if (round.projectSlug !== g.project.slug) return { ok: false, error: "Essa rodada é de outro portal." };
+  if (vetor.recipients.length !== vetor.allocations.length) return { ok: false, error: "Vetor inconsistente." };
+
+  // O nome de cada carteira HOJE. Guardado junto do endereço porque cadastro
+  // muda, e um registro de pagamento que renomeia gente depois não é registro.
+  const contatos = await prisma.teamMemberContact
+    .findMany({ where: { label: "Wallet" }, select: { username: true, value: true } })
+    .catch(() => [] as { username: string; value: string }[]);
+  const nomePor = new Map(contatos.map((c) => [c.value.trim().toLowerCase(), c.username]));
+
+  try {
+    await prisma.splitPayoutRound.create({
+      data: {
+        projectSlug: g.project.slug,
+        roundId: round.id,
+        roundLabel: round.label,
+        splitAddress: round.splitAddress,
+        chain: round.chain,
+        txHash: txHash.toLowerCase(),
+        totalAllocation: vetor.totalAllocation,
+        appliedBy: g.who.username,
+        shares: {
+          create: vetor.recipients.map((address, i) => ({
+            address: address.toLowerCase(),
+            username: nomePor.get(address.toLowerCase()) ?? null,
+            allocation: vetor.allocations[i],
+          })),
+        },
+      },
+    });
+    return { ok: true };
+  } catch (e) {
+    // Hash repetido = já registrado. Não é erro para quem clicou duas vezes.
+    if (String(e).includes("Unique")) return { ok: true };
+    return { ok: false, error: String(e).slice(0, 160) };
+  }
+}
+
+export type PagamentoRegistrado = {
+  id: string;
+  roundLabel: string;
+  splitAddress: string;
+  chain: string;
+  txHash: string;
+  appliedBy: string;
+  appliedAt: string;
+  totalAllocation: string;
+  /** O peso de cada um, e quanto ele rendeu desde que passou a valer. */
+  linhas: { address: string; username: string | null; allocation: string; share: number; recebidoUsd: number | null }[];
+  /** Quanto o split distribuiu enquanto ESTE peso estava valendo. */
+  distribuidoUsd: number | null;
+  /** Por que o valor não pôde ser lido, quando não pôde. */
+  semValor?: string;
+};
+
+/**
+ * Os pagamentos registrados, com o que cada peso de fato rendeu.
+ *
+ * O valor NÃO é guardado no banco: ele é lido da cadeia a cada consulta,
+ * recortado pela vigência daquele peso (do instante em que foi aplicado até o
+ * peso seguinte entrar). Guardar o valor congelaria um número que ainda cresce,
+ * e a primeira distribuição depois do registro já o deixaria mentindo.
+ */
+export async function listarPagamentos(): Promise<
+  { ok: true; pagamentos: PagamentoRegistrado[] } | { ok: false; error: string }
+> {
+  const g = await porta();
+  if (!g.ok) return g;
+
+  const rows = await prisma.splitPayoutRound
+    .findMany({ where: { projectSlug: g.project.slug }, orderBy: { appliedAt: "desc" }, include: { shares: true } })
+    .catch(() => []);
+  if (!rows.length) return { ok: true, pagamentos: [] };
+
+  const out: PagamentoRegistrado[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    // A vigência: deste peso até o próximo. `rows` vem do mais novo para o mais
+    // velho, então o peso ANTERIOR na lista é o que sucedeu este.
+    const fim = i > 0 ? rows[i - 1].appliedAt.getTime() : Date.now();
+    const inicio = r.appliedAt.getTime();
+
+    const total = Number(r.totalAllocation) || 0;
+    const realizado = await fetchOnchainRevenueCached(r.splitAddress, r.chain).catch(() => null);
+    let distribuido: number | null = null;
+    let semValor: string | undefined;
+    if (!realizado) semValor = "não consegui ler as distribuições deste split";
+    else if (realizado.series.length === 0) semValor = realizado.error ?? "sem histórico datado para recortar a vigência";
+    else {
+      // A série é acumulada: o que correu na vigência é a diferença entre os
+      // dois extremos dela.
+      const antes = realizado.series.filter((p) => new Date(p.t).getTime() < inicio).pop()?.usd ?? 0;
+      const ate = realizado.series.filter((p) => new Date(p.t).getTime() <= fim).pop()?.usd ?? antes;
+      distribuido = Math.max(0, ate - antes);
+    }
+
+    out.push({
+      id: r.id,
+      roundLabel: r.roundLabel,
+      splitAddress: r.splitAddress,
+      chain: r.chain,
+      txHash: r.txHash,
+      appliedBy: r.appliedBy,
+      appliedAt: r.appliedAt.toISOString(),
+      totalAllocation: r.totalAllocation,
+      distribuidoUsd: distribuido,
+      ...(semValor ? { semValor } : {}),
+      linhas: r.shares
+        .map((sh) => {
+          const share = total > 0 ? (Number(sh.allocation) || 0) / total : 0;
+          return {
+            address: sh.address,
+            username: sh.username,
+            allocation: sh.allocation,
+            share,
+            recebidoUsd: distribuido == null ? null : distribuido * share,
+          };
+        })
+        .sort((a, b) => b.share - a.share),
+    });
+  }
+  return { ok: true, pagamentos: out };
 }
