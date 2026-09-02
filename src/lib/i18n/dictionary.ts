@@ -305,8 +305,24 @@ const en = {
       treasury: "Treasury",
       revenue: "Revenue",
       costs: "Costs",
-      members: "Members",
-      support: "Support",
+      payments: "Payments",
+      migration: "Migration",
+    },
+    /** The Payments tab: deciding the split and moving the money. */
+    payments: {
+      title: "Split vote",
+      blurb:
+        "After Monday's meeting each person hands out 100 points to the others. The result becomes the split's proportion — and the contract obeys it.",
+      ops: "MOR operations",
+      opsHint: "collect · swap to USDC · subnet stake",
+    },
+    migration: {
+      title: "Leaving the old setup",
+      blurb:
+        "What's left of Members and Support: the Superfluid payroll stream and the community vault. This tab exists so everyone can pull out what's theirs.",
+      note: "Temporary by design — it disappears once the last person has withdrawn.",
+      vaultWarn:
+        "The vault below still takes deposits — don't add anything new. It's here so whoever has money in it can take it out.",
     },
     refresh: {
       action: "Refresh",
@@ -1894,8 +1910,23 @@ const pt: typeof en = {
       treasury: "Tesouro",
       revenue: "Receita",
       costs: "Custos",
-      members: "Membros",
-      support: "Apoiar",
+      payments: "Pagamentos",
+      migration: "Migração",
+    },
+    payments: {
+      title: "Votação do split",
+      blurb:
+        "Depois da reunião de segunda, cada um distribui 100 pontos entre os outros. O resultado vira a proporção do split — e o contrato obedece a ela.",
+      ops: "Operações MOR",
+      opsHint: "recolher · trocar por USDC · stake na subnet",
+    },
+    migration: {
+      title: "Saída do setup antigo",
+      blurb:
+        "O que sobrou de Membros e Apoiar: a folha por stream do Superfluid e o cofre da comunidade. Esta aba existe para cada um tirar o que é seu.",
+      note: "Temporária por desenho — some quando a última pessoa sacar.",
+      vaultWarn:
+        "O cofre abaixo ainda aceita depósito — não põe nada novo. Ele está aqui para quem tem dinheiro lá poder tirar.",
     },
     refresh: {
       action: "Atualizar",

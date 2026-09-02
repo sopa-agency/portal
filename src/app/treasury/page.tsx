@@ -7,13 +7,11 @@ import { SetupGuide, CodeBlock } from "@/components/setup-guide";
 import { TreasuryViews } from "@/components/treasury-views";
 import { TreasuryRefresh, TreasuryRefreshProvider } from "@/components/treasury-refresh";
 import { SafeActivity, type SafeActivityItem } from "@/components/safe-activity";
-import { MultisigBudgets, type ProjectBudget } from "@/components/multisig-budget";
 import { FixedCostsPanel } from "@/components/fixed-costs-panel";
 import { CostsTab } from "@/components/costs-tab";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
 import { getOrgRevenue, type OrgRevenue } from "@/lib/org-revenue";
-import { getReaderDivergence, getTreasuryHistory, getTreasuryWalletHistory, getTreasuryWalletChart } from "@/lib/treasury-history";
-import { ReaderDivergencePanel } from "@/components/reader-divergence";
+import { getTreasuryHistory, getTreasuryWalletHistory, getTreasuryWalletChart } from "@/lib/treasury-history";
 import { TreasuryHistoryChart } from "@/components/treasury-history-chart";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
@@ -32,7 +30,8 @@ import { WithdrawUsdcx } from "@/components/withdraw-usdcx";
 import { BrandTreasury } from "@/components/brand-treasury";
 import { TreasuryAllocation } from "@/components/treasury-allocation";
 import { getAllocation } from "@/app/actions/allocation";
-import { SplitVoteBanner } from "@/components/split-vote-banner";
+import { SplitVote } from "@/components/split-vote";
+import { VoteDot } from "@/components/vote-dot";
 import { getStakePosition, type StakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { SopaTreasury } from "@/components/sopa-treasury";
@@ -55,7 +54,7 @@ import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
 import { combinedTreasury, dedupeTreasuryGroups } from "@/lib/treasury-aggregate";
-import { fetchSafeActivity, fetchSafeBudget } from "@/lib/safe-tx";
+import { fetchSafeActivity } from "@/lib/safe-tx";
 import { fetchCostScope } from "@/lib/fixed-costs-data";
 import { getActiveProject, getAllProjects } from "@/projects";
 import { prisma } from "@/lib/prisma";
@@ -257,20 +256,7 @@ treasury: {
   );
   const safes = probed.filter((p): p is SafeActivityItem => p !== null && (p.activity.queued.length > 0 || p.activity.history.length > 0));
 
-  // Operational budget: the configured bounty multisig(s) + spendable balances
-  // per chain (USD valued), shown highlighted + separate from the DAO treasury.
   const prices = await getPrices();
-  const ethPrice = prices.eth;
-  const budgets = (
-    await Promise.all(
-      bountyConfigs.map(async (bc): Promise<ProjectBudget | null> => {
-        const chains = (await Promise.all([8453, 1].map((chainId) => fetchSafeBudget(bc.safeAddress, chainId, ethPrice)))).filter(
-          (b): b is NonNullable<typeof b> => b !== null,
-        );
-        return chains.length ? { slug: bc.projectSlug, name: nameOf(bc.projectSlug), address: bc.safeAddress, chains } : null;
-      }),
-    )
-  ).filter((b): b is ProjectBudget => b !== null);
 
   // Fixed costs + runway. Costs are scoped to the treasuries actually shown
   // (each group's slug), so a brand portal sees only its own and SOPA the lot.
@@ -470,11 +456,6 @@ treasury: {
     balanceHistory: isOk(walletHistory) ? walletHistory.value : [],
   });
 
-  // SOPA: one project selector filters balances + revenue together. Brand
-  // portals show their single treasury + their own revenue directly.
-  // Leitura de banco, sem rede — o custo da comparação foi pago no cron.
-  const divergence = isSopa ? await getReaderDivergence() : null;
-
   const pipelineRead = isSopa
     ? await attempt<Awaited<ReturnType<typeof getPipelineStatus>> | null>(
         () => getPipelineStatus(),
@@ -594,6 +575,56 @@ treasury: {
   const brandView = groups.find((g) => g.slug === project.slug) ?? groups[0];
   const brandBurn = initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0);
 
+  /* Pagamentos: decidir quanto cada um recebe e mandar o dinheiro são a MESMA
+     pergunta. A urna vinha de uma rota solta em /votacao e o pipeline do MOR
+     de um collapsible do Tesouro; quem ia pagar tinha que caçar os dois. */
+  const paymentsContent = isSopa ? (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.treasury.payments.title}</h2>
+        <p className="mt-1 max-w-3xl text-sm leading-relaxed text-foreground-muted">{t.treasury.payments.blurb}</p>
+      </div>
+      <SplitVote />
+
+      <div className="border-t border-border pt-8">
+        <Section title={t.treasury.payments.ops} hint={t.treasury.payments.opsHint}>
+          <div className="space-y-6">
+            {!isOk(pipelineRead) && (
+              <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+                ⚠ O pipeline MOR não pôde ser lido
+                {pipelineRead.state === "unread" ? ` — ${pipelineRead.reason}` : ""}. O painel abaixo está ausente por
+                isso, não porque não haja pipeline.
+              </p>
+            )}
+            {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
+            <SopaStakePanel />
+            {/* O didático mora junto da coisa que ele explica, e vem por último:
+                quem chega aqui quer a ferramenta; a explicação fica embaixo,
+                para quem precisa dela. Segue recolhido porque é a leitura mais
+                cara da página inteira.
+
+                SUSPENSE, e nao await. Medido: esta leitura sozinha respondia
+                por 19,4s dos 19,5s da pagina — a arvore do split e lida da
+                cadeia, com ENS por cima. Agora o resto da tela nao espera por
+                ela; ela chega quando chegar. */}
+            <details className="group">
+              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
+                <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+                {t.treasury.ops.mor}
+                <span className="text-xs font-normal text-foreground-faint">{t.treasury.ops.morHint}</span>
+              </summary>
+              <div className="mt-5">
+                <Suspense fallback={<div className="h-32 animate-pulse rounded-xl border border-border bg-surface-elevated" />}>
+                  <MorFlowAsync tree={morTreeP} />
+                </Suspense>
+              </div>
+            </details>
+          </div>
+        </Section>
+      </div>
+    </div>
+  ) : null;
+
   const treasuryContent = isSopa ? (
     <div className="space-y-6">
       {/* Esta aba responde UMA pergunta: quanto temos e onde está. De onde vem
@@ -613,42 +644,13 @@ treasury: {
           </Suspense>
         </Section>
       )}
-      {/* Operações MOR (pipeline + stake) — ferramentas de owner, recolhidas num
-          collapsible pra Tesouro ficar uma visão limpa de "quanto temos". */}
-      <details className="group border-t border-border pt-8">
-        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
-          <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
-          {t.treasury.ops.mor}
-          <span className="text-xs font-normal text-foreground-faint">{t.treasury.ops.morHint}</span>
-        </summary>
-        <div className="mt-5 space-y-6">
-          {!isOk(pipelineRead) && (
-            <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-              ⚠ O pipeline MOR não pôde ser lido
-              {pipelineRead.state === "unread" ? ` — ${pipelineRead.reason}` : ""}. O painel abaixo está ausente por
-              isso, não porque não haja pipeline.
-            </p>
-          )}
-          {pipelineStatus && <MorPipelinePanel initial={pipelineStatus} />}
-          {divergence && <ReaderDivergencePanel data={divergence} />}
-          <SopaStakePanel />
-          {/* O didático mora junto da coisa que ele explica, não na tela de
-              consulta. Vem por último: quem abriu "Operar" quer a ferramenta;
-              a explicação fica embaixo, para quem precisa dela. */}
-          {/* SUSPENSE, e nao await.
-              Medido: esta leitura sozinha respondia por 19,4s dos 19,5s da
-              pagina — a arvore do split e lida da cadeia, com ENS por cima. E
-              ela mora DENTRO de um <details> fechado: a pagina inteira esperava
-              vinte segundos por um diagrama que ninguem estava olhando.
-              Agora o resto da tela nao espera por ela; ela chega quando chegar. */}
-          <Suspense fallback={<div className="h-32 animate-pulse rounded-xl border border-border bg-surface-elevated" />}>
-            <MorFlowAsync tree={morTreeP} />
-          </Suspense>
-        </div>
-      </details>
+      {/* As Operações MOR saíram daqui: mudar dinheiro de lugar é assunto de
+          Pagamentos, não de "quanto temos". Ficavam num collapsible fechado no
+          meio da tela de consulta — presentes o bastante para atrapalhar,
+          escondidas o bastante para ninguém achar na hora de usar. */}
       {/* Os earmarks saíram daqui: agora são o slot `sopaOnly` do SopaTreasury,
           governados pela aba All/SOPA/Gnars/SkateHive. */}
-      {(budgets.length > 0 || safes.length > 0) && (
+      {safes.length > 0 && (
         <details className="group border-t border-border pt-8">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground-muted transition-colors hover:text-foreground">
             <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
@@ -656,7 +658,6 @@ treasury: {
             <span className="text-xs font-normal text-foreground-faint">{t.treasury.ops.multisigHint}</span>
           </summary>
           <div className="mt-5 space-y-6">
-            <MultisigBudgets budgets={budgets} />
             <SafeActivity safes={safes} />
           </div>
         </details>
@@ -704,7 +705,6 @@ treasury: {
           />
         }
       />
-      <MultisigBudgets budgets={budgets} />
       <SafeActivity safes={safes} />
     </div>
   );
@@ -823,142 +823,158 @@ treasury: {
           costs={
             <CostsTab groups={costGroups} initialCosts={initialCosts} usdBrl={costScope.usdBrl} canEdit={!!session} />
           }
-          members={
-            <MembersTab
-              canEdit={!!session}
-              members={payroll
-                .filter((m) => m.active)
-                .map((m) => {
-                  const chain = streamStatus?.members.find((sm) => sm.address.toLowerCase() === m.address.toLowerCase());
-                  return {
-                    label: m.label,
-                    address: m.address,
-                    units: m.units,
-                    // `chain` ausente = a leitura do pool falhou. Antes isso
-                    // virava `false` e dois zeros, afirmando o estado da folha
-                    // de cada pessoa a partir de uma leitura que não houve.
-                    connected: chain ? chain.connected : null,
-                    receivedUsd: chain ? chain.receivedUsd : null,
-                    claimedUsd: chain ? chain.claimedUsd : null,
-                  };
-                })}
-              monthlyUsd={streamStatus?.monthlyUsd ?? null}
-              streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
-              runwayDays={streamStatus?.runwayDays ?? null}
-              bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
-              // O detector deixa de depender do que ele detecta: pool que não
-              // pôde ser DESCOBERTO agora acende o aviso, em vez de apagá-lo.
-              streamFailed={streamUnknown}
-              streamOff={streamOff}
-              lifetimeUsd={streamLifetimeUsd}
-              flow={
-                <>
-                  <StreamFlowView
-                    members={payroll.filter((m) => m.active).map((m) => ({ label: m.label, units: m.units }))}
-                    streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
-                    monthlyUsd={streamStatus?.monthlyUsd ?? null}
-                  />
-                  {!poolAddress && (
-                    <NotConfigured>
-                      {rich(t.treasury.pool.missing)}
-                      {t.treasury.pool.missingBody}
-                    </NotConfigured>
-                  )}
-                </>
-              }
-              sustainability={
-                poolAddress ? (
-                  <StreamSustainability
-                    failed={!streamStatus}
-                    yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
-                    burnMonthly={streamStatus?.monthlyUsd ?? 0}
-                    bufferUsdcx={streamStatus?.safeUsdcxUsd ?? 0}
-                    runwayDays={streamStatus?.runwayDays ?? null}
-                  />
-                ) : null
-              }
-              withdraw={<WithdrawUsdcx />}
-              connect={
-                poolAddress ? (
-                  <ConnectPoolButton
-                    pool={poolAddress}
-                    forwarder={SUPERFLUID.gdaForwarder}
-                    connectedAddresses={(streamStatus?.members ?? []).filter((m) => m.connected).map((m) => m.address.toLowerCase())}
-                  />
-                ) : null
-              }
-              // A urna pede sessão: sem login não há voto a cobrar, e a
-              // resposta "não autorizado" não é falha de leitura — é só um
-              // visitante. Por isso o slot nem entra.
-              voteSlot={session ? <SplitVoteBanner /> : undefined}
-              steps={[
-                ...(!poolAddress && session ? [{ title: t.treasury.members.stepCreatePool, node: <CreatePoolButton /> }] : []),
-                { title: t.treasury.members.stepTeam, node: <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} /> },
-                ...(poolAddress
-                  ? [
-                      {
-                        title: streamOff ? t.treasury.members.stepStreamOff : t.treasury.members.stepTurnOn,
-                        node: (
-                          <div className="space-y-3">
-                            {streamOff && (
-                              <p className="rounded-xl border border-dashed border-border-strong bg-surface-elevated p-3 text-xs leading-relaxed text-foreground-muted">
-                                {t.treasury.members.offStep}
-                              </p>
-                            )}
-                          <StreamActions
-                            canEdit={!!session}
-                            yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
-                            bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
-                            harvestableUsd={stakePosition?.harvestableUsd ?? null}
-                            currentFlowMonthly={streamStatus?.monthlyUsd ?? 0}
-                          />
-                          </div>
-                        ),
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-          }
-          apoiar={
-            // Cofres que não leram NÃO somem da tela. Sumir é afirmar que não
-            // existem — e uma aba inteira que desaparece em silêncio é a
-            // omissão mais difícil de notar que existe.
-            !isOk(communityVaults) ? (
-              <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-                ⚠ Os cofres da comunidade não puderam ser lidos
-                {communityVaults.state === "unread" ? ` — ${communityVaults.reason}` : ""}. Isto NÃO quer dizer que
-                não há cofre.
-              </p>
-            ) : vaults.length > 0 ? (
-              <div className="space-y-6">
-                {!isOk(vaultDepositors) && (
-                  <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-                    ⚠ Os apoiadores não puderam ser lidos
-                    {vaultDepositors.state === "unread" ? ` — ${vaultDepositors.reason}` : ""}. Os totais abaixo
-                    ficam de fora — zero apoiadores seria afirmação, não leitura.
-                  </p>
-                )}
-                {sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned) && (
-                  <VaultSupportSummary
-                    depositedUsd={vaultDepositors.value.filter((d) => !d.isDeadDeposit).reduce((s, d) => s + d.assets, 0)}
-                    apy={sopaVault.apy}
-                    liveYieldUsd={sopaVaultEarned.value + vaultDepositors.value.reduce((s, d) => s + d.earned, 0)}
-                    sopaEarnedUsd={sopaVaultEarned.value}
-                    feeToSopa={sopaVault.fee}
-                  />
-                )}
-                {/* The yield flow is a wide horizontal diagram — it reads best at
-                    full width, so everything stacks rather than sitting half-width. */}
-                <VaultStaking vaults={vaults} />
-                {sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned) && (
-                  <>
-                    <VaultFlowView depositors={vaultDepositors.value} apy={vaultGrossApy} feeToSopa={sopaVault.fee} sopaEarned={sopaVaultEarned.value} />
-                    <VaultDepositors depositors={vaultDepositors.value} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
-                  </>
-                )}
+          payments={paymentsContent}
+          paymentsBadge={session ? <VoteDot /> : undefined}
+          migration={
+            <div className="space-y-8">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.treasury.migration.title}</h2>
+                <p className="mt-1 max-w-3xl text-sm leading-relaxed text-foreground-muted">{t.treasury.migration.blurb}</p>
+                <p className="mt-2 text-xs font-semibold text-warning">{t.treasury.migration.note}</p>
               </div>
-            ) : undefined
+              <MembersTab
+                canEdit={!!session}
+                members={payroll
+                  .filter((m) => m.active)
+                  .map((m) => {
+                    const chain = streamStatus?.members.find((sm) => sm.address.toLowerCase() === m.address.toLowerCase());
+                    return {
+                      label: m.label,
+                      address: m.address,
+                      units: m.units,
+                      // `chain` ausente = a leitura do pool falhou. Antes isso
+                      // virava `false` e dois zeros, afirmando o estado da folha
+                      // de cada pessoa a partir de uma leitura que não houve.
+                      connected: chain ? chain.connected : null,
+                      receivedUsd: chain ? chain.receivedUsd : null,
+                      claimedUsd: chain ? chain.claimedUsd : null,
+                    };
+                  })}
+                monthlyUsd={streamStatus?.monthlyUsd ?? null}
+                streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
+                runwayDays={streamStatus?.runwayDays ?? null}
+                bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
+                // O detector deixa de depender do que ele detecta: pool que não
+                // pôde ser DESCOBERTO agora acende o aviso, em vez de apagá-lo.
+                streamFailed={streamUnknown}
+                streamOff={streamOff}
+                lifetimeUsd={streamLifetimeUsd}
+                flow={
+                  <>
+                    <StreamFlowView
+                      members={payroll.filter((m) => m.active).map((m) => ({ label: m.label, units: m.units }))}
+                      streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
+                      monthlyUsd={streamStatus?.monthlyUsd ?? null}
+                    />
+                    {!poolAddress && (
+                      <NotConfigured>
+                        {rich(t.treasury.pool.missing)}
+                        {t.treasury.pool.missingBody}
+                      </NotConfigured>
+                    )}
+                  </>
+                }
+                sustainability={
+                  poolAddress ? (
+                    <StreamSustainability
+                      failed={!streamStatus}
+                      yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
+                      burnMonthly={streamStatus?.monthlyUsd ?? 0}
+                      bufferUsdcx={streamStatus?.safeUsdcxUsd ?? 0}
+                      runwayDays={streamStatus?.runwayDays ?? null}
+                    />
+                  ) : null
+                }
+                withdraw={<WithdrawUsdcx />}
+                connect={
+                  poolAddress ? (
+                    <ConnectPoolButton
+                      pool={poolAddress}
+                      forwarder={SUPERFLUID.gdaForwarder}
+                      connectedAddresses={(streamStatus?.members ?? []).filter((m) => m.connected).map((m) => m.address.toLowerCase())}
+                    />
+                  ) : null
+                }
+                steps={[
+                  ...(!poolAddress && session ? [{ title: t.treasury.members.stepCreatePool, node: <CreatePoolButton /> }] : []),
+                  { title: t.treasury.members.stepTeam, node: <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} /> },
+                  ...(poolAddress
+                    ? [
+                        {
+                          title: streamOff ? t.treasury.members.stepStreamOff : t.treasury.members.stepTurnOn,
+                          node: (
+                            <div className="space-y-3">
+                              {streamOff && (
+                                <p className="rounded-xl border border-dashed border-border-strong bg-surface-elevated p-3 text-xs leading-relaxed text-foreground-muted">
+                                  {t.treasury.members.offStep}
+                                </p>
+                              )}
+                            <StreamActions
+                              canEdit={!!session}
+                              yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
+                              bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
+                              harvestableUsd={stakePosition?.harvestableUsd ?? null}
+                              currentFlowMonthly={streamStatus?.monthlyUsd ?? 0}
+                            />
+                            </div>
+                          ),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+
+              {/* O cofre da comunidade era a aba "Apoiar". Ele não sumiu: sumir
+                  seria afirmar que não há cofre — e quem tem dinheiro lá ficaria
+                  sem a tela por onde tirar. Fica aqui até o último saque. */}
+              <div className="border-t border-border pt-8">
+                {/* O painel do cofre continua sendo o de captação, com botão de
+                    depositar — ele foi movido, não redesenhado. Debaixo de um
+                    título que diz "tire o que é seu", um CTA de depósito é uma
+                    contradição que custa dinheiro de verdade a quem seguir. */}
+                <p className="mb-5 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+                  {t.treasury.migration.vaultWarn}
+                </p>
+                {/* Cofres que não leram NÃO somem da tela. Sumir é afirmar que não
+                    existem — e uma aba inteira que desaparece em silêncio é a
+                    omissão mais difícil de notar que existe. */}
+                {!isOk(communityVaults) ? (
+                  <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+                    ⚠ Os cofres da comunidade não puderam ser lidos
+                    {communityVaults.state === "unread" ? ` — ${communityVaults.reason}` : ""}. Isto NÃO quer dizer que
+                    não há cofre.
+                  </p>
+                ) : vaults.length > 0 ? (
+                  <div className="space-y-6">
+                    {!isOk(vaultDepositors) && (
+                      <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+                        ⚠ Os apoiadores não puderam ser lidos
+                        {vaultDepositors.state === "unread" ? ` — ${vaultDepositors.reason}` : ""}. Os totais abaixo
+                        ficam de fora — zero apoiadores seria afirmação, não leitura.
+                      </p>
+                    )}
+                    {sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned) && (
+                      <VaultSupportSummary
+                        depositedUsd={vaultDepositors.value.filter((d) => !d.isDeadDeposit).reduce((s, d) => s + d.assets, 0)}
+                        apy={sopaVault.apy}
+                        liveYieldUsd={sopaVaultEarned.value + vaultDepositors.value.reduce((s, d) => s + d.earned, 0)}
+                        sopaEarnedUsd={sopaVaultEarned.value}
+                        feeToSopa={sopaVault.fee}
+                      />
+                    )}
+                    {/* The yield flow is a wide horizontal diagram — it reads best at
+                        full width, so everything stacks rather than sitting half-width. */}
+                    <VaultStaking vaults={vaults} />
+                    {sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned) && (
+                      <>
+                        <VaultFlowView depositors={vaultDepositors.value} apy={vaultGrossApy} feeToSopa={sopaVault.fee} sopaEarned={sopaVaultEarned.value} />
+                        <VaultDepositors depositors={vaultDepositors.value} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
+                      </>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
           }
         />
       ) : (
