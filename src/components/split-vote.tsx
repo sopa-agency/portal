@@ -7,8 +7,9 @@
 // a impressão de que move.
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Lock, LockOpen, Users, Vote } from "lucide-react";
-import { abrirRodada, estadoRodada, fecharRodada, votar, type EstadoRodada } from "@/app/actions/split-vote";
+import { CheckCircle2, ExternalLink, Loader2, Lock, LockOpen, PenLine, Plug, Users, Vote } from "lucide-react";
+import { abrirRodada, estadoRodada, fecharRodada, votar, vetorParaAplicar, type EstadoRodada } from "@/app/actions/split-vote";
+import { useWallet } from "@/components/wallet-provider";
 
 const TOTAL = 100;
 const curto = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -202,17 +203,7 @@ export function SplitVote() {
             ))}
           </ul>
 
-          {e.vetor && (
-            <div className="mt-5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Para o updateSplit</p>
-              <p className="mt-1 text-[11px] text-foreground-subtle">
-                A urna produz o número; quem assina é o dono do split. Copie e execute pela carteira dona.
-              </p>
-              <pre className="mt-2 overflow-x-auto rounded-lg border border-border bg-surface-elevated p-3 font-mono text-[11px] leading-relaxed text-foreground">
-{JSON.stringify(e.vetor, null, 2)}
-              </pre>
-            </div>
-          )}
+          {e.vetor && <AplicarNoContrato round={e.round} podeAplicar={e.souAdmin} vetor={e.vetor} />}
 
           <details className="mt-5">
             <summary className="cursor-pointer text-xs font-medium text-foreground-muted hover:text-foreground">
@@ -235,6 +226,140 @@ export function SplitVote() {
           </details>
         </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * O último passo: o resultado vira transação.
+ *
+ * Antes esta parte era um `<pre>` com JSON para copiar e colar noutro lugar. Um
+ * vetor de alocações copiado à mão entre duas telas é onde o erro entra — e
+ * aqui um dígito trocado é o pagamento de alguém.
+ *
+ * O botão NÃO é automático de propósito: a apuração fecha sozinha, mas o clique
+ * que transforma voto em dinheiro é humano. E ele só existe para quem administra
+ * a rodada, porque `updateSplit` é `onlyOwner` — para qualquer outra carteira a
+ * transação reverteria, e oferecer um botão que reverte é pior que não oferecer.
+ *
+ * O `distributionIncentive` vem do servidor, lido da cadeia AGORA, e não daqui:
+ * é o campo que ninguém olha e que, zerado por descuido, tira o incentivo de
+ * quem dispara a distribuição sem nenhum aviso na tela.
+ */
+function AplicarNoContrato({
+  round,
+  podeAplicar,
+  vetor,
+}: {
+  round: NonNullable<EstadoRodada["round"]>;
+  podeAplicar: boolean;
+  vetor: NonNullable<EstadoRodada["vetor"]>;
+}) {
+  const { address, available, connect, connecting, ensureChain } = useWallet();
+  const [busy, setBusy] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [hash, setHash] = useState<string | null>(null);
+  const fechada = round.status === "closed";
+  const explorer = round.chain === "base" ? "https://basescan.org/tx/" : "https://etherscan.io/tx/";
+
+  async function aplicar() {
+    setBusy(true);
+    setErro(null);
+    setHash(null);
+    try {
+      const pronto = await vetorParaAplicar(round.id);
+      if (!pronto.ok) return setErro(pronto.error);
+      const eth = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+      if (!eth) return setErro("Nenhuma carteira encontrada neste navegador.");
+      const conta = address ?? (await connect());
+      if (!conta) return;
+      await ensureChain(round.chain === "base" ? "0x2105" : "0x1");
+
+      // Encoding manual da struct: um único tuple dinâmico, então o head é o
+      // offset 0x20 e o corpo vem logo atrás.
+      const { encodeFunctionData } = await import("viem");
+      const data = encodeFunctionData({
+        abi: [
+          {
+            name: "updateSplit",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              {
+                name: "_split",
+                type: "tuple",
+                components: [
+                  { name: "recipients", type: "address[]" },
+                  { name: "allocations", type: "uint256[]" },
+                  { name: "totalAllocation", type: "uint256" },
+                  { name: "distributionIncentive", type: "uint16" },
+                ],
+              },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "updateSplit",
+        args: [
+          {
+            recipients: pronto.recipients as `0x${string}`[],
+            allocations: pronto.allocations.map((a) => BigInt(a)),
+            totalAllocation: BigInt(pronto.totalAllocation),
+            distributionIncentive: pronto.distributionIncentive,
+          },
+        ],
+      });
+      const tx = (await eth.request({
+        method: "eth_sendTransaction",
+        params: [{ from: conta, to: pronto.splitAddress, data }],
+      })) as string;
+      setHash(tx);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      setErro(/user rejected|denied/i.test(m) ? "Assinatura cancelada na carteira." : m.slice(0, 200));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-border bg-surface-elevated p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Aplicar no contrato</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-foreground-subtle">
+        {vetor.recipients.length} destinatário{vetor.recipients.length === 1 ? "" : "s"} · soma{" "}
+        {vetor.allocations.reduce((s, a) => s + a, 0).toLocaleString("pt-BR")} de{" "}
+        {vetor.totalAllocation.toLocaleString("pt-BR")}. O incentivo de distribuição atual é preservado.
+      </p>
+
+      {!fechada ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-warning">
+          Feche a rodada antes de aplicar — enquanto ela está aberta a apuração ainda pode mudar.
+        </p>
+      ) : !podeAplicar ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-foreground-subtle">
+          Quem assina é a carteira dona do split. Esta tela mostra o resultado; aplicar é com quem administra.
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void aplicar()}
+          disabled={busy || connecting}
+          className="mt-2.5 inline-flex items-center gap-2 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : address ? <PenLine className="h-3.5 w-3.5" /> : <Plug className="h-3.5 w-3.5" />}
+          {busy ? "Assinando…" : address ? "Aplicar com a carteira dona" : available ? "Conectar e aplicar" : "Instale uma carteira"}
+        </button>
+      )}
+
+      {hash && (
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-success">
+          <CheckCircle2 className="h-3.5 w-3.5" /> Enviada.{" "}
+          <a href={`${explorer}${hash}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold underline">
+            ver na cadeia <ExternalLink className="h-3 w-3" />
+          </a>
+        </p>
+      )}
+      {erro && <p className="mt-2 text-[11px] leading-relaxed text-warning">⚠ {erro}</p>}
     </div>
   );
 }

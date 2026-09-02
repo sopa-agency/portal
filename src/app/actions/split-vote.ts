@@ -6,6 +6,7 @@ import { authorize } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import { apurar, elegiveis, validarCedula, vetorParaContrato, type Cedula } from "@/lib/split-vote";
+import { getSplitDistributeConfig } from "@/lib/splits";
 
 async function porta() {
   const project = await getActiveProject();
@@ -132,4 +133,55 @@ export async function fecharRodada(roundId: string): Promise<{ ok: true } | { ok
   if (g.who.role !== "admin") return { ok: false, error: "Só um admin fecha rodada." };
   await prisma.splitVoteRound.update({ where: { id: roundId }, data: { status: "closed", closedAt: new Date() } }).catch(() => null);
   return { ok: true };
+}
+
+/**
+ * O vetor pronto para assinar, com o incentivo PRESERVADO.
+ *
+ * `vetorParaContrato` devolve destinatários e alocações — e só. Mas
+ * `updateSplit` recebe a struct inteira, e o quarto campo é o
+ * `distributionIncentive`: a fatia que paga quem dispara a distribuição. Este
+ * split hoje tem **6**. Montar a struct com zero (o default de quem esquece do
+ * campo) apagaria esse incentivo sem erro nenhum na tela — a transação passaria,
+ * as proporções ficariam certas, e ninguém mais teria motivo para clicar em
+ * Recolher. Por isso o número é LIDO da cadeia agora e devolvido junto.
+ *
+ * Só depois de a rodada estar FECHADA: aplicar uma apuração que ainda pode mudar
+ * é transformar um voto em dinheiro antes de a urna terminar.
+ */
+export async function vetorParaAplicar(roundId: string): Promise<
+  | { ok: true; splitAddress: string; chain: string; recipients: string[]; allocations: string[]; totalAllocation: string; distributionIncentive: number }
+  | { ok: false; error: string }
+> {
+  const g = await porta();
+  if (!g.ok) return g;
+  if (g.who.role !== "admin") return { ok: false, error: "Só quem administra a rodada aplica o resultado." };
+
+  const round = await prisma.splitVoteRound.findUnique({ where: { id: roundId } }).catch(() => null);
+  if (!round) return { ok: false, error: "Rodada não encontrada." };
+  if (round.projectSlug !== g.project.slug) return { ok: false, error: "Essa rodada é de outro portal." };
+  if (round.status !== "closed") return { ok: false, error: "Feche a rodada antes de aplicar — apuração aberta ainda pode mudar." };
+
+  const els = await elegiveis(round.splitAddress, round.chain);
+  if (!els) return { ok: false, error: "Não consegui ler o split na cadeia agora. Isso não quer dizer que ele esteja vazio — tenta de novo." };
+
+  const resultado = await apurar(round.id, els);
+  const vetor = vetorParaContrato(resultado.linhas);
+  if (!vetor) return { ok: false, error: "Ninguém recebeu voto: não há vetor para aplicar." };
+
+  // A struct viva, só para herdar o incentivo. Sem ela não dá para montar o
+  // updateSplit sem apagar um campo que ninguém está olhando.
+  const atual = await getSplitDistributeConfig(round.splitAddress, round.chain);
+  if (!atual) return { ok: false, error: "Não consegui ler a configuração atual do split — sem ela eu apagaria o incentivo de distribuição." };
+
+  return {
+    ok: true,
+    splitAddress: round.splitAddress,
+    chain: round.chain,
+    recipients: vetor.recipients,
+    // Strings porque BigInt não atravessa server action; o cliente remonta.
+    allocations: vetor.allocations.map((a) => String(a)),
+    totalAllocation: String(vetor.totalAllocation),
+    distributionIncentive: atual.distributionIncentive,
+  };
 }

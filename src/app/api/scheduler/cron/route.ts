@@ -13,6 +13,7 @@ import { MAC_LEASE_GRACE_MS } from "@/lib/scheduler-lease";
 import { autoBoostFromVotes } from "@/lib/auto-boost";
 import { snapshotRevenueIfDue } from "@/lib/revenue-snapshots";
 import { snapshotTreasuryWalletsIfDue } from "@/lib/treasury-wallet-snapshots";
+import { rodadaSemanalIfDue } from "@/lib/split-vote-weekly";
 import { refillStreamIfLow } from "@/lib/stream-autopilot";
 import { dispatchSkatehiveScheduledPosts } from "@/lib/skatehive-scheduled-posts";
 import { probeZerionQuota } from "@/lib/zerion-probe";
@@ -95,6 +96,12 @@ export async function GET(req: Request) {
     ? await snapshotTreasuryWalletsIfDue(now).catch((e) => ({ ran: false, reason: String(e) }))
     : { skipped: "tick-claimed" as const };
 
+  // A urna semanal do split: abre segunda depois da reunião, fecha 48h depois.
+  // Só abre e fecha — aplicar o resultado no contrato segue sendo clique humano.
+  const urnaSemanal = claimedActions
+    ? await rodadaSemanalIfDue(new Date(now)).catch((e) => ({ ran: false, reason: String(e) }))
+    : { skipped: "tick-claimed" as const };
+
   // SkateHive's scheduled-post processor (skatehive3.0 #135) has no cron of its
   // own — this tick is what makes it run. Deliberately OUTSIDE the per-hour
   // claim and outside the mac-lease branch, so it fires on every tick no matter
@@ -120,6 +127,7 @@ export async function GET(req: Request) {
       revenue,
       streamRefill,
       walletSnapshot,
+      urnaSemanal,
       skatehiveScheduled,
       zerionProbe,
     });
@@ -127,5 +135,5 @@ export async function GET(req: Request) {
 
   // Mac is down → take over.
   const result = await runScheduledPublish(now);
-  return NextResponse.json({ ...result, fallback: true, skipped: false, claimedActions, autoBoost, revenue, streamRefill, walletSnapshot, skatehiveScheduled, zerionProbe });
+  return NextResponse.json({ ...result, fallback: true, skipped: false, claimedActions, autoBoost, revenue, streamRefill, walletSnapshot, urnaSemanal, skatehiveScheduled, zerionProbe });
 }
