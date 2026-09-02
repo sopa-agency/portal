@@ -24,7 +24,14 @@ const VAULT_ABI = [
   // Position value: convertToAssets(shares). maxWithdraw returns 0 here because
   // the liquidity sits in the Moonwell adapter, not idle.
   { name: "convertToAssets", type: "function", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] },
+  // Vault V2: pulls `assets` back from an adapter into the vault's idle balance.
+  // Permissionless; `onBehalf` pays the (per-adapter) penalty in shares.
+  { name: "forceDeallocate", type: "function", stateMutability: "nonpayable", inputs: [{ name: "adapter", type: "address" }, { name: "data", type: "bytes" }, { name: "assets", type: "uint256" }, { name: "onBehalf", type: "address" }], outputs: [{ type: "uint256" }] },
+  { name: "forceDeallocatePenalty", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
+
+/** forceDeallocatePenalty is a WAD fraction (1e18 = 100%). */
+const penaltyPct = (wad: bigint) => `${(Number(wad) / 1e16).toFixed(2)}%`;
 
 const pub = () => createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
 
@@ -54,6 +61,12 @@ function VaultCard({ info }: { info: VaultInfo }) {
   const [walletBal, setWalletBal] = useState<number | null>(null);
   const [position, setPosition] = useState<number | null>(null);
   const [shares, setShares] = useState<bigint>(BigInt(0));
+  // USDC sitting idle IN THE VAULT (not the depositor's share of it). This is
+  // what a withdraw can take without touching the adapter. NULL = não leu —
+  // and "não leu" must not render as "há liquidez": that is the click that
+  // ends in a bare contract revert.
+  const [idle, setIdle] = useState<bigint | null>(null);
+  const [penalty, setPenalty] = useState<bigint | null>(null);
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState<"deposit" | "withdraw">("deposit");
   const [busy, setBusy] = useState<string | null>(null);
@@ -79,8 +92,25 @@ function VaultCard({ info }: { info: VaultInfo }) {
       } catch {
         /* leave as unknown rather than showing a wrong number */
       }
+      // Separate try: the liquidity read failing must not blank the balances
+      // above, and vice-versa.
+      try {
+        const c = pub();
+        const adapter = vault.liquidityAdapter ? getAddress(vault.liquidityAdapter) : null;
+        const [idleBal, pen] = await Promise.all([
+          c.readContract({ address: getAddress(vault.asset), abi: erc20Abi, functionName: "balanceOf", args: [getAddress(vault.address)] }),
+          adapter
+            ? c.readContract({ address: getAddress(vault.address), abi: VAULT_ABI, functionName: "forceDeallocatePenalty", args: [adapter] })
+            : Promise.resolve(null),
+        ]);
+        setIdle(idleBal);
+        setPenalty(pen);
+      } catch {
+        setIdle(null);
+        setPenalty(null);
+      }
     },
-    [vault.asset, vault.address, vault.assetDecimals],
+    [vault.asset, vault.address, vault.assetDecimals, vault.liquidityAdapter],
   );
 
   // Saldo e posição acompanham o endereço, não o clique: a conexão pode vir de
@@ -137,10 +167,38 @@ function VaultCard({ info }: { info: VaultInfo }) {
         await c.waitForTransactionReceipt({ hash: h });
         setTx(h);
       } else {
-        setBusy(t.withdrawing);
         // Withdrawing the whole position: redeem ALL shares. withdraw(assets)
         // rounds shares up and can revert at the exact max; redeem(shares) can't.
         const full = position != null && value >= position - 1e-6;
+
+        // THE VAULT KEEPS NO IDLE USDC — it is all deployed in the adapter, and
+        // a plain withdraw/redeem reverts with maxRedeem = 0. Measured, and it
+        // bit real people. So: read the idle balance fresh, and when it is
+        // short, pull the shortfall back from the adapter first
+        // (forceDeallocate — permissionless, penalty read from the contract).
+        // A full redeem keeps accruing interest between the two transactions,
+        // so it is padded by a cent; the surplus just stays idle in the vault.
+        const idleNow = await c.readContract({ address: getAddress(vault.asset), abi: erc20Abi, functionName: "balanceOf", args: [vaultAddr] });
+        const need = full ? assets + parseUnits("0.01", vault.assetDecimals) : assets;
+        const twoStep = need > idleNow;
+        if (twoStep) {
+          if (!vault.liquidityAdapter) throw new Error(t.liquidityNoAdapter);
+          setBusy(t.deallocating);
+          try {
+            const { request } = await c.simulateContract({
+              address: vaultAddr,
+              abi: VAULT_ABI,
+              functionName: "forceDeallocate",
+              args: [getAddress(vault.liquidityAdapter), "0x", need - idleNow, getAddress(account)],
+              account: getAddress(account),
+            });
+            const dh = await wallet.writeContract(request);
+            await c.waitForTransactionReceipt({ hash: dh });
+          } catch (e) {
+            throw new Error(t.deallocateFailed((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? "?"));
+          }
+        }
+        setBusy(twoStep ? t.withdrawingStep : t.withdrawing);
         const h =
           full && shares > BigInt(0)
             ? await wallet.writeContract({
@@ -298,6 +356,25 @@ function VaultCard({ info }: { info: VaultInfo }) {
               </button>
             )}
           </div>
+
+          {/* Say it BEFORE the click: the money is in Moonwell, not idle, and
+              taking it out is two transactions. Unknown idle is said as
+              unknown — not as "there is liquidity". */}
+          {mode === "withdraw" && position != null && position > 0 && (
+            idle == null ? (
+              <p className="rounded-lg border border-dashed border-warning/50 bg-warning/10 p-2.5 text-[11px] leading-relaxed text-warning">{t.liquidityUnread}</p>
+            ) : Number(formatUnits(idle, vault.assetDecimals)) < position ? (
+              <p className="rounded-lg border border-border bg-surface-elevated p-2.5 text-[11px] leading-relaxed text-foreground-muted">
+                {rich(
+                  t.liquidityNote(
+                    fmt(Number(formatUnits(idle, vault.assetDecimals)), 2),
+                    vault.assetSymbol,
+                    penalty == null ? t.penaltyUnread : penalty === BigInt(0) ? t.penaltyNone : t.penaltyPct(penaltyPct(penalty)),
+                  ),
+                )}
+              </p>
+            ) : null
+          )}
 
           <button
             type="button"

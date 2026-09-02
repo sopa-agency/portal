@@ -6,6 +6,7 @@
 // stream is symbolic, if a queue is stuck, the text says so.
 
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/dictionary";
+import type { Reading } from "@/lib/reading";
 
 export type BriefingInput = {
   projectName: string;
@@ -52,6 +53,22 @@ export type BriefingInput = {
     /** Share of the yield taken as the SOPA fee, 0–1. */
     feeToSopa: number;
   };
+  /**
+   * SOPA's USDC in Morpheus' capital pool (mainnet). A Reading, not a number:
+   * the briefing SAYS this out loud, and "no deposit" from a read that never
+   * happened is the sentence that sends someone looking for lost money.
+   * Absent on brand portals.
+   */
+  capital?: Reading<{
+    depositedUsd: number;
+    pendingMor: number;
+    /** null when the MOR price didn't load. */
+    pendingUsd: number | null;
+    multiplier: number;
+    /** Measured on the position; null when the window is too short or the price is unknown. */
+    realizedApy: number | null;
+    claimLockEnd: Date | null;
+  }>;
   /** SOPA's MOR position from the Gnars subnet pipeline (Morpheus). */
   mor?: {
     /** MOR staked into the Gnars subnet (compounding SOPA's cut back in). */
@@ -110,6 +127,7 @@ type Copy = {
     outgoing: string;
     payments: string;
     vault: string;
+    capital: string;
     mor: string;
     attention: string;
   };
@@ -160,6 +178,16 @@ type Copy = {
   morNoPending: string;
   morSubnet: (amount: string) => string;
   morTiny: string;
+  capitalUnread: (reason: string) => string;
+  capitalNone: string;
+  capitalHolds: (value: string, mor: string, usdPart: string) => string;
+  capitalUsdPart: (value: string) => string;
+  capitalLocked: (mult: string) => string;
+  capitalApy: (apy: string) => string;
+  capitalApyShort: string;
+  capitalClaimIn: (date: string, days: string) => string;
+  capitalClaimOpen: string;
+  capitalReceiver: string;
   queueStuck: (txs: string) => string;
   queueRow: (nonce: string, action: string, sigs: string) => string;
   queueUnsigned: string;
@@ -179,6 +207,7 @@ const COPY: Record<Locale, Copy> = {
       outgoing: "What goes out",
       payments: "Payments",
       vault: "Support vault",
+      capital: "Capital in Morpheus",
       mor: "MOR (subnet stake)",
       attention: "Needs attention",
     },
@@ -191,7 +220,7 @@ const COPY: Record<Locale, Copy> = {
     brandsToo: (value) =>
       `. Adding the treasuries of the brands it tracks, the page shows ${value} — but that money lives in separate multisigs and can't be spent from here.`,
     nothingEarning: (value) => `Nothing is earning: the ${value} is sitting idle, losing to inflation.`,
-    staked: (value, share, rate) => `Of that total, ${value} (${share}) is in the Morpho vault earning${rate}.`,
+    staked: (value, share, rate) => `Of that total, ${value} (${share}) is put to work, earning${rate}.`,
     atRate: (apy) => ` at ${apy} a year`,
     perMonthYield: (value) => `, which comes to about ${value} a month`,
     idleLeft: (value) =>
@@ -242,6 +271,19 @@ const COPY: Record<Locale, Copy> = {
     morSubnet: (amount) =>
       `The subnet has ${amount} accumulated to claim in the pipeline; of that total SOPA takes 10% (the rest becomes USDC for Gnars and SOPA further down).`,
     morTiny: "These are small amounts (a fraction of MOR) — seed/test of the flow, not meaningful revenue yet.",
+    capitalUnread: (reason) =>
+      `SOPA's position in Morpheus' capital pool couldn't be read (${reason}). This does not mean there is no deposit — the number is simply unknown right now.`,
+    capitalNone: "SOPA has no USDC in Morpheus' capital pool at the moment.",
+    capitalHolds: (value, mor, usdPart) =>
+      `SOPA has ${value} in Morpheus' capital pool (Ethereum mainnet), earning MOR. It has accrued ${mor} MOR${usdPart} so far.`,
+    capitalUsdPart: (value) => ` (about ${value})`,
+    capitalLocked: (mult) => `The position carries a ${mult}× multiplier — there is a lock on it.`,
+    capitalApy: (apy) => `Measured on the position itself, that is ${apy} a year.`,
+    capitalApyShort: "The window since the deposit is still too short to annualize honestly — no rate yet.",
+    capitalClaimIn: (date, days) => `The first claim unlocks on ${date} (in ${days} days).`,
+    capitalClaimOpen: "The claim is unlocked.",
+    capitalReceiver:
+      "The claim mints the MOR on Arbitrum and has to go to the Safe — never through the Base split, which would hand 54% of it to third parties.",
     queueStuck: (txs) =>
       `There are ${txs} in the multisig queue. They execute in order, so the first stuck one holds up all the others.`,
     queueRow: (nonce, action, sigs) => `· #${nonce} — ${action} (${sigs} signatures)`,
@@ -262,6 +304,7 @@ const COPY: Record<Locale, Copy> = {
       outgoing: "O que sai",
       payments: "Pagamentos",
       vault: "Cofre de apoio",
+      capital: "Capital na Morpheus",
       mor: "MOR (stake na subnet)",
       attention: "Precisa de atenção",
     },
@@ -274,7 +317,7 @@ const COPY: Record<Locale, Copy> = {
     brandsToo: (value) =>
       `. Somando os tesouros das marcas que ela acompanha, a página mostra ${value} — mas esse dinheiro é de multisigs separados e não dá pra gastar daqui.`,
     nothingEarning: (value) => `Nada está rendendo: os ${value} estão parados, perdendo pra inflação.`,
-    staked: (value, share, rate) => `Desse total, ${value} (${share}) está no cofre da Morpho rendendo${rate}.`,
+    staked: (value, share, rate) => `Desse total, ${value} (${share}) está aplicado, rendendo${rate}.`,
     atRate: (apy) => ` a ${apy} ao ano`,
     perMonthYield: (value) => `, o que dá cerca de ${value} por mês`,
     idleLeft: (value) =>
@@ -325,6 +368,19 @@ const COPY: Record<Locale, Copy> = {
     morSubnet: (amount) =>
       `A subnet tem ${amount} acumulados pra reivindicar no pipeline; desse total a SOPA leva 10% (o resto vira USDC pra Gnars e SOPA lá embaixo).`,
     morTiny: "São quantias pequenas (fração de MOR) — semente/teste do fluxo, ainda não receita relevante.",
+    capitalUnread: (reason) =>
+      `A posição da SOPA no pool de capital da Morpheus não pôde ser lida (${reason}). Isso não quer dizer que não há depósito — o número é que está desconhecido agora.`,
+    capitalNone: "A SOPA não tem USDC no pool de capital da Morpheus no momento.",
+    capitalHolds: (value, mor, usdPart) =>
+      `A SOPA tem ${value} no pool de capital da Morpheus (Ethereum mainnet), rendendo MOR. Já acumulou ${mor} MOR${usdPart}.`,
+    capitalUsdPart: (value) => ` (cerca de ${value})`,
+    capitalLocked: (mult) => `A posição carrega multiplicador de ${mult}× — há uma trava nela.`,
+    capitalApy: (apy) => `Medido na própria posição, isso dá ${apy} ao ano.`,
+    capitalApyShort: "A janela desde o depósito ainda é curta demais pra anualizar com honestidade — sem taxa por enquanto.",
+    capitalClaimIn: (date, days) => `O primeiro claim libera em ${date} (daqui a ${days} dias).`,
+    capitalClaimOpen: "O claim está liberado.",
+    capitalReceiver:
+      "O claim minta o MOR na Arbitrum e tem que ir pro Safe — nunca pelo split da Base, que entregaria 54% dele a terceiros.",
     queueStuck: (txs) =>
       `Tem ${txs} na fila do multisig. Elas executam em ordem, então a primeira travada segura todas as outras.`,
     queueRow: (nonce, action, sigs) => `· #${nonce} — ${action} (${sigs} assinaturas)`,
@@ -464,6 +520,35 @@ export function buildTreasuryBriefing(i: BriefingInput, locale: Locale = DEFAULT
       if (v.teamBackers >= v.backers) vault.push(c.vaultTeamOnly);
     }
     sections.push({ title: c.sections.vault, paragraphs: vault });
+  }
+
+  // ---- 4b'. Capital in Morpheus ----
+  if (i.capital) {
+    const cap: string[] = [];
+    if (i.capital.state === "unread") {
+      cap.push(c.capitalUnread(i.capital.reason));
+    } else if (i.capital.state === "insufficient") {
+      cap.push(c.capitalUnread(i.capital.note));
+    } else if (i.capital.value.depositedUsd <= 0) {
+      cap.push(c.capitalNone);
+    } else {
+      const v = i.capital.value;
+      cap.push(c.capitalHolds(usd(v.depositedUsd), mor(v.pendingMor), v.pendingUsd != null ? c.capitalUsdPart(usd(v.pendingUsd)) : ""));
+      // A multiplier above ~1 means a lock was chosen. SOPA chose none — if
+      // this line ever shows up, something changed on-chain and should be seen.
+      if (v.multiplier >= 1.05) cap.push(c.capitalLocked(mark(v.multiplier.toFixed(2))));
+      cap.push(v.realizedApy != null ? c.capitalApy(pct(v.realizedApy)) : c.capitalApyShort);
+      if (v.claimLockEnd) {
+        const days = Math.ceil((v.claimLockEnd.getTime() - Date.now()) / 86_400_000);
+        cap.push(
+          days > 0
+            ? c.capitalClaimIn(mark(v.claimLockEnd.toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US")), mark(String(days)))
+            : c.capitalClaimOpen,
+        );
+      }
+      cap.push(c.capitalReceiver);
+    }
+    sections.push({ title: c.sections.capital, paragraphs: cap });
   }
 
   // ---- 4c. MOR (subnet stake + pipeline rewards) ----

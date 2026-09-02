@@ -571,6 +571,33 @@ const en = {
       openSafe: "Open in Safe",
       queuedTail: "(deposit = approve + deposit, in a single proposal).",
     },
+    /** SOPA's USDC in the Morpheus capital pool (Ethereum mainnet, yields MOR). */
+    capital: {
+      title: "Capital in Morpheus",
+      hint: "SOPA's USDC deposited in Morpheus' capital pool, on Ethereum mainnet. It earns MOR; the claim mints the MOR on Arbitrum, into the Safe.",
+      deposited: "Deposited",
+      poolShare: (share: string) => `${share} of the pool`,
+      accrued: "MOR accrued",
+      accruedHint: "Earned and not claimed yet. Claiming mints it on Arbitrum, into the Safe.",
+      multiplier: "Multiplier",
+      noLock: "no lock — the money can leave at any time",
+      withLock: "with lock",
+      realizedApy: "Realized yield",
+      realizedApyHint:
+        "Measured on THIS position: MOR accrued × price ÷ deposit, annualized over the real window since the deposit. Not anyone's advertised rate.",
+      claimAt: "Claim unlocks",
+      claimOpen: "unlocked",
+      claimOpenHint: "The 7-day minimum between depositing and claiming has passed.",
+      inDays: (n: number) => `in ${n} day${n === 1 ? "" : "s"}`,
+      since: (date: string) => `since ${date}`,
+      priceUnread: "MOR price didn't load — the USD value and the yield can't be computed from a price we didn't read.",
+      empty: "The read went through and there is no deposit in the USDC pool right now.",
+      unread: (reason: string) =>
+        `Couldn't read SOPA's position in Morpheus — ${reason}. This does NOT mean there is no deposit.`,
+      receiverNote:
+        "**The claim goes to the Safe, on Arbitrum — never to the Base top split.** The split is for subnet emissions, which are communal; capital yield is the return on SOPA's own money. Sending it through the split would hand 54% of it to third parties.",
+      loading: "reading the position on mainnet…",
+    },
     /** The Members tab shell: live panel vs admin controls. */
     members: {
       tabLive: "Panel · live",
@@ -594,6 +621,7 @@ const en = {
       stepCreatePool: "Create the payment pool",
       stepTeam: "Set the team and the shares",
       stepTurnOn: "Turn on the payment",
+      stepStreamOff: "Stream — switched off",
       /** Who gets what. */
       whoTitle: "Who gets what",
       memberCount: (n: number) => `${n} member${n === 1 ? "" : "s"}`,
@@ -608,6 +636,12 @@ const en = {
       accrued: "accrued",
       withdrawn: (value: string) => `${value} withdrawn`,
       nothingWithdrawn: "nothing withdrawn",
+      /** The pool exists but flowRate is zero: the machine is off, on purpose. */
+      offTitle: "Stream switched off",
+      offBody: (lifetime: string) =>
+        `The distribution pool exists on Base but isn't running — the flow rate reads **zero** right now. Over its whole life it paid out ${lifetime}. The treasury's yield strategy moved to **capital in Morpheus** (Treasury tab). The roster below still says how any future distribution is split.`,
+      offLeftover: "Leftover USDCx in your wallet? Unwrap it to USDC here.",
+      offStep: "The pool is off. Proposing a flow rate here would turn it back on — that's a treasury decision, not a button to press casually.",
     },
     /** The payroll roster editor (who is paid, and with what weight). */
     payroll: {
@@ -834,6 +868,17 @@ const en = {
       feeLags: (fee: string) =>
         `SOPA's fee is charged bit by bit (on every vault interaction), so its accumulated total trails the depositors' gain until the next charge — in the end, the split settles at ${fee}.`,
       apyPendingNote: "The $/mo values show up once Morpho indexes the vault's APY. The shares are already correct.",
+      /** Withdrawing when the vault's USDC is all deployed in the adapter. */
+      liquidityNote: (idle: string, symbol: string, penalty: string) =>
+        `The vault has **${idle} ${symbol}** sitting idle — the rest is deployed in Moonwell. Withdrawing more than that takes **two transactions**: first pull the liquidity back from the adapter (anyone can, ${penalty}), then withdraw. The button does both.`,
+      liquidityUnread: "Couldn't read the vault's idle liquidity — if the withdrawal reverts, the money is deployed in Moonwell and needs to be pulled back first.",
+      penaltyNone: "no penalty",
+      penaltyUnread: "penalty not read",
+      liquidityNoAdapter: "This vault keeps no idle liquidity and the portal doesn't know its adapter — withdraw through the Morpho app.",
+      penaltyPct: (p: string) => `${p} penalty`,
+      deallocating: "Pulling liquidity back from Moonwell… (1/2)",
+      withdrawingStep: "Withdrawing… (2/2)",
+      deallocateFailed: (msg: string) => `Couldn't pull the liquidity back from the adapter: ${msg}. Nothing was withdrawn.`,
     },
     /** The MOR → USDC pipeline (Morpheus builder subnet → splits → swappers). */
     mor: {
@@ -2029,6 +2074,32 @@ const pt: typeof en = {
       openSafe: "Abrir no Safe",
       queuedTail: "(guardar = aprovar + depositar, numa proposta só).",
     },
+    capital: {
+      title: "Capital na Morpheus",
+      hint: "O USDC da SOPA depositado no pool de capital da Morpheus, na Ethereum mainnet. Rende MOR; o claim minta o MOR na Arbitrum, direto no Safe.",
+      deposited: "Depositado",
+      poolShare: (share: string) => `${share} do pool`,
+      accrued: "MOR acumulado",
+      accruedHint: "Rendido e ainda não reclamado. O claim minta na Arbitrum, no Safe.",
+      multiplier: "Multiplicador",
+      noLock: "sem trava — o dinheiro pode sair a qualquer hora",
+      withLock: "com trava",
+      realizedApy: "Rendimento realizado",
+      realizedApyHint:
+        "Medido NESTA posição: MOR acumulado × preço ÷ depósito, anualizado sobre a janela real desde o depósito. Não é a taxa anunciada por ninguém.",
+      claimAt: "Claim libera",
+      claimOpen: "liberado",
+      claimOpenHint: "A carência mínima de 7 dias entre depositar e reclamar já passou.",
+      inDays: (n: number) => `em ${n} dia${n === 1 ? "" : "s"}`,
+      since: (date: string) => `desde ${date}`,
+      priceUnread: "O preço do MOR não carregou — o valor em dólar e o rendimento não saem de um preço que não foi lido.",
+      empty: "A leitura passou e não há depósito no pool de USDC agora.",
+      unread: (reason: string) =>
+        `Não consegui ler a posição da SOPA na Morpheus — ${reason}. Isto NÃO quer dizer que não há depósito.`,
+      receiverNote:
+        "**O claim vai pro Safe, na Arbitrum — nunca pro topSplit da Base.** O split é pra emissão de subnet, que é comunal; rendimento de capital é retorno sobre o dinheiro da própria SOPA. Passar pelo split entregaria 54% dele a terceiros.",
+      loading: "lendo a posição na mainnet…",
+    },
     members: {
       tabLive: "Painel · ao vivo",
       tabAdmin: "Controles · admin",
@@ -2050,6 +2121,7 @@ const pt: typeof en = {
       stepCreatePool: "Criar a pool de pagamento",
       stepTeam: "Definir o time e as fatias",
       stepTurnOn: "Ligar o pagamento",
+      stepStreamOff: "Stream — desligado",
       whoTitle: "Quem recebe o quê",
       memberCount: (n: number) => `${n} ${n === 1 ? "membro" : "membros"}`,
       weights: (n: number) => `${n} pesos`,
@@ -2062,6 +2134,11 @@ const pt: typeof en = {
       accrued: "acumulado",
       withdrawn: (value: string) => `${value} sacado`,
       nothingWithdrawn: "nada sacado",
+      offTitle: "Stream desligado",
+      offBody: (lifetime: string) =>
+        `A pool de distribuição existe na Base mas não corre — a vazão lê **zero** agora. Na vida inteira ela pagou ${lifetime}. A estratégia de rendimento do tesouro passou pra **capital na Morpheus** (aba Tesouro). A lista abaixo continua dizendo como qualquer distribuição futura se divide.`,
+      offLeftover: "Sobrou USDCx na carteira? Desembrulhe pra USDC aqui.",
+      offStep: "A pool está desligada. Propor uma vazão aqui religa o pagamento — é decisão de tesouraria, não botão pra apertar por apertar.",
     },
     payroll: {
       title: "O time e as fatias",
@@ -2276,6 +2353,16 @@ const pt: typeof en = {
       feeLags: (fee: string) =>
         `A taxa da SOPA é cobrada aos poucos (a cada movimentação do cofre), então o acumulado dela aparece atrás do ganho dos depositantes até a próxima cobrança — no fim, a divisão fecha em ${fee}.`,
       apyPendingNote: "Os valores em $/mês aparecem quando a Morpho indexar o APY do cofre. As fatias já estão corretas.",
+      liquidityNote: (idle: string, symbol: string, penalty: string) =>
+        `O cofre tem **${idle} ${symbol}** parados — o resto está aplicado na Moonwell. Sacar mais do que isso são **duas transações**: primeiro puxar a liquidez de volta do adaptador (qualquer um pode, ${penalty}), depois sacar. O botão faz as duas.`,
+      liquidityUnread: "Não consegui ler a liquidez parada do cofre — se o saque reverter, o dinheiro está aplicado na Moonwell e precisa ser puxado antes.",
+      penaltyNone: "sem penalidade",
+      penaltyUnread: "penalidade não lida",
+      liquidityNoAdapter: "Este cofre não deixa liquidez parada e o portal não conhece o adaptador dele — saque pelo app da Morpho.",
+      penaltyPct: (p: string) => `${p} de penalidade`,
+      deallocating: "Puxando a liquidez da Moonwell… (1/2)",
+      withdrawingStep: "Sacando… (2/2)",
+      deallocateFailed: (msg: string) => `Não consegui puxar a liquidez do adaptador: ${msg}. Nada foi sacado.`,
     },
     mor: {
       diagramTitle: "Como funciona o fluxo MOR",
