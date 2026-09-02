@@ -1652,6 +1652,49 @@ model SplitVoteRound {
 /// ordem embaralhada de forma estável, para que ninguém deduza quem votou o quê
 /// pela ordem de chegada. É o que torna a votação auditável e anônima ao mesmo
 /// tempo: qualquer um recalcula a média, ninguém identifica o autor.
+/// O peso final de uma rodada, congelado no instante em que virou transação.
+///
+/// Existe porque apuração NÃO é registro de pagamento. A apuração se recalcula
+/// a cada leitura, a partir dos elegíveis de HOJE e das cédulas de hoje — troque
+/// um destinatário no split e o passado muda de forma retroativa. Um pagamento
+/// precisa do contrário: o que valia no dia em que o dinheiro foi dividido,
+/// imutável, com o hash que prova.
+model SplitPayoutRound {
+  id              String   @id @default(cuid())
+  projectSlug     String   @default("sopa")
+  roundId         String // a rodada de votação que gerou este peso
+  roundLabel      String
+  splitAddress    String
+  chain           String   @default("base")
+  /// A transação de updateSplit. É a prova de que o peso virou contrato.
+  txHash          String   @unique
+  totalAllocation String // string: 1_000_000 cabe, mas o tipo do contrato é uint256
+  appliedBy       String
+  appliedAt       DateTime @default(now())
+
+  shares SplitPayoutShare[]
+
+  @@index([projectSlug, appliedAt])
+  @@index([roundId])
+}
+
+/// A fatia de uma pessoa naquele peso. Guardada em ALOCAÇÃO (o inteiro que foi
+/// para o contrato), não em porcentagem: a porcentagem é derivada e arredondada,
+/// a alocação é o que o contrato obedece.
+model SplitPayoutShare {
+  id         String           @id @default(cuid())
+  payoutId   String
+  payout     SplitPayoutRound @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  address    String
+  /// Nome no Team no dia da aplicação. Guardado junto porque cadastro muda, e
+  /// um registro de pagamento que renomeia gente depois não é registro.
+  username   String?
+  allocation String
+
+  @@unique([payoutId, address])
+  @@index([payoutId])
+}
+
 model SplitVoteBallot {
   id        String   @id @default(cuid())
   roundId   String

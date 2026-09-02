@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2, Lock, LockOpen, PenLine, Plug, RotateCcw, Scale, Users, Vote } from "lucide-react";
-import { abrirRodada, estadoRodada, fecharRodada, reabrirRodada, votar, vetorParaAplicar, type EstadoRodada } from "@/app/actions/split-vote";
+import { abrirRodada, estadoRodada, fecharRodada, listarPagamentos, reabrirRodada, registrarAplicacao, votar, vetorParaAplicar, type EstadoRodada, type PagamentoRegistrado } from "@/app/actions/split-vote";
 import { SPLIT_DO_TIME } from "@/lib/split-vote-config";
 import { useWallet } from "@/components/wallet-provider";
 import { Landmark } from "lucide-react";
@@ -262,6 +262,8 @@ export function SplitVote() {
         </section>
       )}
 
+      <RegistroPagamentos />
+
       {/* ── Resultado ── */}
       {e.round && e.round.status === "closed" && e.resultado && (
         <section className="rounded-2xl border border-border bg-surface p-5">
@@ -438,6 +440,15 @@ function AplicarNoContrato({
         params: [{ from: conta, to: pronto.splitAddress, data }],
       })) as string;
       setHash(tx);
+      // O registro é gravado AQUI, com o hash na mão. Esperar a confirmação
+      // para gravar perderia o peso se a aba fechasse no meio — e o peso é
+      // justamente o que não dá para reconstruir depois, porque a apuração
+      // muda quando o split muda.
+      await registrarAplicacao(round.id, tx, {
+        recipients: pronto.recipients,
+        allocations: pronto.allocations,
+        totalAllocation: pronto.totalAllocation,
+      }).catch(() => {});
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       setErro(/user rejected|denied/i.test(m) ? "Assinatura cancelada na carteira." : m.slice(0, 200));
@@ -574,5 +585,81 @@ function MeritoPainel({ merito, pontos }: { merito: EstadoRodada["merito"]; pont
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * O registro de pagamentos: o peso que virou contrato, e o que ele rendeu.
+ *
+ * Peso e valor vêm de lugares diferentes DE PROPÓSITO. O peso é congelado no
+ * banco no instante da assinatura — ele não pode mudar depois, senão o registro
+ * vira reconstrução. O valor é lido da cadeia a cada consulta, recortado pela
+ * vigência daquele peso: guardá-lo congelaria um número que ainda cresce, e a
+ * primeira distribuição depois do registro já o deixaria mentindo.
+ */
+function RegistroPagamentos() {
+  const [itens, setItens] = useState<PagamentoRegistrado[] | null>(null);
+  useEffect(() => {
+    void listarPagamentos().then((r) => setItens(r.ok ? r.pagamentos : []));
+  }, []);
+  if (!itens || itens.length === 0) return null;
+
+  const usd = (n: number) => `US$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const dia = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+        <Landmark className="h-4 w-4 text-accent" /> Registro de pagamentos
+      </h2>
+      <p className="mt-1 max-w-2xl text-xs text-foreground-subtle">
+        Cada vez que um resultado vira contrato, o peso é congelado aqui com o hash que prova. O valor
+        ao lado é lido da cadeia agora, recortado pelo tempo em que aquele peso esteve valendo.
+      </p>
+
+      <div className="mt-4 space-y-4">
+        {itens.map((p) => (
+          <div key={p.id} className="rounded-xl border border-border bg-surface-elevated p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-sm font-semibold text-foreground">{p.roundLabel}</span>
+              <span className="font-mono text-[11px] text-foreground-faint">
+                {dia(p.appliedAt)} · por @{p.appliedBy}
+              </span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-foreground-faint">
+              <a
+                href={`${p.chain === "base" ? "https://basescan.org/tx/" : "https://etherscan.io/tx/"}${p.txHash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-mono text-accent hover:underline"
+              >
+                {p.txHash.slice(0, 10)}…{p.txHash.slice(-6)} <ExternalLink className="h-3 w-3" />
+              </a>
+              {p.distribuidoUsd != null ? (
+                <span>· distribuiu {usd(p.distribuidoUsd)} enquanto valeu</span>
+              ) : (
+                <span className="text-warning">· {p.semValor}</span>
+              )}
+            </div>
+
+            <ul className="mt-2 space-y-1">
+              {p.linhas.map((l) => (
+                <li key={l.address} className="flex items-center gap-3 text-xs">
+                  <span className="min-w-0 flex-1 truncate text-foreground">
+                    {l.username ? `@${l.username}` : <span className="font-mono text-[11px]">{curto(l.address)}</span>}
+                  </span>
+                  <span className="w-16 text-right font-mono tabular-nums text-foreground-muted">{pct(l.share)}</span>
+                  {/* Valor não lido aparece como travessão, nunca como zero: um
+                      zero aqui afirmaria que a pessoa não recebeu nada. */}
+                  <span className="w-24 text-right font-mono font-semibold tabular-nums text-foreground">
+                    {l.recebidoUsd == null ? "—" : usd(l.recebidoUsd)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
