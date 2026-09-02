@@ -7,8 +7,8 @@
 // a impressão de que move.
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, Lock, LockOpen, PenLine, Pin, PinOff, Plug, Scale, Users, Vote } from "lucide-react";
-import { abrirRodada, estadoRodada, fecharRodada, votar, vetorParaAplicar, type EstadoRodada } from "@/app/actions/split-vote";
+import { CheckCircle2, ExternalLink, Loader2, Lock, LockOpen, PenLine, Plug, RotateCcw, Scale, Users, Vote } from "lucide-react";
+import { abrirRodada, estadoRodada, fecharRodada, reabrirRodada, votar, vetorParaAplicar, type EstadoRodada } from "@/app/actions/split-vote";
 import { SPLIT_DO_TIME } from "@/lib/split-vote-config";
 import { useWallet } from "@/components/wallet-provider";
 
@@ -20,10 +20,7 @@ export function SplitVote() {
   const [e, setE] = useState<EstadoRodada | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pontos, setPontos] = useState<Record<string, number>>({});
-  // Quem você já decidiu. Uma linha travada não é mexida quando outra barra
-  // anda — sem isso, ajustar a última pessoa desfaz a primeira e a votação
-  // vira um jogo de empurra.
-  const [travados, setTravados] = useState<Set<string>>(new Set());
+
   const [busy, setBusy] = useState<string | null>(null);
   const [salvo, setSalvo] = useState(false);
   const [novoLabel, setNovoLabel] = useState("");
@@ -66,59 +63,20 @@ export function SplitVote() {
 
   const outros = e.elegiveis.filter((x) => x.address.toLowerCase() !== e.meuEndereco?.toLowerCase());
   /**
-   * Move uma barra e reequilibra o resto — o total continua exatamente 100.
+   * Move uma barra. Só ela.
    *
-   * Barra que só escreve um número deixa a conta com quem vota: some 100 na
-   * mão, descubra onde tirar. É a mesma aritmética do campo de digitar, com
-   * aparência de ferramenta. Aqui a diferença que você pediu é ABSORVIDA pelas
-   * outras pessoas, proporcional ao que cada uma já tinha — quem estava alto
-   * cede mais, quem estava baixo cede menos, e a ordem relativa que você já
-   * tinha construído sobrevive ao ajuste.
-   *
-   * Travadas ficam de fora do rateio: são as decisões que você já tomou.
+   * A primeira versão reequilibrava as outras sozinha para o total fechar 100
+   * — e na prática atrapalhou: mexer numa pessoa mexia em todo mundo, e quem
+   * votava perdia o que já tinha ajustado. Previsível ganha de esperto: aqui a
+   * barra que você arrasta é a única que muda, e o contador embaixo diz quanto
+   * falta. A conta fica visível em vez de automática.
    */
   function ajustar(alvo: string, bruto: number) {
-    const alvos = outros.map((o) => o.address.toLowerCase());
-    setPontos((prev) => {
-      const base: Record<string, number> = {};
-      for (const a of alvos) base[a] = Math.max(0, Math.round(prev[a] ?? 0));
-
-      const livres = alvos.filter((a) => a !== alvo && !travados.has(a));
-      const somaTravados = alvos.filter((a) => a !== alvo && travados.has(a)).reduce((s, a) => s + base[a], 0);
-      // O teto não é 100: é o que sobra depois do que você já travou. Deixar
-      // arrastar além disso mostraria um número que não pode virar voto.
-      const teto = Math.max(0, TOTAL - somaTravados);
-
-      // TODAS as outras travadas: não há de onde tirar nem para onde dar, e o
-      // único valor que mantém os 100 é o teto. A barra fica presa nele em vez
-      // de aceitar o arrasto — deixar passar aqui era o caso que quebrava a
-      // soma, e um teste de propriedade com 52 mil movimentos foi o que o
-      // encontrou. Não aparecia em uso normal: só com quase tudo travado.
-      if (livres.length === 0) {
-        base[alvo] = teto;
-        return base;
-      }
-
-      const novo = Math.max(0, Math.min(teto, Math.round(bruto)));
-      base[alvo] = novo;
-      const paraLivres = teto - novo;
-
-      const somaLivres = livres.reduce((s, a) => s + base[a], 0);
-      // Todas em zero: não há proporção a preservar, então divide igual.
-      const exatos = livres.map((a) => paraLivres * (somaLivres > 0 ? base[a] / somaLivres : 1 / livres.length));
-      // MAIOR RESTO: piso em todos e o que sobrar distribuído de um em um para
-      // as maiores frações. Arredondar cada parte por conta própria fazia a
-      // soma estourar, e o corte do negativo que sobrava comia pontos.
-      const pisos = exatos.map(Math.floor);
-      const resto = paraLivres - pisos.reduce((s, n) => s + n, 0);
-      const ordem = exatos.map((v, i) => [v - pisos[i], i] as [number, number]).sort((x, y) => y[0] - x[0]);
-      for (let k = 0; k < resto; k++) pisos[ordem[k % ordem.length][1]]++;
-      livres.forEach((a, i) => (base[a] = pisos[i]));
-      return base;
-    });
+    const v = Math.max(0, Math.min(TOTAL, Math.round(bruto)));
+    setPontos((prev) => ({ ...prev, [alvo]: v }));
   }
 
-  /** O ponto de partida honesto quando ninguém decidiu nada ainda. */
+  /** Ponto de partida, e o botão de recomeçar do zero. */
   function distribuirIgual() {
     const alvos = outros.map((o) => o.address.toLowerCase());
     if (!alvos.length) return;
@@ -126,7 +84,6 @@ export function SplitVote() {
     const sobra = TOTAL - q * alvos.length;
     const novo: Record<string, number> = {};
     alvos.forEach((a, i) => (novo[a] = q + (i < sobra ? 1 : 0)));
-    setTravados(new Set());
     setPontos(novo);
   }
 
@@ -220,8 +177,7 @@ export function SplitVote() {
             <>
               <div className="mt-4 flex items-center justify-between gap-3">
                 <p className="text-[11px] text-foreground-faint">
-                  Puxe uma barra e as outras cedem na mesma proporção — o total fica em {TOTAL} sozinho.
-                  O cadeado fixa quem você já decidiu.
+                  Arraste cada barra. O total precisa fechar {TOTAL} para o voto valer.
                 </p>
                 <button type="button" onClick={distribuirIgual}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground">
@@ -233,7 +189,6 @@ export function SplitVote() {
                 {outros.map((o) => {
                   const k = o.address.toLowerCase();
                   const v = Math.round(pontos[k] ?? 0);
-                  const travado = travados.has(k);
                   return (
                     <li key={o.address} className="rounded-lg border border-border bg-surface-elevated px-3 py-2">
                       <div className="flex items-center gap-3">
@@ -244,17 +199,12 @@ export function SplitVote() {
                         <span className={`w-12 text-right font-mono text-sm tabular-nums ${v === 0 ? "text-foreground-faint" : "text-foreground"}`}>
                           {v}
                         </span>
-                        <button type="button" aria-label={travado ? "destravar" : "travar"} title={travado ? "destravar" : "travar este valor"}
-                          onClick={() => setTravados((t) => { const n = new Set(t); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
-                          className={`rounded p-1 transition-colors ${travado ? "text-accent" : "text-foreground-faint hover:text-foreground"}`}>
-                          {travado ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
-                        </button>
                       </div>
-                      <input type="range" min={0} max={TOTAL} step={1} value={v} disabled={travado}
+                      <input type="range" min={0} max={TOTAL} step={1} value={v}
                         aria-label={`pontos para ${o.username ?? o.address}`}
                         onChange={(ev) => ajustar(k, Number(ev.target.value))}
                         style={{ accentColor: "var(--accent)" }}
-                        className="mt-1.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border disabled:cursor-not-allowed disabled:opacity-40" />
+                        className="mt-1.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border" />
                     </li>
                   );
                 })}
@@ -287,15 +237,36 @@ export function SplitVote() {
       {/* ── Resultado ── */}
       {e.round && e.round.status === "closed" && e.resultado && (
         <section className="rounded-2xl border border-border bg-surface p-5">
-          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-            <Users className="h-4 w-4 text-accent" /> {e.round.label} — apurado
-          </h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+              <Users className="h-4 w-4 text-accent" /> {e.round.label} — apurado
+            </h2>
+            {e.souAdmin && (
+              <button type="button" disabled={busy === "reabrir"}
+                onClick={async () => { setBusy("reabrir"); const r = await reabrirRodada(e.round!.id); setBusy(null); if (!r.ok) return setErr(r.error); await carregar(); }}
+                title="Volta a aceitar voto. As cédulas já dadas continuam valendo."
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-40">
+                {busy === "reabrir" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Reabrir
+              </button>
+            )}
+          </div>
           <p className="mt-1 text-xs text-foreground-subtle">
             {e.resultado.votaram} de {e.resultado.elegiveis} votaram.
             {e.resultado.abstiveram.length > 0 && (
               <> {e.resultado.abstiveram.length} abstiveram e por isso ficaram com zero.</>
             )}
           </p>
+          {/* O caso que parece bug e não é: com pouca gente votando, quase todo
+              mundo é zerado pela regra da abstenção e o resultado sai tudo em
+              zero — inclusive os pontos que QUEM votou distribuiu. Sem esta
+              frase, a leitura natural é "a urna perdeu meu voto". */}
+          {e.resultado.votaram < e.resultado.elegiveis && (
+            <p className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+              Faltam {e.resultado.elegiveis - e.resultado.votaram} pessoas. Os pontos dados a quem não
+              votou são zerados pela regra — então, com poucos votos, o resultado sai quase todo em zero.
+              Isso não é voto perdido: reabra, junte o resto da turma e feche de novo.
+            </p>
+          )}
           {/* Quem não pôde votar aparece SEPARADO de quem escolheu não votar.
               A régua é a mesma — zero —, mas a razão não é, e só uma delas é
               resolvível com um cadastro. */}

@@ -190,3 +190,22 @@ export async function vetorParaAplicar(roundId: string): Promise<
     distributionIncentive: atual.distributionIncentive,
   };
 }
+
+/**
+ * Reabre uma rodada fechada, sem perder as cédulas.
+ *
+ * Fechar cedo acontece — e antes disso a única saída era abrir OUTRA rodada,
+ * o que jogaria fora os votos já dados e faria todo mundo votar de novo. As
+ * cédulas ficam onde estão: reabrir é desfazer o fechamento, não recomeçar.
+ */
+export async function reabrirRodada(roundId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await porta();
+  if (!g.ok) return g;
+  if (g.who.role !== "admin") return { ok: false, error: "Só quem administra reabre uma rodada." };
+  const round = await prisma.splitVoteRound.findUnique({ where: { id: roundId } }).catch(() => null);
+  if (!round) return { ok: false, error: "Rodada não encontrada." };
+  if (round.projectSlug !== g.project.slug) return { ok: false, error: "Essa rodada é de outro portal." };
+  if (round.status === "open") return { ok: false, error: "Essa rodada já está aberta." };
+  await prisma.splitVoteRound.update({ where: { id: roundId }, data: { status: "open", closedAt: null } });
+  return { ok: true };
+}
