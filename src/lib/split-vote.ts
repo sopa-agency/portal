@@ -104,8 +104,10 @@ export type Resultado = {
   cedulasAnonimas: Record<string, number>[];
   votaram: number;
   elegiveis: number;
-  /** Escolheu não votar: zerado pela regra, e a escolha foi dele. */
+  /** Ainda não votou. NÃO é penalizado: só não tem cédula. */
   abstiveram: { address: string; username: string | null }[];
+  /** Já votou — participação, não conteúdo. */
+  quemVotou: { address: string; username: string | null }[];
   /**
    * NÃO PÔDE votar: está no split mas não tem carteira cadastrada no Team, então
    * a urna não consegue casar a pessoa com o endereço.
@@ -147,16 +149,23 @@ export async function apurar(roundId: string, els: Elegivel[]): Promise<Resultad
     }
   }
 
-  // ABSTENÇÃO ZERA. Quem não votou não recebe, mesmo que os outros tenham dado
-  // pontos a ele — a regra é do Vlad e é o que dá dente ao "participar é parte
-  // do trabalho". Sem isto, abster seria de graça.
-  const usernamePor = new Map(els.map((e) => [e.address.toLowerCase(), e.username]));
+  // ABSTENÇÃO TIRA A VOZ, NÃO A FATIA.
+  //
+  // Antes este trecho zerava os pontos QUE OS OUTROS DERAM a quem não votou —
+  // uma punição, e não foi isso que foi pedido. Quem não vota já perde o que
+  // tinha a perder: a própria cédula não existe, então ele não influencia a
+  // fatia de ninguém. Mas continua recebendo o que os colegas entenderam que
+  // ele merece, porque o julgamento sobre o trabalho dele é DELES, não dele.
+  //
+  // O efeito prático da versão errada era brutal e apareceu no primeiro teste
+  // real: com 5 de 10 votando, os outros 5 saíram com 0,0% — inclusive gente
+  // que tinha recebido pontos de quase todo mundo. O resultado dizia "eles não
+  // merecem nada" quando o que houve foi que eles não clicaram.
   const votouPorEndereco = new Set<string>();
   for (const el of els) {
     const u = el.username?.toLowerCase();
     if (u && votantes.has(u)) votouPorEndereco.add(el.address.toLowerCase());
   }
-  for (const [addr] of pontosPor) if (!votouPorEndereco.has(addr)) pontosPor.set(addr, 0);
 
   const total = [...pontosPor.values()].reduce((s, n) => s + n, 0);
   const linhas = els
@@ -183,8 +192,21 @@ export async function apurar(roundId: string, els: Elegivel[]): Promise<Resultad
     cedulasAnonimas,
     votaram: cedulas.length,
     elegiveis: els.length,
+    // Quem não votou. Continua listado — saber quem participou é o que permite
+    // decidir a hora de fechar — mas agora sem prejuízo à fatia dele.
     abstiveram: els
       .filter((e) => e.username && !votouPorEndereco.has(e.address.toLowerCase()))
+      .map((e) => ({ address: e.address, username: e.username })),
+    /**
+     * Quem JÁ votou, por nome.
+     *
+     * Revela participação, nunca conteúdo: as cédulas seguem sem autor e
+     * embaralhadas. É o que faltava para decidir quando fechar a rodada —
+     * antes só dava para ver "5 de 10", sem saber quais 5 ainda faltavam
+     * cutucar.
+     */
+    quemVotou: els
+      .filter((e) => e.username && votouPorEndereco.has(e.address.toLowerCase()))
       .map((e) => ({ address: e.address, username: e.username })),
     semCadastro: els.filter((e) => !e.username).map((e) => ({ address: e.address })),
   };

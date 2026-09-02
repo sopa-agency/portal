@@ -40,6 +40,15 @@ export type EstadoRodada = {
    */
   merito: Reading<Merito>;
   pontosDeMerito: number;
+  /**
+   * Quem já votou e quem falta, disponível TAMBÉM com a rodada aberta.
+   *
+   * O resultado só aparece depois de fechar — ver ao vivo viraria corrida. Mas
+   * a PARTICIPAÇÃO não é resultado: saber que faltam três pessoas é o que
+   * permite decidir a hora de fechar, e não diz nada sobre o que ninguém votou.
+   */
+  jaVotaram: { address: string; username: string | null }[];
+  faltamVotar: { address: string; username: string | null }[];
 };
 
 /**
@@ -64,6 +73,7 @@ export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada }
       estado: {
         round: null, fechaEm: null, elegiveis: [], souElegivel: false, meuEndereco: null,
         merito: await calcularMerito(), pontosDeMerito: PONTOS_DE_MERITO,
+        jaVotaram: [], faltamVotar: [],
         meuVoto: null, resultado: null, vetor: null, souAdmin: g.who.role === "admin",
       },
     };
@@ -99,6 +109,8 @@ export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada }
       souAdmin: g.who.role === "admin",
       merito: await calcularMerito(),
       pontosDeMerito: PONTOS_DE_MERITO,
+      jaVotaram: resultado.quemVotou,
+      faltamVotar: resultado.abstiveram,
     },
   };
 }
