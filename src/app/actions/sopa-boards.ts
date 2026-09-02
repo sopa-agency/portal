@@ -29,9 +29,32 @@ export type RevenueStream = {
   chain: string | null;
   /** 0x… receiving address (wallet, contract, or 0xSplits split). */
   address: string | null;
+  /**
+   * Quem TROUXE esta receita. Usernames do Team, e pode ser dupla ou trio.
+   *
+   * É a peça que faltava para o mérito da votação semanal: o portal já mede
+   * quanto cada fonte rendeu, mas nada dizia QUEM a trouxe — e sem isso o
+   * mérito teria que sair de uma planilha paralela, que sai de sincronia com a
+   * cadeia no primeiro mês.
+   *
+   * Vazio é resposta legítima e é o default: nem toda receita tem dono claro, e
+   * inventar um seria pior que não ter. Fonte sem crédito simplesmente não
+   * gera mérito para ninguém.
+   *
+   * Entre os creditados o mérito é dividido POR IGUAL. Peso explícito por
+   * pessoa foi recusado de propósito: é exatamente o tipo de número que vira
+   * discussão sem fim, e a parte subjetiva do voto já existe para isso.
+   */
+  credit: string[];
 };
 
 const REVENUE_KINDS: RevenueKind[] = ["manual", "wallet", "contract", "split"];
+
+/** Usernames limpos, sem repetição e sem vazio. */
+const asCredit = (v: unknown): string[] =>
+  Array.isArray(v)
+    ? [...new Set(v.map((x) => (typeof x === "string" ? x.trim().toLowerCase() : "")).filter(Boolean))]
+    : [];
 const asKind = (v: unknown): RevenueKind => (REVENUE_KINDS.includes(v as RevenueKind) ? (v as RevenueKind) : "manual");
 
 export type BoardCard = {
@@ -103,6 +126,10 @@ function mergeMeta(
           base.chain = r.chain?.trim() || null;
           base.address = r.address?.trim() || null;
         }
+        // O crédito vale para QUALQUER tipo, inclusive manual: um job fechado
+        // à mão tem dono tanto quanto um split on-chain.
+        const credit = asCredit(r.credit);
+        if (credit.length) base.credit = credit;
         return base as { label: string };
       })
       .filter((r) => r.label);
@@ -164,6 +191,7 @@ function toCard(r: {
           kind: asKind(s.kind),
           chain: typeof s.chain === "string" && s.chain.trim() ? s.chain.trim() : null,
           address: typeof s.address === "string" && s.address.trim() ? s.address.trim() : null,
+          credit: asCredit(s.credit),
         }))
         .filter((s) => s.label)
     : [];

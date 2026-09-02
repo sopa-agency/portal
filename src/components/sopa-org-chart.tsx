@@ -688,6 +688,7 @@ function CardDialog({
       kind: r.kind,
       chain: r.kind === "manual" ? null : r.chain,
       address: r.kind === "manual" ? null : r.address?.trim() || null,
+      credit: r.credit ?? [],
     }))
     .filter((r) => r.label);
   // Both sides get canonicalised before comparison, and that is NOT cosmetic:
@@ -774,7 +775,7 @@ function CardDialog({
   const setRev = (i: number, patch: Partial<RevenueStream>) =>
     setRevRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addRev = () =>
-    setRevRows((prev) => [...prev, { label: "", detail: null, kind: "manual", chain: null, address: null }]);
+    setRevRows((prev) => [...prev, { label: "", detail: null, kind: "manual", chain: null, address: null, credit: [] }]);
   const removeRev = (i: number) => setRevRows((prev) => prev.filter((_, idx) => idx !== i));
   // Switching a row to a tracked kind defaults its chain to Base.
   const setRevKind = (i: number, kind: RevenueKind) =>
@@ -1202,6 +1203,48 @@ function CardDialog({
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
+                    </div>
+
+                    {/* QUEM TROUXE. É o que transforma receita medida em mérito
+                        na votação semanal: o portal já sabe quanto cada fonte
+                        rendeu, e faltava saber de quem. Aceita dupla e trio; o
+                        mérito é dividido por igual entre os marcados. Ninguém
+                        marcado é resposta legítima — fonte sem dono claro não
+                        gera mérito, o que é melhor que inventar um. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1">
+                      <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">
+                        trouxe
+                      </span>
+                      {roster.map((m) => {
+                        const u = m.username.toLowerCase();
+                        const on = (r.credit ?? []).includes(u);
+                        return (
+                          <button
+                            key={u}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() =>
+                              setRev(i, {
+                                credit: on
+                                  ? (r.credit ?? []).filter((x) => x !== u)
+                                  : [...(r.credit ?? []), u],
+                              })
+                            }
+                            className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                              on
+                                ? "border-accent-border bg-accent-bg text-accent"
+                                : "border-border text-foreground-faint hover:border-border-strong hover:text-foreground-muted"
+                            }`}
+                          >
+                            @{m.username}
+                          </button>
+                        );
+                      })}
+                      {(r.credit ?? []).length > 1 && (
+                        <span className="ml-1 text-[10px] text-foreground-faint">
+                          dividido por igual entre {(r.credit ?? []).length}
+                        </span>
+                      )}
                     </div>
 
                     {r.kind === "manual" ? (
