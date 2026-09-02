@@ -128,6 +128,16 @@ const REALIZED_MAX_PAGES = 40; // ~2000 logs — full history for these DAOs
 // ---------------------------------------------------------------------------
 
 /** SplitDistributed(address indexed token, address indexed distributor, uint256 amount) */
+/**
+ * keccak256("AuctionSettled(uint256,address,uint256)") — Nouns Builder.
+ *
+ * NADA é indexado neste evento: os três parâmetros vivem no `data`, e o valor
+ * é a TERCEIRA palavra. Ler a primeira devolve o tokenId, que é um número
+ * grande e plausível — o tipo de erro que passa por receita sem ninguém
+ * desconfiar. Conferido contra os logs reais da casa de leilão da Gnars.
+ */
+const AUCTION_SETTLED_TOPIC = "0xc9f72b276a388619c6d185d146697036241880c36654b1a3ffdad07c24038d99";
+
 const SPLIT_DISTRIBUTED_TOPIC = "0x562c19c0e7b3493417e3cf5103baa939f4d0e9c1087be236aebb46b84e09c7d9";
 
 const LOG_RPCS: Record<string, string[]> = {
@@ -184,7 +194,10 @@ async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number
           jsonrpc: "2.0",
           id: 1,
           method: "eth_getLogs",
-          params: [{ address: addr, fromBlock: "0x0", toBlock: "latest", topics: [SPLIT_DISTRIBUTED_TOPIC] }],
+          // Os DOIS eventos numa consulta só. Antes só o split era procurado,
+          // e uma casa de leilão lida por aqui devolvia zero SEM erro — o zero
+          // mudo que esta base inteira existe para não produzir.
+          params: [{ address: addr, fromBlock: "0x0", toBlock: "latest", topics: [[SPLIT_DISTRIBUTED_TOPIC, AUCTION_SETTLED_TOPIC]] }],
         }),
       });
       const j = (await r.json()) as { result?: { topics: string[]; data: string; blockNumber: string }[]; error?: unknown };
@@ -192,7 +205,20 @@ async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number
 
       const evs: { t: number; usd: number; bloco?: string }[] = [];
       let semPreco = 0;
+      const palavra = (d: string, i: number): bigint => {
+        const inicio = 2 + i * 64;
+        const p = (d ?? "").slice(inicio, inicio + 64);
+        return p.length === 64 ? BigInt("0x" + p) : BigInt(0);
+      };
       for (const log of j.result) {
+        if (log.topics[0] === AUCTION_SETTLED_TOPIC) {
+          // (tokenId, winner, amount) — tudo no data, valor na terceira palavra.
+          // Leilão sem lance liquida com vencedor zero e valor zero: não é
+          // receita, e entrar como evento inflaria a contagem.
+          const wei = palavra(log.data, 2);
+          if (wei > BigInt(0)) evs.push({ t: 0, usd: (Number(wei) / 1e18) * ethPrice, bloco: log.blockNumber });
+          continue;
+        }
         // topic1 = token (endereço nos 20 bytes finais da palavra de 32)
         const token = ("0x" + (log.topics[1] ?? "").slice(26)).toLowerCase();
         const raw = Number(BigInt(log.data || "0x0"));
@@ -214,28 +240,50 @@ async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number
       // Custa UMA requisição, não uma por bloco: os blocos distintos vão num
       // lote só. São poucos — um split distribui punhados de vezes, não
       // milhares.
-      const blocos = [...new Set(evs.map((e) => e.bloco))].filter((b): b is string => !!b);
-      if (blocos.length) {
+      // AS DATAS, SEM PEDIR UMA POR BLOCO.
+      //
+      // A tentativa anterior buscava o timestamp de cada bloco distinto em
+      // lote. Funcionava com quinze; morria com mil. Medido: o gateway conta
+      // CADA item do lote contra o limite (429 a partir de ~25), e cada
+      // cabeçalho de bloco pesa ~19 KB — datar seiscentos blocos daria dezenas
+      // de requisições e megabytes, para responder uma pergunta de sim ou não
+      // ("caiu dentro dos 90 dias?").
+      //
+      // Duas leituras bastam: um bloco recente e um antigo dão o ritmo real da
+      // cadeia, e daí o instante de qualquer bloco sai por interpolação. É
+      // APROXIMADO e está dito: o erro é de minutos ao longo de meses, e a
+      // única coisa que ele decide é de que lado de um corte de 90 dias um
+      // evento cai. Errar isso por minutos é aceitável; não ter data nenhuma,
+      // como antes, deixava todo o mérito em zero.
+      const numeros = evs.map((e) => (e.bloco ? Number(BigInt(e.bloco)) : 0)).filter((n) => n > 0);
+      if (numeros.length) {
         try {
-          const rb = await fetch(rpc, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            signal: AbortSignal.timeout(8000),
-            body: JSON.stringify(blocos.map((b, i) => ({ jsonrpc: "2.0", id: i, method: "eth_getBlockByNumber", params: [b, false] }))),
-          });
-          const arr = (await rb.json()) as { id: number; result?: { timestamp?: string } }[];
-          const quando = new Map<string, number>();
-          if (Array.isArray(arr)) {
-            for (const item of arr) {
-              const ts = item?.result?.timestamp;
-              if (ts && blocos[item.id]) quando.set(blocos[item.id], Number(BigInt(ts)) * 1000);
+          const alto = Math.max(...numeros);
+          const baixo = Math.min(...numeros);
+          const pedir = async (n: number) => {
+            const rr = await fetch(rpc, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              signal: AbortSignal.timeout(8000),
+              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: ["0x" + n.toString(16), false] }),
+            });
+            const jj = (await rr.json()) as { result?: { timestamp?: string } };
+            return jj?.result?.timestamp ? Number(BigInt(jj.result.timestamp)) * 1000 : 0;
+          };
+          const tAlto = await pedir(alto);
+          // Um bloco só: não dá para medir ritmo, e todos os eventos ficam com
+          // a data dele. Serve porque nesse caso todos ESTÃO nesse bloco.
+          const tBaixo = baixo === alto ? tAlto : await pedir(baixo);
+          if (tAlto > 0 && tBaixo > 0) {
+            const msPorBloco = alto === baixo ? 0 : (tAlto - tBaixo) / (alto - baixo);
+            for (const e of evs) {
+              const n = e.bloco ? Number(BigInt(e.bloco)) : 0;
+              e.t = n > 0 ? Math.round(tAlto - (alto - n) * msPorBloco) : 0;
             }
           }
-          for (const e of evs) e.t = quando.get(e.bloco ?? "") ?? 0;
         } catch {
-          // Data não lida deixa o evento sem relógio — ele ainda conta no
-          // total, mas fica fora de qualquer janela. É menos errado que
-          // carimbar "hoje" num evento de meses atrás.
+          // Sem referência não há data: o evento continua no total e fica fora
+          // de qualquer janela. Menos errado que carimbar "hoje" nele.
         }
       }
       return { evs, semPreco };
