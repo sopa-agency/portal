@@ -127,8 +127,20 @@ async function fontesCreditadas(desde: Date): Promise<FonteCreditada[]> {
       ]);
       const rotulo = g.rotulos.join(" + ");
       const creditados = [...g.creditados];
-      if (!realizado || realizado.error) {
-        fontes.push({ rotulo, tipo: "stream", creditados, usd: 0, semMedida: realizado?.error ?? "a receita realizada não pôde ser lida" });
+      // RESSALVA NÃO É FALHA. O campo `error` do leitor é sobrecarregado: ele
+      // carrega tanto "não consegui ler" quanto "li, mas uma rede ficou de fora
+      // e este total é um piso". Tratar os dois igual jogava fora número de
+      // verdade — o swaps.pro leu a Base, tinha distribuição, e ainda assim
+      // caía como não medido só porque veio com a ressalva de cobertura junto.
+      //
+      // A regra: se sobrou NÚMERO, ele conta. Piso é melhor que nada, e a
+      // ressalva continua visível para quem quiser saber que é piso.
+      if (!realizado) {
+        fontes.push({ rotulo, tipo: "stream", creditados, usd: 0, semMedida: "a receita realizada não pôde ser lida" });
+        return;
+      }
+      if (realizado.error && realizado.count === 0) {
+        fontes.push({ rotulo, tipo: "stream", creditados, usd: 0, semMedida: realizado.error });
         return;
       }
       // A fatia da SOPA é lida do contrato, nunca suposta. Sem ela, o bruto do
@@ -158,7 +170,21 @@ async function fontesCreditadas(desde: Date): Promise<FonteCreditada[]> {
         });
         return;
       }
-      fontes.push({ rotulo, tipo: "stream", creditados, usd: naJanela(realizado, desde) * fatia });
+      const usd = naJanela(realizado, desde) * fatia;
+      // Leu, tem evento, mas nada caiu DENTRO da janela: isso é medição, não
+      // falha — a fonte rendeu antes e não rende agora. Dizer isso é diferente
+      // de dizer que não consegui ler.
+      if (!(usd > 0)) {
+        fontes.push({
+          rotulo,
+          tipo: "stream",
+          creditados,
+          usd: 0,
+          semMedida: realizado.error ?? `sem distribuição nos últimos ${JANELA_DIAS} dias`,
+        });
+        return;
+      }
+      fontes.push({ rotulo, tipo: "stream", creditados, usd });
     }),
   );
 

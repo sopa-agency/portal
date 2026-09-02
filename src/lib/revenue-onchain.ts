@@ -79,6 +79,21 @@ const WETH = new Set([
 ]);
 const NATIVE = new Set(["0x0000000000000000000000000000000000000000", "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]);
 
+/**
+ * Tokens que não são dólar nem ether e mesmo assim têm preço.
+ *
+ * O MOR estava de fora, e o efeito era concreto: distribuições em MOR caíam em
+ * "token sem preço" e o split do swaps.pro rendia zero — mérito zero para quem
+ * o trouxe. O preço já existia no portal (`getPrices().mor`, do CoinGecko); só
+ * este leitor não o conhecia.
+ *
+ * Preço nulo continua sendo "sem preço", nunca zero: valorar a zero
+ * subcontaria a receita em silêncio, que é pior que dizer que não sei.
+ */
+const PRECIFICADOS: Record<string, { decimais: number; preco: "mor" }> = {
+  "0x7431ada8a591c955a994a21710752ef9b882b8e3": { decimais: 18, preco: "mor" }, // MOR base
+};
+
 export type RealizedRevenue = {
   method: "auction" | "split" | "none";
   revenueUsd: number;
@@ -122,6 +137,24 @@ const LOG_RPCS: Record<string, string[]> = {
   arbitrum: ["https://gateway.tenderly.co/public/arbitrum"],
 };
 
+/**
+ * Um valor bruto de token em dólar — ou `null` quando não há preço.
+ *
+ * Existe para os DOIS caminhos (indexador e RPC) usarem a mesma tabela. Antes
+ * a conversão estava escrita duas vezes, e adicionar um token significava
+ * lembrar dos dois lugares — o tipo de coisa que se lembra uma vez e esquece na
+ * seguinte.
+ */
+function emDolar(token: string, raw: number, ethPrice: number, morPrice: number | null): number | null {
+  if (STABLE_DECIMALS[token]) return raw / 10 ** STABLE_DECIMALS[token];
+  if (WETH.has(token) || NATIVE.has(token)) return (raw / 1e18) * ethPrice;
+  const p = PRECIFICADOS[token];
+  // Token conhecido cujo preço não leu: continua "sem preço". Zero aqui
+  // subcontaria a receita calada.
+  if (p) return morPrice == null ? null : (raw / 10 ** p.decimais) * morPrice;
+  return null;
+}
+
 type RpcLeitura = { evs: { t: number; usd: number; bloco?: string }[]; semPreco: number } | null;
 
 /**
@@ -135,7 +168,7 @@ type RpcLeitura = { evs: { t: number; usd: number; bloco?: string }[]; semPreco:
  * NÃO entram no total como zero: entram nesta contagem, para a tela poder dizer
  * que o número é um piso.
  */
-async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number): Promise<RpcLeitura> {
+async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number, morPrice: number | null): Promise<RpcLeitura> {
   const rpcs = LOG_RPCS[chain] ?? [];
   for (const rpc of rpcs) {
     try {
@@ -163,10 +196,8 @@ async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number
         // topic1 = token (endereço nos 20 bytes finais da palavra de 32)
         const token = ("0x" + (log.topics[1] ?? "").slice(26)).toLowerCase();
         const raw = Number(BigInt(log.data || "0x0"));
-        let usd = 0;
-        if (STABLE_DECIMALS[token]) usd = raw / 10 ** STABLE_DECIMALS[token];
-        else if (WETH.has(token) || NATIVE.has(token)) usd = (raw / 1e18) * ethPrice;
-        else {
+        const usd = emDolar(token, raw, ethPrice, morPrice);
+        if (usd == null) {
           semPreco++;
           continue;
         }
@@ -232,7 +263,11 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
   // at the call sites that catch (sopa-boards.ts). Keeping the previous
   // behaviour on purpose — the fix is a degraded-result flag on
   // RealizedRevenue/RevenueFlow, which is its own change.
-  const ethPrice = (await getPrices()).eth ?? 0;
+  const precos = await getPrices();
+  const ethPrice = precos.eth ?? 0;
+  // Preço do MOR: null quando o CoinGecko não respondeu. Null vira "sem preço"
+  // lá na frente, nunca zero — ver emDolar().
+  const morPrice = precos.mor;
 
   // Page decoded logs.
   const items: DecodedLog[] = [];
@@ -264,10 +299,8 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
     } else if (call.startsWith("SplitDistributed")) {
       const token = (param(log, "token") ?? "").toLowerCase();
       const raw = Number(param(log, "amount") ?? 0);
-      let usd = 0;
-      if (STABLE_DECIMALS[token]) usd = raw / 10 ** STABLE_DECIMALS[token];
-      else if (WETH.has(token) || NATIVE.has(token)) usd = (raw / 1e18) * ethPrice;
-      if (usd > 0) splits.push({ t, usd });
+      const usd = emDolar(token, raw, ethPrice, morPrice);
+      if (usd != null && usd > 0) splits.push({ t, usd });
     }
   }
 
@@ -281,7 +314,7 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
     const naoLidas: string[] = [];
     const todos: { t: number; usd: number }[] = [];
     for (const rede of redes) {
-      const r = await distribuicoesPorRpc(addr, rede, ethPrice);
+      const r = await distribuicoesPorRpc(addr, rede, ethPrice, morPrice);
       if (!r) {
         naoLidas.push(rede);
         continue;
