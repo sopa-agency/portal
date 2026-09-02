@@ -22,6 +22,23 @@ export const JANELA_DIAS = 90;
 /** Quanto dos 100 pontos da cédula é mérito. O resto é a opinião de cada um. */
 export const PONTOS_DE_MERITO = 30;
 
+/**
+ * O CHÃO: pontos que toda pessoa creditada recebe, mesmo sem valor medido.
+ *
+ * Sem ele o mérito trava. Quem foi creditado numa fonte que o portal ainda não
+ * sabe precificar — um job manual, um leilão que não é split, uma venda de
+ * droposal — ficava com ZERO, e zero por falta de medição é indistinguível de
+ * zero por falta de trabalho. Era o pior dos dois mundos: castigava quem
+ * contribuiu por uma limitação nossa.
+ *
+ * O chão é em PONTO, nunca em dólar. Inventar um valor em dólar contaminaria o
+ * total medido e faria a tela afirmar receita que ninguém viu — exatamente o
+ * que esta base recusa em todo lugar. Ponto é peso, e peso é o que a votação
+ * distribui; dizer "esta pessoa contribuiu, ainda que eu não saiba quanto" é
+ * uma afirmação verdadeira.
+ */
+export const PISO_PONTOS = 1;
+
 export type FonteCreditada = {
   rotulo: string;
   tipo: "stream" | "job";
@@ -41,6 +58,8 @@ export type FonteCreditada = {
 export type MeritoPessoa = {
   username: string;
   usd: number;
+  /** True quando os pontos vêm só do chão — creditada, mas sem valor medido. */
+  soChao: boolean;
   /** Fração do total medido, 0–1. */
   fracao: number;
   /** Pontos de mérito na cédula, já arredondados e somando PONTOS_DE_MERITO. */
@@ -230,22 +249,47 @@ export async function calcularMerito(janelaDias = JANELA_DIAS): Promise<Reading<
 
     const totalUsd = [...porPessoa.values()].reduce((s, p) => s + p.usd, 0);
 
-    // Pontos por MAIOR RESTO: arredondar cada um por conta própria faz a soma
-    // não fechar, e aqui a soma é uma promessa — o mérito ocupa exatamente
-    // PONTOS_DE_MERITO da cédula, nem um a mais.
+    // TODA pessoa creditada entra na lista, medida ou não. Quem só aparece em
+    // fonte sem valor entra com US$ 0 e recebe o chão — é o que impede o peso
+    // de travar em zero por limitação nossa.
+    for (const f of fontes) {
+      for (const p of f.creditados) if (!porPessoa.has(p)) porPessoa.set(p, { usd: 0, fontes: [] });
+    }
+
     const linhas = [...porPessoa.entries()]
       .map(([username, v]) => ({ username, usd: v.usd, fontes: v.fontes.sort((a, b) => b.usd - a.usd) }))
       .sort((a, b) => b.usd - a.usd);
-    const exatos = linhas.map((l) => (totalUsd > 0 ? (l.usd / totalUsd) * PONTOS_DE_MERITO : 0));
-    const pisos = exatos.map(Math.floor);
-    const resto = (totalUsd > 0 ? PONTOS_DE_MERITO : 0) - pisos.reduce((s, n) => s + n, 0);
-    const ordem = exatos.map((v, i) => [v - pisos[i], i] as [number, number]).sort((a, b) => b[0] - a[0]);
-    for (let k = 0; k < resto && ordem.length; k++) pisos[ordem[k % ordem.length][1]]++;
+
+    // O chão sai primeiro, e o que sobra é repartido pelo que foi MEDIDO. Se os
+    // chãos sozinhos já consomem o orçamento (muita gente creditada, pouco
+    // ponto), todo mundo divide por igual — melhor um empate honesto que uma
+    // proporção calculada sobre migalhas.
+    const nPessoas = linhas.length;
+    const orcamentoChao = nPessoas * PISO_PONTOS;
+    const pisos: number[] = [];
+    if (nPessoas === 0) {
+      // nada a fazer
+    } else if (orcamentoChao >= PONTOS_DE_MERITO) {
+      const q = Math.floor(PONTOS_DE_MERITO / nPessoas);
+      const sobra = PONTOS_DE_MERITO - q * nPessoas;
+      linhas.forEach((_, i) => pisos.push(q + (i < sobra ? 1 : 0)));
+    } else {
+      const paraDistribuir = PONTOS_DE_MERITO - orcamentoChao;
+      // Maior resto: arredondar cada um por conta própria faz a soma não fechar,
+      // e aqui a soma é uma promessa — o mérito ocupa exatamente
+      // PONTOS_DE_MERITO da cédula, nem um a mais.
+      const exatos = linhas.map((l) => (totalUsd > 0 ? (l.usd / totalUsd) * paraDistribuir : 0));
+      exatos.forEach((v) => pisos.push(Math.floor(v) + PISO_PONTOS));
+      const resto = PONTOS_DE_MERITO - pisos.reduce((s, n) => s + n, 0);
+      const ordem = exatos.map((v, i) => [v - Math.floor(v), i] as [number, number]).sort((a, b) => b[0] - a[0]);
+      for (let k = 0; k < resto && ordem.length; k++) pisos[ordem[k % ordem.length][1]]++;
+    }
 
     return {
       pessoas: linhas.map((l, i) => ({
         username: l.username,
         usd: l.usd,
+        soChao: !(l.usd > 0),
         fracao: totalUsd > 0 ? l.usd / totalUsd : 0,
         pontos: pisos[i],
         fontes: l.fontes,

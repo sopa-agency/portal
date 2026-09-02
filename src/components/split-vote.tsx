@@ -496,6 +496,7 @@ function MeritoPainel({ merito, pontos }: { merito: EstadoRodada["merito"]; pont
         </p>
         <span className="font-mono text-[11px] text-foreground-faint">
           receita medida nos últimos {m.janelaDias} dias
+          {m.pessoas.some((p) => p.soChao) ? " · — = piso" : ""}
         </span>
       </div>
 
@@ -504,8 +505,15 @@ function MeritoPainel({ merito, pontos }: { merito: EstadoRodada["merito"]; pont
           {m.pessoas.map((p) => (
             <li key={p.username} className="flex items-center gap-3 text-xs">
               <span className="min-w-0 flex-1 truncate text-foreground">@{p.username}</span>
-              <span className="font-mono tabular-nums text-foreground-faint">{usd(p.usd)}</span>
-              <span className="w-10 text-right font-mono font-semibold tabular-nums text-accent">{p.pontos} pt</span>
+              {/* Chão e medição não podem parecer a mesma coisa. Um traço no
+                  lugar do valor diz "creditada, sem valor medido" — escrever
+                  US$ 0,00 afirmaria que ela não trouxe nada. */}
+              <span className="font-mono tabular-nums text-foreground-faint">
+                {p.soChao ? <span title="creditada, mas sem valor medido — recebe o piso">—</span> : usd(p.usd)}
+              </span>
+              <span className={`w-10 text-right font-mono font-semibold tabular-nums ${p.soChao ? "text-foreground-muted" : "text-accent"}`}>
+                {p.pontos} pt
+              </span>
             </li>
           ))}
         </ul>
