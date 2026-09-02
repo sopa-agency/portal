@@ -1,4 +1,7 @@
+"use client";
+
 import { PageHeader } from "@/components/page-header";
+import { useT } from "@/components/locale-provider";
 
 /**
  * O que aparece enquanto o servidor monta a tesouraria.
@@ -18,16 +21,22 @@ import { PageHeader } from "@/components/page-header";
  *
  * O texto é o mesmo do cabeçalho de verdade, de propósito: assim a troca do
  * esqueleto pela página não move nada de lugar.
+ *
+ * É CLIENT COMPONENT por necessidade, não por gosto: `getDictionary()` é async,
+ * e um fallback de Suspense que suspende não é fallback — anularia a fronteira
+ * de streaming que este arquivo existe para criar. `useT()` resolve o idioma de
+ * forma síncrona, a partir do provider que já envolve a rota.
  */
 export default function Loading() {
+  const t = useT().treasury;
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="SOPA" title="Tesouraria" description="Quanto temos, de onde vem e o que sai." />
+      <PageHeader eyebrow="SOPA" title={t.title} description={t.description} />
 
       {/* As abas existem e são clicáveis assim que a página chega; mostrá-las
           agora evita o pulo de layout que um bloco só provocaria. */}
       <div className="flex flex-wrap gap-1.5">
-        {["Tesouro", "Receita", "Custos", "Membros", "Apoio", "Plano financeiro"].map((n) => (
+        {[t.tabs.treasury, t.tabs.revenue, t.tabs.costs, t.tabs.members, t.tabs.support, t.tabs.plan].map((n) => (
           <span
             key={n}
             className="rounded-lg border border-border bg-surface px-3 py-1.5 text-[13px] font-medium text-foreground-faint"

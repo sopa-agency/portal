@@ -7,6 +7,8 @@ import { isOk, ok, type Reading } from "@/lib/reading";
 import { fetchWalletChart } from "@/app/actions/treasury-chart";
 import { reconcileWithTruth } from "@/lib/reconcile-series";
 import { RefreshSkeleton } from "@/components/treasury-refresh";
+import { useLocale } from "@/components/locale-provider";
+import { rich } from "@/components/rich-text";
 
 // Uma linha por tesouro, sobrepostas. Substitui a barra empilhada, que só sabia
 // dizer a composição de HOJE e não mostrava movimento nenhum.
@@ -62,6 +64,8 @@ export function TreasuryHistoryChart({
    *  disfarçado de fresco. */
   initialSyncedAt?: string | null;
 }) {
+  const { locale, t: dict } = useLocale();
+  const t = dict.treasury.chart;
   // Começa no que TEM dado: as carteiras só acumulam ponto a partir do segundo
   // tick, então logo depois do deploy a única série com linha é a de streams.
   const [src, setSrc] = useState<"wallets" | "streams">(
@@ -238,11 +242,11 @@ export function TreasuryHistoryChart({
       >
         {failed ? (
           <p className="text-sm font-semibold text-warning">
-            ⚠ O histórico não pôde ser lido — {reading.reason}. Isto NÃO é ausência de histórico.
+            {t.unread(reading.reason)}
           </p>
         ) : (
           <p className="text-sm text-foreground-muted">
-            Ainda não há histórico no portal — o cron grava um ponto por hora e a linha aparece a partir do segundo dia.
+            {t.empty}
             {reading.state === "insufficient" ? ` (${reading.note})` : ""}
           </p>
         )}
@@ -268,7 +272,7 @@ export function TreasuryHistoryChart({
   /** A data do ponto sob o cursor, curta — cabe na etiqueta do topo. */
   const hoverLabelDate = hoverDay
     ? hoverDay.length > 10
-      ? new Date(hoverDay).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+      ? new Date(hoverDay).toLocaleString(locale === "pt" ? "pt-BR" : "en-US", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
       : hoverDay
     : "";
 
@@ -321,11 +325,10 @@ export function TreasuryHistoryChart({
     <div className="rounded-xl border border-border bg-surface p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Saldo por tesouro</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
           <p className="text-[11px] text-foreground-subtle">
-            {src === "wallets" ? (live ? "Zerion · ao vivo" : "snapshot do portal") : "arrecadação por projeto"} · {allDays.length}{" "}
-            dias · fechamento diário ·{" "}
-            <span className="font-medium text-foreground-muted">{log ? "escala logarítmica" : "escala linear"}</span>
+            {src === "wallets" ? (live ? t.srcLive : t.srcSnapshot) : t.srcRevenue} · {t.days(allDays.length)} ·{" "}
+            <span className="font-medium text-foreground-muted">{log ? t.scaleLog : t.scaleLinear}</span>
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -334,15 +337,15 @@ export function TreasuryHistoryChart({
               value={period}
               onChange={(e) => changePeriod(e.target.value)}
               disabled={loading}
-              aria-label="Período do gráfico"
+              aria-label={t.periodLabel}
               className="rounded-lg border border-border bg-surface-elevated px-2 py-1 text-[11px] font-medium text-foreground-muted focus:border-accent-border focus:outline-none disabled:opacity-50"
             >
-              <option value="day">24h</option>
-              <option value="week">7 dias</option>
-              <option value="month">1 mês</option>
-              <option value="3months">3 meses</option>
-              <option value="year">1 ano</option>
-              <option value="max">tudo</option>
+              <option value="day">{t.p24h}</option>
+              <option value="week">{t.pWeek}</option>
+              <option value="month">{t.pMonth}</option>
+              <option value="3months">{t.p3Months}</option>
+              <option value="year">{t.pYear}</option>
+              <option value="max">{t.pMax}</option>
             </select>
           )}
           {src === "wallets" && (
@@ -350,7 +353,7 @@ export function TreasuryHistoryChart({
               type="button"
               onClick={() => pull(period)}
               disabled={loading}
-              title="Ler o histórico na Zerion — uma requisição por carteira"
+              title={t.readZerion}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-50"
             >
               {loading ? (
@@ -367,7 +370,7 @@ export function TreasuryHistoryChart({
               onClick={() => setSrc((v) => (v === "wallets" ? "streams" : "wallets"))}
               className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
             >
-              {src === "wallets" ? "ver arrecadação" : "ver carteiras"}
+              {src === "wallets" ? t.seeRevenue : t.seeWallets}
             </button>
           )}
           <button
@@ -375,7 +378,7 @@ export function TreasuryHistoryChart({
             onClick={() => setLog((v) => !v)}
             className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
-            {log ? "ver linear" : "ver log"}
+            {log ? t.seeLinear : t.seeLog}
           </button>
           <button
             type="button"
@@ -383,7 +386,7 @@ export function TreasuryHistoryChart({
             aria-pressed={table}
             className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
           >
-            {table ? "ver gráfico" : "ver tabela"}
+            {table ? t.seeChart : t.seeTable}
           </button>
         </div>
       </div>
@@ -398,10 +401,10 @@ export function TreasuryHistoryChart({
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="text-[10px] uppercase tracking-wide text-foreground-faint">
-                <th className="py-1.5 pr-3 font-semibold">Tesouro</th>
-                <th className="py-1.5 pr-3 text-right font-semibold">Atual</th>
-                <th className="py-1.5 pr-3 text-right font-semibold">Máximo</th>
-                <th className="py-1.5 text-right font-semibold">Pontos</th>
+                <th className="py-1.5 pr-3 font-semibold">{t.thTreasury}</th>
+                <th className="py-1.5 pr-3 text-right font-semibold">{t.thCurrent}</th>
+                <th className="py-1.5 pr-3 text-right font-semibold">{t.thMax}</th>
+                <th className="py-1.5 text-right font-semibold">{t.thPoints}</th>
               </tr>
             </thead>
             <tbody>
@@ -426,7 +429,7 @@ export function TreasuryHistoryChart({
           viewBox={`0 0 ${W} ${H}`}
           className="w-full"
           role="img"
-          aria-label={`Saldo por tesouro ao longo de ${allDays.length} dias`}
+          aria-label={t.ariaChart(allDays.length)}
           onMouseLeave={() => setHover(null)}
           onMouseMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
@@ -564,17 +567,13 @@ export function TreasuryHistoryChart({
             dinheiro entrando.
           */}
           <p className="mb-1.5 text-[11px] leading-relaxed text-foreground-subtle">
-            <span className="font-semibold text-foreground-muted">Variação do total</span> — diferença
-            entre uma leitura e a anterior. <span className="text-warning">Mistura movimento de preço
-            com dinheiro que entrou e saiu</span>, e não separa entrada de saída: por isso{" "}
-            <strong className="text-foreground-muted">não responde &ldquo;quanto entrou&rdquo;</strong>.
-            Para isso é preciso ler transferência, não saldo.
+            <span className="font-semibold text-foreground-muted">{t.deltaTitle}</span> {rich(t.deltaBody)}
           </p>
           <svg
             viewBox={`0 0 ${W} ${VH}`}
             className="w-full"
             role="img"
-            aria-label="Variação do total entre leituras consecutivas"
+            aria-label={t.ariaDelta}
             onMouseLeave={() => setHover(null)}
             onMouseMove={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
@@ -619,7 +618,7 @@ export function TreasuryHistoryChart({
             {hoverDay && (() => {
               const v = variation.find((z) => z.t === hoverDay);
               if (!v) return null;
-              const txt = v.delta == null ? "sem leitura" : `${v.delta >= 0 ? "+" : "−"}${money(Math.abs(v.delta))}`;
+              const txt = v.delta == null ? t.noReading : `${v.delta >= 0 ? "+" : "−"}${money(Math.abs(v.delta))}`;
               const bw = txt.length * 6.1 + 12;
               const hx = x(v.t);
               const bx = hx > PAD.l + (W - PAD.l - PAD.r) * 0.62 ? hx - 8 - bw : hx + 8;
@@ -657,8 +656,7 @@ export function TreasuryHistoryChart({
           </svg>
           {semLeitura > 0 && (
             <p className="mt-1 text-[11px] text-warning">
-              ⚠ {semLeitura} intervalo(s) sem barra — faltou uma das duas leituras, ou o conjunto de
-              tesouros lidos mudou entre elas. Sem barra NÃO quer dizer variação zero.
+              {t.gaps(semLeitura)}
             </p>
           )}
         </div>
@@ -679,23 +677,18 @@ export function TreasuryHistoryChart({
           mandava a pessoa recarregar a página. */}
       {live && reconciliado && reconciliado.corrigidos.length > 0 && (
         <p className="mt-2 text-[11px] leading-relaxed text-foreground-faint">
-          A série da Zerion não conta posição em stake, então o dia do stake vinha como queda.
-          Corrigido contra o saldo medido das carteiras:{" "}
-          {reconciliado.corrigidos.map((c) => `${c.label} +${money(c.usd)}`).join(" · ")}.
+          {t.reconciled(reconciliado.corrigidos.map((c) => `${c.label} +${money(c.usd)}`).join(" · "))}
         </p>
       )}
       {live && reconciliado && reconciliado.naoCorrigidos.length > 0 && (
         <p className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
-          ⚠ {reconciliado.naoCorrigidos.map((c) => `${c.label} (${money(c.usd)})`).join(", ")} —
-          o saldo medido é maior que o fim da série da Zerion, mas não achei em que dia a
-          diferença começou, então <strong>não corrigi</strong>: a linha desses tesouros está mais
-          baixa que a realidade. O saldo certo é o do card ao lado.
+          {t.notReconciled(reconciliado.naoCorrigidos.map((c) => `${c.label} (${money(c.usd)})`).join(", "))}
         </p>
       )}
       {err && <p className="mt-2 text-[11px] text-danger">⚠ {err}</p>}
       {src === "wallets" && liveFailed.length > 0 && (
         <p className="mt-2 text-[11px] text-warning">
-          ⚠ não consegui ler {liveFailed.join(", ")} — ausente da linha, o que NÃO é o mesmo que zero
+          {t.liveFailed(liveFailed.join(", "))}
         </p>
       )}
 
@@ -708,7 +701,7 @@ export function TreasuryHistoryChart({
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: colorOf.get(s.cardId) }} />
               <span className="text-foreground-muted">{s.label}</span>
               <span className="tabular-nums text-foreground-subtle">
-                {allZero ? "sem saldo no período" : money(s.latestUsd)}
+                {allZero ? t.noBalance : money(s.latestUsd)}
               </span>
             </span>
           );

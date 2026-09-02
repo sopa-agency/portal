@@ -186,12 +186,38 @@ export type ExtraToken = { chain: string; address: string; symbol: string; decim
  *  Foi exatamente o que aconteceu com o multisig da SkateHive. */
 type BuilderStake = { contract: string; subnetId: string; symbol: string; decimals: number; price: "mor" };
 
-type EvmChain = { key: string; rpcs: string[]; usdc: string; vaults?: Erc4626Vault[]; tokens?: Erc4626Vault[]; stakes?: BuilderStake[] };
+/**
+ * Posição na CAPITAL da Morpheus, na mainnet.
+ *
+ * Mesma cegueira do BuilderStake, e com consequência pior: aqui o depósito é em
+ * USDC, e no dia em que ele entra no pool o dinheiro some do tesouro — a linha
+ * do gráfico lê como QUEDA, não como movimento. Foi o que aconteceu com a SOPA
+ * ao aplicar 1.069 USDC: a Zerion não conta a posição (o total dela para o Safe
+ * ficou em US$ 94) e o portal não sabia perguntar.
+ *
+ * NÃO é o mesmo `usersData` do subnet: lá o seletor é `0x996cb7c3`, a chave é um
+ * bytes32 e o depositado está no índice [2]. Aqui o seletor é `0x30dc6308`, a
+ * chave é um uint256 e o depositado está no índice [1]. Trocar um pelo outro não
+ * dá erro — dá número errado, que é pior.
+ *
+ * Só entram aqui pools que o indexador NÃO enxerga. O de stETH ele enxerga (vem
+ * marcado "locked · MorpheusAI"), e declará-lo aqui contaria o mesmo dinheiro
+ * duas vezes: o dedupe do enumerador é por endereço de token, e o endereço do
+ * DepositPool não é o do stETH que a Zerion devolve.
+ */
+type CapitalPool = { contract: string; poolIndex: number; symbol: string; decimals: number };
+
+type EvmChain = { key: string; rpcs: string[]; usdc: string; vaults?: Erc4626Vault[]; tokens?: Erc4626Vault[]; stakes?: BuilderStake[]; capital?: CapitalPool[] };
 // Each chain lists MULTIPLE RPCs, tried in order — a single flaky public endpoint
 // (mainnet.base.org rate-limits Vercel datacenter IPs) must not silently zero a
 // balance. All fail ⇒ the chain reports a FAILED read, never 0.
 const EVM_CHAINS: EvmChain[] = [
-  { key: "ethereum", rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://rpc.ankr.com/eth", "https://cloudflare-eth.com"], usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
+  {
+    key: "ethereum",
+    rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://rpc.ankr.com/eth", "https://cloudflare-eth.com"],
+    usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    capital: [{ contract: "0x6cCE082851Add4c535352f596662521B4De4750E", poolIndex: 0, symbol: "USDC (Morpheus)", decimals: 6 }],
+  },
   {
     key: "base",
     rpcs: ["https://base.gateway.tenderly.co", "https://base-rpc.publicnode.com", "https://base.drpc.org", "https://mainnet.base.org"],
@@ -375,7 +401,7 @@ async function fetchChainBalances(
   const balOf = (to: string) => rpcCall<string>(chain.rpcs, "eth_call", [{ to, data: `0x70a08231${padded}` }, "latest"]);
   const chainExtra = extra.filter((e) => e.chain === chain.key);
   try {
-    const [ethHex, usdcHex, vaultAssets, extraHexes, tokenHexes, stakeHexes] = await Promise.all([
+    const [ethHex, usdcHex, vaultAssets, extraHexes, tokenHexes, stakeHexes, capitalHexes] = await Promise.all([
       rpcCall<string>(chain.rpcs, "eth_getBalance", [address, "latest"]),
       balOf(chain.usdc),
       Promise.all((chain.vaults ?? []).map((v) => vaultPosition(chain, v, padded))),
@@ -386,6 +412,15 @@ async function fetchChainBalances(
         (chain.stakes ?? []).map((st) =>
           rpcCall<string>(chain.rpcs, "eth_call", [
             { to: st.contract, data: `0x996cb7c3${padded}${st.subnetId.replace(/^0x/, "")}` },
+            "latest",
+          ]),
+        ),
+      ),
+      // usersData(address,uint256) → tupla; `deposited` é o índice [1].
+      Promise.all(
+        (chain.capital ?? []).map((cp) =>
+          rpcCall<string>(chain.rpcs, "eth_call", [
+            { to: cp.contract, data: `0x30dc6308${padded}${cp.poolIndex.toString(16).padStart(64, "0")}` },
             "latest",
           ]),
         ),
@@ -422,6 +457,21 @@ async function fetchChainBalances(
           balance: deposited,
           valueUsd: morPrice == null ? null : deposited * morPrice,
           note: "em stake no subnet de Builders — sai com unstake",
+        });
+    });
+    (chain.capital ?? []).forEach((cp, i) => {
+      const raw = capitalHexes[i];
+      // Menos de duas palavras não é "zero depositado", é resposta que não dá
+      // para ler — e nesse caso não se inventa linha nenhuma.
+      if (!raw || raw === "0x" || raw.length < 2 + 64 * 2) return;
+      const deposited = parseInt(raw.slice(2 + 64, 2 + 64 * 2), 16) / 10 ** cp.decimals;
+      if (deposited > 0)
+        tokens.push({
+          symbol: cp.symbol,
+          chain: chain.key,
+          balance: deposited,
+          valueUsd: deposited, // USDC 1:1
+          note: "na capital da Morpheus — rende MOR, sai com unstake",
         });
     });
     if (enumerate) {
@@ -756,8 +806,63 @@ async function fetchEvmWalletPreferCache(
   morPrice: number | null,
 ): Promise<EvmWalletReport> {
   const cached = await readWalletComposition(w.address).catch(() => null);
-  if (cached) return { ...cached.report, label: w.label };
-  return fetchEvmWallet(w, ethPrice, morPrice);
+  if (!cached) return fetchEvmWallet(w, ethPrice, morPrice);
+  const base = { ...cached.report, label: w.label };
+  // O cache é a foto do indexador, e ela tem um buraco conhecido: a capital da
+  // Morpheus. Preferir o cache SEM completá-lo faria a declaração em
+  // `EVM_CHAINS.capital` nunca rodar neste caminho — que é o caminho normal.
+  const faltando = await readDeclaredCapital(w.address, base.tokens);
+  if (faltando.length === 0) return base;
+  return {
+    ...base,
+    tokens: [...base.tokens, ...faltando].sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0)),
+    totalUsd: base.totalUsd + faltando.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0),
+  };
+}
+
+/**
+ * As posições declaradas que o INDEXADOR não enxerga.
+ *
+ * A Zerion vê o stETH na Morpheus (vem marcado "locked · MorpheusAI") e NÃO vê
+ * o USDC na capital: o total dela para o Safe da SOPA ficou em US$ 94 com
+ * 1.069 USDC aplicados. Por isso a declaração existe — e por isso ela precisa
+ * de uma guarda: se o indexador passar a enxergar, somar de novo contaria o
+ * mesmo dinheiro duas vezes. A guarda compara SALDO, não nome, porque o nome
+ * quem escreve é o indexador e ele muda quando quer.
+ *
+ * Falha de leitura não vira linha: uma posição que não respondeu fica de fora e
+ * o resto do relatório continua de pé. É o oposto de inventar um zero.
+ */
+export async function readDeclaredCapital(address: string, jaVisiveis: EvmToken[]): Promise<EvmToken[]> {
+  const padded = address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
+  const pares = EVM_CHAINS.flatMap((chain) => (chain.capital ?? []).map((cp) => ({ chain, cp })));
+  const lidos = await Promise.all(
+    pares.map(async ({ chain, cp }) => {
+      try {
+        const raw = await rpcCall<string>(chain.rpcs, "eth_call", [
+          { to: cp.contract, data: `0x30dc6308${padded}${cp.poolIndex.toString(16).padStart(64, "0")}` },
+          "latest",
+        ]);
+        if (!raw || raw === "0x" || raw.length < 2 + 64 * 2) return null;
+        const deposited = parseInt(raw.slice(2 + 64, 2 + 64 * 2), 16) / 10 ** cp.decimals;
+        if (!(deposited > 0)) return null;
+        const jaConta = jaVisiveis.some(
+          (t) => t.chain === chain.key && t.balance > 0 && Math.abs(t.balance - deposited) / deposited < 0.005,
+        );
+        if (jaConta) return null;
+        return {
+          symbol: cp.symbol,
+          chain: chain.key,
+          balance: deposited,
+          valueUsd: deposited, // USDC 1:1
+          note: "na capital da Morpheus — rende MOR, sai com unstake",
+        } as EvmToken;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return lidos.filter((t): t is EvmToken => t !== null);
 }
 
 export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryReport | null> {

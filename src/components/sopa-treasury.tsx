@@ -131,7 +131,7 @@ export function SopaTreasury({
 
           {revenueError ? (
             <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-              ⚠ A receita não carregou (leitura do banco falhou) — desconhecido, não zero. Recarregue.
+              {t.views.revenueUnread}
             </p>
           ) : filteredRevenue && filteredRevenue.projects.length > 0 ? (
             <TreasuryRevenue data={filteredRevenue} aggregate={isAll} />
