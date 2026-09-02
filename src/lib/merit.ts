@@ -1,0 +1,233 @@
+import "server-only";
+import { prisma } from "@/lib/prisma";
+import { fetchOnchainRevenueCached, type RealizedRevenue } from "@/lib/revenue-onchain";
+import { getSplitConfig } from "@/lib/splits";
+import { SOPA_SAFE } from "@/lib/superfluid";
+import { attempt, type Reading } from "@/lib/reading";
+
+// O mérito: quantos dólares cada pessoa trouxe para a SOPA, medidos.
+//
+// Isto NÃO mede nada de novo. A receita realizada já é lida e guardada por
+// `fetchOnchainRevenueCached` (cache no banco, com TTL), e a fatia da SOPA em
+// cada split sai do `getSplitConfig`. Recalcular aqui seria o quinto lugar do
+// código a somar a mesma coisa de um jeito ligeiramente diferente — que é
+// exatamente como o subtotal do swaps.pro passou a contar o mesmo dinheiro
+// duas vezes. O que este arquivo acrescenta é só o RECORTE (a janela) e a
+// DIVISÃO (entre quem foi creditado).
+
+/** A janela. 90 dias: longa o bastante para um mês ruim não apagar ninguém,
+ *  curta o bastante para a distribuição não congelar num contrato antigo. */
+export const JANELA_DIAS = 90;
+
+/** Quanto dos 100 pontos da cédula é mérito. O resto é a opinião de cada um. */
+export const PONTOS_DE_MERITO = 30;
+
+export type FonteCreditada = {
+  rotulo: string;
+  tipo: "stream" | "job";
+  creditados: string[];
+  /** Dólares que ESTA fonte trouxe para a SOPA dentro da janela. */
+  usd: number;
+  /**
+   * Por que o valor não pôde ser medido, quando não pôde.
+   *
+   * Fonte creditada e sem número não é fonte que rendeu zero: é fonte cujo
+   * dinheiro ninguém contou. Somar as duas do mesmo jeito faria o mérito
+   * castigar quem trouxe receita por um caminho que o portal ainda não lê.
+   */
+  semMedida?: string;
+};
+
+export type MeritoPessoa = {
+  username: string;
+  usd: number;
+  /** Fração do total medido, 0–1. */
+  fracao: number;
+  /** Pontos de mérito na cédula, já arredondados e somando PONTOS_DE_MERITO. */
+  pontos: number;
+  fontes: { rotulo: string; usd: number }[];
+};
+
+export type Merito = {
+  pessoas: MeritoPessoa[];
+  totalUsd: number;
+  janelaDias: number;
+  desde: string;
+  /** Creditadas mas sem dólar medido — aparecem na tela em vez de sumir. */
+  semMedida: FonteCreditada[];
+};
+
+/**
+ * Quanto uma série CUMULATIVA rendeu dentro da janela.
+ *
+ * A série guardada é acumulada desde sempre, então o que aconteceu nos últimos
+ * 90 dias é a diferença entre o fim dela e o último ponto ANTES da janela. Sem
+ * nenhum ponto anterior, tudo o que existe aconteceu dentro da janela.
+ */
+function naJanela(r: RealizedRevenue, desde: Date): number {
+  if (!r.series.length) return 0;
+  const fim = r.series[r.series.length - 1].usd;
+  let antes = 0;
+  for (const p of r.series) {
+    const t = new Date(p.t).getTime();
+    if (Number.isNaN(t) || t >= desde.getTime()) break;
+    antes = p.usd;
+  }
+  return Math.max(0, fim - antes);
+}
+
+const limpar = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.map((x) => (typeof x === "string" ? x.trim().toLowerCase() : "")).filter(Boolean))] : [];
+
+/** As fontes creditadas: streams do org-chart + jobs da agência. */
+async function fontesCreditadas(desde: Date): Promise<FonteCreditada[]> {
+  const fontes: FonteCreditada[] = [];
+
+  const boards = await prisma.sopaBoard.findMany({ where: { board: "orgchart" } }).catch(() => []);
+  // Um contrato pode aparecer em DOIS streams (swaps.pro tem "Swaps fees" e
+  // "Batch Send Fees" no mesmo split). Ler duas vezes contaria o mesmo dinheiro
+  // duas vezes — a mesma armadilha que inflou o subtotal da receita.
+  const porContrato = new Map<string, { rotulos: string[]; creditados: Set<string>; chain: string | null; address: string }>();
+  const manuais: FonteCreditada[] = [];
+
+  for (const b of boards) {
+    const meta = b.meta && typeof b.meta === "object" && !Array.isArray(b.meta) ? (b.meta as Record<string, unknown>) : {};
+    for (const s of Array.isArray(meta.revenueStreams) ? (meta.revenueStreams as Record<string, unknown>[]) : []) {
+      const creditados = limpar(s?.credit);
+      if (!creditados.length) continue;
+      const rotulo = String(s?.label ?? "").trim() || "(sem nome)";
+      const address = typeof s?.address === "string" ? s.address.trim() : "";
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        manuais.push({
+          rotulo,
+          tipo: "stream",
+          creditados,
+          usd: 0,
+          semMedida: "fonte manual: não tem contrato para ler, então o portal não sabe quanto ela trouxe",
+        });
+        continue;
+      }
+      const chain = typeof s?.chain === "string" && s.chain !== "all" ? s.chain : null;
+      const k = `${chain ?? ""}:${address.toLowerCase()}`;
+      const j = porContrato.get(k);
+      if (j) {
+        j.rotulos.push(rotulo);
+        for (const c of creditados) j.creditados.add(c);
+      } else {
+        porContrato.set(k, { rotulos: [rotulo], creditados: new Set(creditados), chain, address });
+      }
+    }
+  }
+
+  await Promise.all(
+    [...porContrato.values()].map(async (g) => {
+      const [realizado, cfg] = await Promise.all([
+        fetchOnchainRevenueCached(g.address, g.chain).catch(() => null),
+        getSplitConfig(g.address, g.chain).catch(() => null),
+      ]);
+      const rotulo = g.rotulos.join(" + ");
+      const creditados = [...g.creditados];
+      if (!realizado || realizado.error) {
+        fontes.push({ rotulo, tipo: "stream", creditados, usd: 0, semMedida: realizado?.error ?? "a receita realizada não pôde ser lida" });
+        return;
+      }
+      // A fatia da SOPA é lida do contrato, nunca suposta. Sem ela, o bruto do
+      // split não diz quanto entrou AQUI — e mérito é o que entrou aqui.
+      //
+      // DUAS COISAS DIFERENTES, e antes as duas davam a mesma mensagem: não
+      // conseguir LER a configuração é uma falha nossa; a SOPA não estar entre
+      // os destinatários é um fato sobre o dinheiro. O leilão de NFT da Gnars
+      // cai no segundo caso — ele traz receita de verdade, para o tesouro da
+      // Gnars, e nada dele entra aqui.
+      if (!cfg) {
+        fontes.push({ rotulo, tipo: "stream", creditados, usd: 0, semMedida: "não consegui ler a configuração deste contrato" });
+        return;
+      }
+      const fatia = cfg.recipients.find((r) => r.address.toLowerCase() === SOPA_SAFE.toLowerCase())?.share;
+      if (fatia == null) {
+        // Não é erro, e por isso o texto não pede desculpa: essa receita existe
+        // e é trabalho de alguém — ela só não entra no caixa que esta votação
+        // divide. Quem a trouxe é reconhecido nos pontos de opinião, que é onde
+        // os colegas podem premiar o que o extrato da SOPA não mostra.
+        fontes.push({
+          rotulo,
+          tipo: "stream",
+          creditados,
+          usd: 0,
+          semMedida: "essa receita não entra no caixa da SOPA — vai para o tesouro do projeto",
+        });
+        return;
+      }
+      fontes.push({ rotulo, tipo: "stream", creditados, usd: naJanela(realizado, desde) * fatia });
+    }),
+  );
+
+  const jobs = await prisma.sopaJob.findMany({ where: { occurredOn: { gte: desde } } }).catch(() => []);
+  for (const j of jobs) {
+    const creditados = limpar(j.credit);
+    if (!creditados.length) continue;
+    // Job pendente ainda não é dinheiro que entrou. Contar promessa como
+    // receita seria dar mérito por algo que pode não acontecer.
+    if (j.status !== "paid") {
+      fontes.push({ rotulo: j.client, tipo: "job", creditados, usd: 0, semMedida: "ainda não foi pago" });
+      continue;
+    }
+    fontes.push({ rotulo: j.client, tipo: "job", creditados, usd: j.amountUsd });
+  }
+
+  return [...fontes, ...manuais];
+}
+
+/**
+ * O mérito de cada pessoa na janela.
+ *
+ * Cada fonte é dividida POR IGUAL entre quem foi creditado nela — peso por
+ * pessoa foi recusado de propósito: é o tipo de número que vira discussão sem
+ * fim, e os pontos de opinião da cédula já existem para isso.
+ */
+export async function calcularMerito(janelaDias = JANELA_DIAS): Promise<Reading<Merito>> {
+  return attempt(async () => {
+    const desde = new Date(Date.now() - janelaDias * 86_400_000);
+    const fontes = await fontesCreditadas(desde);
+
+    const porPessoa = new Map<string, { usd: number; fontes: { rotulo: string; usd: number }[] }>();
+    for (const f of fontes) {
+      if (!(f.usd > 0) || !f.creditados.length) continue;
+      const fatia = f.usd / f.creditados.length;
+      for (const p of f.creditados) {
+        const atual = porPessoa.get(p) ?? { usd: 0, fontes: [] };
+        atual.usd += fatia;
+        atual.fontes.push({ rotulo: f.rotulo, usd: fatia });
+        porPessoa.set(p, atual);
+      }
+    }
+
+    const totalUsd = [...porPessoa.values()].reduce((s, p) => s + p.usd, 0);
+
+    // Pontos por MAIOR RESTO: arredondar cada um por conta própria faz a soma
+    // não fechar, e aqui a soma é uma promessa — o mérito ocupa exatamente
+    // PONTOS_DE_MERITO da cédula, nem um a mais.
+    const linhas = [...porPessoa.entries()]
+      .map(([username, v]) => ({ username, usd: v.usd, fontes: v.fontes.sort((a, b) => b.usd - a.usd) }))
+      .sort((a, b) => b.usd - a.usd);
+    const exatos = linhas.map((l) => (totalUsd > 0 ? (l.usd / totalUsd) * PONTOS_DE_MERITO : 0));
+    const pisos = exatos.map(Math.floor);
+    const resto = (totalUsd > 0 ? PONTOS_DE_MERITO : 0) - pisos.reduce((s, n) => s + n, 0);
+    const ordem = exatos.map((v, i) => [v - pisos[i], i] as [number, number]).sort((a, b) => b[0] - a[0]);
+    for (let k = 0; k < resto && ordem.length; k++) pisos[ordem[k % ordem.length][1]]++;
+
+    return {
+      pessoas: linhas.map((l, i) => ({
+        username: l.username,
+        usd: l.usd,
+        fracao: totalUsd > 0 ? l.usd / totalUsd : 0,
+        pontos: pisos[i],
+        fontes: l.fontes,
+      })),
+      totalUsd,
+      janelaDias,
+      desde: desde.toISOString(),
+      semMedida: fontes.filter((f) => f.semMedida),
+    };
+  }, (e) => `mérito não pôde ser calculado: ${e instanceof Error ? e.message : String(e)}`);
+}

@@ -11,6 +11,8 @@ import { CheckCircle2, ExternalLink, Loader2, Lock, LockOpen, PenLine, Plug, Rot
 import { abrirRodada, estadoRodada, fecharRodada, reabrirRodada, votar, vetorParaAplicar, type EstadoRodada } from "@/app/actions/split-vote";
 import { SPLIT_DO_TIME } from "@/lib/split-vote-config";
 import { useWallet } from "@/components/wallet-provider";
+import { Landmark } from "lucide-react";
+import { isOk } from "@/lib/reading";
 
 const TOTAL = 100;
 const curto = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -175,6 +177,8 @@ export function SplitVote() {
             </p>
           ) : (
             <>
+              <MeritoPainel merito={e.merito} pontos={e.pontosDeMerito} />
+
               <div className="mt-4 flex items-center justify-between gap-3">
                 <p className="text-[11px] text-foreground-faint">
                   Arraste cada barra. O total precisa fechar {TOTAL} para o voto valer.
@@ -452,6 +456,87 @@ function AplicarNoContrato({
         </p>
       )}
       {erro && <p className="mt-2 text-[11px] leading-relaxed text-warning">⚠ {erro}</p>}
+    </div>
+  );
+}
+
+/**
+ * A parte DURA da cédula: pontos que vêm de receita medida.
+ *
+ * Fica ACIMA das barras de propósito. A ordem na tela é a ordem do argumento:
+ * primeiro o que o extrato mostra, depois a opinião de cada um. Invertido, a
+ * opinião pareceria a regra e o medido, a nota de rodapé.
+ *
+ * Três estados, e nenhum deles é um zero mudo. Mérito que não pôde ser medido
+ * NÃO é mérito zero: dizer "ninguém trouxe nada" quando o indexador está fora
+ * do ar seria a mesma mentira que esta base passou a semana removendo.
+ */
+function MeritoPainel({ merito, pontos }: { merito: EstadoRodada["merito"]; pontos: number }) {
+  const [aberto, setAberto] = useState(false);
+  // Três estados, e o do meio importa: `insufficient` é leitura que deu certo
+  // mas ainda não significa nada. Nenhum dos dois vira zero na tela.
+  if (!isOk(merito)) {
+    const motivo = merito.state === "unread" ? merito.reason : merito.note;
+    return (
+      <p className="mt-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+        ⚠ O mérito não pôde ser medido — {motivo}. Isto NÃO quer dizer que ninguém trouxe receita;
+        quer dizer que a leitura falhou. A votação segue nos {TOTAL} pontos de opinião.
+      </p>
+    );
+  }
+  const m = merito.value;
+  const houve = m.pessoas.length > 0 && m.totalUsd > 0;
+  const usd = (n: number) => `US$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-surface-elevated p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">
+          <Landmark className="h-3 w-3" /> Mérito · {pontos} dos {TOTAL} pontos
+        </p>
+        <span className="font-mono text-[11px] text-foreground-faint">
+          receita medida nos últimos {m.janelaDias} dias
+        </span>
+      </div>
+
+      {houve ? (
+        <ul className="mt-2 space-y-1">
+          {m.pessoas.map((p) => (
+            <li key={p.username} className="flex items-center gap-3 text-xs">
+              <span className="min-w-0 flex-1 truncate text-foreground">@{p.username}</span>
+              <span className="font-mono tabular-nums text-foreground-faint">{usd(p.usd)}</span>
+              <span className="w-10 text-right font-mono font-semibold tabular-nums text-accent">{p.pontos} pt</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-[11px] leading-relaxed text-foreground-subtle">
+          Nenhuma fonte creditada rendeu dólar medido nesta janela — então os {pontos} pontos de mérito
+          não são distribuídos, e a cédula fica inteira nos {TOTAL} pontos de opinião. Os motivos estão
+          abaixo, um por fonte.
+        </p>
+      )}
+
+      {m.semMedida.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setAberto((v) => !v)}
+            className="mt-2 text-[11px] font-medium text-foreground-muted underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {aberto ? "esconder" : `por que ${m.semMedida.length} fonte${m.semMedida.length === 1 ? "" : "s"} não entrou na conta`}
+          </button>
+          {aberto && (
+            <ul className="mt-1.5 space-y-1 border-t border-border pt-2">
+              {m.semMedida.map((f, i) => (
+                <li key={i} className="text-[11px] leading-snug text-foreground-faint">
+                  <span className="text-foreground-muted">{f.rotulo}</span> — {f.semMedida}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }

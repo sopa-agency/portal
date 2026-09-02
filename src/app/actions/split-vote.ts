@@ -8,6 +8,8 @@ import { prisma } from "@/lib/prisma";
 import { apurar, elegiveis, validarCedula, vetorParaContrato, type Cedula } from "@/lib/split-vote";
 import { getSplitDistributeConfig } from "@/lib/splits";
 import { JANELA_MS } from "@/lib/split-vote-weekly";
+import { calcularMerito, PONTOS_DE_MERITO, type Merito } from "@/lib/merit";
+import { type Reading } from "@/lib/reading";
 
 async function porta() {
   const project = await getActiveProject();
@@ -29,6 +31,15 @@ export type EstadoRodada = {
   resultado: Awaited<ReturnType<typeof apurar>> | null;
   vetor: ReturnType<typeof vetorParaContrato>;
   souAdmin: boolean;
+  /**
+   * A parte DURA da cédula: pontos que vêm de receita medida, não de opinião.
+   *
+   * Vem como Reading porque o cálculo atravessa indexador e RPC: mérito que não
+   * pôde ser medido NÃO é mérito zero, e a tela precisa poder dizer a diferença
+   * antes de alguém concluir que ninguém trouxe nada.
+   */
+  merito: Reading<Merito>;
+  pontosDeMerito: number;
 };
 
 /**
@@ -52,6 +63,7 @@ export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada }
       ok: true,
       estado: {
         round: null, fechaEm: null, elegiveis: [], souElegivel: false, meuEndereco: null,
+        merito: await calcularMerito(), pontosDeMerito: PONTOS_DE_MERITO,
         meuVoto: null, resultado: null, vetor: null, souAdmin: g.who.role === "admin",
       },
     };
@@ -85,6 +97,8 @@ export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada }
       resultado: round.status === "closed" ? resultado : null,
       vetor: round.status === "closed" ? vetorParaContrato(resultado.linhas) : null,
       souAdmin: g.who.role === "admin",
+      merito: await calcularMerito(),
+      pontosDeMerito: PONTOS_DE_MERITO,
     },
   };
 }
