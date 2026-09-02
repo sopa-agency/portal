@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { saveWalletComposition } from "@/lib/treasury-balance-cache";
 import { getAllProjects } from "@/projects/index";
-import { fetchAddressBalance, fetchEvmWallet, getPrices, hiveAccountBalances, type ExtraToken, type EvmToken } from "@/lib/treasury";
+import { fetchAddressBalance, fetchEvmWallet, getPrices, hiveAccountBalances, readDeclaredCapital, type ExtraToken, type EvmToken } from "@/lib/treasury";
 
 // Fotografa o saldo de cada carteira de tesouro configurada, de hora em hora.
 //
@@ -61,8 +61,26 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
   const prices = await getPrices().catch(() => null);
 
   for (const w of list) {
-    const bal = await fetchAddressBalance(w.address, null).catch((e) => ({ error: String(e) }) as const);
-    const bad = !("totalUsd" in bal) || bal.error;
+    const lido = await fetchAddressBalance(w.address, null).catch((e) => ({ error: String(e) }) as const);
+    const bad = !("totalUsd" in lido) || lido.error;
+    // O ponto do gráfico e a composição saem DAQUI, e o indexador tem um buraco
+    // conhecido: a capital da Morpheus. Sem completar aqui, cada foto horária
+    // grava o tesouro sem ela — e o dia em que o dinheiro foi aplicado desenha
+    // uma QUEDA que nunca aconteceu. Foi exatamente o que a SOPA viu ao aplicar
+    // 1.069 USDC. Completar na origem conserta o histórico e a composição de
+    // uma vez; a mesma leitura na página vira redundante e se desliga sozinha
+    // (a guarda de readDeclaredCapital compara saldo).
+    const bal = await (async () => {
+      if (bad) return lido;
+      const base = lido as { totalUsd: number; tokens?: EvmToken[] };
+      const faltando = await readDeclaredCapital(w.address, base.tokens ?? []).catch(() => [] as EvmToken[]);
+      if (faltando.length === 0) return lido;
+      return {
+        ...lido,
+        totalUsd: base.totalUsd + faltando.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0),
+        tokens: [...(base.tokens ?? []), ...faltando].sort((x, y) => (y.valueUsd ?? 0) - (x.valueUsd ?? 0)),
+      };
+    })();
     // REGRA: leitura que falhou NÃO vira um ponto de zero no gráfico. Um zero
     // gravado por engano desenha um despenhadeiro que nunca aconteceu, e depois
     // ninguém sabe se o tesouro esvaziou ou se o leitor caiu.

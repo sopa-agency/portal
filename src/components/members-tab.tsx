@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Radio, Users2, Wallet } from "lucide-react";
+import { PowerOff, Radio, Users2, Wallet } from "lucide-react";
 import { usd, usdTiny, pct, daysTone, toneText } from "@/lib/format";
 import { chartColorAt } from "@/lib/chart-colors";
 import { ReadFailed } from "@/components/data-state";
@@ -77,7 +77,7 @@ function Stat({ label, value, sub, hint, tone = "text-foreground" }: { label: st
 }
 
 /** "Quem recebe o quê" — the payee list with live share and per-month value. */
-function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[]; monthlyUsd: number | null; connectSlot?: ReactNode }) {
+function WhoGetsWhat({ members, monthlyUsd, connectSlot, off = false }: { members: MemberRow[]; monthlyUsd: number | null; connectSlot?: ReactNode; off?: boolean }) {
   const t = useT().treasury;
   const active = members.filter((m) => m.units > 0);
   const total = active.reduce((s, m) => s + m.units, 0);
@@ -98,7 +98,9 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
         </span>
       </div>
 
-      {notConnected > 0 && (
+      {/* Com a torneira fechada, "não conectou" não é problema de ninguém:
+          não há o que receber em tempo real. O aviso some junto com o stream. */}
+      {!off && notConnected > 0 && (
         <div className="mb-3 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-foreground">
           {t.members.notConnected(notConnected)}
           {connectSlot && <div className="mt-2">{connectSlot}</div>}
@@ -118,8 +120,10 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
                 <div className="font-mono text-[11px] text-foreground-faint">{shortAddr(m.address)}</div>
               </div>
               {/* Três estados, três FORMATOS: o desconhecido é tracejado, não
-                  só cinza — um badge sólido de qualquer cor afirma. */}
-              <span
+                  só cinza — um badge sólido de qualquer cor afirma. Stream
+                  desligado não tem badge nenhum: "recebendo" e "acumulando"
+                  descrevem uma máquina que não está correndo. */}
+              {!off && <span
                 className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
                   m.connected == null
                     ? "border border-dashed border-warning/50 text-warning"
@@ -129,7 +133,7 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
                 }`}
               >
                 {m.connected == null ? t.members.unknown : m.connected ? t.members.receiving : t.members.accruing}
-              </span>
+              </span>}
               <div className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-border sm:block">
                 <div className="h-full rounded-full" style={{ width: `${Math.max(share, 2)}%`, backgroundColor: color }} />
               </div>
@@ -139,7 +143,11 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
                   {monthlyUsd != null ? `${usd((monthlyUsd * share) / 100)}${t.wallet.perMonth}` : "—"}
                 </div>
               </div>
-              <div className="w-24 shrink-0 border-l border-border pl-2 text-right">
+              {/* O "acumulado" por membro é o contador do subgraph, que só
+                  avança quando o membro é tocado — com a torneira fechada ele
+                  é um retrato de julho, não um saldo. Some, em vez de afirmar
+                  um número velho como atual; o total real está no aviso acima. */}
+              {!off && <div className="w-24 shrink-0 border-l border-border pl-2 text-right">
                 <div className="text-[10px] uppercase tracking-wider text-foreground-faint">{t.members.accrued}</div>
                 <div className="text-sm font-semibold tabular-nums text-success">
                   {m.receivedUsd == null ? "—" : usdTiny(m.receivedUsd)}
@@ -151,7 +159,7 @@ function WhoGetsWhat({ members, monthlyUsd, connectSlot }: { members: MemberRow[
                       ? t.members.withdrawn(usdTiny(m.claimedUsd))
                       : t.members.nothingWithdrawn}
                 </div>
-              </div>
+              </div>}
             </li>
           );
         })}
@@ -168,6 +176,8 @@ export function MembersTab({
   runwayDays,
   bufferUsd,
   streamFailed,
+  streamOff = false,
+  lifetimeUsd = null,
   flow,
   sustainability,
   withdraw,
@@ -182,6 +192,14 @@ export function MembersTab({
   bufferUsd: number;
   /** True when the pool exists but the stream read failed (subgraph/RPC didn't answer). */
   streamFailed?: boolean;
+  /**
+   * The pool exists and READ fine, with a zero flow rate: the machine is off.
+   * Distinct from `streamFailed` (unknown) and from `streaming` (paying) —
+   * the third state, and the one the page must never dress up as either.
+   */
+  streamOff?: boolean;
+  /** Everything the pool ever paid out, summed over members. NULL = não leu. */
+  lifetimeUsd?: number | null;
   /** The animated flow view. */
   flow: ReactNode;
   /** The sustainability gauge. */
@@ -229,34 +247,63 @@ export function MembersTab({
           {streamFailed && (
             <ReadFailed>{t.readFailed}</ReadFailed>
           )}
-          {/* The payroll rails are fully wired, but the rate can be so small that
-              the panel reads as a production payroll when it is really a dry run.
-              Say so out loud instead of letting the bars imply otherwise. */}
-          {streaming && monthlyUsd != null && monthlyUsd > 0 && monthlyUsd < 5 && (
-            <p className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
-              {rich(t.symbolic(usd(monthlyUsd)))}
-            </p>
+          {streamOff ? (
+            // A máquina está desligada. Não é aviso (não há nada errado) nem
+            // painel ao vivo (não há nada correndo): é um estado, dito em texto,
+            // no lugar dos medidores que descreveriam vazão zero como se fosse
+            // um pagamento.
+            <div className="rounded-2xl border border-border bg-surface-elevated p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <PowerOff className="h-4 w-4 text-foreground-muted" />
+                {t.offTitle}
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-foreground-muted">
+                {rich(t.offBody(lifetimeUsd != null ? usdTiny(lifetimeUsd) : "—"))}
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* The payroll rails are fully wired, but the rate can be so small that
+                  the panel reads as a production payroll when it is really a dry run.
+                  Say so out loud instead of letting the bars imply otherwise. */}
+              {streaming && monthlyUsd != null && monthlyUsd > 0 && monthlyUsd < 5 && (
+                <p className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+                  {rich(t.symbolic(usd(monthlyUsd)))}
+                </p>
+              )}
+
+              {flow}
+
+              {/* At-a-glance numbers, in plain words */}
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Stat label={t.paying} value={monthlyUsd != null ? usd(monthlyUsd) : "—"} sub={dict.wallet.perMonth} tone={streaming ? "text-foreground" : "text-foreground-muted"} />
+                <Stat
+                  label={t.bufferLasts}
+                  hint={t.bufferLastsHint}
+                  value={runwayDays == null ? "—" : `${Math.floor(runwayDays)}`}
+                  sub={runwayDays == null ? undefined : t.daysSuffix}
+                  tone={toneText[daysTone(runwayDays)]}
+                />
+                <Stat label={t.inBuffer} hint={t.inBufferHint} value={usd(bufferUsd)} />
+                <Stat label={t.receivingLive} value={`${connectedCount}`} sub={`/${activeCount}`} tone={connectedCount === activeCount && activeCount > 0 ? "text-success" : "text-warning"} />
+              </div>
+
+              {withdraw}
+              {sustainability}
+            </>
           )}
-
-          {flow}
-
-          {/* At-a-glance numbers, in plain words */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label={t.paying} value={monthlyUsd != null ? usd(monthlyUsd) : "—"} sub={dict.wallet.perMonth} tone={streaming ? "text-foreground" : "text-foreground-muted"} />
-            <Stat
-              label={t.bufferLasts}
-              hint={t.bufferLastsHint}
-              value={runwayDays == null ? "—" : `${Math.floor(runwayDays)}`}
-              sub={runwayDays == null ? undefined : t.daysSuffix}
-              tone={toneText[daysTone(runwayDays)]}
-            />
-            <Stat label={t.inBuffer} hint={t.inBufferHint} value={usd(bufferUsd)} />
-            <Stat label={t.receivingLive} value={`${connectedCount}`} sub={`/${activeCount}`} tone={connectedCount === activeCount && activeCount > 0 ? "text-success" : "text-warning"} />
-          </div>
-
-          {withdraw}
-          {sustainability}
-          <WhoGetsWhat members={members} monthlyUsd={monthlyUsd} connectSlot={connect} />
+          <WhoGetsWhat members={members} monthlyUsd={streamOff ? null : monthlyUsd} connectSlot={streamOff ? undefined : connect} off={streamOff} />
+          {/* O desembrulho fica: é dinheiro que já foi pago e mora na carteira
+              de cada um. Recolhido, porque o stream que o gerava não corre mais. */}
+          {streamOff && withdraw && (
+            <details className="group rounded-2xl border border-border bg-surface">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-xs font-semibold text-foreground-muted transition-colors hover:text-foreground">
+                <span className="transition-transform group-open:rotate-90">›</span>
+                {t.offLeftover}
+              </summary>
+              <div className="border-t border-border p-4">{withdraw}</div>
+            </details>
+          )}
         </div>
       ) : (
         <div className="space-y-5">

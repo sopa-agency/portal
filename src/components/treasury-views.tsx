@@ -105,19 +105,20 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
  * say otherwise, in words, next to the thing.
  */
 function UnverifiedTag({ hostile }: { hostile?: boolean }) {
+  const t = useT().treasury.views;
   return hostile ? (
     <span
       className="rounded-full border border-danger/40 bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-danger"
-      title="Nome escrito por quem criou o token, não pela SOPA. Não é um link e não deve ser seguido."
+      title={t.untrustedNameTitle}
     >
-      ⚠ não confie no nome
+      ⚠ {t.untrustedName}
     </span>
   ) : (
     <span
       className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-foreground-faint"
-      title="Token encontrado na carteira pelo indexador. Nome e símbolo vêm do próprio contrato — a SOPA não verificou."
+      title={t.unverifiedTitle}
     >
-      não verificado
+      {t.unverified}
     </span>
   );
 }
@@ -411,7 +412,7 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                 </div>
                 <div className="w-24 shrink-0 text-right">
                   {a.usdUnknown && a.valueUsd < 0.5 ? (
-                    <p className="text-xs font-medium tabular-nums text-foreground-faint" title="sem fonte de preço confiável">
+                    <p className="text-xs font-medium tabular-nums text-foreground-faint" title={t.noPriceSource}>
                       USD n/d
                     </p>
                   ) : (
@@ -454,7 +455,7 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                 <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">
                   <Layers className="h-3.5 w-3.5 text-foreground-faint" />
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-                    rendendo — sai com unstake
+                    {t.earning}
                   </span>
                 </div>
                 <ul className="divide-y divide-border">{earning.map(renderRow)}</ul>
@@ -465,7 +466,7 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                 <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">
                   <Wallet className="h-3.5 w-3.5 text-foreground-faint" />
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-                    parado — disponível agora
+                    {t.idle}
                   </span>
                 </div>
                 <ul className="divide-y divide-border">{liquid.map(renderRow)}</ul>
@@ -481,11 +482,7 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                   onClick={() => setDustOpen((v) => !v)}
                   className="w-full border-t border-border px-6 py-2.5 text-left text-[11px] font-medium text-foreground-subtle transition-colors hover:bg-surface-elevated hover:text-foreground"
                 >
-                  {dustOpen
-                    ? "esconder os menores"
-                    : `ver mais ${poeira.length} — abaixo de US$ 5 ou sem preço${
-                        poeiraUsd > 0 ? ` (os precificados somam ${usd(poeiraUsd)})` : ""
-                      }`}
+                  {dustOpen ? t.hideSmaller : t.showMore(poeira.length, poeiraUsd > 0 ? usd(poeiraUsd) : "")}
                 </button>
               </>
             )}
@@ -542,7 +539,7 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
         // Rule 5: a failed read is a FAILURE, never a 0. Show it, keep the total
         // flagged "parcial", and still render whatever DID load.
         <p className="mt-3 text-xs text-warning">
-          ⚠ {t.loadFailed} {w.failedChains.join(", ")} — desconhecido, não zero
+          ⚠ {t.loadFailed} {w.failedChains.join(", ")} {t.unknownNotZero}
         </p>
       )}
       {w.tokens.length > 0 ? (

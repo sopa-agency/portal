@@ -35,7 +35,6 @@ import { getAllocation } from "@/app/actions/allocation";
 import { StakingPanel } from "@/components/staking-panel";
 import { getStakePosition, type StakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
-import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
 import { MorFlowDiagram } from "@/components/mor-flow-diagram";
 import { getMorSplitTree } from "@/lib/mor-split-tree";
@@ -44,7 +43,6 @@ import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
 import { SopaStakePanel } from "@/components/sopa-stake-panel";
 import { getPipelineStatus } from "@/lib/mor-pipeline";
 import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
-import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryBriefingButton } from "@/components/treasury-briefing";
 import { buildTreasuryBriefing } from "@/lib/treasury-briefing";
 import { getSplitConfig } from "@/lib/splits";
@@ -67,7 +65,10 @@ import { verifySession } from "@/lib/team-access";
 import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
 import { rich } from "@/components/rich-text";
-import { attempt, isOk, ok, unread, type Reading } from "@/lib/reading";
+import { attempt, insufficient, isOk, ok, settledWithin, unread, type Reading } from "@/lib/reading";
+import { readCapitalPosition, realizedApy, type CapitalPosition } from "@/lib/morpheus-capital";
+import { MorpheusCapitalPanel, MorpheusCapitalSkeleton } from "@/components/morpheus-capital-panel";
+import { Section } from "@/components/section-heading";
 
 /**
  * O diagrama do split, esperando por dentro.
@@ -99,6 +100,12 @@ export default async function TreasuryPage() {
   const groupsP = fetchTreasuryGroups(project);
   // Destinatários do split final, da cadeia. Entra no bando de promessas do topo.
   const morTreeP = getMorSplitTree();
+  // A posição na capital da Morpheus (mainnet) começa a ler AGORA, junto com o
+  // resto — e ninguém a espera neste escopo. O painel espera por dentro
+  // (Suspense, await no filho); briefing e earmarks recebem só o que já tiver
+  // chegado quando a vez deles vier (settledWithin). Portal de marca não tem
+  // posição, e null aqui é isso: não há o que ler.
+  const capitalP = isSopa ? readCapitalPosition(SOPA_SAFE) : null;
 
   const restoP = Promise.all([
     verifySession((await cookies()).get(SESSION_COOKIE)?.value, project),
@@ -252,7 +259,8 @@ treasury: {
 
   // Operational budget: the configured bounty multisig(s) + spendable balances
   // per chain (USD valued), shown highlighted + separate from the DAO treasury.
-  const { eth: ethPrice } = await getPrices();
+  const prices = await getPrices();
+  const ethPrice = prices.eth;
   const budgets = (
     await Promise.all(
       bountyConfigs.map(async (bc): Promise<ProjectBudget | null> => {
@@ -371,6 +379,42 @@ treasury: {
   // consegui ler o status". Só a segunda é falha, e só ela acende o aviso.
   const streamStatus = isOk(streamRead) ? streamRead.value : null;
   const streamUnknown = poolUnknown || (!!poolAddress && !isOk(streamRead));
+  // Flow rate zero com pool existente é a máquina DESLIGADA — estado legítimo,
+  // não falha. A tela precisa distingui-lo de "não consegui ler" (streamUnknown)
+  // e de "está pagando": três estados, três telas.
+  const streamOff = !!streamStatus && streamStatus.flowRatePerSec <= 0;
+  const streamLifetimeUsd = streamStatus ? streamStatus.lifetimeDistributedUsd : null;
+
+  // A onda 2 acabou: a capital teve todo esse tempo para responder. Se a
+  // mainnet está pendurada, no máximo 1,5s de espera e o resto da página segue
+  // com `unread` — nunca com zero. O painel dentro do Suspense continua
+  // esperando a resposta completa.
+  const capitalNow: Reading<CapitalPosition> | null = capitalP
+    ? await settledWithin(capitalP, 1_500, "a mainnet ainda não respondeu")
+    : null;
+  const capitalOk = capitalNow && isOk(capitalNow) ? capitalNow.value : null;
+  const capitalUnknown = !!capitalNow && !isOk(capitalNow);
+  const capitalApy: Reading<number> | null = capitalOk
+    ? prices.mor == null
+      ? unread<number>("preço do MOR não leu")
+      : realizedApy(capitalOk, prices.mor)
+    : null;
+  // "Aplicado" agora é Moonwell (o que sobrou) + capital na Morpheus. Qualquer
+  // um dos dois sem leitura invalida a soma: soma parcial num painel de
+  // porcentagens é o erro que ainda parece certo.
+  const stakedUsdTotal = stakeUnknown || capitalUnknown ? null : (stakePosition?.valueUsd ?? 0) + (capitalOk?.deposited ?? 0);
+  // A taxa que descreve o dinheiro aplicado: a medida na Morpheus quando há
+  // janela para medir; senão a da Moonwell, só se ainda houver algo lá (poeira
+  // de centavos não define a taxa do tesouro).
+  const earningApy =
+    capitalApy && isOk(capitalApy)
+      ? capitalApy.value
+      : stakePosition && stakePosition.valueUsd >= 1
+        ? stakePosition.apy
+        : null;
+  const capitalPendingUsd = capitalOk && prices.mor != null ? capitalOk.pendingMor * prices.mor : null;
+  const harvestableParts = [stakePosition?.harvestableUsd ?? null, capitalPendingUsd].filter((x): x is number => x != null);
+  const harvestableTotal = harvestableParts.length ? harvestableParts.reduce((a, b) => a + b, 0) : null;
   // Agency's share of each swap split, read from the split contract itself.
   // The fee lands in a 0xSplits contract that pays SOPA and the brand treasury;
   // both halves are surfaced so the page shows the whole fee, not just our cut.
@@ -476,10 +520,10 @@ treasury: {
           totalUsd={ownTotal.value}
           // Posição desconhecida não entra como 0 num painel de porcentagens:
           // o earmark ficaria dividindo por um bolo que ninguém leu.
-          stakedUsd={stakeUnknown ? null : stakePosition?.valueUsd ?? 0}
+          stakedUsd={stakedUsdTotal}
           canEdit={!!session}
           streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
-          apy={stakePosition?.apy ?? null}
+          apy={earningApy}
           monthlyCostsUsd={initialCosts
             .filter((c) => c.active && c.projectSlug === project.slug)
             .reduce((s, c) => s + c.monthlyUsd, 0)}
@@ -559,6 +603,15 @@ treasury: {
           O gráfico entra por DENTRO do SopaTreasury agora (prop `chart`), para
           poder dividir a grade com o hero em vez de empurrá-lo para baixo. */}
       {sopaOverview}
+      {/* Onde o dinheiro está RENDENDO agora. A leitura é da mainnet e mora num
+          Suspense com o await no filho: a página não espera por ela. */}
+      {capitalP && (
+        <Section title={t.treasury.capital.title} hint={t.treasury.capital.hint}>
+          <Suspense fallback={<MorpheusCapitalSkeleton label={t.treasury.capital.loading} />}>
+            <MorpheusCapitalPanel position={capitalP} morPrice={Promise.resolve(prices.mor)} />
+          </Suspense>
+        </Section>
+      )}
       {/* Operações MOR (pipeline + stake) — ferramentas de owner, recolhidas num
           collapsible pra Tesouro ficar uma visão limpa de "quanto temos". */}
       <details className="group border-t border-border pt-8">
@@ -667,10 +720,10 @@ treasury: {
     ownTreasuryUsd: ownGroup && isOk(ownGroup.report.total) ? ownGroup.report.total.value : null,
     combinedTreasuryUsd: isOk(combined) ? combined.value : null,
     brandCount: Math.max(0, groups.length - 1),
-    stakedUsd: stakePosition?.valueUsd ?? null,
-    apy: stakePosition?.apy ?? null,
-    monthlyYieldUsd: stakePosition?.monthlyYieldUsd ?? null,
-    harvestableUsd: stakePosition?.harvestableUsd ?? null,
+    stakedUsd: stakedUsdTotal,
+    apy: earningApy,
+    monthlyYieldUsd: stakedUsdTotal != null && earningApy != null ? (stakedUsdTotal * earningApy) / 12 : null,
+    harvestableUsd: harvestableTotal,
     streamMonthlyUsd: streamStatus ? streamStatus.monthlyUsd : null,
     streamBufferUsd: streamStatus?.safeUsdcxUsd ?? 0,
     streamRunwayDays: streamStatus?.runwayDays ?? null,
@@ -705,6 +758,25 @@ treasury: {
             feeToSopa: sopaVault.fee,
           };
         })()
+      : undefined,
+    // A capital vai como Reading: o briefing fala o número, e "não há depósito"
+    // saído de uma leitura que não houve é a frase que manda alguém procurar
+    // dinheiro que não sumiu.
+    capital: capitalNow
+      ? capitalOk
+        ? ok({
+            depositedUsd: capitalOk.deposited,
+            pendingMor: capitalOk.pendingMor,
+            pendingUsd: capitalPendingUsd,
+            multiplier: capitalOk.multiplier,
+            realizedApy: capitalApy && isOk(capitalApy) ? capitalApy.value : null,
+            claimLockEnd: capitalOk.claimLockEnd,
+          })
+        : capitalNow.state === "unread"
+          ? unread(capitalNow.reason)
+          : capitalNow.state === "insufficient"
+            ? insufficient(capitalNow.note)
+            : undefined
       : undefined,
     // SOPA's MOR position (Morpheus/Gnars subnet) — only when the pipeline read
     // succeeded (SOPA-only). Same live numbers the pipeline + stake panels show.
@@ -776,6 +848,8 @@ treasury: {
               // O detector deixa de depender do que ele detecta: pool que não
               // pôde ser DESCOBERTO agora acende o aviso, em vez de apagá-lo.
               streamFailed={streamUnknown}
+              streamOff={streamOff}
+              lifetimeUsd={streamLifetimeUsd}
               flow={
                 <>
                   <StreamFlowView
@@ -813,7 +887,9 @@ treasury: {
                 ) : null
               }
               steps={[
-                ...(stakePosition
+                // A Moonwell direta foi sacada; sobrou poeira. O painel de
+                // depositar lá só volta se voltar a haver posição de verdade.
+                ...(stakePosition && stakePosition.valueUsd >= 1
                   ? [{ title: t.treasury.members.stepStake, node: <StakingPanel position={stakePosition} canEdit={!!session} /> }]
                   : []),
                 ...(!poolAddress && session ? [{ title: t.treasury.members.stepCreatePool, node: <CreatePoolButton /> }] : []),
@@ -821,8 +897,14 @@ treasury: {
                 ...(poolAddress
                   ? [
                       {
-                        title: t.treasury.members.stepTurnOn,
+                        title: streamOff ? t.treasury.members.stepStreamOff : t.treasury.members.stepTurnOn,
                         node: (
+                          <div className="space-y-3">
+                            {streamOff && (
+                              <p className="rounded-xl border border-dashed border-border-strong bg-surface-elevated p-3 text-xs leading-relaxed text-foreground-muted">
+                                {t.treasury.members.offStep}
+                              </p>
+                            )}
                           <StreamActions
                             canEdit={!!session}
                             yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
@@ -830,6 +912,7 @@ treasury: {
                             harvestableUsd={stakePosition?.harvestableUsd ?? null}
                             currentFlowMonthly={streamStatus?.monthlyUsd ?? 0}
                           />
+                          </div>
                         ),
                       },
                     ]
@@ -876,18 +959,6 @@ treasury: {
                 )}
               </div>
             ) : undefined
-          }
-          plan={
-            <div className="space-y-6">
-              <FinancialPlan
-                liveStakedUsd={stakePosition?.valueUsd ?? 0}
-                liveApy={stakePosition?.apy ?? null}
-                monthlyCostsUsd={initialCosts
-                  .filter((c) => c.active && c.projectSlug === project.slug)
-                  .reduce((s, c) => s + c.monthlyUsd, 0)}
-                streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
-              />
-            </div>
           }
         />
       ) : (
