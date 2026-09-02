@@ -1,17 +1,10 @@
-import { PageHeader } from "@/components/page-header";
-import { SplitVote } from "@/components/split-vote";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
+// A urna deixou de ser rota própria e virou a aba Pagamentos do tesouro:
+// decidir a proporção e mandar o dinheiro são a mesma pergunta.
+//
+// A rota continua existindo porque links já foram compartilhados — inclusive
+// nos avisos de rodada aberta. Um 404 aqui mandaria quem ia votar para o nada.
 export default function VotacaoPage() {
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="SOPA"
-        title="Votação do split"
-        description="Depois da reunião de segunda, cada um distribui 100 pontos entre os outros. O resultado vira a proporção do split."
-      />
-      <SplitVote />
-    </div>
-  );
+  redirect("/treasury?tab=pagamentos");
 }
