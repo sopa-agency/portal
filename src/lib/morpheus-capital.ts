@@ -116,6 +116,11 @@ export async function readCapitalPosition(owner: string): Promise<Reading<Capita
       // Sem depósito não há multiplicador — e 0/0 viraria NaN na tela.
       multiplier: deposited > 0 ? virtual / deposited : 1,
       stakedAt: stakedAtSec > 0 ? new Date(stakedAtSec * 1000) : null,
+      // Trava MÍNIMA do protocolo entre depositar e poder reclamar — sete dias.
+      // Não é a trava opcional que multiplica rendimento (essa a SOPA recusou);
+      // é o carênciazinho que todo depósito carrega. Sem mostrar, alguém abre a
+      // tela no dia 3, vê "0 MOR reclamável" e conclui que não está rendendo.
+      claimLockEnd: Number(w[5] ?? BigInt(0)) > 0 ? new Date(Number(w[5]) * 1000) : null,
       poolTotal: tot ? Number(BigInt(tot)) / 1e6 : 0,
     };
   }, (e) => `posição na Morpheus não leu: ${e instanceof Error ? e.message : String(e)}`);
