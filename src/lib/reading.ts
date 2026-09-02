@@ -115,6 +115,20 @@ export function sumReadings(rs: Reading<number>[]): Reading<number> {
   return ok(rs.reduce((a, r) => a + (r as { value: number }).value, 0));
 }
 
+/**
+ * What a read has answered by now — without waiting for it.
+ *
+ * For a read that was STARTED early and is consumed late: by the time the
+ * caller gets here, the read has had the whole page's worth of seconds to
+ * land. If it landed, use it. If the upstream is hanging, the caller must not
+ * hang with it — a treasury page once waited 19s on one diagram nobody was
+ * looking at. Past `ms` the answer is an honest `unread`, never a zero, and the
+ * original promise keeps going for whoever CAN wait (a Suspense boundary).
+ */
+export function settledWithin<T>(p: Promise<Reading<T>>, ms: number, reason: string): Promise<Reading<T>> {
+  return Promise.race([p, new Promise<Reading<T>>((resolve) => setTimeout(() => resolve(unread(reason)), ms))]);
+}
+
 /** How many of these readings actually read. Used for read-health summaries. */
 export function readHealth(rs: Reading<unknown>[]) {
   return {

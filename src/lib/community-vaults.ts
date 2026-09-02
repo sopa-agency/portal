@@ -23,6 +23,13 @@ export type CommunityVault = {
   assetDecimals: number;
   chainId: number;
   note?: string;
+  /**
+   * Vault V2 only: the adapter the deposits are deployed into. The vault keeps
+   * ZERO idle USDC, so a plain withdraw reverts — the money has to be pulled
+   * back from here first (`forceDeallocate`, permissionless). Without this
+   * address the withdraw button can only fail with a bare contract error.
+   */
+  liquidityAdapter?: string;
 };
 
 export const COMMUNITY_VAULTS: CommunityVault[] = [
@@ -38,6 +45,10 @@ export const COMMUNITY_VAULTS: CommunityVault[] = [
     assetDecimals: 6,
     chainId: 8453,
     note: "Seu depósito é encaminhado pro cofre da Moonwell, que cuida da gestão de risco. A SOPA só fica com uma parte dos juros.",
+    // MorphoVaultV1Adapter → Moonwell Flagship USDC. Measured on-chain: 100% of
+    // the vault's assets sit here, maxRedeem reads 0 for every depositor, and
+    // forceDeallocate carries a 0% penalty.
+    liquidityAdapter: "0x7B43a2573224b8f88A69443E029CAF4812f7d17c",
   },
   // An ETH (WETH) vault goes here once one is deployed. Vaults are per-asset,
   // so ETH needs its own — and depositors would carry ETH price risk while the

@@ -49,6 +49,13 @@ export type StreamStatus = {
   connectedUnits: number;
   safeUsdcxUsd: number; // Safe's wrapped balance funding the stream
   runwayDays: number | null; // null = infinite (no flow)
+  /**
+   * Everything the pool ever paid out, from the POOL's own counter. The
+   * per-member `receivedUsd` only advances when that member is touched
+   * (connect/claim), so summing members under-counts by whatever flowed since
+   * each one's last update — measured: members sum to $0.13 against $2.82 here.
+   */
+  lifetimeDistributedUsd: number;
   members: StreamMember[];
 };
 
@@ -68,6 +75,7 @@ type SubgraphPool = {
   pool: {
     id: string;
     flowRate: string;
+    totalAmountDistributedUntilUpdatedAt: string;
     totalUnits: string;
     totalConnectedUnits: string;
     poolMembers: { units: string; isConnected: boolean; totalAmountReceivedUntilUpdatedAt: string; totalAmountClaimed: string; account: { id: string } }[];
@@ -95,7 +103,7 @@ export async function findSopaPool(safeAddress = SOPA_SAFE): Promise<string | nu
 async function querySubgraph(pool: string): Promise<SubgraphPool["pool"]> {
   const query = `query($pool: ID!) {
     pool(id: $pool) {
-      id flowRate totalUnits totalConnectedUnits
+      id flowRate totalAmountDistributedUntilUpdatedAt totalUnits totalConnectedUnits
       poolMembers(first: 500) {
         units isConnected totalAmountReceivedUntilUpdatedAt totalAmountClaimed
         account { id }
@@ -142,6 +150,7 @@ export async function getStreamStatus(poolAddress: string, safeAddress = SOPA_SA
       connectedUnits: Number(pool.totalConnectedUnits || "0"),
       safeUsdcxUsd,
       runwayDays,
+      lifetimeDistributedUsd: Number(BigInt(pool.totalAmountDistributedUntilUpdatedAt || "0")) / 1e18,
       members,
     };
   } catch {
