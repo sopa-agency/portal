@@ -21,7 +21,15 @@ export type SopaJobDTO = {
   status: JobStatus;
   occurredOn: string; // yyyy-mm-dd
   createdBy: string | null;
+  /** Quem TROUXE o job. Dupla e trio valem; o mérito se divide por igual. */
+  credit: string[];
 };
+
+/** Usernames limpos, sem repetição e sem vazio — igual ao dos streams. */
+const asCredit = (v: unknown): string[] =>
+  Array.isArray(v)
+    ? [...new Set(v.map((x) => (typeof x === "string" ? x.trim().toLowerCase() : "")).filter(Boolean))]
+    : [];
 
 const SLUG = "sopa";
 
@@ -33,6 +41,7 @@ type JobRow = {
   status: string;
   occurredOn: Date;
   createdBy: string | null;
+  credit?: string[];
 };
 
 function toDTO(r: JobRow): SopaJobDTO {
@@ -42,6 +51,7 @@ function toDTO(r: JobRow): SopaJobDTO {
     description: r.description,
     amountUsd: r.amountUsd,
     status: r.status === "pending" ? "pending" : "paid",
+    credit: asCredit(r.credit),
     occurredOn: r.occurredOn.toISOString().slice(0, 10),
     createdBy: r.createdBy,
   };
@@ -89,6 +99,7 @@ export async function createSopaJob(input: {
   occurredOn: string;
   description?: string | null;
   status?: string;
+  credit?: string[];
 }): Promise<{ ok: true; job: SopaJobDTO } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
@@ -104,6 +115,7 @@ export async function createSopaJob(input: {
       status: c.status,
       occurredOn: c.occurredOn,
       description: c.description,
+      credit: asCredit(input.credit),
       createdBy: g.username,
     },
   });
@@ -113,7 +125,7 @@ export async function createSopaJob(input: {
 
 export async function updateSopaJob(
   id: string,
-  patch: { client?: string; amountUsd?: number; occurredOn?: string; description?: string | null; status?: string },
+  patch: { client?: string; amountUsd?: number; occurredOn?: string; description?: string | null; status?: string; credit?: string[] },
 ): Promise<{ ok: true; job: SopaJobDTO } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
@@ -121,6 +133,7 @@ export async function updateSopaJob(
   if (!existing || existing.projectSlug !== SLUG) return { ok: false, error: "Job não encontrado." };
 
   const data: Record<string, unknown> = {};
+  if (patch.credit !== undefined) data.credit = asCredit(patch.credit);
   if (patch.client !== undefined) {
     const client = patch.client.trim().slice(0, 120);
     if (!client) return { ok: false, error: "Cliente não pode ficar vazio." };

@@ -1058,6 +1058,11 @@ model FixedCostActual {
 model SopaJob {
   id          String   @id @default(cuid())
   projectSlug String   @default("sopa")
+  /// Quem TROUXE este job. Usernames do Team; pode ser dupla ou trio, e o
+  /// mérito é dividido por igual entre eles. Mesma regra dos streams de
+  /// receita do org-chart — receita medida só vira mérito quando se sabe de
+  /// quem ela veio.
+  credit      String[] @default([])
   client      String // who the job was for (e.g. "Venice bot")
   description String? // scope of the work
   amountUsd   Float

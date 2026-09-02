@@ -33,7 +33,7 @@ function splitsExplorerUrl(address: string, chain: string | null): string {
   return `https://explorer.splits.org/accounts/${address}/?chainId=${id}`;
 }
 
-type Draft = { client: string; amountUsd: string; occurredOn: string; status: JobStatus; description: string };
+type Draft = { client: string; amountUsd: string; occurredOn: string; status: JobStatus; description: string; credit: string[] };
 
 const emptyDraft = (): Draft => ({
   client: "",
@@ -41,16 +41,21 @@ const emptyDraft = (): Draft => ({
   occurredOn: new Date().toISOString().slice(0, 10),
   status: "paid",
   description: "",
+  credit: [],
 });
 
 function JobForm({
   initial,
   busy,
+  roster,
   onSave,
   onCancel,
 }: {
   initial: Draft;
   busy: boolean;
+  /** Quem pode ser creditado. Vazio = o seletor não aparece, em vez de uma
+   *  fileira vazia que parece defeito. */
+  roster: { username: string }[];
   onSave: (d: Draft) => void;
   onCancel: () => void;
 }) {
@@ -58,6 +63,40 @@ function JobForm({
   const [d, setD] = useState<Draft>(initial);
   return (
     <div className="space-y-2 rounded-lg border border-accent-border bg-accent-bg/40 p-2.5">
+      {/* QUEM TROUXE o job. Mesma ideia dos streams no organograma: receita
+          medida só vira mérito quando se sabe de quem ela veio. Elenco vazio
+          esconde a linha inteira, em vez de mostrar uma fileira sem nada que
+          parece defeito. */}
+      {roster.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">
+            trouxe
+          </span>
+          {roster.map((m) => {
+            const u = m.username.toLowerCase();
+            const on = d.credit.includes(u);
+            return (
+              <button
+                key={u}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setD({ ...d, credit: on ? d.credit.filter((x) => x !== u) : [...d.credit, u] })}
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                  on
+                    ? "border-accent-border bg-accent-bg text-accent"
+                    : "border-border text-foreground-faint hover:border-border-strong hover:text-foreground-muted"
+                }`}
+              >
+                @{m.username}
+              </button>
+            );
+          })}
+          {d.credit.length > 1 && (
+            <span className="ml-1 text-[10px] text-foreground-faint">dividido por igual entre {d.credit.length}</span>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <input
           value={d.client}
@@ -128,10 +167,13 @@ export function SopaRevenuePanel({
   initialJobs,
   canEdit,
   onchainShare,
+  roster = [],
 }: {
   initialJobs: SopaJobDTO[];
   canEdit: boolean;
   onchainShare: OnchainShare[];
+  /** Quem pode ser creditado por um job. */
+  roster?: { username: string }[];
 }) {
   const { locale, t: dict } = useLocale();
   const t = dict.treasury.agency;
@@ -166,6 +208,7 @@ export function SopaRevenuePanel({
     start(async () => {
       setErr(null);
       const res = await createSopaJob({
+        credit: d.credit,
         client: d.client,
         amountUsd: Number(d.amountUsd),
         occurredOn: d.occurredOn,
@@ -182,6 +225,7 @@ export function SopaRevenuePanel({
     start(async () => {
       setErr(null);
       const res = await updateSopaJob(id, {
+        credit: d.credit,
         client: d.client,
         amountUsd: Number(d.amountUsd),
         occurredOn: d.occurredOn,
@@ -357,7 +401,7 @@ export function SopaRevenuePanel({
 
         {adding && (
           <div className="mb-2">
-            <JobForm initial={emptyDraft()} busy={pending} onSave={doCreate} onCancel={() => setAdding(false)} />
+            <JobForm initial={emptyDraft()} busy={pending} roster={roster} onSave={doCreate} onCancel={() => setAdding(false)} />
           </div>
         )}
 
@@ -377,8 +421,10 @@ export function SopaRevenuePanel({
                       occurredOn: j.occurredOn,
                       status: j.status,
                       description: j.description ?? "",
+                      credit: j.credit ?? [],
                     }}
                     busy={pending}
+                    roster={roster}
                     onSave={(d) => doUpdate(j.id, d)}
                     onCancel={() => setEditId(null)}
                   />

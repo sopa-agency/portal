@@ -583,6 +583,7 @@ treasury: {
           initialJobs={jobs}
           canEdit={!!session}
           onchainShare={onchainShare}
+          roster={roster}
         />
       }
     />
