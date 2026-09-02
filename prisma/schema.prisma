@@ -605,6 +605,7 @@ model MemberSkills {
    * /**
    * /**
    * /**
+   * /**
    * /** como a pessoa se apresenta: ["dev", "web3", "criativo"]
    */
   roles     String[] @default([])
@@ -1614,4 +1615,47 @@ model SplitConfigCache {
   /// [{address, share}] — a fração já normalizada pelo totalAllocation.
   recipients Json
   syncedAt   DateTime @default(now())
+}
+
+/// Uma rodada de votação que decide as proporções de um split.
+///
+/// A reunião de segunda define o que foi feito; esta votação transforma isso em
+/// número. O resultado NÃO move dinheiro sozinho — ele produz o vetor que o dono
+/// do split assina. Uma tela que reescreve o pagamento de dez pessoas sem
+/// assinatura é uma tela com poder demais.
+model SplitVoteRound {
+  id           String    @id @default(cuid())
+  projectSlug  String
+  label        String
+  /// "open" — aceita cédula · "closed" — resultado congelado
+  status       String    @default("open")
+  /// O split cujas proporções esta rodada decide. Os elegíveis são lidos DELE,
+  /// na cadeia: quem está no contrato hoje é quem vota e quem recebe.
+  splitAddress String
+  chain        String    @default("base")
+  openedBy     String
+  openedAt     DateTime  @default(now())
+  closedAt     DateTime?
+
+  @@index([projectSlug, openedAt])
+}
+
+/// A cédula de uma pessoa numa rodada.
+///
+/// `voter` existe para impedir voto duplo e para a pessoa poder corrigir o
+/// próprio voto — e NUNCA é exibido. A tela mostra as cédulas sem nome, em
+/// ordem embaralhada de forma estável, para que ninguém deduza quem votou o quê
+/// pela ordem de chegada. É o que torna a votação auditável e anônima ao mesmo
+/// tempo: qualquer um recalcula a média, ninguém identifica o autor.
+model SplitVoteBallot {
+  id        String   @id @default(cuid())
+  roundId   String
+  voter     String
+  /// { "0xEndereço": pontos }. Soma 100. Nunca contém o próprio votante.
+  points    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roundId, voter])
+  @@index([roundId])
 }

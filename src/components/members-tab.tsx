@@ -182,6 +182,7 @@ export function MembersTab({
   sustainability,
   withdraw,
   connect,
+  voteSlot,
   steps,
 }: {
   canEdit: boolean;
@@ -208,6 +209,9 @@ export function MembersTab({
   withdraw?: ReactNode;
   /** The connect-your-wallet action. */
   connect: ReactNode;
+  /** A rodada de votação do split, quando há uma. Mora acima de "Quem recebe
+   *  o quê" porque é exatamente isso que a votação decide. */
+  voteSlot?: ReactNode;
   /** Ordered admin steps: [title, node][] — rendered as numbered cards. */
   steps: { title: string; node: ReactNode }[];
 }) {
@@ -292,6 +296,7 @@ export function MembersTab({
               {sustainability}
             </>
           )}
+          {voteSlot}
           <WhoGetsWhat members={members} monthlyUsd={streamOff ? null : monthlyUsd} connectSlot={streamOff ? undefined : connect} off={streamOff} />
           {/* O desembrulho fica: é dinheiro que já foi pago e mora na carteira
               de cada um. Recolhido, porque o stream que o gerava não corre mais. */}

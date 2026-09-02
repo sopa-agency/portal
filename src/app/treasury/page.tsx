@@ -32,7 +32,7 @@ import { WithdrawUsdcx } from "@/components/withdraw-usdcx";
 import { BrandTreasury } from "@/components/brand-treasury";
 import { TreasuryAllocation } from "@/components/treasury-allocation";
 import { getAllocation } from "@/app/actions/allocation";
-import { StakingPanel } from "@/components/staking-panel";
+import { SplitVoteBanner } from "@/components/split-vote-banner";
 import { getStakePosition, type StakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
 import { SopaTreasury } from "@/components/sopa-treasury";
@@ -886,12 +886,11 @@ treasury: {
                   />
                 ) : null
               }
+              // A urna pede sessão: sem login não há voto a cobrar, e a
+              // resposta "não autorizado" não é falha de leitura — é só um
+              // visitante. Por isso o slot nem entra.
+              voteSlot={session ? <SplitVoteBanner /> : undefined}
               steps={[
-                // A Moonwell direta foi sacada; sobrou poeira. O painel de
-                // depositar lá só volta se voltar a haver posição de verdade.
-                ...(stakePosition && stakePosition.valueUsd >= 1
-                  ? [{ title: t.treasury.members.stepStake, node: <StakingPanel position={stakePosition} canEdit={!!session} /> }]
-                  : []),
                 ...(!poolAddress && session ? [{ title: t.treasury.members.stepCreatePool, node: <CreatePoolButton /> }] : []),
                 { title: t.treasury.members.stepTeam, node: <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} /> },
                 ...(poolAddress
