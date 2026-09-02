@@ -35,7 +35,6 @@ import { getAllocation } from "@/app/actions/allocation";
 import { StakingPanel } from "@/components/staking-panel";
 import { getStakePosition, type StakePosition } from "@/lib/staking";
 import { TreasuryTabs } from "@/components/treasury-tabs";
-import { FinancialPlan } from "@/components/financial-plan";
 import { SopaTreasury } from "@/components/sopa-treasury";
 import { MorFlowDiagram } from "@/components/mor-flow-diagram";
 import { getMorSplitTree } from "@/lib/mor-split-tree";
@@ -44,7 +43,6 @@ import { MorPipelinePanel } from "@/components/mor-pipeline-panel";
 import { SopaStakePanel } from "@/components/sopa-stake-panel";
 import { getPipelineStatus } from "@/lib/mor-pipeline";
 import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
-import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryBriefingButton } from "@/components/treasury-briefing";
 import { buildTreasuryBriefing } from "@/lib/treasury-briefing";
 import { getSplitConfig } from "@/lib/splits";
@@ -961,18 +959,6 @@ treasury: {
                 )}
               </div>
             ) : undefined
-          }
-          plan={
-            <div className="space-y-6">
-              <FinancialPlan
-                liveStakedUsd={stakedUsdTotal ?? 0}
-                liveApy={earningApy}
-                monthlyCostsUsd={initialCosts
-                  .filter((c) => c.active && c.projectSlug === project.slug)
-                  .reduce((s, c) => s + c.monthlyUsd, 0)}
-                streamMonthlyUsd={streamStatus?.monthlyUsd ?? 0}
-              />
-            </div>
           }
         />
       ) : (

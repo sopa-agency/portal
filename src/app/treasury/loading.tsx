@@ -36,7 +36,7 @@ export default function Loading() {
       {/* As abas existem e são clicáveis assim que a página chega; mostrá-las
           agora evita o pulo de layout que um bloco só provocaria. */}
       <div className="flex flex-wrap gap-1.5">
-        {[t.tabs.treasury, t.tabs.revenue, t.tabs.costs, t.tabs.members, t.tabs.support, t.tabs.plan].map((n) => (
+        {[t.tabs.treasury, t.tabs.revenue, t.tabs.costs, t.tabs.members, t.tabs.support].map((n) => (
           <span
             key={n}
             className="rounded-lg border border-border bg-surface px-3 py-1.5 text-[13px] font-medium text-foreground-faint"

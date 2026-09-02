@@ -307,7 +307,6 @@ const en = {
       costs: "Costs",
       members: "Members",
       support: "Support",
-      plan: "Financial plan",
     },
     refresh: {
       action: "Refresh",
@@ -1896,7 +1895,6 @@ const pt: typeof en = {
       costs: "Custos",
       members: "Membros",
       support: "Apoiar",
-      plan: "Plano financeiro",
     },
     refresh: {
       action: "Atualizar",
