@@ -840,6 +840,8 @@ const en = {
       /** Read, but with a declared hole: the number is a floor. */
       partial: "at least",
       viewOnExplorer: "View on Splits explorer",
+      /** Two products feeding one split contract — one pot, counted once. */
+      sharedPot: "Several products pay their fees into this same contract — it's one pot, counted once.",
       subtotal: "On-chain subtotal",
       unreadable: (n: number) =>
         n === 1
@@ -2394,6 +2396,7 @@ const pt: typeof en = {
       unreadRealized: "não consegui ler",
       partial: "pelo menos",
       viewOnExplorer: "Ver no explorer da Splits",
+      sharedPot: "Vários produtos pagam taxa neste mesmo contrato — é uma pota só, contada uma vez.",
       subtotal: "Subtotal on-chain",
       unreadable: (n: number) =>
         n === 1

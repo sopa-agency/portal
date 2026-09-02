@@ -7,6 +7,7 @@ import { fetchOnchainRevenue } from "@/lib/revenue-onchain";
 import { getCommunityVaults } from "@/lib/community-vaults";
 import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 import { SOPA_SAFE } from "@/lib/superfluid";
+import { groupByContract } from "@/lib/onchain-share";
 
 // Revenue wiring INTO the SOPA treasury, for the org-chart "Revenue" view: EVERY
 // registered split/swap where SOPA is a recipient — the share is read from the
@@ -127,7 +128,13 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
     if (!splits.length) continue;
 
     const flows: OrbitFlow[] = [];
-    for (const s of splits) {
+    // Um fluxo por CONTRATO. Dois streams do mesmo projeto podem cair no mesmo
+    // split (swaps.pro: "Swaps fees" e "Batch Send Fees" em 0xeB29…3A36) e a
+    // leitura é do contrato — cada stream voltava com o mesmo gross e o
+    // realizado do projeto contava a pota duas vezes (e a órbita desenhava dois
+    // fios com a mesma key). Os rótulos ficam todos no fio; o dinheiro, uma vez.
+    for (const membros of groupByContract(splits)) {
+      const [s] = membros;
       const cfg = await getSplitConfig(s.address, s.chain).catch(() => null);
       const share = cfg?.shareFor(SOPA_SAFE) ?? null;
       // Only draw a split we can prove pays SOPA (share read from the contract).
@@ -136,7 +143,7 @@ export async function getSopaRevenueOrbit(): Promise<SopaRevenueOrbit> {
       const splitBalanceUsd = s.balanceUsd ?? 0;
       flows.push({
         key: `${p.cardId}:${s.address}`,
-        label: s.label,
+        label: membros.map((m) => m.label).join(" + "),
         address: s.address,
         chain: s.chain,
         method: s.realized ? (s.realized.method === "auction" ? "auction" : "split") : null,

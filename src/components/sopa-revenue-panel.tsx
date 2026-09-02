@@ -12,32 +12,13 @@ import {
 import { useConfirm } from "@/components/confirm-dialog";
 import { usd } from "@/lib/format";
 import { useLocale, useT } from "@/components/locale-provider";
+import { agruparOnchainShare, subtotalOnchain, type OnchainShare } from "@/lib/onchain-share";
 
 const fmtDate = (iso: string, intlLocale: string) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString(intlLocale, { day: "2-digit", month: "short", year: "numeric" });
 
-export type OnchainShare = {
-  key: string;
-  projectName: string;
-  label: string;
-  address: string;
-  chain: string | null;
-  /** Gross that passed through the split. */
-  realizedUsd: number;
-  /**
-   * Por que a leitura falhou, ou com que ressalva ela veio.
-   *
-   * Sem isto, `realizedUsd: 0` era escrito na tela como "no distribution yet" —
-   * e era o que a página vinha dizendo dos quatro splits, enquanto a cadeia
-   * tinha 16, 5 e 3 distribuições neles. O Blockscout da Base estava em 500 e o
-   * silêncio dele virava uma afirmação nossa.
-   */
-  realizedError?: string;
-  /** SOPA's cut, read from the split's own config on-chain. Null = unreadable. */
-  sopaShare: number | null;
-  /** Every recipient, so the page can show where the other half goes. */
-  recipients: { address: string; share: number; label: string }[];
-};
+// O tipo mora junto da regra de soma; a página continua importando daqui.
+export type { OnchainShare };
 
 /**
  * O contrato no explorer da 0xSplits.
@@ -162,16 +143,21 @@ export function SopaRevenuePanel({
   const [pending, start] = useTransition();
   const { confirm, confirmUI } = useConfirm();
 
+  // Uma linha por CONTRATO, não por stream. Dois produtos do mesmo projeto
+  // podem cobrar taxa no mesmo split (swaps.pro: "Swaps fees" e "Batch Send
+  // Fees" caem em 0xeB29…3A36); a leitura é do contrato, então cada stream
+  // voltava com o mesmo gross e a soma contava a pota duas vezes — $58.74 na
+  // tela, $34.52 na cadeia. Agrupar mantém os dois rótulos à vista e o dinheiro
+  // contado uma vez.
+  const grupos = agruparOnchainShare(onchainShare);
   // Only count a split whose config we could actually read. An unreadable split
   // contributes nothing rather than being guessed at a default share.
   // Split não lido NÃO entra no subtotal — nem como zero. Somar um zero que na
   // verdade é "não sei" é como o subtotal virava $0 com distribuição acontecendo
-  // nos quatro contratos.
-  const naoLidos = onchainShare.filter((o) => o.realizedUsd === 0 && !!o.realizedError);
-  const shareTotal = onchainShare
-    .filter((o) => !naoLidos.includes(o))
-    .reduce((s, o) => s + o.realizedUsd * (o.sopaShare ?? 0), 0);
-  const unreadable = onchainShare.filter((o) => o.sopaShare == null).length;
+  // nos quatro contratos. Um grupo com qualquer membro não lido é tratado igual.
+  const naoLidos = grupos.filter((g) => g.naoLido);
+  const shareTotal = subtotalOnchain(grupos);
+  const unreadable = grupos.filter((g) => g.sopaShare == null).length;
   const jobsPaid = jobs.filter((j) => j.status === "paid").reduce((s, j) => s + j.amountUsd, 0);
   const jobsPending = jobs.filter((j) => j.status === "pending").reduce((s, j) => s + j.amountUsd, 0);
   const realizedTotal = shareTotal + jobsPaid;
@@ -259,12 +245,17 @@ export function SopaRevenuePanel({
             {t.onchainHint}
           </p>
           <ul className="space-y-2.5">
-            {onchainShare.map((o) => (
+            {grupos.map((o) => (
               <li key={o.key} className="space-y-1">
                 <div className="flex items-center justify-between gap-3 text-xs">
                   <span className="min-w-0 truncate text-foreground-muted">
                     <span className="font-medium text-foreground">{o.projectName}</span>
-                    <span className="text-foreground-faint"> · {o.label}</span>
+                    {/* Todos os produtos que alimentam este contrato, lado a
+                        lado. Esconder um deles leria como "sumiu um produto";
+                        o que há é uma pota só, alimentada por dois. */}
+                    <span className="text-foreground-faint" title={o.labels.length > 1 ? t.sharedPot : undefined}>
+                      {" "}· {o.labels.join(" + ")}
+                    </span>
                     {/* O contrato, conferível. A seção afirma "lido do contrato";
                         sem o link, a pessoa tem que acreditar na nossa palavra. */}
                     <a
@@ -280,7 +271,7 @@ export function SopaRevenuePanel({
                   <span className="shrink-0 tabular-nums">
                     {o.sopaShare == null ? (
                       <span className="text-warning">{t.unreadShare}</span>
-                    ) : o.realizedUsd === 0 && o.realizedError ? (
+                    ) : o.naoLido ? (
                       // NÃO LIDO. Este era o bug: o indexador da Base devolvia
                       // 500, o zero descia até aqui e a tela o escrevia como
                       // "ainda não distribuiu" — em splits com 16, 5 e 3
