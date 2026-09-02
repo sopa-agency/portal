@@ -1,6 +1,7 @@
 import { ExternalLink, Landmark } from "lucide-react";
 import { getDictionary, getLocale } from "@/lib/i18n/server";
 import { realizedApy, type CapitalPosition } from "@/lib/morpheus-capital";
+import { CapitalClaimButton } from "@/components/capital-claim-button";
 import { isOk, unread, type Reading } from "@/lib/reading";
 import { rich } from "@/components/rich-text";
 import { usd, pct } from "@/lib/format";
@@ -68,7 +69,12 @@ export async function MorpheusCapitalPanel({
   const apy: Reading<number> = price == null ? unread<number>(t.priceUnread) : realizedApy(p, price);
   const dateFmt = (d: Date) => d.toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US", { day: "2-digit", month: "2-digit", year: "numeric" });
   const share = p.poolTotal > 0 ? pct((p.deposited / p.poolTotal) * 100) : null;
-  const lockDays = p.claimLockEnd ? Math.ceil((p.claimLockEnd.getTime() - now) / 86_400_000) : null;
+  // `claimOpensAt` já é a MAIOR das duas travas (protocolo e usuário). Usar
+  // `claimLockEnd` puro, como esta tela fazia, acerta só quando não há trava
+  // opcional — e mostra "liberado" cedo demais justamente para quem travou.
+  const opensAt = p.claimOpensAt ?? p.claimLockEnd;
+  const lockDays = opensAt ? Math.ceil((opensAt.getTime() - now) / 86_400_000) : null;
+  const claimAberto = opensAt != null && opensAt.getTime() <= now;
 
   return (
     <div className="space-y-3">
@@ -99,14 +105,21 @@ export async function MorpheusCapitalPanel({
         ) : (
           <Stat label={t.realizedApy} hint={t.realizedApyHint} value="—" sub={apy.reason} tone="text-warning" dashed />
         )}
-        {p.claimLockEnd == null ? (
+        {opensAt == null ? (
           <Stat label={t.claimAt} value="—" tone="text-foreground-muted" dashed />
-        ) : lockDays != null && lockDays <= 0 ? (
+        ) : claimAberto ? (
           <Stat label={t.claimAt} hint={t.claimOpenHint} value={t.claimOpen} tone="text-success" />
         ) : (
-          <Stat label={t.claimAt} value={dateFmt(p.claimLockEnd)} sub={t.inDays(lockDays ?? 0)} tone="text-warning" />
+          <Stat label={t.claimAt} value={dateFmt(opensAt)} sub={t.inDays(lockDays ?? 0)} tone="text-warning" />
         )}
       </div>
+
+      {claimAberto && p.pendingMor > 0 && (
+        <div className="space-y-2 rounded-xl border border-border bg-surface px-4 py-3">
+          <CapitalClaimButton />
+          <p className="text-[11px] leading-relaxed text-foreground-faint">{t.claimFeeNote}</p>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-accent-border bg-accent-bg px-4 py-3 text-xs leading-relaxed text-foreground-muted">
         <span className="flex-1 min-w-[16rem]">{rich(t.receiverNote)}</span>

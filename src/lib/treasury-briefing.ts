@@ -275,7 +275,7 @@ const COPY: Record<Locale, Copy> = {
       `SOPA's position in Morpheus' capital pool couldn't be read (${reason}). This does not mean there is no deposit — the number is simply unknown right now.`,
     capitalNone: "SOPA has no USDC in Morpheus' capital pool at the moment.",
     capitalHolds: (value, mor, usdPart) =>
-      `SOPA has ${value} in Morpheus' capital pool (Ethereum mainnet), earning MOR. It has accrued ${mor} MOR${usdPart} so far.`,
+      `SOPA has ${value} in Morpheus' capital pool (Ethereum mainnet), earning MOR. It has accrued ${mor}${usdPart} so far.`,
     capitalUsdPart: (value) => ` (about ${value})`,
     capitalLocked: (mult) => `The position carries a ${mult}× multiplier — there is a lock on it.`,
     capitalApy: (apy) => `Measured on the position itself, that is ${apy} a year.`,
@@ -372,7 +372,7 @@ const COPY: Record<Locale, Copy> = {
       `A posição da SOPA no pool de capital da Morpheus não pôde ser lida (${reason}). Isso não quer dizer que não há depósito — o número é que está desconhecido agora.`,
     capitalNone: "A SOPA não tem USDC no pool de capital da Morpheus no momento.",
     capitalHolds: (value, mor, usdPart) =>
-      `A SOPA tem ${value} no pool de capital da Morpheus (Ethereum mainnet), rendendo MOR. Já acumulou ${mor} MOR${usdPart}.`,
+      `A SOPA tem ${value} no pool de capital da Morpheus (Ethereum mainnet), rendendo MOR. Já acumulou ${mor}${usdPart}.`,
     capitalUsdPart: (value) => ` (cerca de ${value})`,
     capitalLocked: (mult) => `A posição carrega multiplicador de ${mult}× — há uma trava nela.`,
     capitalApy: (apy) => `Medido na própria posição, isso dá ${apy} ao ano.`,

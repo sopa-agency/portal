@@ -588,6 +588,13 @@ const en = {
       claimAt: "Claim unlocks",
       claimOpen: "unlocked",
       claimOpenHint: "The 7-day minimum between depositing and claiming has passed.",
+      claimAction: "Propose claim in the Safe",
+      claimMeasuring: "Measuring the bridge fee…",
+      claimQueued: (mor: string, fee: string) =>
+        `Queued: claim ${mor} MOR, with ${fee} ETH for the LayerZero bridge. It needs the owners' signatures.`,
+      claimQueueLink: "Open the Safe queue",
+      claimFeeNote:
+        "The MOR is minted on Arbitrum, and the LayerZero message costs ETH — paid by the Safe, out of its mainnet balance. The fee is measured against the contract at the moment of proposing, plus a 1.5× margin so it survives the wait for signatures.",
       inDays: (n: number) => `in ${n} day${n === 1 ? "" : "s"}`,
       since: (date: string) => `since ${date}`,
       priceUnread: "MOR price didn't load — the USD value and the yield can't be computed from a price we didn't read.",
@@ -2090,6 +2097,13 @@ const pt: typeof en = {
       claimAt: "Claim libera",
       claimOpen: "liberado",
       claimOpenHint: "A carência mínima de 7 dias entre depositar e reclamar já passou.",
+      claimAction: "Propor o claim no Safe",
+      claimMeasuring: "Medindo a taxa da ponte…",
+      claimQueued: (mor: string, fee: string) =>
+        `Na fila: reclamar ${mor} MOR, com ${fee} ETH pra ponte LayerZero. Falta a assinatura dos donos.`,
+      claimQueueLink: "Abrir a fila do Safe",
+      claimFeeNote:
+        "O MOR é mintado na Arbitrum, e a mensagem do LayerZero custa ETH — pago pelo Safe, do saldo dele na mainnet. A taxa é medida no contrato na hora de propor, com margem de 1,5× pra sobreviver à espera das assinaturas.",
       inDays: (n: number) => `em ${n} dia${n === 1 ? "" : "s"}`,
       since: (date: string) => `desde ${date}`,
       priceUnread: "O preço do MOR não carregou — o valor em dólar e o rendimento não saem de um preço que não foi lido.",

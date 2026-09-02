@@ -38,7 +38,31 @@ const SEL = {
   usersData: "0x30dc6308",
   reward: "0xa55ae979",
   totalDeposited: "0xd2ba5e3a",
+  /** rewardPoolsProtocolDetails(uint256) — traz as travas do protocolo. */
+  protocolDetails: "0x214a6525",
+  /** claim(uint256,address) — payable: o msg.value paga a ponte LayerZero. */
+  claim: "0xddd5e1b2",
 } as const;
+
+/**
+ * O claim é bloqueado por DUAS travas, e elas são coisas diferentes.
+ *
+ *   (1) a do PROTOCOLO: `lastStake + claimLockPeriodAfterStake`, hoje 7 dias.
+ *       Todo depósito a rearma, ninguém escolhe, e é ela que devolve o revert
+ *       "DS: pool claim is locked (S)".
+ *   (2) a do USUÁRIO: `claimLockEnd`, a trava opcional que multiplica o
+ *       rendimento. A SOPA recusou; a conta pessoal do Vlad está travada até
+ *       2028 justamente por ter aceitado.
+ *
+ * Vale a MAIOR das duas. Mostrar só a do usuário (como o painel fazia) acerta
+ * por acidente quando não há trava opcional e mente quando há.
+ */
+export function claimUnlockAt(pos: { stakedAt: Date | null; claimLockEnd: Date | null; lockAfterStakeSec: number }): Date | null {
+  const protocolo = pos.stakedAt ? pos.stakedAt.getTime() + pos.lockAfterStakeSec * 1000 : null;
+  const usuario = pos.claimLockEnd?.getTime() ?? null;
+  const maior = Math.max(protocolo ?? 0, usuario ?? 0);
+  return maior > 0 ? new Date(maior) : null;
+}
 
 const pad = (a: string) => a.replace(/^0x/, "").toLowerCase().padStart(64, "0");
 const word = (n: number) => n.toString(16).padStart(64, "0");
@@ -81,6 +105,10 @@ export type CapitalPosition = {
   claimLockEnd: Date | null;
   /** Tamanho do pool inteiro, para dar noção de quanto a fatia pesa. */
   poolTotal: number;
+  /** `claimLockPeriodAfterStake` do protocolo, em segundos (hoje 604800 = 7d). */
+  lockAfterStakeSec: number;
+  /** A trava que de fato vale: a maior entre a do protocolo e a do usuário. */
+  claimOpensAt: Date | null;
 };
 
 /**
@@ -94,10 +122,11 @@ export type CapitalPosition = {
 export async function readCapitalPosition(owner: string): Promise<Reading<CapitalPosition>> {
   return attempt(async () => {
     const pool = MORPHEUS_POOLS.usdc;
-    const [ud, rw, tot] = await Promise.all([
+    const [ud, rw, tot, det] = await Promise.all([
       call(pool, SEL.usersData + pad(owner) + word(REWARD_POOL_INDEX)),
       call(pool, SEL.reward + word(REWARD_POOL_INDEX) + pad(owner)),
       call(pool, SEL.totalDeposited),
+      call(pool, SEL.protocolDetails + word(REWARD_POOL_INDEX)),
     ]);
     if (!ud) throw new Error("o pool de USDC da Morpheus não respondeu");
 
@@ -107,6 +136,15 @@ export async function readCapitalPosition(owner: string): Promise<Reading<Capita
     const deposited = Number(w[1] ?? BigInt(0)) / 1e6;
     const virtual = Number(w[6] ?? BigInt(0)) / 1e6;
     const stakedAtSec = Number(w[0] ?? BigInt(0));
+    const stakedAt = stakedAtSec > 0 ? new Date(stakedAtSec * 1000) : null;
+    // Trava MÍNIMA do protocolo entre depositar e poder reclamar — hoje sete
+    // dias, mas LIDA do contrato: se a Morpheus mudar, a tela acompanha em vez
+    // de repetir um 7 escrito à mão. A ordem é [withdrawLockAfterStake,
+    // claimLockAfterStake, claimLockAfterClaim, minimalStake, totalVirtual].
+    const d: bigint[] = [];
+    if (det) for (let i = 2; i < det.length; i += 64) d.push(BigInt("0x" + det.slice(i, i + 64)));
+    const lockAfterStake = Number(d[1] ?? BigInt(0)) || 604800;
+    const claimLockEnd = Number(w[5] ?? BigInt(0)) > 0 ? new Date(Number(w[5]) * 1000) : null;
 
     return {
       pool,
@@ -115,13 +153,11 @@ export async function readCapitalPosition(owner: string): Promise<Reading<Capita
       virtual,
       // Sem depósito não há multiplicador — e 0/0 viraria NaN na tela.
       multiplier: deposited > 0 ? virtual / deposited : 1,
-      stakedAt: stakedAtSec > 0 ? new Date(stakedAtSec * 1000) : null,
-      // Trava MÍNIMA do protocolo entre depositar e poder reclamar — sete dias.
-      // Não é a trava opcional que multiplica rendimento (essa a SOPA recusou);
-      // é o carênciazinho que todo depósito carrega. Sem mostrar, alguém abre a
-      // tela no dia 3, vê "0 MOR reclamável" e conclui que não está rendendo.
-      claimLockEnd: Number(w[5] ?? BigInt(0)) > 0 ? new Date(Number(w[5]) * 1000) : null,
+      stakedAt,
+      claimLockEnd,
       poolTotal: tot ? Number(BigInt(tot)) / 1e6 : 0,
+      lockAfterStakeSec: lockAfterStake,
+      claimOpensAt: claimUnlockAt({ stakedAt, claimLockEnd, lockAfterStakeSec: lockAfterStake }),
     };
   }, (e) => `posição na Morpheus não leu: ${e instanceof Error ? e.message : String(e)}`);
 }
@@ -141,4 +177,78 @@ export function realizedApy(pos: CapitalPosition, morPriceUsd: number): Reading<
   if (dias < 1) return insufficient<number>(`só ${(dias * 24).toFixed(1)}h desde o depósito — cedo para anualizar`);
   const ganho = pos.pendingMor * morPriceUsd;
   return { state: "ok", value: (ganho / pos.deposited) * (365 / dias), asOf: Date.now() };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// O CLAIM
+//
+// `claim(rewardPoolIndex, receiver)` é PAYABLE, e isso não é detalhe: o MOR não
+// é mintado aqui. Ele é mintado na Arbitrum, e o `msg.value` paga a mensagem
+// LayerZero que atravessa. Chamar com value 0 reverte com `d_O` — um erro de
+// quatro caracteres que não explica nada a ninguém.
+//
+// A taxa é dinâmica e o contrato não expõe cotação (procurei: não há previewFee
+// nem quote). Então ela é MEDIDA contra o próprio contrato, por busca binária
+// em cima de eth_call. É mais lento que ler uma variável e é a única forma
+// honesta: o número sai de quem vai cobrá-lo, não de um palpite nosso.
+
+/** eth_call com `from`, `value` e saldo forjado. Devolve só se passou. */
+async function simClaim(pool: string, from: string, receiver: string, value: bigint): Promise<boolean> {
+  const data = SEL.claim + word(REWARD_POOL_INDEX) + pad(receiver);
+  // O saldo forjado desacopla a sondagem do caixa real: sem ele, um Safe com
+  // pouco ETH faria a própria medição falhar e a gente concluiria "não dá para
+  // reclamar" quando o que falta é ETH — dois problemas diferentes, com
+  // soluções diferentes.
+  const override = { [from]: { balance: "0x" + (BigInt(10) * BigInt(1e18)).toString(16) } };
+  for (const rpc of RPCS) {
+    try {
+      const r = await fetch(rpc, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: AbortSignal.timeout(8_000),
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 1, method: "eth_call",
+          params: [{ from, to: pool, data, value: "0x" + value.toString(16) }, "latest", override],
+        }),
+      });
+      const j = (await r.json()) as { result?: string; error?: unknown };
+      if (j.error) return false;
+      if (j.result !== undefined) return true;
+    } catch {
+      // próximo RPC
+    }
+  }
+  return false;
+}
+
+/** Teto da sondagem. Acima disto não é taxa, é outra coisa errada. */
+const FEE_CEILING = BigInt(50_000_000_000_000_000); // 0,05 ETH
+
+/**
+ * A taxa mínima do LayerZero para ESTE claim, agora, medida no contrato.
+ *
+ * `insufficient` quando nem o teto passa — quase sempre porque a trava ainda
+ * não venceu, e nesse caso o problema não é taxa nenhuma.
+ */
+export async function probeClaimFee(owner: string, receiver: string): Promise<Reading<bigint>> {
+  const pool = MORPHEUS_POOLS.usdc;
+  const from = getAddress(owner);
+  const to = getAddress(receiver);
+  if (!(await simClaim(pool, from, to, FEE_CEILING))) {
+    return insufficient<bigint>("o claim não passa nem com 0,05 ETH de taxa — provavelmente a trava ainda não venceu");
+  }
+  let lo = BigInt(0);
+  let hi = FEE_CEILING;
+  // 24 passos levam 0,05 ETH a ~3 wei de precisão. Cada passo é um eth_call.
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / BigInt(2);
+    if (await simClaim(pool, from, to, mid)) hi = mid;
+    else lo = mid;
+  }
+  return { state: "ok", value: hi, asOf: Date.now() };
+}
+
+/** Calldata do claim, para quem vai propor a transação. */
+export function claimCalldata(receiver: string): `0x${string}` {
+  return (SEL.claim + word(REWARD_POOL_INDEX) + pad(getAddress(receiver))) as `0x${string}`;
 }
