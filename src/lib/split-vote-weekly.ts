@@ -23,7 +23,7 @@ const SEGUNDA = 1;
 /** A partir de que hora (BRT) a rodada abre — depois da reunião, não durante. */
 const ABRE_BRT = 18;
 /** Quanto tempo a urna fica aberta. Dois dias cobrem quem não vota na segunda. */
-const JANELA_MS = 48 * 60 * 60 * 1000;
+export const JANELA_MS = 48 * 60 * 60 * 1000;
 /** Trava contra abrir duas rodadas na mesma semana se a cron rodar de novo. */
 const MESMA_SEMANA_MS = 5 * 24 * 60 * 60 * 1000;
 /** O fuso da equipe. UTC−3 escrito à mão: uma dependência a menos para uma

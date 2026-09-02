@@ -7,6 +7,7 @@ import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import { apurar, elegiveis, validarCedula, vetorParaContrato, type Cedula } from "@/lib/split-vote";
 import { getSplitDistributeConfig } from "@/lib/splits";
+import { JANELA_MS } from "@/lib/split-vote-weekly";
 
 async function porta() {
   const project = await getActiveProject();
@@ -17,6 +18,9 @@ async function porta() {
 
 export type EstadoRodada = {
   round: { id: string; label: string; status: string; splitAddress: string; chain: string; openedAt: string } | null;
+  /** Quando a urna fecha sozinha. null se já fechou — o relógio mora no
+   *  servidor, então o cliente não precisa repetir a constante das 48h. */
+  fechaEm: string | null;
   elegiveis: { address: string; username: string | null; shareAtual: number }[];
   /** Você pode votar nesta rodada? E já votou? */
   souElegivel: boolean;
@@ -47,7 +51,7 @@ export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada }
     return {
       ok: true,
       estado: {
-        round: null, elegiveis: [], souElegivel: false, meuEndereco: null,
+        round: null, fechaEm: null, elegiveis: [], souElegivel: false, meuEndereco: null,
         meuVoto: null, resultado: null, vetor: null, souAdmin: g.who.role === "admin",
       },
     };
@@ -71,6 +75,7 @@ export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada }
         splitAddress: round.splitAddress, chain: round.chain,
         openedAt: round.openedAt.toISOString(),
       },
+      fechaEm: round.status === "open" ? new Date(round.openedAt.getTime() + JANELA_MS).toISOString() : null,
       elegiveis: els.map((e) => ({ address: e.address, username: e.username, shareAtual: e.shareAtual })),
       souElegivel: !!meu,
       meuEndereco: meu?.address ?? null,
