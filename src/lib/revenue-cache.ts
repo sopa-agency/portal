@@ -9,6 +9,10 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { RealizedRevenue } from "@/lib/revenue-onchain";
 
+/** Quanto tempo uma leitura que FALHOU pode ser reaproveitada. Curto de
+ *  propósito: é o intervalo entre o terceiro voltar e a tela perceber. */
+const ERRO_TTL_MS = 5 * 60_000;
+
 const keyOf = (address: string, chain: string | null) =>
   `${(chain ?? "all").toLowerCase()}:${address.trim().toLowerCase()}`;
 
@@ -53,7 +57,15 @@ export async function readRevenueCache(
 ): Promise<RealizedRevenue | null> {
   const row = await prisma.revenueReadCache.findUnique({ where: { key: keyOf(address, chain) } }).catch(() => null);
   if (!row) return null;
-  if (Number.isFinite(maxAgeMs) && Date.now() - row.syncedAt.getTime() > maxAgeMs) return null;
+  // FALHA GUARDADA VENCE ANTES. Uma leitura limpa pode envelhecer horas sem
+  // prejuízo: receita não muda de minuto em minuto. Uma leitura que FALHOU é
+  // outra coisa — ela não descreve a cadeia, descreve um indexador que estava
+  // fora do ar naquele instante. Guardá-la pelo mesmo prazo faz uma queda
+  // passageira de terceiro envenenar o número por horas, e o código nem chega a
+  // tentar de novo: foi exatamente assim que o mérito ficou em zero com o
+  // Blockscout já de volta.
+  const prazo = row.error ? Math.min(maxAgeMs, ERRO_TTL_MS) : maxAgeMs;
+  if (Number.isFinite(prazo) && Date.now() - row.syncedAt.getTime() > prazo) return null;
   return {
     method: row.method as RealizedRevenue["method"],
     revenueUsd: row.revenueUsd,

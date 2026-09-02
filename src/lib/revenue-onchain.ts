@@ -122,7 +122,7 @@ const LOG_RPCS: Record<string, string[]> = {
   arbitrum: ["https://gateway.tenderly.co/public/arbitrum"],
 };
 
-type RpcLeitura = { evs: { t: number; usd: number }[]; semPreco: number } | null;
+type RpcLeitura = { evs: { t: number; usd: number; bloco?: string }[]; semPreco: number } | null;
 
 /**
  * Distribuições de um split numa rede, lidas por eth_getLogs.
@@ -157,7 +157,7 @@ async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number
       const j = (await r.json()) as { result?: { topics: string[]; data: string; blockNumber: string }[]; error?: unknown };
       if (j.error || !Array.isArray(j.result)) continue;
 
-      const evs: { t: number; usd: number }[] = [];
+      const evs: { t: number; usd: number; bloco?: string }[] = [];
       let semPreco = 0;
       for (const log of j.result) {
         // topic1 = token (endereço nos 20 bytes finais da palavra de 32)
@@ -170,10 +170,42 @@ async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number
           semPreco++;
           continue;
         }
-        // O log traz bloco, não data. Converter exigiria uma chamada por bloco;
-        // para o TOTAL isso não faz falta, e a série temporal deste caminho fica
-        // vazia de propósito em vez de carregar timestamps inventados.
-        if (usd > 0) evs.push({ t: 0, usd });
+        if (usd > 0) evs.push({ t: 0, usd, bloco: log.blockNumber });
+      }
+
+      // AS DATAS. Antes este caminho devolvia série vazia — "o log traz bloco,
+      // não data" — e isso bastava enquanto só o TOTAL importava. Passou a não
+      // bastar: o mérito recorta os últimos 90 dias, e uma série sem data não
+      // tem o que recortar. Sem isto, toda fonte lida por RPC rendia mérito
+      // zero para sempre, e o zero parecia falta de receita em vez de falta de
+      // relógio.
+      //
+      // Custa UMA requisição, não uma por bloco: os blocos distintos vão num
+      // lote só. São poucos — um split distribui punhados de vezes, não
+      // milhares.
+      const blocos = [...new Set(evs.map((e) => e.bloco))].filter((b): b is string => !!b);
+      if (blocos.length) {
+        try {
+          const rb = await fetch(rpc, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            signal: AbortSignal.timeout(8000),
+            body: JSON.stringify(blocos.map((b, i) => ({ jsonrpc: "2.0", id: i, method: "eth_getBlockByNumber", params: [b, false] }))),
+          });
+          const arr = (await rb.json()) as { id: number; result?: { timestamp?: string } }[];
+          const quando = new Map<string, number>();
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              const ts = item?.result?.timestamp;
+              if (ts && blocos[item.id]) quando.set(blocos[item.id], Number(BigInt(ts)) * 1000);
+            }
+          }
+          for (const e of evs) e.t = quando.get(e.bloco ?? "") ?? 0;
+        } catch {
+          // Data não lida deixa o evento sem relógio — ele ainda conta no
+          // total, mas fica fora de qualquer janela. É menos errado que
+          // carimbar "hoje" num evento de meses atrás.
+        }
       }
       return { evs, semPreco };
     } catch {
@@ -247,13 +279,17 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
     let n = 0;
     let semPreco = 0;
     const naoLidas: string[] = [];
+    const todos: { t: number; usd: number }[] = [];
     for (const rede of redes) {
       const r = await distribuicoesPorRpc(addr, rede, ethPrice);
       if (!r) {
         naoLidas.push(rede);
         continue;
       }
-      for (const e of r.evs) total += e.usd;
+      for (const e of r.evs) {
+        total += e.usd;
+        todos.push({ t: e.t, usd: e.usd });
+      }
       n += r.evs.length;
       semPreco += r.semPreco;
     }
@@ -280,8 +316,14 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
       method: n > 0 ? "split" : "none",
       revenueUsd: total,
       count: n,
-      // Sem série: o eth_getLogs devolve bloco, não data (ver distribuicoesPorRpc).
-      series: [],
+      // A série agora existe também por aqui: os eventos que tiveram a data
+      // lida entram em ordem, acumulados. Os sem data ficam de fora da série
+      // (mas dentro do total) — melhor um ponto a menos que uma data inventada.
+      series: (() => {
+        const comData = todos.filter((e) => e.t > 0).sort((a, b) => a.t - b.t);
+        let acc = 0;
+        return comData.map((e) => ({ t: new Date(e.t).toISOString(), usd: (acc += e.usd) }));
+      })(),
       truncated: false,
       ...(ressalvas.length ? { error: ressalvas.join("; ") } : {}),
     };
