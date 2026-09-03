@@ -89,6 +89,10 @@ function BriefingFreshness({
 
 export default async function Home() {
   const project = await getActiveProject();
+  // Portal de página única (ver ProjectConfig.homeRoute): a home é a própria
+  // tela. Sem isso, uma marca que existe para UM painel abriria num briefing
+  // matinal vazio, que promete uma operação que ela ainda não tem.
+  if (project.homeRoute) redirect(project.homeRoute);
   // Portals that hide "/" (SOPA) land on their first real page: the About deck
   // when enabled, otherwise the treasury.
   if (project.hiddenRoutes?.includes("/")) redirect(project.about ? "/about" : "/treasury");

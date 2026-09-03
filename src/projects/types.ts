@@ -384,4 +384,12 @@ export type ProjectConfig = {
    * Ligado só onde a marca vive; ver src/lib/burndown.ts.
    */
   burnDown?: boolean;
+  /**
+   * Portal de página única: a home manda direto para esta rota.
+   *
+   * Existe para marcas cuja razão de ter portal é UMA tela. Mostrar a elas um
+   * briefing matinal e um painel de redes vazios seria prometer uma operação
+   * que ainda não existe.
+   */
+  homeRoute?: string;
 };
