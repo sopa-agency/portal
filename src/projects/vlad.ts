@@ -15,7 +15,8 @@ const vlad: ProjectConfig = {
   slug: "vlad",
   // Portal lives at vlad.sopa.team. Indents under the Influencers division;
   // still only visible to its own allowlist.
-  switcher: { rank: 50, parent: "influencers" },
+  // 130: logo abaixo da divisão Influencers, que desceu para 120.
+  switcher: { rank: 130, parent: "influencers" },
   name: "Vlad",
   description: "Internal ops portal for Vlad — personal influencer brand in SOPA's Influencers division.",
   // Restricted to @xvlad for now (personal influencer portal). SOPA global

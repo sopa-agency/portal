@@ -7,7 +7,7 @@ import type { Dictionary } from "@/lib/i18n/dictionary";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect, useCallback } from "react";
-import { Megaphone, Home, Users, UsersRound, Sparkles, ChartColumn, SquarePen, ChevronsUpDown, Check, SquareKanban, Landmark, Presentation, Workflow, Briefcase, FlaskConical, BookOpenText, CalendarDays, Settings, Heart, Music2, Newspaper, LayoutTemplate, MessagesSquare, Menu, X, PanelLeftClose, PanelLeftOpen, Search, type LucideIcon } from "lucide-react";
+import { BookOpenText, Briefcase, CalendarDays, ChartColumn, Check, ChevronsUpDown, Flame, FlaskConical, Heart, Home, Landmark, LayoutTemplate, Megaphone, Menu, MessagesSquare, Music2, Newspaper, PanelLeftClose, PanelLeftOpen, Presentation, Search, Settings, Sparkles, SquareKanban, SquarePen, Users, UsersRound, Workflow, X, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 import { portalUrlFor } from "@/lib/portal-host";
 
@@ -47,6 +47,7 @@ type NavItem = {
   requiresAbout?: boolean;
   requiresOrgChart?: boolean;
   requiresPortfolio?: boolean;
+  requiresBurnDown?: boolean;
   requiresChat?: boolean;
   requiresMeetings?: boolean;
   requiresFarcasterTrail?: boolean;
@@ -75,6 +76,7 @@ const NAV: NavItem[] = [
   { href: "/treasury", key: "treasury", icon: Landmark, group: "operations" },
   { href: "/org-chart", key: "orgChart", icon: Workflow, group: "operations", requiresOrgChart: true },
   { href: "/portfolio", key: "portfolio", icon: Briefcase, group: "operations", requiresPortfolio: true },
+  { href: "/burndown", key: "burnDown", icon: Flame, group: "operations", requiresBurnDown: true },
   // O CHAT ficou com o lugar que era dos Briefs, como pedido. A rota /briefs
   // continua de pé e funcionando — ela é a caixa de entrada dos briefings que
   // chegam pelo formulário do site público, e apagar isso não foi o pedido.
@@ -122,6 +124,7 @@ type AppSidebarProps = {
   aboutEnabled?: boolean;
   orgChartEnabled?: boolean;
   portfolioEnabled?: boolean;
+  burnDownEnabled?: boolean;
   chatEnabled?: boolean;
   meetingsEnabled?: boolean;
   tiktokEnabled?: boolean;
@@ -130,7 +133,7 @@ type AppSidebarProps = {
   farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, avatarUrl, registeredWallet = null, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, chatEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, avatarUrl, registeredWallet = null, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, burnDownEnabled, chatEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
   const t = useT();
   const pathname = usePathname();
   const router = useRouter();
@@ -284,6 +287,7 @@ export function AppSidebar({ username, avatarUrl, registeredWallet = null, proje
     if ("requiresAbout" in item && item.requiresAbout && !aboutEnabled) return false;
     if ("requiresOrgChart" in item && item.requiresOrgChart && !orgChartEnabled) return false;
     if ("requiresPortfolio" in item && item.requiresPortfolio && !portfolioEnabled) return false;
+    if ("requiresBurnDown" in item && item.requiresBurnDown && !burnDownEnabled) return false;
     if ("requiresChat" in item && item.requiresChat && !chatEnabled) return false;
     if ("requiresMeetings" in item && item.requiresMeetings && !meetingsEnabled) return false;
     if ("requiresFarcasterTrail" in item && item.requiresFarcasterTrail && !farcasterTrailEnabled) return false;

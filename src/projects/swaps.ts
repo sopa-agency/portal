@@ -81,6 +81,11 @@ const swaps: ProjectConfig = {
   // Sits right under KeepKey, below the divider that separates that org from
   // the Reelflip family.
   switcher: { rank: 110, parent: "keepkey" },
+  // BurnDownWallStreet mora debaixo do swaps.pro: é o mesmo assunto (ação
+  // tokenizada como par) visto do outro lado — lá a gente negocia as ações da
+  // Coinbase na Base, aqui a gente lançaria tokens pareados contra elas na
+  // Solana. Fase 0; o painel diz isso em vez de fingir métrica.
+  burnDown: true,
   // No agent online — the block reserves the SWAPS_* gateway prefix so the
   // chat/briefings light up the day SWAPS_GATEWAY_URL / _TOKEN are set.
   briefingAgents: [],
