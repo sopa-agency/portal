@@ -1,4 +1,5 @@
 import { PageInfo } from "@/components/page-info";
+import { getActiveProject } from "@/projects/index";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -13,11 +14,14 @@ import { ThemeToggle } from "@/components/theme-toggle";
  * Anything added here also has to clear the compact PageHeader's actions, which
  * reserve room for this row on the right.
  */
-export function FloatingActions() {
+export async function FloatingActions() {
+  // Um botão de idioma num portal de idioma travado não muda nada — e botão
+  // que não faz nada é pior que botão nenhum.
+  const project = await getActiveProject();
   return (
     <div className="fixed right-4 top-4 z-40 flex items-center gap-1.5">
       <PageInfo />
-      <LanguageToggle />
+      {!project.forcedLocale && <LanguageToggle />}
       <ThemeToggle />
     </div>
   );

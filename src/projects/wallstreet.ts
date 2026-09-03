@@ -18,8 +18,10 @@ import type { ProjectConfig } from "./types";
 const wallstreet: ProjectConfig = {
   slug: "wallstreet",
   name: "BurnDownWallStreet",
+  // Em inglês como todo o resto deste portal — ela sai na tela, no switcher e
+  // nos metadados.
   description:
-    "Lançador de token e marketplace na Solana onde todo token nasce pareado contra uma ação tokenizada, e a política de taxa é escolhida uma vez, no deploy, e vira imutável na cadeia.",
+    "A Solana token launcher and marketplace where every launched token is paired against a tokenized equity, and the fee policy is chosen once, at deploy, and is then immutable on chain.",
   // Mesma tripulação do swaps.pro — é o mesmo time, do mesmo lado da mesa.
   allowlist: ["xvlad", "bielcx", "keepkey", "illithics", "humbertoperes", "r4topunk", "nogenta", "louzoshi", "highlander22", "vaipraonde"],
   theme: {
@@ -36,22 +38,35 @@ const wallstreet: ProjectConfig = {
   },
   hive: { account: "", community: "" },
   farcaster: { channel: "" },
-  repos: ["sktbrd/burndownwallstreet"],
+  // O repo saiu da conta pessoal do Vlad para a org da SOPA. A URL antiga
+  // redireciona, mas a canônica é esta.
+  repos: ["sopa-agency/burndownwallstreet"],
+  // Board próprio, criado com o projeto e já ligado ao repo. As sete cartas de
+  // partida são as perguntas abertas da pesquisa da Doppler — o trabalho que
+  // de fato existe hoje, e não um quadro vazio.
+  githubProject: { org: "sopa-agency", number: 2 },
   socials: [],
   // Indenta debaixo do swaps.pro (110), acima da divisória dos Influencers (120).
   switcher: { rank: 115, parent: "swaps" },
   // O painel É o portal: a home manda direto para ele em vez de mostrar um
   // briefing matinal de um produto que ainda não tem manhã.
   homeRoute: "/burndown",
+  // Inglês travado: a marca fala com o mercado cripto, que não é o público dos
+  // outros portais. Meio traduzido seria pior — a metade em português passaria
+  // a parecer descuido em vez de escolha.
+  forcedLocale: "en",
   burnDown: true,
   briefingAgents: [],
+  // MESMO agente da KeepKey, de propósito: ele está virando um agente de
+  // produtos cripto (KeepKey, swaps.pro, este), então dividir a memória entre
+  // dois workspaces separaria contexto que quer ficar junto. O prefixo e o id
+  // apontam para o gateway que já existe — nada novo para configurar.
   agent: {
-    // Reserva o prefixo; nenhum gateway configurado ainda.
-    gatewayEnvPrefix: "WALLSTREET",
-    id: "wallstreet",
-    displayName: "BurnDownWallStreet",
-    emoji: "🔥",
-    greeting: "Fala! Sou o agente do BurnDownWallStreet. O produto está na fase 0 — pergunta o que quiser sobre a pesquisa da Doppler.",
+    gatewayEnvPrefix: "KEEPKEY",
+    id: "keepkey-awesome",
+    displayName: "KeepKey Awesome",
+    emoji: "🔑",
+    greeting: "What do you want to know about BurnDownWallStreet? The product is at phase 0 — ask me about the Doppler research.",
   },
 };
 
