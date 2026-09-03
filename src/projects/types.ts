@@ -392,4 +392,14 @@ export type ProjectConfig = {
    * que ainda não existe.
    */
   homeRoute?: string;
+  /**
+   * Trava o portal num idioma, ignorando o cookie.
+   *
+   * Existe para marca cujo público não é o nosso: o BurnDownWallStreet fala
+   * com o mercado cripto em inglês, e um portal meio traduzido é pior que um
+   * portal noutra língua — a metade em português passa a parecer descuido em
+   * vez de escolha. Com isto ligado, o seletor de idioma some, porque um botão
+   * que não muda nada é pior que botão nenhum.
+   */
+  forcedLocale?: "en" | "pt";
 };

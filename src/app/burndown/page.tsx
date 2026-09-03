@@ -8,8 +8,10 @@ import { BURNDOWN, TETO_HONESTO, lerRepo, lerMockup } from "@/lib/burndown";
 
 export const dynamic = "force-dynamic";
 
+// en-US porque o portal é travado em inglês: uma data em pt-BR no meio de uma
+// frase em inglês é o tipo de meia-tradução que faz o resto parecer descuido.
 const quando = (iso: string) =>
-  new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  new Date(iso).toLocaleString("en-US", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const dias = (iso: string) => Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
 
 /** As perguntas que a cadeia ainda não respondeu, na ordem do quanto podem matar. */
@@ -17,56 +19,56 @@ const ABERTAS = [
   {
     id: "E1",
     mata: true,
-    titulo: "A Doppler aceita um quote mint Token-2022?",
+    titulo: "Does Doppler accept a Token-2022 quote mint?",
     corpo:
-      "O prêmio inteiro depende disso e está NÃO VERIFICADO. O SDK não oferece preset Token-2022 para quote (launchTokenPrograms.token2022Base() ainda usa TOKEN_PROGRAM_ADDRESS), todo teste unitário usa quote SPL-Token, e o Rust é fechado. Falhar ⇒ a Doppler não hospeda o produto como especificado — e aí se testa na Meteora DBC antes de concluir que é impossível.",
+      "The whole premise depends on it, and it is UNVERIFIED. The SDK offers no Token-2022 quote preset (launchTokenPrograms.token2022Base() still sets TOKEN_PROGRAM_ADDRESS), every unit test uses an SPL-Token quote, and the Rust is closed. Fail ⇒ Doppler cannot host this product as specified — and then it gets re-run on Meteora DBC before anyone concludes it is impossible.",
   },
   {
     id: "E2",
     mata: true,
-    titulo: "O que quebra quando um transfer hook entra em vigor no quote mint?",
+    titulo: "What breaks when a transfer hook goes live on the quote mint?",
     corpo:
-      "Esperado: tudo reverte e a liquidez fica presa. Decide se dá para oferecer pares xStocks algum dia, ou se precisa de uma camada de wrapper/escrow.",
+      "Expected: everything reverts and liquidity is stranded. Decides whether xStocks pairs can ever be offered safely, or whether a wrapper/escrow layer is required first.",
   },
   {
     id: "E3",
     mata: false,
-    titulo: "O protocolFeeBps é fotografado no lançamento?",
+    titulo: "Is protocolFeeBps snapshotted at launch?",
     corpo:
-      `Fortemente inferido e não provado. É o que decide se "${TETO_HONESTO}% para sempre" é uma promessa que dá para cumprir, ou só uma medição de hoje.`,
+      `Strongly inferred, never proven. It is what decides whether "${TETO_HONESTO}% forever" is a promise we can keep, or only a measurement of today.`,
   },
   {
     id: "E4",
     mata: false,
-    titulo: "Quem pode chamar cpmm::set_fees numa pool migrada?",
+    titulo: "Who can call cpmm::set_fees on a migrated pool?",
     corpo:
-      "Se o admin do CPMM puder cortar o feeSplitBps depois da migração, o fluxo colhido encolhe mesmo com a divisão sendo respeitada.",
+      "If the CPMM admin can cut feeSplitBps after migration, the harvestable stream shrinks even though the split is honoured.",
   },
   {
     id: "E5b",
     mata: false,
-    titulo: "O swap do crank de burn funciona com quote Token-2022?",
+    titulo: "Does the burn crank's swap work with a Token-2022 quote?",
     corpo:
-      "Resolvido no formato da pool, aberto na execução. O crank compra contra a própria pool base/quote do lançamento, então a forma existe por construção — falta ver rodar.",
+      "Resolved on pool shape, open on execution. The crank buys against the launch's own base/quote pool, so the shape exists by construction — what is missing is seeing it run.",
   },
 ];
 
 /** O que a cadeia JÁ respondeu. Registrar o que não é problema vale tanto quanto o que é. */
 const FECHADAS = [
-  ["A taxa de 7,50% da Doppler é renunciável para um parceiro?", "REFUTADO — não existe override por lançamento nem por integrador."],
-  ["A promessa de burn para silenciosamente na migração?", "REFUTADO — a política de beneficiário sobrevive à migração."],
-  ["O quote é obrigado a ser WSOL?", "REFUTADO — o quote é parâmetro livre."],
-  ["O incinerador é um burn?", "CONFIRMADO que não é. Burn de verdade é um CPI spl_token::burn — e a Doppler não faz nenhum dos dois."],
-  ["xStocks: transfer hook T2022 inicializado e desligado?", "CONFIRMADO, e pior do que foi reportado."],
+  ["Is Doppler's 7.50% waivable for a partner?", "REFUTED — no per-launch or per-integrator override exists."],
+  ["Does the burn promise silently stop at migration?", "REFUTED — the beneficiary policy survives migration."],
+  ["Is the quote constrained to WSOL?", "REFUTED — the quote is a free parameter."],
+  ["Is the incinerator a burn?", "CONFIRMED that it is not. A real burn is an spl_token::burn CPI — and Doppler does neither."],
+  ["xStocks: T2022 transfer hook initialized but disabled?", "CONFIRMED, and worse than reported."],
 ];
 
 /** Os números que só existem depois do lançamento. Nenhum deles é zero hoje. */
 const AINDA_NAO = [
-  ["Tokens lançados", "nenhum programa na cadeia"],
-  ["Pares de equity ativos", "o marketplace é mockup"],
-  ["Política escolhida · burn vs split", "nada foi deployado"],
-  ["Volume negociado", "não há pool real"],
-  ["Taxas queimadas", "burn exige programa próprio, ainda não escrito"],
+  ["Tokens launched", "no program on chain"],
+  ["Active equity pairs", "the marketplace is a mockup"],
+  ["Policy chosen · burn vs split", "nothing deployed"],
+  ["Volume traded", "no real pool"],
+  ["Fees burned", "burn needs our own program, not written yet"],
 ];
 
 export default async function BurnDownPage() {
@@ -83,7 +85,7 @@ export default async function BurnDownPage() {
       <PageHeader
         eyebrow={project.name}
         title="BurnDownWallStreet"
-        description="Lançador de token e marketplace na Solana onde todo token nasce pareado contra uma ação tokenizada, e a política de taxa é escolhida uma vez, no deploy, e vira imutável na cadeia."
+        description="A Solana token launcher and marketplace where every launched token is paired against a tokenized equity, and the fee policy is chosen once, at deploy, and is then immutable on chain."
       />
 
       {/* ── O teto honesto ──
@@ -94,62 +96,62 @@ export default async function BurnDownPage() {
         <div className="flex flex-wrap items-center gap-x-8 gap-y-4 border-b border-border bg-danger/10 px-5 py-5">
           <div>
             <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-danger">
-              <Flame className="h-3 w-3" /> O teto honesto
+              <Flame className="h-3 w-3" /> The honest ceiling
             </p>
             <p className="mt-1 font-mono text-4xl font-bold tabular-nums text-foreground">{TETO_HONESTO}%</p>
-            <p className="text-xs text-foreground-muted">das taxas, no máximo</p>
+            <p className="text-xs text-foreground-muted">of fees, at most</p>
           </div>
           <p className="min-w-[18rem] flex-1 text-sm leading-relaxed text-foreground-muted">
-            A Doppler leva <strong className="text-foreground">7,50% de toda taxa de negociação</strong> antes de
-            qualquer outro, e esse corte <strong className="text-foreground">não é renunciável</strong> — não existe
-            override por lançamento nem por integrador. Então{" "}
-            <strong className="text-danger">não existe configuração em que &ldquo;100% das taxas queimadas&rdquo; seja verdade</strong>.
-            Confirmado na cadeia, não na documentação: a página de taxas da Doppler para Solana é um stub vazio e os
-            programas são fechados.
+            Doppler takes <strong className="text-foreground">7.50% of every trading fee</strong> before anyone
+            else, and that cut is <strong className="text-foreground">not waivable</strong> — no per-launch or
+            per-integrator override exists. So{" "}
+            <strong className="text-danger">there is no configuration in which &ldquo;100% of fees burned&rdquo; is true</strong>.
+            Confirmed on chain, not from docs: Doppler&rsquo;s Solana fee page is an empty stub and the programs are
+            closed source.
           </p>
         </div>
         <p className="px-5 py-3 text-[11px] leading-relaxed text-foreground-subtle">
-          E tem uma segunda consequência que muda o roadmap:{" "}
-          <strong className="text-foreground">queimar exige programa próprio</strong>. A Doppler não tem burn em lugar
-          nenhum, e o incinerador não é um burn em ativo Token-2022 — burn de verdade é um CPI{" "}
+          And there is a second consequence that changes the roadmap:{" "}
+          <strong className="text-foreground">burning requires our own program</strong>. Doppler has no burn anywhere,
+          and the incinerator is not a burn on a Token-2022 asset — a real burn is an{" "}
           <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[10px]">spl_token::burn</code>.
         </p>
       </section>
 
       {/* ── Fase ── */}
-      <Section title="Onde o projeto está" hint="fase 0 · pesquisa e design prontos, nada na cadeia">
+      <Section title="Where the project stands" hint="phase 0 · research and design done, nothing on chain">
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-border bg-surface p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Fase</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">0 — mockup funcional</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Phase</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">0 — working mockup</p>
             <p className="mt-1 text-[11px] leading-relaxed text-foreground-subtle">
-              Roda local, nenhuma chamada de cadeia. Tudo abaixo de <code className="font-mono">MarketSource</code> é
-              mockado, e o botão de deploy é deliberadamente morto.
+              Runs locally, no chain calls. Everything below <code className="font-mono">MarketSource</code> is
+              mocked, and the deploy button is deliberately dead.
             </p>
           </div>
 
           <div className="rounded-2xl border border-border bg-surface p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Último commit</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Last commit</p>
             {isOk(repo) ? (
               <>
                 <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
-                  {dias(repo.value.ultimoPush)} dia{dias(repo.value.ultimoPush) === 1 ? "" : "s"} atrás
+                  {dias(repo.value.ultimoPush)} day{dias(repo.value.ultimoPush) === 1 ? "" : "s"} ago
                 </p>
                 <p className="mt-1 font-mono text-[11px] text-foreground-subtle">
                   {quando(repo.value.ultimoPush)} · {repo.value.branchPadrao}
-                  {repo.value.privado ? " · repo privado" : ""}
+                  {repo.value.privado ? " · private repo" : ""}
                 </p>
               </>
             ) : (
               <p className="mt-2 text-[11px] leading-relaxed text-warning">
-                ⚠ Não deu para ler o repositório — {repo.state === "unread" ? repo.reason : repo.note}. Isto NÃO quer
-                dizer que ele está parado.
+                ⚠ Could not read the repository — {repo.state === "unread" ? repo.reason : repo.note}. This does NOT
+                mean it is idle.
               </p>
             )}
           </div>
 
           <div className="rounded-2xl border border-border bg-surface p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Mockup no ar</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">Mockup online</p>
             {isOk(mockup) ? (
               <>
                 <p className={`mt-1 text-lg font-semibold ${mockup.value.status < 400 ? "text-success" : "text-warning"}`}>
@@ -166,8 +168,8 @@ export default async function BurnDownPage() {
               </>
             ) : (
               <p className="mt-2 text-[11px] leading-relaxed text-warning">
-                ⚠ Não consegui alcançar o mockup — {mockup.state === "unread" ? mockup.reason : mockup.note}. Isto NÃO
-                quer dizer que ele caiu.
+                ⚠ Could not reach the mockup — {mockup.state === "unread" ? mockup.reason : mockup.note}. This does
+                NOT mean it is down.
               </p>
             )}
           </div>
@@ -175,7 +177,7 @@ export default async function BurnDownPage() {
       </Section>
 
       {/* ── As perguntas abertas ── */}
-      <Section title="O que a cadeia ainda não respondeu" hint="ordenado pelo quanto cada uma pode matar">
+      <Section title="What the chain has not answered yet" hint="ordered by how much each one can kill">
         <ul className="space-y-2">
           {ABERTAS.map((q) => (
             <li
@@ -193,7 +195,7 @@ export default async function BurnDownPage() {
                 <span className="text-sm font-semibold text-foreground">{q.titulo}</span>
                 {q.mata && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-danger">
-                    <TriangleAlert className="h-3 w-3" /> pode matar o produto
+                    <TriangleAlert className="h-3 w-3" /> can kill the product
                   </span>
                 )}
               </div>
@@ -204,7 +206,7 @@ export default async function BurnDownPage() {
       </Section>
 
       {/* ── O que já foi respondido ── */}
-      <Section title="O que a cadeia já respondeu" hint="decodificado da mainnet, não lido da documentação">
+      <Section title="What the chain already answered" hint="decoded from mainnet, not read from docs">
         <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {FECHADAS.map(([p, r]) => (
             <li key={p} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5">
@@ -214,8 +216,8 @@ export default async function BurnDownPage() {
           ))}
         </ul>
         <p className="mt-2 text-[11px] leading-relaxed text-foreground-subtle">
-          Os programas da Doppler para Solana são fechados e a página de taxas dela é um stub vazio — nada disso veio
-          de documentação. Foi decodificado dos codecs gerados pelo SDK mais o estado das contas na mainnet.
+          Doppler&rsquo;s Solana programs are closed source and its fee page is an empty stub — none of this came from
+          documentation. It was decoded from the SDK-generated codecs plus on-chain account state.
         </p>
       </Section>
 
@@ -223,7 +225,7 @@ export default async function BurnDownPage() {
           A parte mais importante do painel. Cada uma destas linhas seria um
           zero num dashboard comum, e um zero aqui afirmaria que o produto
           rodou e não rendeu — quando o que houve é que ele ainda não rodou. */}
-      <Section title="O que ainda não existe" hint="nenhum destes é zero — é ausência">
+      <Section title="What does not exist yet" hint="none of these is a zero — it is an absence">
         <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-dashed border-border-strong bg-surface-elevated">
           {AINDA_NAO.map(([rot, motivo]) => (
             <li key={rot} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
@@ -236,14 +238,14 @@ export default async function BurnDownPage() {
       </Section>
 
       {/* ── Onde as coisas estão ── */}
-      <Section title="Onde as coisas estão">
+      <Section title="Where things live">
         <div className="flex flex-wrap gap-2">
           {[
-            { rot: "Repositório", url: `https://github.com/${BURNDOWN.repo}`, icone: GitBranch },
+            { rot: "Repository", url: `https://github.com/${BURNDOWN.repo}`, icone: GitBranch },
             { rot: "Mockup", url: BURNDOWN.mockup, icone: ExternalLink },
-            { rot: "Pesquisa da Doppler", url: `https://github.com/${BURNDOWN.repo}/tree/main/research`, icone: FlaskConical },
-            { rot: "Perguntas abertas", url: `https://github.com/${BURNDOWN.repo}/blob/main/research/OPEN-QUESTIONS.md`, icone: FlaskConical },
-            { rot: "Spec de design", url: `https://github.com/${BURNDOWN.repo}/blob/main/design/REGISTRY-SPEC.md`, icone: GitBranch },
+            { rot: "Doppler research", url: `https://github.com/${BURNDOWN.repo}/tree/main/research`, icone: FlaskConical },
+            { rot: "Open questions", url: `https://github.com/${BURNDOWN.repo}/blob/main/research/OPEN-QUESTIONS.md`, icone: FlaskConical },
+            { rot: "Design spec", url: `https://github.com/${BURNDOWN.repo}/blob/main/design/REGISTRY-SPEC.md`, icone: GitBranch },
           ].map(({ rot, url, icone: Icone }) => (
             <a
               key={rot}
