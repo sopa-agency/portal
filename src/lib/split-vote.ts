@@ -23,6 +23,7 @@ import "server-only";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { getSplitConfig } from "@/lib/splits";
+import { carteirasConhecidas } from "@/lib/member-wallets";
 
 export const TOTAL_PONTOS = 100;
 
@@ -45,10 +46,10 @@ export type Elegivel = {
 export async function elegiveis(splitAddress: string, chain: string): Promise<Elegivel[] | null> {
   const cfg = await getSplitConfig(splitAddress, chain);
   if (!cfg) return null;
-  const contatos = await prisma.teamMemberContact
-    .findMany({ where: { label: "Wallet" }, select: { username: true, value: true } })
-    .catch(() => [] as { username: string; value: string }[]);
-  const porEndereco = new Map(contatos.map((c) => [c.value.trim().toLowerCase(), c.username]));
+  // TODA carteira da pessoa, não só a do perfil: uma segunda carteira só
+  // existia como login, e login não votava nem recebia crédito. Ver
+  // member-wallets.ts.
+  const { porEndereco } = await carteirasConhecidas();
   return cfg.recipients.map((r) => ({
     address: r.address,
     username: porEndereco.get(r.address.toLowerCase()) ?? null,
