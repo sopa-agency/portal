@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma, withDbRetry } from "@/lib/prisma";
 import { verifySessionToken, isAllowed, GLOBAL_ALLOWLIST, type SessionPayload } from "@/lib/auth";
+import { identidades } from "@/lib/member-identity";
 import type { ProjectConfig } from "@/projects/types";
 
 // Node-runtime authorization layer. The proxy/middleware only AUTHENTICATES
@@ -29,18 +30,29 @@ const asRole = (r: string): Role => (ROLES.includes(r as Role) ? (r as Role) : "
  */
 export async function getAccess(username: string, project: ProjectConfig): Promise<Access> {
   const u = username.toLowerCase();
+  // Uma pessoa pode entrar por vários logins (ver member-identity.ts). O acesso
+  // é a UNIÃO dos logins dela: apelidar não pode TIRAR privilégio de ninguém,
+  // senão arrumar cadastro vira mudança de segurança disfarçada. Se a leitura
+  // dos apelidos falhar, sobra o login que veio — o comportamento de antes.
+  const eus = await identidades(u).catch(() => [u]);
   const [rows, projectCount] = await Promise.all([
     prisma.teamMember
-      .findMany({ where: { username: u, projectSlug: { in: [GLOBAL_SLUG, project.slug] } } })
+      .findMany({ where: { username: { in: eus }, projectSlug: { in: [GLOBAL_SLUG, project.slug] } } })
       .catch(() => [] as { projectSlug: string; role: string }[]),
     prisma.teamMember.count({ where: { projectSlug: project.slug } }).catch(() => 0),
   ]);
   if (rows.some((r) => r.projectSlug === GLOBAL_SLUG)) return { allowed: true, role: "admin", global: true };
-  if (GLOBAL_ALLOWLIST.includes(u)) return { allowed: true, role: "admin", global: true };
-  const projRow = rows.find((r) => r.projectSlug === project.slug);
-  if (projRow) return { allowed: true, role: asRole(projRow.role), global: false };
+  if (eus.some((e) => GLOBAL_ALLOWLIST.includes(e))) return { allowed: true, role: "admin", global: true };
+  // Entre vários logins com papel diferente, vale o MAIOR: a pessoa é uma só,
+  // e ela já podia fazer o que o login mais forte permitia.
+  const ORDEM: Role[] = ["viewer", "member", "admin"];
+  const projRows = rows.filter((r) => r.projectSlug === project.slug);
+  if (projRows.length) {
+    const melhor = projRows.map((r) => asRole(r.role)).sort((a, b) => ORDEM.indexOf(b) - ORDEM.indexOf(a))[0];
+    return { allowed: true, role: melhor, global: false };
+  }
   if (projectCount > 0) return { allowed: false, role: null, global: false }; // seeded → DB authoritative
-  if (isAllowed(u, project)) return { allowed: true, role: "member", global: false }; // unseeded → config
+  if (eus.some((e) => isAllowed(e, project))) return { allowed: true, role: "member", global: false }; // unseeded → config
   return { allowed: false, role: null, global: false };
 }
 

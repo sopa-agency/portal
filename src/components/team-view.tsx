@@ -64,6 +64,8 @@ export type TeamMember = {
   messageOptions: TeamMessageOption[];
   /** Cross-portal admin (GLOBAL_ALLOWLIST) — has access to every portal. */
   global?: boolean;
+  /** Outros logins da MESMA pessoa. Vazio para quase todo mundo. */
+  aliases?: string[];
   /** Portals this member can access (allowlist membership + global). */
   portals?: { slug: string; name: string }[];
   /** Effective role on this portal. */
@@ -1173,6 +1175,12 @@ export function MemberModal({ member, canManage, onClose }: { member: TeamMember
   const known = new Set<string>(["Hive", ...CONTACT_PLATFORMS]);
   const contacts: { label: string; value: string; url?: string; missing?: boolean; public?: boolean }[] = [
     { label: "Hive", value: `@${current.username}`, url: current.profileUrl },
+    // Os outros logins da pessoa entram como uma linha só, e não como
+    // plataforma: eles não são um jeito de FALAR com ela, são um jeito de ela
+    // ENTRAR. Misturar os dois foi o que fez três cartões virarem três pessoas.
+    ...(current.aliases?.length
+      ? [{ label: "Outros logins", value: current.aliases.map((a) => `@${a}`).join(" · ") }]
+      : []),
     ...CONTACT_PLATFORMS.map((label) => {
       const c = byLabel.get(label);
       return c ? { label, value: c.value, url: c.url, public: c.public } : { label, value: "", missing: true };
