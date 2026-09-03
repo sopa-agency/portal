@@ -7,7 +7,7 @@
 // a impressão de que move.
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, Lock, LockOpen, PenLine, Plug, RotateCcw, Scale, Users, Vote } from "lucide-react";
+import { CheckCircle2, ChevronRight, ExternalLink, History, Loader2, Lock, LockOpen, PenLine, Plug, RotateCcw, Scale, Users, Vote } from "lucide-react";
 import { abrirRodada, estadoRodada, fecharRodada, listarPagamentos, reabrirRodada, registrarAplicacao, votar, vetorParaAplicar, type EstadoRodada, type PagamentoRegistrado } from "@/app/actions/split-vote";
 import { SPLIT_DO_TIME } from "@/lib/split-vote-config";
 import { useWallet } from "@/components/wallet-provider";
@@ -17,6 +17,11 @@ import { isOk } from "@/lib/reading";
 const TOTAL = 100;
 const curto = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+const usd = (n: number) => `US$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const quando = (iso: string) =>
+  new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const linkTx = (chain: string, hash: string) =>
+  `${chain === "base" ? "https://basescan.org/tx/" : "https://etherscan.io/tx/"}${hash}`;
 
 export function SplitVote() {
   const [e, setE] = useState<EstadoRodada | null>(null);
@@ -25,6 +30,11 @@ export function SplitVote() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [salvo, setSalvo] = useState(false);
+  // Os pagamentos moram AQUI, e não dentro do painel que os desenha: a tela
+  // precisa deles para saber se a rodada aberta já virou contrato. Era essa a
+  // informação que faltava — a apuração continuava oferecendo "aplicar" para um
+  // peso que já estava valendo, porque ninguém tinha contado a ela.
+  const [pagamentos, setPagamentos] = useState<PagamentoRegistrado[] | null>(null);
   const [novoLabel, setNovoLabel] = useState("");
   // Já vem com o split do time. Ver o comentário em split-vote-config.ts.
   const [novoSplit, setNovoSplit] = useState(SPLIT_DO_TIME);
@@ -56,8 +66,12 @@ export function SplitVote() {
       setPontos(inicial);
     });
 
+  const carregarPagamentos = () =>
+    listarPagamentos().then((r) => setPagamentos(r.ok ? r.pagamentos : []));
+
   useEffect(() => {
     void carregar();
+    void carregarPagamentos();
   }, []);
 
   if (err) return <p className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">⚠ {err}</p>;
@@ -107,37 +121,19 @@ export function SplitVote() {
     await carregar();
   }
 
+  // O peso que o contrato obedece agora é o registro mais novo; os outros são
+  // história. E a rodada na tela já virou contrato se existe registro dela.
+  const emVigor = pagamentos?.[0] ?? null;
+  const anteriores = pagamentos?.slice(1) ?? [];
+  const aplicadaAgora = e.round ? (pagamentos?.find((x) => x.roundId === e.round!.id) ?? null) : null;
+
   return (
     <div className="space-y-6">
-      {/* ── Abrir rodada (admin) ── */}
-      {e.souAdmin && (!e.round || e.round.status === "closed") && (
-        <section className="rounded-2xl border border-border bg-surface p-5">
-          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-            <Vote className="h-4 w-4 text-accent" /> Abrir a votação da semana
-          </h2>
-          <p className="mt-1.5 max-w-2xl text-xs text-foreground-subtle">
-            Os elegíveis são lidos do contrato do split, na cadeia — quem está nele hoje é quem vota e
-            quem recebe. Uma rodada aberta por vez.
-          </p>
-          {/* O endereço vem preenchido: pedir que alguém COLE um contrato é a
-              forma mais fácil de dividir dinheiro no lugar errado — um
-              caractere trocado ainda é um endereço "válido", e a urna
-              obedeceria calada. O campo continua editável para o caso raro de
-              outro split, mas o caminho normal não passa pela área de
-              transferência de ninguém. */}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <input value={novoLabel} onChange={(ev) => setNovoLabel(ev.target.value)} placeholder="Semana de 01/09"
-              className="w-44 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none" />
-            <input value={novoSplit} onChange={(ev) => setNovoSplit(ev.target.value)} placeholder="0x… endereço do split" spellCheck={false} title="O split do time vem preenchido. Só troque se a rodada for decidir outro contrato."
-              className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 font-mono text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none" />
-            <button type="button" disabled={busy === "abrir" || !novoSplit.trim()}
-              onClick={async () => { setBusy("abrir"); const r = await abrirRodada(novoLabel, novoSplit); setBusy(null); if (!r.ok) return setErr(r.error); setNovoSplit(SPLIT_DO_TIME); setNovoLabel(""); await carregar(); }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-40">
-              {busy === "abrir" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockOpen className="h-3.5 w-3.5" />} Abrir
-            </button>
-          </div>
-        </section>
-      )}
+      {/* O QUE ESTÁ VALENDO vem primeiro, sempre. Era a única coisa que a tela
+          não dizia: dava para ver o que foi votado e o que seria aplicado, mas
+          não o que o contrato obedece neste instante — isso só aparecia de
+          esguelha, no "era 10.0%" ao lado de cada linha da apuração. */}
+      <EmVigor pagamento={emVigor} elegiveis={e.elegiveis} carregando={pagamentos === null} />
 
       {!e.round && !e.souAdmin && (
         <p className="rounded-xl border border-border bg-surface px-4 py-8 text-center text-sm text-foreground-muted">
@@ -262,8 +258,6 @@ export function SplitVote() {
         </section>
       )}
 
-      <RegistroPagamentos />
-
       {/* ── Resultado ── */}
       {e.round && e.round.status === "closed" && e.resultado && (
         <section className="rounded-2xl border border-border bg-surface p-5">
@@ -314,22 +308,60 @@ export function SplitVote() {
             </p>
           )}
 
-          <ul className="mt-4 space-y-1.5">
-            {e.resultado.linhas.map((l) => (
-              <li key={l.address} className="flex items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1 truncate text-foreground">
-                  {l.username ? `@${l.username}` : <span className="font-mono text-xs">{curto(l.address)}</span>}
-                </span>
-                <span className="font-mono text-xs tabular-nums text-foreground-faint">{l.pontos} pts</span>
-                <span className="w-20 text-right font-mono text-xs tabular-nums text-foreground-faint">era {pct(l.shareAtual)}</span>
-                <span className={`w-20 text-right font-mono text-sm font-semibold tabular-nums ${l.share > l.shareAtual ? "text-success" : l.share < l.shareAtual ? "text-warning" : "text-foreground"}`}>
-                  {pct(l.share)}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {/* Já aplicada, a lista abaixo é a MESMA que o painel do topo mostra
+              — e duas listas idênticas de dez linhas, uma embaixo da outra, não
+              somam informação nenhuma. Ela recolhe e vira o que de fato é: a
+              conta que gerou aquele peso, disponível para quem quiser conferir. */}
+          {aplicadaAgora && (
+            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-[11px] text-success">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              Esta apuração já virou contrato em {quando(aplicadaAgora.appliedAt)} — é o peso que está valendo, no topo da página.
+            </p>
+          )}
+          {!aplicadaAgora && (
+            <ul className="mt-4 space-y-1.5">
+              {e.resultado.linhas.map((l) => (
+                <li key={l.address} className="flex items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate text-foreground">
+                    {l.username ? `@${l.username}` : <span className="font-mono text-xs">{curto(l.address)}</span>}
+                  </span>
+                  <span className="font-mono text-xs tabular-nums text-foreground-faint">{l.pontos} pts</span>
+                  <span className="w-20 text-right font-mono text-xs tabular-nums text-foreground-faint">era {pct(l.shareAtual)}</span>
+                  <span className={`w-20 text-right font-mono text-sm font-semibold tabular-nums ${l.share > l.shareAtual ? "text-success" : l.share < l.shareAtual ? "text-warning" : "text-foreground"}`}>
+                    {pct(l.share)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
 
-          {e.vetor && <AplicarNoContrato round={e.round} podeAplicar={e.souAdmin} vetor={e.vetor} />}
+          {aplicadaAgora ? (
+            <details className="mt-4">
+              <summary className="cursor-pointer text-xs font-medium text-foreground-muted hover:text-foreground">
+                A apuração que gerou este peso ({e.resultado.linhas.length} linhas)
+              </summary>
+              <ul className="mt-2 space-y-1.5">
+                {e.resultado.linhas.map((l) => (
+                  <li key={l.address} className="flex items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate text-foreground">
+                      {l.username ? `@${l.username}` : <span className="font-mono text-xs">{curto(l.address)}</span>}
+                    </span>
+                    <span className="font-mono text-xs tabular-nums text-foreground-faint">{l.pontos} pts</span>
+                    <span className="w-20 text-right font-mono text-sm font-semibold tabular-nums text-foreground">{pct(l.share)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            e.vetor && (
+              <AplicarNoContrato
+                round={e.round}
+                podeAplicar={e.souAdmin}
+                vetor={e.vetor}
+                aoAplicar={carregarPagamentos}
+              />
+            )
+          )}
 
           <details className="mt-5">
             <summary className="cursor-pointer text-xs font-medium text-foreground-muted hover:text-foreground">
@@ -352,6 +384,41 @@ export function SplitVote() {
           </details>
         </section>
       )}
+
+      {/* ── Abrir a próxima rodada (admin) ──
+          Desceu para cá: abrir é o que vem DEPOIS de ver o que está valendo e
+          como a última terminou. No topo, entre as duas coisas que a pessoa
+          veio ver, era uma ferramenta de admin cortando a leitura no meio. */}
+      {e.souAdmin && (!e.round || e.round.status === "closed") && (
+        <section className="rounded-2xl border border-border bg-surface p-5">
+          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+            <Vote className="h-4 w-4 text-accent" /> Abrir a votação da semana
+          </h2>
+          <p className="mt-1.5 max-w-2xl text-xs text-foreground-subtle">
+            Os elegíveis são lidos do contrato do split, na cadeia — quem está nele hoje é quem vota e
+            quem recebe. Uma rodada aberta por vez.
+          </p>
+          {/* O endereço vem preenchido: pedir que alguém COLE um contrato é a
+              forma mais fácil de dividir dinheiro no lugar errado — um
+              caractere trocado ainda é um endereço "válido", e a urna
+              obedeceria calada. O campo continua editável para o caso raro de
+              outro split, mas o caminho normal não passa pela área de
+              transferência de ninguém. */}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <input value={novoLabel} onChange={(ev) => setNovoLabel(ev.target.value)} placeholder="Semana de 01/09"
+              className="w-44 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none" />
+            <input value={novoSplit} onChange={(ev) => setNovoSplit(ev.target.value)} placeholder="0x… endereço do split" spellCheck={false} title="O split do time vem preenchido. Só troque se a rodada for decidir outro contrato."
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 font-mono text-xs text-foreground placeholder:text-foreground-faint focus:border-accent-border focus:outline-none" />
+            <button type="button" disabled={busy === "abrir" || !novoSplit.trim()}
+              onClick={async () => { setBusy("abrir"); const r = await abrirRodada(novoLabel, novoSplit); setBusy(null); if (!r.ok) return setErr(r.error); setNovoSplit(SPLIT_DO_TIME); setNovoLabel(""); await carregar(); }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-40">
+              {busy === "abrir" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockOpen className="h-3.5 w-3.5" />} Abrir
+            </button>
+          </div>
+        </section>
+      )}
+
+      <Historico pagamentos={anteriores} />
     </div>
   );
 }
@@ -376,10 +443,13 @@ function AplicarNoContrato({
   round,
   podeAplicar,
   vetor,
+  aoAplicar,
 }: {
   round: NonNullable<EstadoRodada["round"]>;
   podeAplicar: boolean;
   vetor: NonNullable<EstadoRodada["vetor"]>;
+  /** Recarrega o registro depois de assinar, para o topo já mostrar o peso novo. */
+  aoAplicar: () => void;
 }) {
   const { address, available, connect, connecting, ensureChain } = useWallet();
   const [busy, setBusy] = useState(false);
@@ -444,11 +514,16 @@ function AplicarNoContrato({
       // para gravar perderia o peso se a aba fechasse no meio — e o peso é
       // justamente o que não dá para reconstruir depois, porque a apuração
       // muda quando o split muda.
-      await registrarAplicacao(round.id, tx, {
+      const reg = await registrarAplicacao(round.id, tx, {
         recipients: pronto.recipients,
         allocations: pronto.allocations,
         totalAllocation: pronto.totalAllocation,
-      }).catch(() => {});
+      }).catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }));
+      // Engolir a falha em silêncio era o pior jeito de errar aqui: a transação
+      // está na cadeia, o peso NÃO está no registro, e a tela seguia dizendo que
+      // deu tudo certo. O hash fica na mão de quem assinou, com o que houve.
+      if (!reg.ok) setErro(`Transação enviada, mas o registro não gravou: ${reg.error}. Guarde este hash — dá para registrar depois.`);
+      aoAplicar();
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       setErro(/user rejected|denied/i.test(m) ? "Assinatura cancelada na carteira." : m.slice(0, 200));
@@ -589,75 +664,185 @@ function MeritoPainel({ merito, pontos }: { merito: EstadoRodada["merito"]; pont
 }
 
 /**
- * O registro de pagamentos: o peso que virou contrato, e o que ele rendeu.
+ * O que o contrato está obedecendo AGORA.
+ *
+ * Este painel não existia, e era a única coisa que a tela não dizia. Dava para
+ * ver o que foi votado e o que seria aplicado, mas não o que vale neste
+ * instante — isso aparecia só de esguelha, no "era 10,0%" ao lado de cada linha
+ * da apuração. Quem abria a aba para saber quanto ia receber tinha que deduzir.
  *
  * Peso e valor vêm de lugares diferentes DE PROPÓSITO. O peso é congelado no
- * banco no instante da assinatura — ele não pode mudar depois, senão o registro
- * vira reconstrução. O valor é lido da cadeia a cada consulta, recortado pela
+ * banco no instante da assinatura — se ele mudasse depois, o registro viraria
+ * reconstrução. O valor é lido da cadeia a cada consulta, recortado pela
  * vigência daquele peso: guardá-lo congelaria um número que ainda cresce, e a
  * primeira distribuição depois do registro já o deixaria mentindo.
  */
-function RegistroPagamentos() {
-  const [itens, setItens] = useState<PagamentoRegistrado[] | null>(null);
-  useEffect(() => {
-    void listarPagamentos().then((r) => setItens(r.ok ? r.pagamentos : []));
-  }, []);
-  if (!itens || itens.length === 0) return null;
+function EmVigor({
+  pagamento,
+  elegiveis,
+  carregando,
+}: {
+  pagamento: PagamentoRegistrado | null;
+  elegiveis: EstadoRodada["elegiveis"];
+  carregando: boolean;
+}) {
+  if (carregando) {
+    return <div className="h-40 animate-pulse rounded-2xl border border-border bg-surface" />;
+  }
 
-  const usd = (n: number) => `US$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const dia = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  // Sem registro, o peso ainda existe — ele está na cadeia, foi lido, e é o que
+  // os elegíveis trazem. O que falta é a PROCEDÊNCIA: quem aplicou, quando, com
+  // que transação. Dizer isso é diferente de não mostrar nada.
+  const linhas = pagamento
+    ? pagamento.linhas
+    : [...elegiveis].sort((a, b) => b.shareAtual - a.shareAtual).map((x) => ({
+        address: x.address,
+        username: x.username,
+        share: x.shareAtual,
+        recebidoUsd: null as number | null,
+      }));
+  if (!linhas.length) return null;
+
+  // Dez "US$ 0,00" empilhados leem como defeito, não como fato. Quando nada
+  // correu na vigência, a coluna some e o fato vira uma frase só.
+  const houveDinheiro = pagamento?.distribuidoUsd != null && pagamento.distribuidoUsd > 0;
+  const maior = Math.max(...linhas.map((l) => l.share), 0.0001);
 
   return (
-    <section className="rounded-2xl border border-border bg-surface p-5">
-      <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-        <Landmark className="h-4 w-4 text-accent" /> Registro de pagamentos
-      </h2>
-      <p className="mt-1 max-w-2xl text-xs text-foreground-subtle">
-        Cada vez que um resultado vira contrato, o peso é congelado aqui com o hash que prova. O valor
-        ao lado é lido da cadeia agora, recortado pelo tempo em que aquele peso esteve valendo.
-      </p>
+    <section className="overflow-hidden rounded-2xl border border-accent-border bg-surface">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-accent-bg px-5 py-4">
+        <div>
+          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
+            <Landmark className="h-3 w-3" /> Valendo agora
+          </p>
+          <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">
+            {linhas.length} pessoas no split do time
+          </h2>
+          <p className="mt-0.5 text-xs text-foreground-muted">
+            {pagamento ? (
+              <>
+                da rodada <strong className="text-foreground">{pagamento.roundLabel}</strong>, em vigor desde{" "}
+                {quando(pagamento.appliedAt)} · aplicada por @{pagamento.appliedBy}
+              </>
+            ) : (
+              "lido do contrato na cadeia — o portal não tem registro de quem aplicou este peso"
+            )}
+          </p>
+        </div>
+        {pagamento && (
+          <a
+            href={linkTx(pagamento.chain, pagamento.txHash)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-accent-border px-2.5 py-1.5 font-mono text-[11px] text-accent transition hover:bg-accent/10"
+          >
+            {pagamento.txHash.slice(0, 10)}…{pagamento.txHash.slice(-6)} <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
 
-      <div className="mt-4 space-y-4">
-        {itens.map((p) => (
-          <div key={p.id} className="rounded-xl border border-border bg-surface-elevated p-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-sm font-semibold text-foreground">{p.roundLabel}</span>
-              <span className="font-mono text-[11px] text-foreground-faint">
-                {dia(p.appliedAt)} · por @{p.appliedBy}
+      <ul className="divide-y divide-border">
+        {linhas.map((l) => (
+          <li key={l.address} className="flex items-center gap-3 px-5 py-2">
+            <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+              {l.username ? `@${l.username}` : <span className="font-mono text-xs">{curto(l.address)}</span>}
+            </span>
+            {/* A barra faz a proporção ser VISTA, não lida. Numa lista de dez
+                porcentagens de dois dígitos, a diferença entre 3,2% e 17,4%
+                desaparece; em duas barras, ela é a primeira coisa que se nota. */}
+            {/* Relativa ao MAIOR, não à escala absoluta. Um fator de
+                amplificação inventado faria a barra de 17% parecer 70% de
+                alguma coisa; normalizada, ela diz o que de fato diz — quem
+                recebe mais, e quanto mais. */}
+            <span className="hidden h-1.5 w-32 overflow-hidden rounded-full bg-border sm:block">
+              <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(3, (l.share / maior) * 100)}%` }} />
+            </span>
+            <span className="w-16 text-right font-mono text-sm font-semibold tabular-nums text-foreground">{pct(l.share)}</span>
+            {houveDinheiro && (
+              <span className="w-24 text-right font-mono text-sm tabular-nums text-success">
+                {l.recebidoUsd == null ? "—" : usd(l.recebidoUsd)}
               </span>
-            </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-foreground-faint">
-              <a
-                href={`${p.chain === "base" ? "https://basescan.org/tx/" : "https://etherscan.io/tx/"}${p.txHash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 font-mono text-accent hover:underline"
-              >
-                {p.txHash.slice(0, 10)}…{p.txHash.slice(-6)} <ExternalLink className="h-3 w-3" />
-              </a>
-              {p.distribuidoUsd != null ? (
-                <span>· distribuiu {usd(p.distribuidoUsd)} enquanto valeu</span>
-              ) : (
-                <span className="text-warning">· {p.semValor}</span>
-              )}
-            </div>
+            )}
+          </li>
+        ))}
+      </ul>
 
-            <ul className="mt-2 space-y-1">
+      {pagamento && (
+        <p className="border-t border-border px-5 py-3 text-[11px] leading-relaxed text-foreground-subtle">
+          {pagamento.distribuidoUsd == null ? (
+            <span className="text-warning">
+              ⚠ Não deu para ler quanto este peso já distribuiu{pagamento.semValor ? ` — ${pagamento.semValor}` : ""}. Isto NÃO
+              quer dizer que não distribuiu nada.
+            </span>
+          ) : pagamento.distribuidoUsd > 0 ? (
+            <>
+              Distribuiu <strong className="text-foreground">{usd(pagamento.distribuidoUsd)}</strong> desde que entrou em vigor.
+              O valor é lido da cadeia agora, recortado por esta vigência — ele cresce sozinho a cada distribuição.
+            </>
+          ) : (
+            <>Nada foi distribuído desde que este peso entrou em vigor. Ele passa a valer na próxima distribuição do split.</>
+          )}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Os pesos anteriores: o que cada rodada pagou enquanto era a que valia.
+ *
+ * Fica recolhido e no fim. É consulta, não operação — e quem abre esta aba está
+ * quase sempre atrás do que vale hoje, não do que valia em agosto.
+ */
+function Historico({ pagamentos }: { pagamentos: PagamentoRegistrado[] }) {
+  if (!pagamentos.length) return null;
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
+        <History className="h-4 w-4 text-foreground-faint" /> Pesos anteriores
+      </h2>
+      <p className="mt-1 text-xs text-foreground-subtle">
+        Cada um com o que distribuiu enquanto esteve valendo. O peso é o congelado na assinatura; o valor
+        é lido da cadeia agora.
+      </p>
+      <div className="mt-4 space-y-2">
+        {pagamentos.map((p) => (
+          <details key={p.id} className="group rounded-xl border border-border bg-surface-elevated">
+            <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-xs">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-foreground-faint transition-transform group-open:rotate-90" />
+              <span className="font-semibold text-foreground">{p.roundLabel}</span>
+              <span className="text-foreground-faint">
+                {quando(p.appliedAt)}
+                {p.vigenciaFim ? ` → ${quando(p.vigenciaFim)}` : ""}
+              </span>
+              <span className="ml-auto font-mono tabular-nums text-foreground-muted">
+                {p.distribuidoUsd == null ? "valor não lido" : usd(p.distribuidoUsd)}
+              </span>
+            </summary>
+            <ul className="border-t border-border px-4 py-2">
               {p.linhas.map((l) => (
-                <li key={l.address} className="flex items-center gap-3 text-xs">
-                  <span className="min-w-0 flex-1 truncate text-foreground">
+                <li key={l.address} className="flex items-center gap-3 py-1 text-xs">
+                  <span className="min-w-0 flex-1 truncate text-foreground-muted">
                     {l.username ? `@${l.username}` : <span className="font-mono text-[11px]">{curto(l.address)}</span>}
                   </span>
-                  <span className="w-16 text-right font-mono tabular-nums text-foreground-muted">{pct(l.share)}</span>
-                  {/* Valor não lido aparece como travessão, nunca como zero: um
-                      zero aqui afirmaria que a pessoa não recebeu nada. */}
+                  <span className="w-14 text-right font-mono tabular-nums text-foreground-muted">{pct(l.share)}</span>
+                  {/* Travessão, nunca zero: um zero aqui afirmaria que a pessoa
+                      não recebeu nada, quando o que houve foi leitura ausente. */}
                   <span className="w-24 text-right font-mono font-semibold tabular-nums text-foreground">
                     {l.recebidoUsd == null ? "—" : usd(l.recebidoUsd)}
                   </span>
                 </li>
               ))}
             </ul>
-          </div>
+            <a
+              href={linkTx(p.chain, p.txHash)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 border-t border-border px-4 py-2 font-mono text-[11px] text-accent hover:underline"
+            >
+              {p.txHash.slice(0, 14)}…{p.txHash.slice(-8)} <ExternalLink className="h-3 w-3" />
+            </a>
+          </details>
         ))}
       </div>
     </section>

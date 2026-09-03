@@ -301,6 +301,8 @@ export async function registrarAplicacao(
 
 export type PagamentoRegistrado = {
   id: string;
+  /** A rodada que gerou este peso — é por ele que a tela sabe que ela já foi aplicada. */
+  roundId: string;
   roundLabel: string;
   splitAddress: string;
   chain: string;
@@ -314,6 +316,10 @@ export type PagamentoRegistrado = {
   distribuidoUsd: number | null;
   /** Por que o valor não pôde ser lido, quando não pôde. */
   semValor?: string;
+  /** Este é o peso que o contrato está obedecendo agora. */
+  emVigor: boolean;
+  /** Quando outro peso o substituiu. `null` enquanto ele é o vigente. */
+  vigenciaFim: string | null;
 };
 
 /**
@@ -359,6 +365,7 @@ export async function listarPagamentos(): Promise<
 
     out.push({
       id: r.id,
+      roundId: r.roundId,
       roundLabel: r.roundLabel,
       splitAddress: r.splitAddress,
       chain: r.chain,
@@ -368,6 +375,9 @@ export async function listarPagamentos(): Promise<
       totalAllocation: r.totalAllocation,
       distribuidoUsd: distribuido,
       ...(semValor ? { semValor } : {}),
+      // `rows` vem do mais novo para o mais velho: o primeiro é o que vale.
+      emVigor: i === 0,
+      vigenciaFim: i > 0 ? rows[i - 1].appliedAt.toISOString() : null,
       linhas: r.shares
         .map((sh) => {
           const share = total > 0 ? (Number(sh.allocation) || 0) / total : 0;
