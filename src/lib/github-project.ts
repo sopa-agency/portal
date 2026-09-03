@@ -420,7 +420,11 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       const contentId = content?.id ?? null;
       // Priority single-select value (board's "Priority" field), if the project has one.
       const priority = node.fieldValues.nodes.find(
-        (fv) => fv.field?.name === "Priority" && fv.name != null,
+        // "Fogo" primeiro: o `Priority` do GitHub é campo NATIVO derivado de
+        // issue, e não aceita opção nova nem valor em draft issue — foi por
+        // isso que ele estava vazio nos 226 cards. O espelho do portal mora
+        // num campo customizado chamado "Fogo", que aceita as duas coisas.
+        (fv) => (fv.field?.name === "Fogo" || fv.field?.name === "Priority") && fv.name != null,
       )?.name ?? undefined;
       const item: KanbanItem = { id: node.id, type, title, number, url, state, merged, closedAt, createdAt, updatedAt, author, mergedBy, lastComment, body, contentId, assignees, labels, priority };
 
@@ -516,6 +520,73 @@ export async function setItemStatus(args: {
       }) { projectV2Item { id } }
     }`;
   return githubGraphQL(args.token, query, args);
+}
+
+/**
+ * Espelha o fogo do portal (1..5) no campo "Fogo" do board — ou apaga.
+ *
+ * ── Por que um campo NOSSO e não o `Priority` do GitHub ─────────────────────
+ * O `Priority` é campo NATIVO derivado de issue: não aceita opção nova nem
+ * valor em draft issue. Foi por isso que ele estava vazio nos 226 cards — não
+ * era desleixo da equipe, o campo nunca teve o que escolher e metade dos cards
+ * nem podia recebê-lo. "Fogo" é campo customizado, como Status e Size, e aceita
+ * as duas coisas.
+ *
+ * ── A escala ────────────────────────────────────────────────────────────────
+ * P0..P4, CINCO níveis, porque o fogo é 1..5 e espremer cinco em quatro perde
+ * informação no topo — que é onde ela importa. 5🔥 → P0. E `P<dígito>` é o que
+ * o priorityRank() já sabe ler, então marcar direto no GitHub também funciona.
+ *
+ * ── Quem manda ──────────────────────────────────────────────────────────────
+ * O portal. Isto é ESPELHO, não sincronia de mão dupla: a equipe marca fogo no
+ * portal, e o GitHub recebe. Sincronia dos dois lados brigaria consigo mesma, e
+ * a briga só apareceria quando duas pessoas mexessem no mesmo card.
+ *
+ * Falha aqui NÃO derruba a gravação do portal — o valor do portal é o que vale,
+ * e o espelho tenta de novo na próxima vez que alguém tocar o card. Um espelho
+ * que derruba o original inverte quem serve a quem.
+ */
+export async function mirrorFireToGithub(args: {
+  token: string;
+  itemId: string;
+  /** 1..5, ou 0 para apagar. */
+  fire: number;
+}): Promise<MutationResult> {
+  const alvo = await githubGraphQL<{
+    node: { project: { id: string; field: { id: string; options: { id: string; name: string }[] } | null } } | null;
+  }>(
+    args.token,
+    `query($i: ID!) {
+      node(id: $i) { ... on ProjectV2Item { project {
+        id field(name: "Fogo") { ... on ProjectV2SingleSelectField { id options { id name } } }
+      } } }
+    }`,
+    { i: args.itemId },
+  );
+  if (!alvo.ok) return alvo;
+  const proj = alvo.data.node?.project;
+  if (!proj?.field) return { ok: false, error: 'este board não tem o campo "Fogo"' };
+
+  if (!args.fire) {
+    return githubGraphQL(
+      args.token,
+      `mutation($p: ID!, $i: ID!, $f: ID!) {
+        clearProjectV2ItemFieldValue(input: { projectId: $p, itemId: $i, fieldId: $f }) { projectV2Item { id } }
+      }`,
+      { p: proj.id, i: args.itemId, f: proj.field.id },
+    );
+  }
+  // 5🔥 → P0, 1🔥 → P4.
+  const nome = `P${5 - Math.max(1, Math.min(5, args.fire))}`;
+  const opt = proj.field.options.find((o) => o.name === nome);
+  if (!opt) return { ok: false, error: `o board não tem a opção ${nome}` };
+  return githubGraphQL(
+    args.token,
+    `mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) {
+      updateProjectV2ItemFieldValue(input: { projectId: $p, itemId: $i, fieldId: $f, value: { singleSelectOptionId: $o } }) { projectV2Item { id } }
+    }`,
+    { p: proj.id, i: args.itemId, f: proj.field.id, o: opt.id },
+  );
 }
 
 /** Clear a card's Status (drag back to "No Status"). */
