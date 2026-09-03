@@ -158,6 +158,7 @@ export default async function RootLayout({
       { href: "/org-chart", label: t.nav.items.orgChart, on: !!project.orgChart },
       { href: "/reunioes", label: t.nav.items.meetings, on: !!project.meetings },
       { href: "/portfolio", label: t.nav.items.portfolio, on: !!project.portfolio },
+      { href: "/burndown", label: t.nav.items.burnDown, on: !!project.burnDown },
       { href: "/team", label: t.nav.items.team, on: true },
       { href: "/settings", label: t.nav.items.settings, on: true },
     ]
@@ -201,6 +202,7 @@ export default async function RootLayout({
                 aboutEnabled={!!project.about}
                 orgChartEnabled={!!project.orgChart}
                 portfolioEnabled={!!project.portfolio}
+                burnDownEnabled={!!project.burnDown}
                 chatEnabled={!!project.chat}
                 labEnabled={!!project.lab}
                 zineEnabled={!!project.zineStudio}

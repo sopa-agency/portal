@@ -50,7 +50,14 @@ const influencers: ProjectConfig = {
   repos: [],
   socials: [],
   // Sits above the individual influencer portals, which indent under it.
-  switcher: { rank: 40 },
+  // Desceu de 40 para 120: a divisão vai para o fim da lista inteira. O Vlad
+  // pendura nela (parent: "influencers") e desceu junto, para 130 — mover só o
+  // pai deixaria o filho renderizando ACIMA dele, com o recuo apontando para
+  // nada. Bloco desce inteiro ou não desce.
+  // `dividerBefore` porque a divisão desceu para DEPOIS do bloco da KeepKey, e
+  // sem a régua ela pareceria mais uma marca de fora — que é justamente o que
+  // ela não é. A régua devolve o agrupamento que a descida tirou.
+  switcher: { rank: 120, dividerBefore: true },
   briefingAgents: [],
   agent: {
     gatewayEnvPrefix: "INFLUENCERS",

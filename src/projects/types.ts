@@ -379,4 +379,9 @@ export type ProjectConfig = {
   };
   /** Aggregate ALL portals' Kanban boards into one read-only view (the SOPA hub). */
   kanbanAggregate?: boolean;
+  /**
+   * BurnDownWallStreet — o painel do produto que ainda não existe na cadeia.
+   * Ligado só onde a marca vive; ver src/lib/burndown.ts.
+   */
+  burnDown?: boolean;
 };
