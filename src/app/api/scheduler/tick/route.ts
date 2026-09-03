@@ -9,6 +9,7 @@
 // route errors (e.g. Neon unreachable) the lease goes stale and Vercel takes over.
 
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { runScheduledPublish, touchMacLease, findDueItems } from "@/lib/scheduler-core";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,19 @@ export async function POST(req: Request) {
   // Mac worker (not ad-hoc manual POSTs).
   if (req.headers.get("x-scheduler-source") === "mac") {
     await touchMacLease(now);
+    // E registra QUAL máquina bateu. O lease é singleton — com duas máquinas
+    // ligadas, a segunda sumiria dentro da primeira. Worker que ainda não manda
+    // o cabeçalho continua funcionando e entra como "(sem nome)": o tick é a
+    // batida do coração do publicador e não pode quebrar por causa de um painel.
+    // Best-effort pelo mesmo motivo.
+    const host = (req.headers.get("x-scheduler-host") ?? "").trim().toLowerCase().slice(0, 80) || "(sem nome)";
+    void prisma.portalHost
+      .upsert({
+        where: { hostname: host },
+        create: { hostname: host, lastTickAt: new Date(now), source: "mac" },
+        update: { lastTickAt: new Date(now), tickCount: { increment: 1 } },
+      })
+      .catch(() => {});
   }
 
   return NextResponse.json(result);

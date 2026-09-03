@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import { Network, TrendingUp, BookText } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { Network, TrendingUp, BookText, Server } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
 import { useT } from "@/components/locale-provider";
 import { SopaOrgChart, type Person } from "@/components/sopa-org-chart";
@@ -16,6 +16,7 @@ const TABS = [
   { key: "structure", icon: Network },
   { key: "revenue", icon: TrendingUp },
   { key: "addresses", icon: BookText },
+  { key: "infra", icon: Server },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -31,6 +32,7 @@ export function OrgChartViews({
   support,
   addressBook,
   bridgeFee,
+  infra,
 }: {
   cards: BoardCard[];
   roster: Person[];
@@ -38,10 +40,11 @@ export function OrgChartViews({
   support: SopaSupport;
   addressBook: AddressBookEntry[];
   bridgeFee?: BridgeFeeSummary;
+  infra: ReactNode;
 }) {
   const t = useT().orgChart.views;
   const [view, setView] = useUrlTab("view", "structure");
-  const active: TabKey = view === "revenue" || view === "addresses" ? view : "structure";
+  const active: TabKey = view === "revenue" || view === "addresses" || view === "infra" ? view : "structure";
 
   // Sliding thumb, same treatment as the rest of the portal's tab bars: the
   // geometry is written to the DOM as custom properties, not held in state.
@@ -120,8 +123,14 @@ export function OrgChartViews({
         <SopaOrgChart initial={cards} roster={roster} />
       ) : active === "revenue" ? (
         <OrgRevenueOrbit orbit={orbit} support={support} />
-      ) : (
+      ) : active === "addresses" ? (
         <AddressBook entries={addressBook} bridgeFee={bridgeFee} />
+      ) : (
+        // Renderizado no servidor e passado como slot: as leituras de infra são
+        // do servidor (banco + API do Tailscale com chave), e este componente é
+        // cliente. Passar o painel pronto evita expor a chave ou inventar uma
+        // rota só para isso.
+        infra
       )}
     </div>
   );
