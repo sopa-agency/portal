@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { ExternalLink, Flame, FlaskConical, GitBranch, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Section } from "@/components/section-heading";
@@ -70,6 +71,11 @@ const AINDA_NAO = [
 
 export default async function BurnDownPage() {
   const project = await getActiveProject();
+  // A flag guarda o MENU; sem isto ela não guardaria a rota, e a mesma tela
+  // responderia por URL direta em todo portal — inclusive nos que acabaram de
+  // deixar de mostrá-la. É o mesmo portão que /about, /portfolio e /org-chart
+  // já usam.
+  if (!project.burnDown) notFound();
   const [repo, mockup] = await Promise.all([lerRepo(), lerMockup()]);
 
   return (
