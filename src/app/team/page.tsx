@@ -21,25 +21,36 @@ export default async function TeamPage() {
   // Single centralized team registry (allowlist + cross-portal contacts + global admins).
   const roster = await getTeamRoster(project);
   const usernames = roster.map((m) => m.username);
+  // Inclui os apelidos: a atividade fica gravada sob o login que entrou.
+  const todosLogins = [...new Set(roster.flatMap((m) => [m.username, ...(m.aliases ?? [])]))];
   const [roleMap, activity, viewer, portalsByUser] = await Promise.all([
     getRoles(project, usernames),
     prisma.memberActivity
-      .findMany({ where: { username: { in: usernames } }, select: { username: true, lastLoginAt: true } })
+      .findMany({ where: { username: { in: todosLogins } }, select: { username: true, lastLoginAt: true } })
       .catch(() => [] as { username: string; lastLoginAt: Date }[]),
     authorize((await cookies()).get(SESSION_COOKIE)?.value, project),
     getPortalsByUser(),
   ]);
   const lastSeen = new Map(activity.map((a) => [a.username, a.lastLoginAt.toISOString()]));
 
-  const members = roster.map(({ username, avatarUrl, hasAvatar, profileUrl, contacts, global }) => ({
+  const members = roster.map(({ username, avatarUrl, hasAvatar, profileUrl, contacts, global, aliases }) => ({
     username,
     avatarUrl,
     hasAvatar,
     profileUrl,
     contacts,
     global,
+    aliases,
     role: roleMap.get(username)?.role ?? "member",
-    lastLoginAt: lastSeen.get(username) ?? null,
+    // O último acesso é o mais recente ENTRE os logins da pessoa: ela entrou,
+    // e por qual porta é detalhe. Mostrar só o do canônico diria "nunca
+    // entrou" de alguém que entrou ontem por outro login.
+    lastLoginAt:
+      [username, ...(aliases ?? [])]
+        .map((u) => lastSeen.get(u))
+        .filter((d): d is string => !!d)
+        .sort()
+        .pop() ?? null,
     portals: portalsByUser.get(username.toLowerCase()) ?? [],
     messageOptions: getTeamMessageOptions(project, username, { contacts }),
   }));

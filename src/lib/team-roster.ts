@@ -6,6 +6,7 @@ import { GLOBAL_ALLOWLIST } from "@/lib/auth";
 const GLOBAL_SLUG = "*";
 import { getAllProjects } from "@/projects/index";
 import { mergeContacts, resolveCrossPortalContacts } from "@/lib/team-messaging";
+import { todosOsApelidos } from "@/lib/member-identity";
 import type { ProjectConfig, TeamContact } from "@/projects/types";
 
 // Registro central da equipe. A fonte única de "quem está na equipe e como se
@@ -48,6 +49,14 @@ export type RosterMember = {
   contacts: TeamContact[];
   /** True para admins de todos os portais — do código E do banco. */
   global: boolean;
+  /**
+   * Os outros logins da MESMA pessoa, sem o canônico.
+   *
+   * Vazio para quase todo mundo. Quando não é, a aba Team mostra um cartão só
+   * — três cartões para um humano não é cadastro, é contagem errada, e ela
+   * vazava para todo lugar que conta gente.
+   */
+  aliases: string[];
 };
 
 const _avatarCache = new Map<string, boolean>();
@@ -140,11 +149,32 @@ export async function getTeamRoster(project: ProjectConfig): Promise<RosterMembe
     ...globalRows.map((r) => r.username.toLowerCase()),
   ]);
   const globals = [...globalSet].filter((u) => !base.includes(u));
-  const usernames = [...new Set([...base, ...globals])];
+  const logins = [...new Set([...base, ...globals].map((u) => u.toLowerCase()))];
+
+  // Colapsa vários logins numa pessoa só. O canônico entra na lista mesmo que
+  // ele próprio não tenha linha de acesso: quem tem acesso é a PESSOA, e o
+  // login que carrega o perfil é o que a equipe deve ver.
+  const apelidos = await todosOsApelidos().catch(() => new Map<string, string>());
+  const porPessoa = new Map<string, Set<string>>();
+  for (const login of logins) {
+    const canon = apelidos.get(login) ?? login;
+    if (!porPessoa.has(canon)) porPessoa.set(canon, new Set());
+    if (canon !== login) porPessoa.get(canon)!.add(login);
+  }
+  const usernames = [...porPessoa.keys()];
+
+  // Contatos e acesso global valem por PESSOA, não por login: o e-mail
+  // cadastrado sob um apelido é o e-mail dela, e o admin ganho por um login é
+  // dela também.
+  const todosLogins = [...new Set([...usernames, ...logins])];
   const rows = await prisma.teamMemberContact
-    .findMany({ where: { username: { in: usernames } } })
+    .findMany({ where: { username: { in: todosLogins } } })
     .catch(() => [] as { projectSlug: string; username: string; label: string; value: string; updatedAt: Date }[]);
-  const byUser = resolveCrossPortalContacts(rows, project.slug);
+  const canonDe = (u: string) => apelidos.get(u.toLowerCase()) ?? u.toLowerCase();
+  const byUser = resolveCrossPortalContacts(rows.map((r) => ({ ...r, username: canonDe(r.username) })), project.slug);
+  for (const [canon, alts] of porPessoa) {
+    if ([...alts, canon].some((l) => globalSet.has(l))) globalSet.add(canon);
+  }
   const frontend = project.hive.frontend ?? "https://peakd.com";
   const hasAvatar = await fetchHasAvatar(usernames);
   return usernames.map((username) => {
@@ -158,6 +188,7 @@ export async function getTeamRoster(project: ProjectConfig): Promise<RosterMembe
       email: emailRaw && /@/.test(emailRaw) ? emailRaw.toLowerCase() : null,
       contacts,
       global: globalSet.has(username),
+      aliases: [...(porPessoa.get(username) ?? [])].sort(),
     };
   });
 }

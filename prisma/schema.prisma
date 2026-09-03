@@ -392,6 +392,30 @@ model SocialMetricSnapshot {
 // Instagram, X, …). One row per (project, member, platform label); overrides
 // the static teamContacts entry with the same label in src/projects/*.ts.
 // Any allowlisted member of the portal can edit any member's contacts.
+// Uma PESSOA tem um nome canônico e pode ter vários logins.
+//
+// O caso que originou isto: `keepkey`, `highlander22` e `bithighlander22` são
+// a mesma pessoa. O perfil (GitHub, Discord, e-mail, skills) estava só em
+// `keepkey`; os outros dois eram linhas de acesso soltas, nascidas do
+// GLOBAL_ALLOWLIST do código. Na aba Team apareciam como três pessoas, e no
+// mérito e na votação como três destinatários possíveis.
+//
+// O alias é a CHAVE, e não o canônico: a pergunta que o sistema faz é sempre
+// "quem é este login?", nunca "quais logins esta pessoa tem". A segunda vem
+// de graça pelo índice; a primeira precisa ser O(1) porque roda em todo login
+// e em toda checagem de acesso.
+model MemberAlias {
+  /** O login alternativo, em minúsculas. */
+  alias     String   @id
+  /** O nome canônico da pessoa — o que a equipe vê e o que o mérito credita. */
+  username  String
+  note      String?
+  addedBy   String?
+  createdAt DateTime @default(now())
+
+  @@index([username])
+}
+
 model TeamMemberContact {
   id          String   @id @default(cuid())
   projectSlug String

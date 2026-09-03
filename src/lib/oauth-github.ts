@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { canonico } from "@/lib/member-identity";
 
 // Lightweight GitHub OAuth (no next-auth) that maps a GitHub identity to a team
 // member, then the app's normal session/RBAC takes over. Credentials are
@@ -57,14 +58,14 @@ export async function resolveMemberFromGithub(login: string, emails: string[]): 
   const ident = await prisma.authIdentity
     .findUnique({ where: { provider_providerId: { provider: "github", providerId: gh } } })
     .catch(() => null);
-  if (ident) return ident.username;
+  if (ident) return canonico(ident.username);
   const ghRows = await prisma.teamMemberContact.findMany({ where: { label: "GitHub" } }).catch(() => [] as { username: string; value: string }[]);
   const byGh = ghRows.find((r) => normGithub(r.value) === gh);
-  if (byGh) return byGh.username.toLowerCase();
+  if (byGh) return canonico(byGh.username);
   if (emails.length) {
     const emailRows = await prisma.teamMemberContact.findMany({ where: { label: "Email" } }).catch(() => [] as { username: string; value: string }[]);
     const byEmail = emailRows.find((r) => emails.includes(r.value.trim().toLowerCase()));
-    if (byEmail) return byEmail.username.toLowerCase();
+    if (byEmail) return canonico(byEmail.username);
   }
   return null;
 }

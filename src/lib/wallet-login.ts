@@ -17,6 +17,7 @@ import "server-only";
 // esta pessoa entra por aqui" — um clique distraído não vira acesso.
 
 import { prisma } from "@/lib/prisma";
+import { canonico } from "@/lib/member-identity";
 
 export type WalletLookup =
   | { state: "ok"; username: string }
@@ -35,7 +36,10 @@ export async function lookupWalletLogin(address: string): Promise<WalletLookup> 
   try {
     const row = await prisma.walletLogin.findUnique({ where: { address: addr } });
     if (!row) return { state: "unknown" };
-    return row.enabled ? { state: "ok", username: row.username } : { state: "locked", username: row.username };
+    // Canônico, pela mesma razão do login por GitHub: a carteira é de uma
+    // PESSOA, e a sessão tem de sair no nome que a equipe vê.
+    const nome = await canonico(row.username);
+    return row.enabled ? { state: "ok", username: nome } : { state: "locked", username: nome };
   } catch (e) {
     return { state: "unread", reason: e instanceof Error ? e.message : String(e) };
   }
