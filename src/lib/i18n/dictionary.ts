@@ -1496,6 +1496,7 @@ const en = {
       structure: "Structure",
       revenue: "Revenue",
       addresses: "Address Book",
+      infra: "Infra",
       label: "Org chart views",
     },
     /** Header counters, interpolated with the live totals. */
@@ -3001,6 +3002,7 @@ const pt: typeof en = {
       structure: "Estrutura",
       revenue: "Receita",
       addresses: "Endereços",
+      infra: "Infra",
       label: "Views do organograma",
     },
     stats: {

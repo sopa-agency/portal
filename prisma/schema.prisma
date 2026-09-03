@@ -378,6 +378,26 @@ model SchedulerLease {
   updatedAt         DateTime  @updatedAt
 }
 
+// As máquinas que batem ponto no portal, uma linha por HOST.
+//
+// O `SchedulerLease` sabe que "um Mac bateu ponto", e só. É uma linha
+// singleton: com duas máquinas ligadas, a segunda some dentro da primeira, e
+// o painel de infra mostraria uma onde há duas. Aqui cada host tem a sua.
+//
+// O nome vem do cabeçalho `x-scheduler-host` que o worker manda. Worker que
+// não manda continua funcionando e entra como "(sem nome)" — compatibilidade
+// para trás de propósito: o tick é a batida do coração do publicador, e não
+// pode quebrar por causa de um painel.
+model PortalHost {
+  /// Nome da máquina, em minúsculas. Vem do worker.
+  hostname    String   @id
+  lastTickAt  DateTime
+  firstSeenAt DateTime @default(now())
+  /// "mac" | "vercel" | outro — de onde a batida veio.
+  source      String   @default("mac")
+  tickCount   Int      @default(1)
+}
+
 model SocialMetricSnapshot {
   id          String   @id @default(cuid())
   projectSlug String
