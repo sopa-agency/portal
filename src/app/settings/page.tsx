@@ -15,6 +15,7 @@ import { sponsorConfigured } from "@/lib/farcaster-sponsor";
 import { FarcasterProjectConnect } from "@/components/farcaster-project-connect";
 import { resolveFarcasterSigner } from "@/lib/farcaster-signer";
 import { SettingsTabs, type SettingsTab } from "@/components/settings-tabs";
+import { MyWallets } from "@/components/my-wallets";
 import { KanbanFxToggle } from "@/components/kanban-fx-toggle";
 import { BrainExplorer } from "@/components/brain-explorer";
 
@@ -93,6 +94,10 @@ export default async function SettingsPage() {
 
   const connectionsSection = (
     <div className="space-y-6">
+      {/* As carteiras da própria pessoa vêm primeiro: é o que ela pode resolver
+          sozinha, e antes disso a segunda carteira dependia de um admin com
+          SQL — o que na prática significava que ela não entrava. */}
+      <MyWallets />
       {showMyFarcaster && myFarcaster ? <MyFarcasterCard initial={myFarcaster} /> : null}
       <FarcasterProjectConnect
         projectName={project.name}
