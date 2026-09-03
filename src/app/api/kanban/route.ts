@@ -25,6 +25,7 @@ import {
   setItemLabels,
   setItemStatus,
   updateItemContent,
+  mirrorFireToGithub,
 } from "@/lib/github-project";
 import { getTeamRoster } from "@/lib/team-roster";
 import { getTeamMessageOptions } from "@/lib/team-messaging";
@@ -270,6 +271,8 @@ export async function POST(req: Request) {
     }
     if (!priority && !deadline) {
       await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
+      const tk = process.env.GITHUB_TOKEN?.trim();
+      if (tk) void mirrorFireToGithub({ token: tk, itemId, fire: 0 }).catch(() => {});
       return NextResponse.json({ ok: true, priority: null, deadline: null });
     }
     await prisma.cardPriority.upsert({
@@ -277,6 +280,13 @@ export async function POST(req: Request) {
       create: { itemId, priority, deadline, projectSlug: targetProjectSlug ?? project.slug, updatedBy: session.username },
       update: { priority, deadline, updatedBy: session.username },
     });
+    // Espelha no campo "Fogo" do board. BEST-EFFORT de propósito: o valor que
+    // vale é o do portal, e um espelho que derruba a gravação original inverte
+    // quem serve a quem. Falhou, tenta de novo quando alguém tocar o card.
+    if (action === "setPriority") {
+      const tk = process.env.GITHUB_TOKEN?.trim();
+      if (tk) void mirrorFireToGithub({ token: tk, itemId, fire: priority }).catch(() => {});
+    }
     return NextResponse.json({
       ok: true,
       priority: priority || null,
