@@ -1,6 +1,7 @@
 import { Cloud, HardDrive, Radio, Server, TriangleAlert } from "lucide-react";
 import { isOk } from "@/lib/reading";
-import { FOLGA_MS, type Frota, type Maquina } from "@/lib/infra";
+import { FOLGA_MS, type Corpo, type Frota, type Maquina } from "@/lib/infra";
+import { MacOrbit } from "@/components/mac-orbit";
 import type { Reading } from "@/lib/reading";
 
 /**
@@ -38,12 +39,35 @@ function Falha({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function OrgInfra({ frota, tailscale, agora }: { frota: Reading<Frota>; tailscale: Reading<Maquina[]>; agora: number }) {
+export function OrgInfra({ frota, tailscale, corpos }: { frota: Reading<Frota>; tailscale: Reading<Maquina[]>; corpos: Corpo[] }) {
+  // Cada painel data-se pela SUA leitura. Nenhuma hora entra por prop vinda do
+  // render, que é o que a regra de pureza proíbe — e com razão: duas
+  // renderizações iguais têm de dar o mesmo resultado.
+  const agora = (tailscale.state === "ok" ? tailscale.asOf : undefined) ?? (frota.state === "ok" ? frota.value.lidoEm : 0);
   const vivos = isOk(frota) ? frota.value.hosts.filter((h) => h.vivo).length : null;
   const online = isOk(tailscale) ? tailscale.value.filter((m) => m.online).length : null;
 
   return (
     <div className="space-y-6">
+      {/* ── O desenho, primeiro ──
+          As duas listas abaixo são a leitura fina; esta é a de relance. Ela vem
+          antes porque "quantas máquinas e como estão" é a pergunta que traz
+          alguém a esta aba, e as tabelas respondem devagar demais para ela. */}
+      {corpos.length > 0 && (
+        <section className="rounded-2xl border border-border bg-surface p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
+            <Server className="h-4 w-4 text-accent" /> A frota
+          </h2>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-foreground-subtle">
+            As máquinas em volta do portal. A linha até o centro diz como cada uma se relaciona com ele —
+            cheia é quem publica, tracejada é quem só existe na rede.
+          </p>
+          <div className="mt-3">
+            <MacOrbit corpos={corpos} redeLida={isOk(tailscale)} />
+          </div>
+        </section>
+      )}
+
       {/* ── Quem está publicando ── */}
       <section className="rounded-2xl border border-border bg-surface p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
