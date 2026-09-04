@@ -1,7 +1,7 @@
 import { Cloud, HardDrive, Radio, Server, TriangleAlert } from "lucide-react";
 import { isOk } from "@/lib/reading";
-import { FOLGA_MS, type Corpo, type Frota, type Maquina } from "@/lib/infra";
-import { MacOrbit } from "@/components/mac-orbit";
+import { FOLGA_MS, type Frota, type Maquina, type Topologia } from "@/lib/infra";
+import { InfraMap } from "@/components/infra-map";
 import type { Reading } from "@/lib/reading";
 
 /**
@@ -39,7 +39,7 @@ function Falha({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function OrgInfra({ frota, tailscale, corpos }: { frota: Reading<Frota>; tailscale: Reading<Maquina[]>; corpos: Corpo[] }) {
+export function OrgInfra({ frota, tailscale, topo }: { frota: Reading<Frota>; tailscale: Reading<Maquina[]>; topo: Topologia }) {
   // Cada painel data-se pela SUA leitura. Nenhuma hora entra por prop vinda do
   // render, que é o que a regra de pureza proíbe — e com razão: duas
   // renderizações iguais têm de dar o mesmo resultado.
@@ -53,17 +53,18 @@ export function OrgInfra({ frota, tailscale, corpos }: { frota: Reading<Frota>; 
           As duas listas abaixo são a leitura fina; esta é a de relance. Ela vem
           antes porque "quantas máquinas e como estão" é a pergunta que traz
           alguém a esta aba, e as tabelas respondem devagar demais para ela. */}
-      {corpos.length > 0 && (
+      {(topo.hubs.length > 0 || topo.dispositivos.length > 0) && (
         <section className="rounded-2xl border border-border bg-surface p-5">
           <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
             <Server className="h-4 w-4 text-accent" /> A frota
           </h2>
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-foreground-subtle">
-            As máquinas em volta do portal. A linha até o centro diz como cada uma se relaciona com ele —
-            cheia é quem publica, tracejada é quem só existe na rede.
+            Dois níveis, porque a rede tem dois: o <strong className="text-foreground">Mac mini</strong> é quem fala
+            com o portal — bate ponto, publica e serve os proxies. Os outros aparelhos estão no tailnet dele, e não
+            conversam com a Vercel.
           </p>
           <div className="mt-3">
-            <MacOrbit corpos={corpos} redeLida={isOk(tailscale)} />
+            <InfraMap topo={topo} />
           </div>
         </section>
       )}
