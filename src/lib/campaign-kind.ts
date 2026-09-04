@@ -11,6 +11,7 @@ export type CampaignDocumentKind =
   | "binance"
   | "instagram"
   | "email"
+  | "paragraph"
   | "markdown"
   | "doc";
 
@@ -28,6 +29,9 @@ export function classifyCampaignDocument(name: string, isMain: boolean): Campaig
   if (lower.includes("binance")) return "binance";
   if (lower.includes("instagram") || lower.includes("carousel") || lower.includes("carrossel")) return "instagram";
   if (lower.includes("email")) return "email";
+  // Before the "post" catch-all below, which otherwise swallows
+  // "Paragraph post" into `markdown` and hides its publish button.
+  if (lower.includes("paragraph")) return "paragraph";
   if (lower.includes("markdown") || lower.includes("blog") || lower.includes("post")) return "markdown";
   return "doc";
 }
@@ -42,6 +46,7 @@ export const PUBLISHABLE_KINDS = new Set<CampaignDocumentKind>([
   "binance",
   "instagram",
   "email",
+  "paragraph",
 ]);
 
 export function isPublishableKind(kind: CampaignDocumentKind): boolean {

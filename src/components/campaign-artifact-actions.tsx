@@ -86,6 +86,10 @@ export function CampaignArtifactActions({
   const supportsAutoSend =
     kind === "hive" || kind === "farcaster" || kind === "discord" || kind === "binance";
   const isMag = kind === "hive_mag";
+  // A document named "Paragraph post" is its own channel. The Paragraph
+  // publisher already existed; it was only reachable from a mag post.
+  const isParagraph = kind === "paragraph";
+  const hasParagraph = isMag || isParagraph;
   // Paragraph PENDENTE: a peça já saiu (no Hive) mas o registro não menciona
   // paragraph. Fica destacado porque o disparo é manual por decisão do Vlad —
   // e o que é manual precisa ser visível, senão vira esquecimento silencioso.
@@ -341,8 +345,8 @@ export function CampaignArtifactActions({
           />
         )}
 
-        {/* hive_mag — also send to the project's Paragraph newsletter (web + opt-in email) */}
-        {isMag && (
+        {/* hive_mag + a standalone "Paragraph post" — also send to the project's Paragraph newsletter (web + opt-in email) */}
+        {hasParagraph && (
           paragraphDone ? (
             <a
               href={paragraphDone.url}
@@ -370,7 +374,7 @@ export function CampaignArtifactActions({
             </button>
           )
         )}
-        {isMag && paragraphOpen && (
+        {hasParagraph && paragraphOpen && (
           <ParagraphPublishDialog
             languages={[{ code: "en", label: "EN" }, { code: "pt", label: "PT" }]}
             loadPreview={(lang) => getCampaignParagraphPreview(documentId, lang)}

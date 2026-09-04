@@ -22,7 +22,7 @@ export type CampaignPreviewBrand = {
   accentDark?: string;
 };
 
-type PreviewKind = Exclude<CampaignDocumentKind, "brief" | "email" | "markdown" | "instagram">;
+type PreviewKind = Exclude<CampaignDocumentKind, "brief" | "email" | "markdown" | "instagram" | "paragraph">;
 
 export function CampaignDocumentPreview({
   name,
