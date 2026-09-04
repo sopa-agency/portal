@@ -43,7 +43,7 @@ import { getAllProjects } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import { ok, insufficient, unread, type Reading } from "@/lib/reading";
 import { fetchGitHubProject } from "@/lib/github-project";
-import { getAssignedTasksAcrossPortalsContext, getProjectKanbanContext } from "@/lib/kanban-context";
+import { getProjectKanbanContext } from "@/lib/kanban-context";
 import { getProjectMeetingsContext } from "@/lib/meetings-context";
 
 /**
@@ -55,7 +55,7 @@ import { getProjectMeetingsContext } from "@/lib/meetings-context";
  * quais ações já viraram card feito. Com 3s ela estourava sempre, e um sinal
  * que nunca chega é o mesmo que não existir.
  */
-const TIMEOUT_MS = { board: 4_000, allTasks: 15_000, atas: 6_000, tesouro: 3_000, receita: 3_000, equipe: 3_000, engajamento: 3_000, briefing: 2_000, social: 3_000 } as const;
+const TIMEOUT_MS = { board: 4_000, atas: 6_000, tesouro: 3_000, receita: 3_000, equipe: 3_000, engajamento: 3_000, briefing: 2_000, social: 3_000 } as const;
 
 /**
  * A partir de quantos dias o home summary entra marcado como velho.
@@ -193,8 +193,8 @@ async function withTimeout<T>(ms: number, fn: () => Promise<T>): Promise<Reading
  *
  * `getProjectKanbanContext` devolve "" tanto quando o board está vazio quanto
  * quando o fetch falhou — as duas coisas iguais, que é justamente o que não
- * pode. Por isso buscamos o resultado tipado uma vez e o repassamos ao
- * formatador, sem uma segunda ida ao GitHub dentro do mesmo teto curto.
+ * pode. Por isso perguntamos ANTES ao `fetchGitHubProject`, que diz `ok`. O
+ * board é cacheado, então a segunda chamada não custa outra ida à rede.
  */
 async function readBoard(project: ProjectConfig): Promise<Reading<string>> {
   if (!project.githubProject) {
@@ -203,24 +203,9 @@ async function readBoard(project: ProjectConfig): Promise<Reading<string>> {
   return withTimeout(TIMEOUT_MS.board, async () => {
     const board = await fetchGitHubProject(project);
     if (!board.ok) throw new Error(board.error || "o board não respondeu");
-    const text = await getProjectKanbanContext(project, board);
+    const text = await getProjectKanbanContext(project);
     if (!text.trim()) throw new Error("o board respondeu, mas o contexto veio vazio");
     return text;
-  });
-}
-
-/** Open work belonging to this person across every registered portal board. */
-async function readAssignedTasks(project: ProjectConfig): Promise<Reading<string>> {
-  if (!project.taskIdentity) {
-    return insufficient<string>("este portal não tem uma identidade pessoal configurada para agregar tarefas");
-  }
-  return withTimeout(TIMEOUT_MS.allTasks, async () => {
-    const result = await getAssignedTasksAcrossPortalsContext(project);
-    if (!result.text && result.errors.length) throw new Error(result.errors.join(" | "));
-    if (result.total === 0 && result.errors.length === 0) {
-      throw Object.assign(new Error("nenhuma tarefa aberta atribuída a esta pessoa"), { empty: true });
-    }
-    return result.text;
   });
 }
 
@@ -703,9 +688,8 @@ export type ChatContext = { block: string; chars: number };
 /** Monta o bloco do zero, sem olhar cache nenhum. */
 async function assembleChatContext(project: ProjectConfig): Promise<ChatContext> {
   const falha = (e: unknown) => ({ state: "unread", reason: String(e) }) as Reading<string>;
-  const [board, allTasks, meetings, treasury, revenue, team, engajamento, briefing, social] = await Promise.all([
+  const [board, meetings, treasury, revenue, team, engajamento, briefing, social] = await Promise.all([
     readBoard(project).catch(falha),
-    readAssignedTasks(project).catch(falha),
     readMeetings(project).catch(falha),
     readTreasury(project).catch(falha),
     readRevenue().catch(falha),
@@ -741,7 +725,6 @@ async function assembleChatContext(project: ProjectConfig): Promise<ChatContext>
     "",
     "# Sinais vivos",
     renderReading("Board", board),
-    renderReading("Minhas tarefas em todos os portais", allTasks),
     renderReading("Ações em aberto das atas", meetings),
     renderReading("Tesouro", treasury),
     renderReading("Receita (última sincronização)", revenue),
