@@ -6,7 +6,7 @@ import { OrgChartViews } from "@/components/org-chart-views";
 import { getSopaRevenueOrbit, getSopaSupporters } from "@/lib/sopa-revenue-orbit";
 import { getAddressBook } from "@/lib/address-book";
 import { getBridgeFeeSummary } from "@/lib/bridge-fee-inflows";
-import { lerFrota, lerTailscale } from "@/lib/infra";
+import { lerFrota, lerTailscale, orbita } from "@/lib/infra";
 import { OrgInfra } from "@/components/org-infra";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +44,7 @@ export default async function OrgChartPage() {
   // API do Tailscale com a chave. O painel vai pronto para o componente
   // cliente das abas.
   const [frota, tailscale] = await Promise.all([lerFrota(), lerTailscale()]);
+  const corpos = orbita(frota, tailscale);
 
   return (
     <OrgChartViews
@@ -53,7 +54,7 @@ export default async function OrgChartPage() {
       support={support}
       addressBook={addressBook}
       bridgeFee={bridgeFee}
-      infra={<OrgInfra frota={frota} tailscale={tailscale} agora={Date.now()} />}
+      infra={<OrgInfra frota={frota} tailscale={tailscale} corpos={corpos} />}
     />
   );
 }

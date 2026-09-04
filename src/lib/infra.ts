@@ -116,6 +116,8 @@ export async function lerTailscale(): Promise<Reading<Maquina[]>> {
       }[];
     };
     const agora = Date.now();
+    // `asOf` carimba a leitura: o render não pode perguntar as horas (regra
+    // react-hooks/purity), então a hora viaja junto do dado que ela data.
     return ok(
       (j.devices ?? []).map((d) => ({
         id: d.id,
@@ -133,8 +135,88 @@ export async function lerTailscale(): Promise<Reading<Maquina[]>> {
         tags: d.tags ?? [],
         usuario: d.user ?? "",
       })).sort((a, b) => Number(b.online) - Number(a.online) || a.nome.localeCompare(b.nome)),
+      agora,
     );
   } catch (e) {
     return unread(e instanceof Error ? e.message : "a chamada não respondeu");
   }
+}
+
+/**
+ * As duas listas viradas UM desenho, sem perder o que as separa.
+ *
+ * A órbita mostra cada máquina uma vez, e o ESTADO dela diz de qual lista ela
+ * veio. Isso é o oposto de fundir as listas: fundir apagaria a diferença entre
+ * "ociosa" e "caiu"; aqui a diferença vira a aparência de cada corpo.
+ *
+ *   publicando  — bate ponto: está trabalhando agora
+ *   ociosa      — está na rede e não bate ponto
+ *   parada      — batia ponto e parou (o ponto envelheceu)
+ *
+ * O casamento é por nome, normalizado: o Tailscale devolve `minivlad` e o
+ * worker manda o hostname da máquina. Quem não casa aparece assim mesmo — uma
+ * máquina que existe só num dos lados é justamente a que vale ver.
+ */
+export type Corpo = {
+  nome: string;
+  estado: "publicando" | "ociosa" | "parada";
+  /** Bate ponto no portal. */
+  bate: boolean;
+  /** Existe no tailnet. */
+  naRede: boolean;
+  online: boolean;
+  so: string | null;
+  ultimoSinal: string | null;
+  batidas: number | null;
+};
+
+const chave = (n: string) => n.trim().toLowerCase().split(".")[0];
+
+export function orbita(frota: Reading<Frota>, tailscale: Reading<Maquina[]>): Corpo[] {
+  const porNome = new Map<string, Corpo>();
+
+  if (frota.state === "ok") {
+    for (const h of frota.value.hosts) {
+      porNome.set(chave(h.hostname), {
+        nome: h.hostname,
+        estado: h.vivo ? "publicando" : "parada",
+        bate: true,
+        naRede: false,
+        online: h.vivo,
+        so: null,
+        ultimoSinal: h.lastTickAt,
+        batidas: h.tickCount,
+      });
+    }
+  }
+
+  if (tailscale.state === "ok") {
+    for (const m of tailscale.value) {
+      const k = chave(m.nome);
+      const ja = porNome.get(k);
+      if (ja) {
+        ja.naRede = true;
+        ja.so = m.so;
+        // Estar na rede não promove quem parou de bater ponto: a máquina pode
+        // estar ligada e não estar publicando, e é essa a informação.
+        if (!ja.bate || ja.estado === "parada") ja.online = ja.online || m.online;
+        continue;
+      }
+      porNome.set(k, {
+        nome: m.nome,
+        estado: "ociosa",
+        bate: false,
+        naRede: true,
+        online: m.online,
+        so: m.so,
+        ultimoSinal: m.ultimaVez,
+        batidas: null,
+      });
+    }
+  }
+
+  const ordem = { publicando: 0, ociosa: 1, parada: 2 } as const;
+  return [...porNome.values()].sort(
+    (a, b) => ordem[a.estado] - ordem[b.estado] || a.nome.localeCompare(b.nome),
+  );
 }
