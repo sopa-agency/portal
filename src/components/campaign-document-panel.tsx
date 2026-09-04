@@ -22,6 +22,7 @@ type PanelDoc = {
   /** Destino registrado. Opcional porque nem todo chamador o carrega ainda; sem
    *  ele o botão do Paragraph só não destaca, nada quebra. */
   postedTo?: string | null;
+  postedUrl?: string | null;
 };
 
 /**
@@ -94,6 +95,7 @@ export function CampaignDocumentPanel({
           content={content}
           initialPostedAt={doc.postedAt}
           initialPostedTo={doc.postedTo ?? null}
+          initialPostedUrl={doc.postedUrl ?? null}
           onContentChange={onContentChange}
         />
       </footer>

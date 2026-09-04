@@ -180,6 +180,11 @@ model CampaignDocument {
   isMain       Boolean   @default(false)
   postedAt     DateTime?
   postedTo     String?
+  // Permalink of the published piece, when the channel gives one back (Hive,
+  // Hive mag, Paragraph, Farcaster). Null is honest: Discord, Binance,
+  // Instagram and email return no addressable URL, so "posted with no link"
+  // is a real state and not a missing write.
+  postedUrl    String?
   scheduledFor DateTime? // campaign calendar: planned publish day for this asset
   // Set while the scheduler is mid-publish, so a crash can be recovered (a row
   // stuck here past the stale threshold is retried) and two ticks can never

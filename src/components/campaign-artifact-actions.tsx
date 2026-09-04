@@ -40,6 +40,8 @@ type Props = {
    *  Paragraph — e o registro do doc só comporta um destino, então "postado"
    *  sozinho não diz se o Paragraph saiu. */
   initialPostedTo?: string | null;
+  /** Permalink of the published piece, when the channel returned one. */
+  initialPostedUrl?: string | null;
   onContentChange?: (newContent: string) => void;
 };
 
@@ -49,9 +51,11 @@ export function CampaignArtifactActions({
   content,
   initialPostedAt,
   initialPostedTo = null,
+  initialPostedUrl = null,
   onContentChange,
 }: Props) {
   const [postedAt, setPostedAt] = useState<Date | null>(initialPostedAt);
+  const [postedUrl, setPostedUrl] = useState<string | null>(initialPostedUrl);
   const [sendStatus, setSendStatus] = useState<
     | null
     | { ok: true; url?: string; detail?: string }
@@ -132,7 +136,7 @@ export function CampaignArtifactActions({
     startSend(async () => {
       const res = await sendCampaignArtifact(documentId);
       setSendStatus(res);
-      if (res.ok) setPostedAt(new Date());
+      if (res.ok) { setPostedAt(new Date()); if (res.url) setPostedUrl(res.url); }
     });
   };
 
@@ -140,7 +144,7 @@ export function CampaignArtifactActions({
   const handleTogglePosted = () => {
     startToggle(async () => {
       const res = await toggleArtifactPosted(documentId);
-      if (res.ok) setPostedAt(res.postedAt);
+      if (res.ok) { setPostedAt(res.postedAt); if (!res.postedAt) setPostedUrl(null); }
     });
   };
 
@@ -164,7 +168,7 @@ export function CampaignArtifactActions({
         kind === "farcaster" ? farcasterChannel ?? undefined : undefined,
       );
       setSendStatus(res);
-      if (res.ok) setPostedAt(new Date());
+      if (res.ok) { setPostedAt(new Date()); if (res.url) setPostedUrl(res.url); }
     });
   };
 
@@ -251,6 +255,21 @@ export function CampaignArtifactActions({
     });
   };
 
+
+  // Canal legivel a partir do que foi gravado em postedTo ("paragraph-en-email").
+  const canalPostado = (() => {
+    const raw = (initialPostedTo ?? "").toLowerCase();
+    if (!raw) return null;
+    if (raw.startsWith("paragraph")) {
+      const pt = raw.includes("-pt");
+      return `Paragraph${pt ? " (PT)" : ""}${raw.includes("email") ? " + newsletter" : ""}`;
+    }
+    if (raw === "hive-blog") return "Hive blog";
+    if (raw === "hive_mag") return "Hive mag";
+    if (raw === "email-blast") return "Newsletter";
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  })();
+
   const postedLabel = postedAt
     ? `Posted ${new Intl.DateTimeFormat(undefined, {
         month: "short",
@@ -262,6 +281,38 @@ export function CampaignArtifactActions({
 
   return (
     <div className="flex flex-col gap-2">
+      {postedAt && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-success/40 bg-success/10 px-3 py-2">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-success">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Já publicado
+          </span>
+          <span className="text-xs text-foreground-muted">
+            {canalPostado ? `${canalPostado} · ` : ""}
+            <span className="tabular-nums">
+              {new Intl.DateTimeFormat(undefined, {
+                day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+              }).format(new Date(postedAt))}
+            </span>
+          </span>
+          {postedUrl ? (
+            <a
+              href={postedUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-success/40 bg-success/15 px-2.5 py-1 text-xs font-medium text-success transition hover:bg-success/25"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Abrir publicação
+            </a>
+          ) : (
+            /* Sem link nao e falta de registro: Discord, Binance, Instagram e
+               e-mail nao devolvem URL enderecavel. Dizer isso e melhor que um
+               espaco vazio que parece bug. */
+            <span className="ml-auto text-xs text-foreground-faint">este canal não devolve link</span>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
 
         {/* Schedule this artifact on its own — each cast can go out at its own time. */}
@@ -380,7 +431,7 @@ export function CampaignArtifactActions({
             loadPreview={(lang) => getCampaignParagraphPreview(documentId, lang)}
             onSend={(opts) => publishCampaignDocToParagraph(documentId, opts)}
             onClose={() => setParagraphOpen(false)}
-            onDone={(r) => setParagraphDone(r)}
+            onDone={(r) => { setParagraphDone(r); setPostedAt(new Date()); setPostedUrl(r.url); }}
           />
         )}
 

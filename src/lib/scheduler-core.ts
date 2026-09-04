@@ -678,7 +678,7 @@ async function publishDueCampaignDocs(now: number): Promise<CampaignDocResult[]>
       await prisma.campaignDocument.update({
         where: { id: doc.id },
         data: r.ok
-          ? { postedAt: new Date(), postedTo: network, publishingAt: null, publishError: null }
+          ? { postedAt: new Date(), postedTo: network, postedUrl: r.url ?? null, publishingAt: null, publishError: null }
           : { publishingAt: null, publishError: r.error },
       });
       results.push({ id: doc.id, projectSlug, network, ok: r.ok, url: r.ok ? r.url : undefined, error: r.ok ? undefined : r.error });
