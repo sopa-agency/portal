@@ -1,4 +1,4 @@
-import { Flame, MessageCircleMore, MessageSquare, Send } from "lucide-react";
+import { BookOpenText, Flame, MessageCircleMore, MessageSquare, Send } from "lucide-react";
 import { MarkdownContent } from "@/components/markdown-content";
 import { ageFromDate } from "@/lib/utils";
 
@@ -22,7 +22,7 @@ export type CampaignPreviewBrand = {
   accentDark?: string;
 };
 
-type PreviewKind = Exclude<CampaignDocumentKind, "brief" | "email" | "markdown" | "instagram" | "paragraph">;
+type PreviewKind = Exclude<CampaignDocumentKind, "brief" | "email" | "markdown" | "instagram">;
 
 export function CampaignDocumentPreview({
   name,
@@ -57,6 +57,7 @@ export function CampaignDocumentPreview({
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{content}</p>
       ) : null}
       {kind === "hive_mag" ? <MarkdownContent markdown={content} /> : null}
+      {kind === "paragraph" ? <MarkdownContent markdown={content} /> : null}
       {kind === "doc" ? <MarkdownContent markdown={content} /> : null}
     </>
   );
@@ -96,6 +97,7 @@ const META: Record<PreviewKind, { label: string; tone: string; icon: typeof Mess
   tweets:    { label: "Twitter / X thread",   tone: "bg-foreground/10 text-foreground", icon: MessageCircleMore },
   discord:   { label: "Discord announcement", tone: "bg-indigo-500/15 text-indigo-300", icon: MessageSquare },
   binance:   { label: "Binance Square post",  tone: "bg-yellow-500/15 text-yellow-500", icon: Flame },
+  paragraph: { label: "Paragraph post",       tone: "bg-emerald-500/15 text-emerald-300", icon: BookOpenText },
   doc:       { label: "Document",             tone: "bg-foreground/10 text-foreground-muted", icon: MessageCircleMore },
 };
 
