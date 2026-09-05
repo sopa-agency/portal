@@ -94,7 +94,14 @@ export function CampaignFolderShell({
   const enriched = useMemo(() => {
     // Brief first, then EN artifacts, then the "(PT)" translations stacked at the
     // bottom. Sort is stable, so order within each group is preserved.
-    const rank = (d: CampaignDocument) => (d.isMain ? -1 : /\(pt\)/i.test(d.name) ? 1 : 0);
+    // O que falta fazer sobe; o que ja saiu desce. Dentro de cada grupo a
+    // traducao PT continua depois da EN. O brief fica sempre no topo.
+    const rank = (d: CampaignDocument) => {
+      if (d.isMain) return -1;
+      const jaSaiu = d.postedAt ? 2 : 0;
+      const ehPt = /\(pt\)/i.test(d.name) ? 1 : 0;
+      return jaSaiu + ehPt;
+    };
     return documents
       .map((d) => ({ ...d, kind: classifyCampaignDocument(d.name, d.isMain) }))
       .sort((a, b) => rank(a) - rank(b));
@@ -308,12 +315,12 @@ export function CampaignFolderShell({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{doc.name}</p>
                     <p className="truncate text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
+                      {doc.postedAt ? (
+                        <span className="text-success">{diaMes(doc.postedAt)} · </span>
+                      ) : doc.scheduledFor ? (
+                        <span className="text-foreground-faint">{diaMes(doc.scheduledFor)} · </span>
+                      ) : null}
                       {meta.label}
-                        {doc.postedAt ? (
-                          <span className="text-success"> · {diaMes(doc.postedAt)}</span>
-                        ) : doc.scheduledFor ? (
-                          <span className="text-foreground-faint"> · {diaMes(doc.scheduledFor)}</span>
-                        ) : null}
                       </p>
                     </div>
                   {doc.postedAt ? (
