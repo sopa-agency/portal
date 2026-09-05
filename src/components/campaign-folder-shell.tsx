@@ -2,17 +2,19 @@
 
 import {
   BookOpenText,
+  CalendarClock,
   CalendarDays,
+  CheckCircle2,
   ClipboardCheck,
   ClipboardCopy,
   Coins,
   FileText,
   Flame,
   Images,
+  Loader2,
   Mail,
   MessageCircleMore,
   MessageSquare,
-  Loader2,
   Plus,
   Send,
   Star,
@@ -55,6 +57,12 @@ type CampaignDocument = {
   postedUrl?: string | null;
   scheduledFor: Date | null;
 };
+
+/** Dia + mes curtos para a barra lateral ("26 de ago"). A data vem como prop,
+ *  nunca de relogio em render. */
+function diaMes(d: Date): string {
+  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(d));
+}
 
 const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail; tone: string }> = {
   brief:     { label: "Brief / Hive blog",       icon: FileText,          tone: "text-foreground-muted" },
@@ -301,8 +309,21 @@ export function CampaignFolderShell({
                     <p className="truncate text-sm font-medium text-foreground">{doc.name}</p>
                     <p className="truncate text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
                       {meta.label}
-                    </p>
-                  </div>
+                        {doc.postedAt ? (
+                          <span className="text-success"> · {diaMes(doc.postedAt)}</span>
+                        ) : doc.scheduledFor ? (
+                          <span className="text-foreground-faint"> · {diaMes(doc.scheduledFor)}</span>
+                        ) : null}
+                      </p>
+                    </div>
+                  {doc.postedAt ? (
+                  <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-success transition-opacity group-hover:opacity-0" />
+                ) : doc.scheduledFor ? (
+                  <CalendarClock aria-hidden className="h-4 w-4 shrink-0 text-foreground-faint transition-opacity group-hover:opacity-0" />
+                ) : null}
+                <span className="sr-only">
+                  {doc.postedAt ? "Já publicado" : doc.scheduledFor ? "Agendado" : "Não publicado"}
+                </span>
                 </button>
                 {!doc.isMain && (
                   <button
