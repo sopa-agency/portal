@@ -65,6 +65,7 @@ const KIND_META: Record<CampaignDocumentKind, { label: string; icon: typeof Mail
   binance:   { label: "Binance Square post",     icon: Coins,             tone: "text-yellow-500" },
   instagram: { label: "Instagram carousel",      icon: Images,            tone: "text-pink-400" },
   email:     { label: "Email",                   icon: Mail,              tone: "text-accent" },
+  paragraph: { label: "Paragraph post",          icon: BookOpenText,      tone: "text-emerald-400" },
   markdown:  { label: "Markdown post",           icon: BookOpenText,      tone: "text-amber-400" },
   doc:       { label: "Document",                icon: FileText,          tone: "text-foreground-muted" },
 };

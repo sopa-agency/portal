@@ -1368,12 +1368,13 @@ export async function publishHiveMagPost(
     const pk = PrivateKey.fromString(key);
     await client.broadcast.sendOperations(ops as never[], pk);
 
+    const postUrl = magPostUrl(magProject, account, permlink);
     await prisma.campaignDocument.update({
       where: { id: documentId },
-      data: { postedAt: new Date(), postedTo: "hive-blog" },
+      data: { postedAt: new Date(), postedTo: "hive-blog", postedUrl: postUrl },
     });
     revalidatePath(`/campaign-creator/${campaignId}`);
-    return { ok: true, url: magPostUrl(magProject, account, permlink) };
+    return { ok: true, url: postUrl };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -1483,7 +1484,7 @@ export async function publishCampaignDocToParagraph(
     if (publish) {
       await prisma.campaignDocument.update({
         where: { id: documentId },
-        data: { postedAt: new Date(), postedTo: `paragraph-${lang}${sendNewsletter ? "-email" : ""}` },
+        data: { postedAt: new Date(), postedTo: `paragraph-${lang}${sendNewsletter ? "-email" : ""}`, postedUrl: url },
       });
       revalidatePath(`/campaign-creator/${built.campaignId}`);
     }
@@ -2288,7 +2289,7 @@ export async function sendCampaignArtifact(
       if (!result.ok) return { ok: false, error: result.error };
       await prisma.campaignDocument.update({
         where: { id: documentId },
-        data: { postedAt: new Date(), postedTo: "hive" },
+        data: { postedAt: new Date(), postedTo: "hive", postedUrl: result.url ?? null },
       });
       revalidatePath(`/campaign-creator/${doc.campaignId}`);
       return { ok: true, url: result.url, platform: "hive" };
@@ -2306,7 +2307,7 @@ export async function sendCampaignArtifact(
       if (!result.ok) return { ok: false, error: result.error };
       await prisma.campaignDocument.update({
         where: { id: documentId },
-        data: { postedAt: new Date(), postedTo: "farcaster" },
+        data: { postedAt: new Date(), postedTo: "farcaster", postedUrl: result.url ?? null },
       });
       revalidatePath(`/campaign-creator/${doc.campaignId}`);
       return { ok: true, url: result.url, platform: "farcaster" };
