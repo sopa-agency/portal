@@ -52,6 +52,7 @@ type CampaignDocument = {
   updatedAt: Date;
   postedAt: Date | null;
   postedTo?: string | null;
+  postedUrl?: string | null;
   scheduledFor: Date | null;
 };
 
@@ -379,6 +380,7 @@ export function CampaignFolderShell({
           </div>
         ) : selected.kind === "hive" ||
           selected.kind === "hive_mag" ||
+          selected.kind === "paragraph" ||
           selected.kind === "farcaster" ||
           selected.kind === "tweets" ||
           selected.kind === "discord" ||
@@ -391,6 +393,7 @@ export function CampaignFolderShell({
               updatedAt: selected.updatedAt,
               postedAt: selected.postedAt,
               postedTo: selected.postedTo ?? null,
+              postedUrl: selected.postedUrl ?? null,
             }}
             kind={selected.kind}
             brand={brand}

@@ -12,7 +12,7 @@ import { CampaignArtifactActions } from "@/components/campaign-artifact-actions"
 import { ageFromDate } from "@/lib/utils";
 
 /** Kinds that have a rich channel-accurate preview (everything but brief/email/markdown). */
-type PreviewableKind = "hive" | "hive_mag" | "farcaster" | "tweets" | "discord" | "binance" | "doc";
+type PreviewableKind = "hive" | "hive_mag" | "paragraph" | "farcaster" | "tweets" | "discord" | "binance" | "doc";
 
 type PanelDoc = {
   id: string;
@@ -81,7 +81,7 @@ export function CampaignDocumentPanel({
             initialContent={content}
             editorOnly
             bare
-            imageKind={kind === "doc" || kind === "binance" ? undefined : kind}
+            imageKind={kind === "doc" || kind === "binance" || kind === "paragraph" ? undefined : kind}
             onContentChange={onContentChange}
           />
         )}
