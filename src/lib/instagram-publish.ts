@@ -553,6 +553,37 @@ async function postFirstComment(
   }
 }
 
+/**
+ * Instagram so aceita **JPEG** em foto. Um PNG volta da Graph API como
+ * "Only photo or video can be accepted as media type." — mensagem que parece
+ * dizer que o arquivo nao e imagem, quando o problema e o formato.
+ *
+ * Faz um HEAD em cada URL e devolve a primeira que nao serve. Nao baixa o
+ * arquivo: o content-type do gateway e o mesmo que a Meta vai ler.
+ */
+async function primeiroMediaInvalido(urls: string[]): Promise<string | null> {
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    if (!url) continue;
+    let tipo: string | null = null;
+    try {
+      const r = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(10_000) });
+      if (!r.ok) {
+        return `Slide ${i + 1}: a URL respondeu HTTP ${r.status}. A Meta busca a imagem pela internet, entao ela precisa estar publica.`;
+      }
+      tipo = r.headers.get("content-type");
+    } catch {
+      // Rede instavel nao e motivo para bloquear o envio — deixa a Meta decidir.
+      return null;
+    }
+    if (!tipo) continue;
+    const t = tipo.split(";")[0]!.trim().toLowerCase();
+    if (t === "image/jpeg" || t === "image/jpg" || t.startsWith("video/")) continue;
+    return `Slide ${i + 1} e ${t}. O Instagram so aceita JPEG em foto — converta antes de publicar (PNG, WebP e HEIC sao recusados).`;
+  }
+  return null;
+}
+
 export async function publishInstagramPost(
   project: ProjectConfig,
   input: IgPostInput,
@@ -567,6 +598,13 @@ export async function publishInstagramPost(
     }
 
     const { type, caption, mediaUrls, firstComment } = input;
+
+    // Pre-voo: a Meta recusa formato errado com uma mensagem que nao diz qual
+    // arquivo nem qual formato. Melhor falhar aqui, apontando o slide.
+    if (type !== "REELS") {
+      const problema = await primeiroMediaInvalido(mediaUrls);
+      if (problema) return { ok: false, error: problema };
+    }
     const collaborators = sanitiseCollaborators(input.collaborators);
     const collabParam: Record<string, string | boolean> = collaborators
       ? { collaborators: JSON.stringify(collaborators) }
