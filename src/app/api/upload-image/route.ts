@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { SESSION_COOKIE, sessionTokenFromRequest } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { uploadImageToPinata } from "@/lib/social-publish";
+import { uploadImagemHive } from "@/lib/hive-image-upload";
+import { getActiveProject } from "@/projects";
 
 /**
  * Uma imagem sobe, uma URL volta.
@@ -11,8 +13,9 @@ import { uploadImageToPinata } from "@/lib/social-publish";
  * tela vale mais que três parágrafos descrevendo o que estava na tela. O card
  * do GitHub é markdown, então basta a URL.
  *
- * O trabalho pesado já existia em `uploadImageToPinata` (o mesmo caminho que as
- * campanhas usam); aqui só entra a autenticação.
+ * Vai para `images.hive.blog` — o mesmo lugar onde o SkateHive publica e onde as
+ * imagens das campanhas já moram. É de graça e não consome cota nossa. O Pinata
+ * fica como reserva, para o caso de o projeto ativo não ter chave de posting.
  */
 
 export const runtime = "nodejs";
@@ -42,7 +45,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Imagem grande demais (máx. 15 MB)." }, { status: 413 });
   }
 
-  const r = await uploadImageToPinata(file);
-  if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 502 });
-  return NextResponse.json({ ok: true, url: r.url });
+  const project = await getActiveProject();
+
+  const hive = await uploadImagemHive(file, project);
+  if (hive.ok) return NextResponse.json({ ok: true, url: hive.url, via: "hive" });
+
+  // Reserva: sem chave de posting no projeto ativo, ainda dá para publicar. O
+  // motivo da primeira falha vai junto — senão o Pinata acaba mascarando uma
+  // chave mal configurada que ninguém vai consertar.
+  const pinata = await uploadImageToPinata(file);
+  if (pinata.ok) return NextResponse.json({ ok: true, url: pinata.url, via: "pinata", avisoHive: hive.error });
+
+  return NextResponse.json(
+    { ok: false, error: `Hive: ${hive.error} · Pinata: ${pinata.error}` },
+    { status: 502 },
+  );
 }
