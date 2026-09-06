@@ -35,6 +35,13 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     username: (await verifySession(token))?.username ?? null,
-    projects: permitidos.map(({ p }) => ({ slug: p.slug, name: p.name })),
+    // `subdomain` existe quando o portal da marca não vive em <slug>.sopa.team.
+    // A extensão monta a URL com ele: chamando o host do próprio projeto, o
+    // middleware já o torna o projeto ativo e não é preciso targetProjectSlug.
+    projects: permitidos.map(({ p }) => ({
+      slug: p.slug,
+      name: p.name,
+      subdomain: p.subdomain ?? p.slug,
+    })),
   });
 }
