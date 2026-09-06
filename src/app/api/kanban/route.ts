@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getActiveProject, getAllProjects } from "@/projects";
-import { SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE, sessionTokenFromRequest } from "@/lib/auth";
 import { authorize, verifySession } from "@/lib/team-access";
 import {
   addItemComment,
@@ -62,11 +62,11 @@ async function teamGithubLogins(projectSlug: string): Promise<{ username: string
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   const project = await getActiveProject();
 
   const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
+  const token = sessionTokenFromRequest(req, cookieStore.get(SESSION_COOKIE)?.value);
   const who = await authorize(token, project);
   if (!who) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -162,7 +162,7 @@ type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "ensureLabels" | "createIssue"
-    | "convertDraft" | "aiBody" | "setPriority" | "setDeadline" | "setOwner" | "setReviewers" | "reopen";
+    | "convertDraft" | "aiBody" | "aiDraft" | "setPriority" | "setDeadline" | "setOwner" | "setReviewers" | "reopen";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
   projectId?: string;
@@ -203,7 +203,7 @@ export async function POST(req: Request) {
   const project = await getActiveProject();
 
   const cookieStore = await cookies();
-  const sessionToken = cookieStore.get(SESSION_COOKIE)?.value;
+  const sessionToken = sessionTokenFromRequest(req, cookieStore.get(SESSION_COOKIE)?.value);
   const session = await verifySession(sessionToken, project);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -222,12 +222,17 @@ export async function POST(req: Request) {
   // aggregated board passes targetProjectSlug to move a card on ANOTHER portal's
   // board — allowed only if the viewer also has a session on that project.
   let token = resolveGitHubToken(project);
+  // O projeto cujo BOARD será tocado. Antes só o token trocava, e quem criava
+  // card em outro projeto acabava criando no board do projeto ativo — passava
+  // despercebido porque a view agregada da SOPA sempre carregava o board antes.
+  let boardProject = project;
   if (targetProjectSlug && targetProjectSlug !== project.slug) {
     const target = getAllProjects().find((p) => p.slug === targetProjectSlug);
     if (!target) return NextResponse.json({ ok: false, error: "Unknown target project" }, { status: 400 });
     const allowed = await verifySession(sessionToken, target);
     if (!allowed) return NextResponse.json({ ok: false, error: "Not authorized for that project" }, { status: 403 });
     token = resolveGitHubToken(target);
+    boardProject = target;
   }
   if (!token) {
     return NextResponse.json({ ok: false, error: "GITHUB_TOKEN not set" }, { status: 500 });
@@ -240,7 +245,7 @@ export async function POST(req: Request) {
     if (!title?.trim()) {
       return NextResponse.json({ ok: false, error: "title required" }, { status: 400 });
     }
-    const board = await fetchGitHubProject(project);
+    const board = await fetchGitHubProject(boardProject);
     if (!board.ok) {
       return NextResponse.json({ ok: false, error: board.error }, { status: 400 });
     }
@@ -251,6 +256,53 @@ export async function POST(req: Request) {
       body: body.body,
     });
     return NextResponse.json(result, { status: result.ok ? 200 : 500 });
+  }
+
+  // aiDraft: texto cru (digitado ou ditado) -> { title, body } prontos para virar
+  // card. Diferente de aiBody, que já parte de um título existente: aqui a pessoa
+  // despejou uma ideia solta e o agente do projeto tem de achar o título dentro
+  // dela. Usado pela extensão de kanban da equipe.
+  if (action === "aiDraft") {
+    const bruto = (body.body ?? "").trim();
+    if (!bruto) {
+      return NextResponse.json({ ok: false, error: "body required" }, { status: 400 });
+    }
+    const { callOpenClaw } = await import("@/lib/openclaw-gateway");
+    const prompt = [
+      `Você ajuda a manter o board do projeto ${boardProject.name}.`,
+      `Abaixo está uma anotação solta de um membro da equipe — pode ter vindo de ditado,`,
+      `então espere frases quebradas, repetição e erro de transcrição.`,
+      ``,
+      `Transforme em UM card de tarefa.`,
+      ``,
+      `Anotação:`,
+      bruto.slice(0, 4000),
+      ``,
+      `Responda SOMENTE com JSON, sem cerca de código, neste formato:`,
+      `{"title": "...", "body": "..."}`,
+      ``,
+      `title: uma linha, imperativo, específico, no idioma da anotação. Sem prefixo de tipo.`,
+      `body: markdown. Um parágrafo curto de contexto e, se a anotação sustentar,`,
+      `"## Critérios de aceite" em bullets. NÃO invente requisito que a anotação não implica —`,
+      `anotação vaga vira card curto, e tudo bem.`,
+    ].join("\n");
+    try {
+      const cru = (await callOpenClaw(prompt, boardProject.agent.id, { project: boardProject, timeoutMs: 180_000 })).trim();
+      // O agente às vezes devolve o JSON dentro de uma cerca; tolerar isso é mais
+      // barato que insistir no prompt.
+      const limpo = cru.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+      const parsed = JSON.parse(limpo) as { title?: string; body?: string };
+      const title = (parsed.title ?? "").trim();
+      if (!title) throw new Error("sem título");
+      return NextResponse.json({ ok: true, title, body: (parsed.body ?? "").trim() });
+    } catch (err) {
+      // Falhar aqui não pode custar a anotação da pessoa: a extensão cai para
+      // criar o card com o texto cru, então o erro é informativo, não fatal.
+      return NextResponse.json({
+        ok: false,
+        error: err instanceof Error ? err.message : "O agente não devolveu um card utilizável.",
+      });
+    }
   }
 
   // Fire priority (1🔥..5🔥) + deadline are portal-owned (DB), so they need no

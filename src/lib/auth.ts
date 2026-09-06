@@ -160,5 +160,27 @@ export async function verifyChallenge(token: string | undefined): Promise<string
   }
 }
 
+/**
+ * O token de sessão do request, venha de onde vier.
+ *
+ * O cookie `portal_session` é `SameSite=Lax`, então ele NÃO acompanha uma
+ * requisição cross-site — o que exclui qualquer cliente que não seja o próprio
+ * site. A extensão de kanban da equipe resolve isso lendo o cookie pela API
+ * `chrome.cookies` (é para isso que a permissão existe) e reenviando o MESMO
+ * token no header `Authorization: Bearer`.
+ *
+ * Nada de credencial nova: é o mesmo token assinado, com a mesma validade e o
+ * mesmo alcance. Deslogou do portal, a extensão para junto.
+ */
+export function sessionTokenFromRequest(
+  req: Request,
+  cookieValue?: string | undefined,
+): string | undefined {
+  if (cookieValue) return cookieValue;
+  const auth = req.headers.get("authorization") ?? "";
+  const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
+  return m?.[1]?.trim() || undefined;
+}
+
 export const SESSION_MAX_AGE = SESSION_DURATION_SECONDS;
 export const CHALLENGE_MAX_AGE = CHALLENGE_DURATION_SECONDS;
