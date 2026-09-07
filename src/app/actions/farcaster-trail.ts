@@ -16,7 +16,20 @@ import type { ProjectConfig } from "@/projects/types";
 // project, kind=reply). The human generates an on-brand draft with AI, edits,
 // and posts it as this portal's Farcaster account.
 
-const AI_TIMEOUT_MS = 60_000;
+/**
+ * Quanto esperamos o agente. Os 30s originais eram otimistas: o mesmo agente
+ * tem 180s no kanban e 285s nas campanhas, e passava disso rotineiramente —
+ * o corte vinha daqui, não do gateway. Ajustável por ambiente.
+ */
+const AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 120_000);
+
+/** Erro de espera esgotada vira frase; qualquer outro passa como está. */
+function erroDeIA(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  return /timed out|timeout|aborted/i.test(m)
+    ? "O agente demorou demais para responder. Tente de novo — se repetir, ele pode estar ocupado com outra tarefa."
+    : m || "Falha na IA.";
+}
 
 export type TrailItem = {
   actionId: string;
@@ -265,7 +278,7 @@ async function draftForAction(
     );
     draft = raw.trim().replace(/^["']|["']$/g, "").slice(0, 280);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Falha na IA." };
+    return { ok: false, error: erroDeIA(e) };
   }
 
   await prisma.farcasterTrailAction.update({ where: { id: action.id }, data: { draft } }).catch(() => {});

@@ -63,7 +63,20 @@ export async function toggleInstagramCommentHidden(
 // AI reply suggestion — a short, human, on-brand draft for a comment.
 // ---------------------------------------------------------------------------
 
-const AI_TIMEOUT_MS = 30_000;
+/**
+ * Quanto esperamos o agente. Os 30s originais eram otimistas: o mesmo agente
+ * tem 180s no kanban e 285s nas campanhas, e passava disso rotineiramente —
+ * o corte vinha daqui, não do gateway. Ajustável por ambiente.
+ */
+const AI_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 120_000);
+
+/** Erro de espera esgotada vira frase; qualquer outro passa como está. */
+function erroDeIA(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  return /timed out|timeout|aborted/i.test(m)
+    ? "O agente demorou demais para responder. Tente de novo — se repetir, ele pode estar ocupado com outra tarefa."
+    : m || "Falha na IA.";
+}
 
 function igReplyPrompt(project: ProjectConfig, commentText: string, caption?: string): string {
   const voice = project.socials.find((s) => s.voice)?.voice ?? `${project.name}'s authentic, culture-native voice`;
@@ -100,6 +113,6 @@ export async function generateInstagramReply(
     });
     return { ok: true, draft: raw.trim().replace(/^["']|["']$/g, "").slice(0, 300) };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Falha na IA." };
+    return { ok: false, error: erroDeIA(e) };
   }
 }
