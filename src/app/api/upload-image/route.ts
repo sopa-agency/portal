@@ -47,7 +47,13 @@ export async function POST(req: Request) {
 
   const project = await getActiveProject();
 
-  const hive = await uploadImagemHive(file, project);
+  // Conta e chave podem vir do cliente (os ajustes da extensão). Quando vêm,
+  // mandam — é a pessoa dizendo por qual conta ela quer publicar. Nunca são
+  // registradas em log: chave de posting em log é chave vazada.
+  const contaCliente = String(form.get("hiveAccount") ?? "").trim() || undefined;
+  const chaveCliente = String(form.get("hiveKey") ?? "").trim() || undefined;
+
+  const hive = await uploadImagemHive(file, project, { conta: contaCliente, chave: chaveCliente });
   if (hive.ok) return NextResponse.json({ ok: true, url: hive.url, via: "hive" });
 
   // Reserva: sem chave de posting no projeto ativo, ainda dá para publicar. O
