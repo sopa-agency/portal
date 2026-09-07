@@ -1369,3 +1369,232 @@ export async function fetchOpenPullRequests(project: ProjectConfig): Promise<Ope
   prsCache.set(key, { data: out, expires: Date.now() + 300_000 });
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Mover um card de um board para outro
+// ---------------------------------------------------------------------------
+
+/**
+ * O mínimo de um board para receber um card: o id do projeto e as opções da
+ * coluna de Status.
+ *
+ * Existe separado de `fetchGitHubProject` porque aquele traz os itens todos,
+ * paginando — caro demais para uma pergunta que é só "qual é o id daqui e quais
+ * colunas você tem".
+ */
+export async function fetchProjectMeta(project: ProjectConfig): Promise<
+  MutationResult<{
+    projectId: string;
+    title: string;
+    statusFieldId: string | null;
+    statusOptions: { id: string; name: string }[];
+  }>
+> {
+  const token = resolveGitHubToken(project);
+  if (!token) return { ok: false, error: "GITHUB_TOKEN not set" };
+  if (!project.githubProject) return { ok: false, error: "No GitHub project configured" };
+  const { org, number } = project.githubProject;
+  const query = `query($org: String!, $number: Int!) {
+    organization(login: $org) { projectV2(number: $number) {
+      id title
+      field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
+    } }
+    user(login: $org) { projectV2(number: $number) {
+      id title
+      field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
+    } }
+  }`;
+  type Node = {
+    id: string;
+    title: string;
+    field?: { id?: string; options?: { id: string; name: string }[] } | null;
+  };
+  const r = await githubGraphQL<{
+    organization?: { projectV2?: Node | null } | null;
+    user?: { projectV2?: Node | null } | null;
+  }>(token, query, { org, number });
+  if (!r.ok) return r;
+  // O board pode estar sob uma organização ou sob uma conta pessoal (o board do
+  // Vlad é `sktbrd/9`). Perguntar os dois de uma vez custa o mesmo que um.
+  const p = r.data.organization?.projectV2 ?? r.data.user?.projectV2;
+  if (!p) return { ok: false, error: `Board ${org}/${number} não encontrado` };
+  return {
+    ok: true,
+    projectId: p.id,
+    title: p.title,
+    statusFieldId: p.field?.id ?? null,
+    statusOptions: p.field?.options ?? [],
+  };
+}
+
+export type ItemForMove = {
+  itemId: string;
+  type: "issue" | "pr" | "draft";
+  contentId: string | null;
+  title: string;
+  body: string;
+  assignees: string[];
+  /** Nome da coluna de origem — usado para achar a coluna de mesmo nome no destino. */
+  status: string | null;
+};
+
+/**
+ * Lê o card na origem para reconstruí-lo no destino.
+ *
+ * Lê do GitHub em vez de aceitar o que o cliente mandou: o corpo na tela pode
+ * estar velho, e um rascunho recriado a partir de um corpo velho perde texto
+ * sem ninguém perceber — o original já foi apagado quando dava para conferir.
+ */
+export async function readItemForMove(
+  token: string,
+  itemId: string,
+): Promise<MutationResult<{ item: ItemForMove }>> {
+  const query = `query($id: ID!) { node(id: $id) { ... on ProjectV2Item {
+    id
+    content {
+      __typename
+      ... on DraftIssue { id title body assignees(first: 10) { nodes { login } } }
+      ... on Issue { id title body }
+      ... on PullRequest { id title body }
+    }
+    fieldValues(first: 20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
+      name field { ... on ProjectV2SingleSelectField { name } }
+    } } }
+  } } }`;
+  type Content = {
+    __typename?: string;
+    id?: string;
+    title?: string;
+    body?: string;
+    assignees?: { nodes?: { login: string }[] };
+  };
+  const r = await githubGraphQL<{
+    node?: {
+      content?: Content | null;
+      fieldValues?: { nodes?: { name?: string; field?: { name?: string } }[] };
+    } | null;
+  }>(token, query, { id: itemId });
+  if (!r.ok) return r;
+  const node = r.data.node;
+  if (!node?.content) return { ok: false, error: "Card não encontrado na origem" };
+  const c = node.content;
+  const type = c.__typename === "PullRequest" ? "pr" : c.__typename === "Issue" ? "issue" : "draft";
+  const status =
+    (node.fieldValues?.nodes ?? []).find((f) => f?.field?.name === "Status")?.name ?? null;
+  return {
+    ok: true,
+    item: {
+      itemId,
+      type,
+      contentId: c.id ?? null,
+      title: c.title ?? "(sem título)",
+      body: c.body ?? "",
+      assignees: (c.assignees?.nodes ?? []).map((a) => a.login),
+      status,
+    },
+  };
+}
+
+/** Põe uma issue/PR que já existe num board. Idempotente: já estando lá, devolve o item existente. */
+export async function addExistingContentToProject(args: {
+  token: string;
+  projectId: string;
+  contentId: string;
+}): Promise<MutationResult<{ itemId: string }>> {
+  const query = `mutation($projectId: ID!, $contentId: ID!) {
+    addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) { item { id } }
+  }`;
+  const r = await githubGraphQL<{ addProjectV2ItemById: { item: { id: string } } }>(
+    args.token,
+    query,
+    args,
+  );
+  if (!r.ok) return r;
+  return { ok: true, itemId: r.data.addProjectV2ItemById.item.id };
+}
+
+/**
+ * Move um card para o board de outro projeto.
+ *
+ * São dois caminhos, porque no GitHub são duas coisas diferentes:
+ *
+ * - **Issue/PR** move de verdade. O conteúdo mora no repositório, não no board,
+ *   então basta adicioná-lo ao board de destino e tirá-lo do de origem. Número,
+ *   comentários, histórico e link continuam os mesmos.
+ * - **Rascunho** não move: ele mora DENTRO do board e o GitHub não tem mutação
+ *   para transferi-lo. O jeito é recriar no destino e apagar na origem. O texto
+ *   e os responsáveis vão junto; o que se perde é a data de criação e os campos
+ *   próprios do board de origem que não existem no destino. Rascunho não tem
+ *   comentário no GitHub, então não há conversa para perder.
+ *
+ * A ordem é sempre **cria antes, apaga depois**. Se a criação falhar, nada
+ * aconteceu; se a remoção falhar, o card fica nos dois lugares — chato, mas
+ * recuperável com um clique. O contrário apagaria o card e o texto junto.
+ */
+export async function moveItemToProject(args: {
+  sourceToken: string;
+  sourceProjectId: string;
+  targetToken: string;
+  targetProjectId: string;
+  item: ItemForMove;
+  /** Coluna do destino, quando existe uma equivalente. */
+  targetStatus?: { fieldId: string; optionId: string } | null;
+}): Promise<MutationResult<{ itemId: string; recreated: boolean; leftBehind: boolean }>> {
+  const { item } = args;
+
+  let novoItemId: string;
+  const recreated = item.type === "draft" || !item.contentId;
+
+  if (!recreated) {
+    const add = await addExistingContentToProject({
+      token: args.targetToken,
+      projectId: args.targetProjectId,
+      contentId: item.contentId!,
+    });
+    if (!add.ok) return add;
+    novoItemId = add.itemId;
+  } else {
+    const add = await addDraftIssue({
+      token: args.targetToken,
+      projectId: args.targetProjectId,
+      title: item.title,
+      body: item.body,
+    });
+    if (!add.ok) return add;
+    novoItemId = add.itemId;
+    if (item.assignees.length && add.contentId) {
+      // Best-effort: perder o responsável não justifica desfazer uma mudança que
+      // já deu certo, e o dono de verdade no portal é o `owner` do CardPriority.
+      const ids: Record<string, string> = await resolveUserIds(
+        args.targetToken,
+        item.assignees,
+      ).catch(() => ({}));
+      const validos = item.assignees.map((l) => ids[l.toLowerCase()]).filter(Boolean);
+      if (validos.length)
+        await setDraftAssignees({
+          token: args.targetToken,
+          draftId: add.contentId,
+          assigneeIds: validos,
+        }).catch(() => {});
+    }
+  }
+
+  // Coluna equivalente no destino, quando há. Best-effort pelo mesmo motivo.
+  if (args.targetStatus) {
+    await setItemStatus({
+      token: args.targetToken,
+      projectId: args.targetProjectId,
+      itemId: novoItemId,
+      fieldId: args.targetStatus.fieldId,
+      optionId: args.targetStatus.optionId,
+    }).catch(() => {});
+  }
+
+  const del = await deleteItem({
+    token: args.sourceToken,
+    projectId: args.sourceProjectId,
+    itemId: item.itemId,
+  });
+
+  return { ok: true, itemId: novoItemId, recreated, leftBehind: !del.ok };
+}

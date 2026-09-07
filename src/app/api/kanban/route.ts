@@ -18,6 +18,9 @@ import {
   fetchItemComments,
   fetchRepoMeta,
   moveItemPosition,
+  moveItemToProject,
+  fetchProjectMeta,
+  readItemForMove,
   resolveGitHubToken,
   resolveUserIds,
   setDraftAssignees,
@@ -31,6 +34,48 @@ import { getTeamRoster } from "@/lib/team-roster";
 import { getTeamMessageOptions } from "@/lib/team-messaging";
 import { loadCardMeta } from "@/lib/card-meta";
 import { prisma } from "@/lib/prisma";
+
+/**
+ * Separa o corpo do card do prompt-para-o-agente numa resposta só.
+ *
+ * É um comentário HTML de propósito: se o agente errar e deixar o marcador no
+ * texto, ele some na renderização do markdown em vez de aparecer como lixo no
+ * meio da descrição.
+ */
+const AGENT_PROMPT_MARK = "<!--PROMPT-DO-AGENTE-->";
+
+/**
+ * A coluna do board de destino que quer dizer a mesma coisa que a da origem.
+ *
+ * Os boards não combinaram nomes entre si: a SOPA usa Backlog·Ready·In
+ * progress·In review·Done e o BurnDownWallStreet usa Todo·In Progress·Done.
+ * Sem tradução, todo card movido cairia sem status e alguém teria de reposicionar
+ * um por um — que é exatamente o trabalho manual que mover existe para evitar.
+ *
+ * Nome igual ganha. Não havendo, procura na mesma família. Não achando família,
+ * devolve null e o card chega sem status — visível e à espera de alguém, que é
+ * melhor que chutar uma coluna errada e o card sumir dentro de "Done".
+ */
+const FAMILIAS = [
+  ["backlog", "todo", "to do", "a fazer", "icebox"],
+  ["ready", "next", "pronto", "selecionado"],
+  ["in progress", "in-progress", "doing", "fazendo", "em andamento", "wip"],
+  ["in review", "review", "revisão", "em revisão", "revisao"],
+  ["done", "concluído", "concluido", "shipped", "complete", "completed", "feito"],
+];
+
+function colunaEquivalente(
+  origem: string | null,
+  opcoes: { id: string; name: string }[],
+): { id: string; name: string } | null {
+  if (!origem) return null;
+  const alvo = origem.trim().toLowerCase();
+  const exata = opcoes.find((o) => o.name.trim().toLowerCase() === alvo);
+  if (exata) return exata;
+  const familia = FAMILIAS.find((f) => f.includes(alvo));
+  if (!familia) return null;
+  return opcoes.find((o) => familia.includes(o.name.trim().toLowerCase())) ?? null;
+}
 
 /** Strip "@", full profile URLs, and whitespace from a stored GitHub contact value. */
 function normalizeGithubLogin(value: string): string {
@@ -162,9 +207,12 @@ type Body = {
   action:
     | "setStatus" | "clearStatus" | "move" | "addDraft" | "addDraftAuto" | "archive" | "delete" | "setAssignees"
     | "updateContent" | "getComments" | "addComment" | "repoMeta" | "setLabels" | "ensureLabels" | "createIssue"
-    | "convertDraft" | "aiBody" | "aiDraft" | "setPriority" | "setDeadline" | "setOwner" | "setReviewers" | "reopen";
+    | "moveToProject" | "convertDraft" | "aiBody" | "aiDraft" | "setPriority" | "setDeadline" | "setOwner" | "setReviewers" | "reopen";
   /** Mutate another portal's board (SOPA aggregated view) instead of the active one. */
   targetProjectSlug?: string;
+  /** moveToProject — o espaço PARA ONDE o card vai. Não confundir com targetProjectSlug,
+      que diz de qual board o card é HOJE. */
+  destProjectSlug?: string;
   projectId?: string;
   fieldId?: string;
   itemId?: string;
@@ -182,7 +230,7 @@ type Body = {
   // updateContent / createIssue / addComment
   newTitle?: string;
   newBody?: string;
-  // repoMeta / createIssue — "owner/name"
+  // repoMeta / createIssue / aiBody — "owner/name"
   repo?: string;
   // setLabels
   addLabelIds?: string[];
@@ -391,6 +439,116 @@ export async function POST(req: Request) {
     return NextResponse.json(r, { status: r.ok ? 200 : 500 });
   }
 
+  // Mover um card para o board de outro projeto.
+  //
+  // Nasceu de um problema real: tarefa da Gnars parada no kanban da SOPA. Antes
+  // a única saída era recriar à mão no lugar certo e apagar aqui — o que perde
+  // fogo, prazo, dono e a discussão junto.
+  //
+  // Resolve os dois ids de board no servidor em vez de aceitar do cliente:
+  // quem chama sabe o slug do destino, não o id do node.
+  if (action === "moveToProject") {
+    if (!itemId) return NextResponse.json({ ok: false, error: "itemId required" }, { status: 400 });
+    const destSlug = body.destProjectSlug;
+    const dest = getAllProjects().find((p) => p.slug === destSlug);
+    if (!dest || !dest.githubProject)
+      return NextResponse.json({ ok: false, error: "Espaço de destino desconhecido" }, { status: 400 });
+    if (dest.slug === boardProject.slug)
+      return NextResponse.json({ ok: false, error: "O card já está nesse espaço." }, { status: 400 });
+
+    // Acesso aos DOIS lados. Só ler o destino não basta: mover é escrever lá.
+    if (!(await verifySession(sessionToken, dest)))
+      return NextResponse.json({ ok: false, error: `Você não tem acesso a ${dest.name}.` }, { status: 403 });
+    const destToken = resolveGitHubToken(dest);
+    if (!destToken)
+      return NextResponse.json({ ok: false, error: "GITHUB_TOKEN not set" }, { status: 500 });
+
+    const lido = await readItemForMove(token, itemId);
+    if (!lido.ok) return NextResponse.json(lido, { status: 400 });
+
+    // Uma bounty aberta amarra a tarefa ao COFRE do projeto onde ela nasceu.
+    // Levar o card embora deixaria a promessa de pagamento órfã, apontando para
+    // um Safe que não é mais o do board. Quem move resolve a bounty primeiro.
+    const chave = lido.item.contentId ?? itemId;
+    const bounty = await prisma.bounty
+      .findFirst({
+        where: { projectSlug: boardProject.slug, taskKey: chave, status: { in: ["open", "proposed"] } },
+        select: { status: true, amount: true, tokenSymbol: true },
+      })
+      .catch(() => null);
+    if (bounty)
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Este card tem uma bounty ${bounty.status === "proposed" ? "proposta" : "aberta"} de ${bounty.amount} ${bounty.tokenSymbol}, que sai do cofre de ${boardProject.name}. Cancele ou pague antes de mover.`,
+        },
+        { status: 409 },
+      );
+
+    const [origem, destino] = await Promise.all([
+      fetchProjectMeta(boardProject),
+      fetchProjectMeta(dest),
+    ]);
+    if (!origem.ok) return NextResponse.json(origem, { status: 400 });
+    if (!destino.ok) return NextResponse.json(destino, { status: 400 });
+
+    const coluna = colunaEquivalente(lido.item.status, destino.statusOptions);
+    const r = await moveItemToProject({
+      sourceToken: token,
+      sourceProjectId: origem.projectId,
+      targetToken: destToken,
+      targetProjectId: destino.projectId,
+      item: lido.item,
+      targetStatus:
+        destino.statusFieldId && coluna ? { fieldId: destino.statusFieldId, optionId: coluna.id } : null,
+    });
+    if (!r.ok) return NextResponse.json(r, { status: 500 });
+
+    // O id do item MUDA sempre — item de projeto é por board, mesmo quando a
+    // issue é a mesma. Sem levar a linha junto, fogo, prazo, dono e revisores
+    // ficariam apontando para um card que não existe mais.
+    const meta = await prisma.cardPriority.findUnique({ where: { itemId } }).catch(() => null);
+    if (meta) {
+      await prisma
+        .$transaction([
+          prisma.cardPriority.deleteMany({ where: { itemId } }),
+          prisma.cardPriority.create({
+            data: {
+              itemId: r.itemId,
+              priority: meta.priority,
+              deadline: meta.deadline,
+              owner: meta.owner,
+              reviewers: meta.reviewers,
+              projectSlug: dest.slug,
+              updatedBy: session.username,
+            },
+          }),
+        ])
+        .catch(() => {});
+    }
+
+    // Os comentários do portal (CardNote) são chaveados por (projectSlug,
+    // cardKey), e as DUAS metades mudaram. Sem isto a discussão do card ficaria
+    // no board antigo, sem card nenhum para exibi-la.
+    await prisma.cardNote
+      .updateMany({
+        where: { projectSlug: boardProject.slug, cardKey: itemId },
+        data: { projectSlug: dest.slug, cardKey: r.itemId },
+      })
+      .catch(() => {});
+
+    return NextResponse.json({
+      ok: true,
+      itemId: r.itemId,
+      project: { slug: dest.slug, name: dest.name },
+      /** true = rascunho recriado (perde a data de criação); false = a issue é a mesma. */
+      recreated: r.recreated,
+      /** true = criou no destino mas não conseguiu tirar da origem: está nos dois. */
+      leftBehind: r.leftBehind,
+      column: coluna?.name ?? null,
+    });
+  }
+
   if (!projectId) {
     return NextResponse.json({ ok: false, error: "projectId is required" }, { status: 400 });
   }
@@ -537,6 +695,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "title required" }, { status: 400 });
       const { callOpenClaw } = await import("@/lib/openclaw-gateway");
       const current = (body.body ?? "").trim();
+      const repoDica = body.repo?.trim();
       const prompt = [
         `You help maintain the ${project.name} GitHub project board.`,
         `Write the body for this card in GitHub-flavored markdown.`,
@@ -545,17 +704,31 @@ export async function POST(req: Request) {
         current
           ? `Current body (improve it — keep its intent and every concrete detail, tighten the rest):\n${current.slice(0, 4000)}`
           : `The card has no body yet — draft one from the title.`,
+        repoDica ? `Repository this board works in: ${repoDica}` : ``,
         ``,
         `Structure: one short context paragraph, then "## Acceptance criteria" as bullets; add a "## Tasks" checklist only when the work clearly splits into steps. Be specific and concise — do not invent requirements beyond what the title and current body imply.`,
         `Reply with ONLY the markdown body — no preamble, no surrounding code fence.`,
-      ].join("\n");
+        ``,
+        // Segunda seção, opcional. O card que descreve um conserto já contém tudo
+        // que um agente de codificação precisa para começar — só não no formato
+        // que se cola num terminal. Quem for consertar reescrevia isso à mão toda
+        // vez. O marcador deixa a resposta com duas partes sem precisar de JSON,
+        // que o agente quebra com mais frequência do que uma linha literal.
+        `THEN, only if this card is CODE work (fix a bug, change behaviour, implement something in a repository), write the marker ${AGENT_PROMPT_MARK} alone on its own line, and after it a prompt ready to paste into a coding agent (Claude Code) already running inside the repository.`,
+        `That prompt must: state what is wrong or missing and how to reproduce it, point at where to look when the card gives a clue, say what counts as done, and ask the agent to investigate before changing anything. Address the agent directly in the second person, no greeting, no preamble, and do not wrap it in a code fence.`,
+        `If the card is NOT code work (a meeting, a post, a design, a decision), do not write the marker at all.`,
+      ]
+        .filter(Boolean)
+        .join("\n");
       try {
         const generated = await callOpenClaw(prompt, project.agent.id, {
           project,
           timeoutMs: 180_000,
         });
-        result = generated.trim()
-          ? { ok: true as const, body: generated.trim() }
+        const [corpo, ...resto] = generated.split(AGENT_PROMPT_MARK);
+        const agentPrompt = resto.join(AGENT_PROMPT_MARK).trim();
+        result = corpo.trim()
+          ? { ok: true as const, body: corpo.trim(), agentPrompt: agentPrompt || null }
           : { ok: false as const, error: "Agent returned an empty body" };
       } catch (err) {
         result = {
