@@ -6,7 +6,7 @@ import { authorize } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import { apurar, elegiveis, validarCedula, vetorParaContrato, type Cedula } from "@/lib/split-vote";
-import { getSplitDistributeConfig } from "@/lib/splits";
+import { getSplitDistributeConfig, getSplitOwner } from "@/lib/splits";
 import { fetchOnchainRevenueCached } from "@/lib/revenue-onchain";
 import { JANELA_MS } from "@/lib/split-vote-weekly";
 import { calcularMerito, PONTOS_DE_MERITO, type Merito } from "@/lib/merit";
@@ -182,7 +182,7 @@ export async function fecharRodada(roundId: string): Promise<{ ok: true } | { ok
  * é transformar um voto em dinheiro antes de a urna terminar.
  */
 export async function vetorParaAplicar(roundId: string): Promise<
-  | { ok: true; splitAddress: string; chain: string; recipients: string[]; allocations: string[]; totalAllocation: string; distributionIncentive: number }
+  | { ok: true; owner: string | null; splitAddress: string; chain: string; recipients: string[]; allocations: string[]; totalAllocation: string; distributionIncentive: number }
   | { ok: false; error: string }
 > {
   const g = await porta();
@@ -206,8 +206,15 @@ export async function vetorParaAplicar(roundId: string): Promise<
   const atual = await getSplitDistributeConfig(round.splitAddress, round.chain);
   if (!atual) return { ok: false, error: "Não consegui ler a configuração atual do split — sem ela eu apagaria o incentivo de distribuição." };
 
+    // Quem pode assinar. Sem isto, carteira errada reverte com "execution
+    // reverted" e nada mais — e o dono não é adivinhável na tela. Nulo quando
+    // a leitura falha: não saber é diferente de não bater, e a tela deixa passar.
+    const dono = await getSplitOwner(round.splitAddress, round.chain);
+
+
   return {
     ok: true,
+    owner: dono,
     splitAddress: round.splitAddress,
     chain: round.chain,
     recipients: vetor.recipients,

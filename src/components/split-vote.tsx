@@ -469,6 +469,18 @@ function AplicarNoContrato({
       if (!eth) return setErro("Nenhuma carteira encontrada neste navegador.");
       const conta = address ?? (await connect());
       if (!conta) return;
+
+      // `updateSplit` é onlyOwner. Assinando com outra carteira, a cadeia responde
+      // "execution reverted" e mais nada — sem dizer que o problema é quem assina,
+      // nem quem deveria. Conferir aqui troca um erro opaco por uma frase que
+      // resolve sozinha.
+      if (pronto.owner && conta.toLowerCase() !== pronto.owner.toLowerCase()) {
+        return setErro(
+          `Este split pertence a ${pronto.owner}, e você está conectado como ${conta}. ` +
+            "Troque de conta na carteira e tente de novo.",
+        );
+      }
+
       await ensureChain(round.chain === "base" ? "0x2105" : "0x1");
 
       // Encoding manual da struct: um único tuple dinâmico, então o head é o
