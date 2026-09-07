@@ -1394,12 +1394,15 @@ export async function fetchProjectMeta(project: ProjectConfig): Promise<
   if (!token) return { ok: false, error: "GITHUB_TOKEN not set" };
   if (!project.githubProject) return { ok: false, error: "No GitHub project configured" };
   const { org, number } = project.githubProject;
-  const query = `query($org: String!, $number: Int!) {
-    organization(login: $org) { projectV2(number: $number) {
+  // O board pode estar sob uma organização (sopa-agency) ou sob uma conta
+  // pessoal (o board do Vlad é sktbrd/9), e não dá para saber qual sem
+  // perguntar. Perguntamos os dois de uma vez — custa o mesmo que um.
+  const query = `query($login: String!, $number: Int!) {
+    organization(login: $login) { projectV2(number: $number) {
       id title
       field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
     } }
-    user(login: $org) { projectV2(number: $number) {
+    user(login: $login) { projectV2(number: $number) {
       id title
       field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
     } }
@@ -1409,22 +1412,39 @@ export async function fetchProjectMeta(project: ProjectConfig): Promise<
     title: string;
     field?: { id?: string; options?: { id: string; name: string }[] } | null;
   };
-  const r = await githubGraphQL<{
-    organization?: { projectV2?: Node | null } | null;
-    user?: { projectV2?: Node | null } | null;
-  }>(token, query, { org, number });
-  if (!r.ok) return r;
-  // O board pode estar sob uma organização ou sob uma conta pessoal (o board do
-  // Vlad é `sktbrd/9`). Perguntar os dois de uma vez custa o mesmo que um.
-  const p = r.data.organization?.projectV2 ?? r.data.user?.projectV2;
-  if (!p) return { ok: false, error: `Board ${org}/${number} não encontrado` };
-  return {
-    ok: true,
-    projectId: p.id,
-    title: p.title,
-    statusFieldId: p.field?.id ?? null,
-    statusOptions: p.field?.options ?? [],
-  };
+  // Fetch cru em vez de `githubGraphQL`: perguntando organization E user, uma
+  // das duas SEMPRE devolve NOT_FOUND, e `githubGraphQL` trata qualquer entrada
+  // em `errors` como falha — o que reprovaria toda chamada. O GitHub responde
+  // 200 com os dois campos, um preenchido e o outro null, que é o que importa.
+  // É o mesmo tratamento que `fetchGitHubProject` faz logo acima.
+  try {
+    const res = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { Authorization: `bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables: { login: org, number } }),
+      cache: "no-store",
+    });
+    if (!res.ok) return { ok: false, error: `GitHub API returned HTTP ${res.status}` };
+    const json = (await res.json()) as {
+      data?: { organization?: { projectV2?: Node | null } | null; user?: { projectV2?: Node | null } | null };
+      errors?: { message: string }[];
+    };
+    const p = json.data?.organization?.projectV2 ?? json.data?.user?.projectV2;
+    if (!p) {
+      // Nenhum dos dois: aí o erro do GitHub é o motivo de verdade (token sem
+      // acesso, board apagado) e vale mais que um "não encontrado" nosso.
+      return { ok: false, error: json.errors?.[0]?.message ?? `Board ${org}/${number} não encontrado` };
+    }
+    return {
+      ok: true,
+      projectId: p.id,
+      title: p.title,
+      statusFieldId: p.field?.id ?? null,
+      statusOptions: p.field?.options ?? [],
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Unexpected error" };
+  }
 }
 
 export type ItemForMove = {
