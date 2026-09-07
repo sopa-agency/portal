@@ -107,8 +107,15 @@ async function parConfere(conta: string, chave: string): Promise<boolean | null>
 export async function uploadImagemHive(
   file: File,
   project: ProjectConfig,
+  override?: { conta?: string; chave?: string },
 ): Promise<ResultadoUpload> {
-  const cred = credenciais(project);
+  // Credencial vinda do cliente ganha de tudo: é a pessoa escolhendo por qual
+  // conta publicar. Exige o par completo — meia dupla é o erro que devolve 400
+  // sem dizer por quê, e aqui ele seria ainda mais confuso, porque metade viria
+  // do navegador e metade do servidor.
+  const cred = override?.conta?.trim() && override?.chave?.trim()
+    ? { conta: override.conta.trim(), chave: override.chave.trim() }
+    : credenciais(project);
   if (!cred) {
     return { ok: false, error: "Nenhuma conta de imagem configurada (IMAGE_UPLOAD_HIVE_ACCOUNT/_KEY)." };
   }

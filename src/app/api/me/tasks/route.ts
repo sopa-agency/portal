@@ -25,6 +25,8 @@ type Tarefa = {
   itemId: string;
   projectSlug: string;
   projectName: string;
+  /** Subdomínio do portal da marca — o cliente monta a URL do board com ele. */
+  subdomain: string;
   title: string;
   url: string | null;
   priority: number;
@@ -145,6 +147,10 @@ export async function GET(req: Request) {
       itemId: l.itemId,
       projectSlug: l.projectSlug,
       projectName: getProject(l.projectSlug).name,
+      // Rascunho não tem página no GitHub. Sem isto, clicar numa tarefa não faz
+      // nada — e a maioria dos nossos cards é rascunho, então o clique morto
+      // era a regra, não a exceção.
+      subdomain: getProject(l.projectSlug).subdomain ?? l.projectSlug,
       title: c.title,
       url: c.url,
       priority: l.priority,
