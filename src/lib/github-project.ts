@@ -447,9 +447,19 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       items: columnMap.get(opt.name) ?? [],
     }));
 
-    // Always append a "No Status" column (the drop target for clearing status),
-    // even when empty, so cards can be dragged back out of a status.
-    columns.push({ name: "No Status", items: noStatusItems });
+    // "No Status" não é coluna do GitHub — é nossa, e serve para uma coisa só:
+    // ser o alvo de arrastar para LIMPAR o status de um card. Ela aparecia
+    // sempre, e como nenhum board tem card sem status, o que todo mundo via era
+    // uma coluna vazia permanente ocupando a largura da tela.
+    //
+    // Passa a aparecer só quando tem card dentro — quando alguém de fato
+    // precisa dela para arrumar o que ficou sem status. O preço, dito por
+    // inteiro: com ela escondida não há como limpar o status de um card, porque
+    // arrastar para cá é o único caminho que existe (ver clearStatus no board).
+    // Ninguém pediu para criar card sem status, então a troca vale.
+    if (noStatusItems.length > 0) {
+      columns.push({ name: "No Status", items: noStatusItems });
+    }
 
     return {
       ok: true,
