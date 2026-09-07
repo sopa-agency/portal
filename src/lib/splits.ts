@@ -51,7 +51,8 @@ const BLOCKSCOUT: Record<string, string> = {
   base: "https://base.blockscout.com",
 };
 
-// RPCs proven to serve a full-range, address-filtered `eth_getLogs` in one shot.
+// RPCs que servem `eth_getLogs` filtrado por endereço. NÃO aceitam mais faixa
+// completa numa tacada — ver readViaRpc, que varre para trás em janelas.
 // Tried in order; the loop skips any that cap the range or error out.
 // Cada entrada foi PROVADA contra o split real (0xAccF0d…) com fromBlock 0x0 →
 // latest: as sete abaixo devolveram o log SplitUpdated numa tacada. Os RPCs
@@ -63,10 +64,11 @@ const BLOCKSCOUT: Record<string, string> = {
 // medido, e uma rede ausente aqui falha FECHADA (readSplitRaw devolve null) em
 // vez de ler a rede errada.
 const LOG_RPCS: Record<string, string[]> = {
-  // mainnet.base.org entrou depois de medido: e o unico RPC publico de Base que
-  // aceitou eth_getLogs de faixa completa nos testes (publicnode exige token de
-  // archive, llamarpc devolveu HTML). Fica por ultimo, como rede de seguranca
-  // quando os dois da Tenderly nao respondem.
+  // Ordem medida em 07/09/2026, com a varredura janelada: os dois da Tenderly
+  // RECUSAM a consulta por faixa e a função desiste deles na primeira janela;
+  // quem entrega é o mainnet.base.org, em 24 requisições. Eles ficam à frente
+  // porque o dia em que voltarem a servir eles respondem mais rápido — e o custo
+  // de tentar é uma requisição por endpoint.
   base: [
     "https://base.gateway.tenderly.co",
     "https://gateway.tenderly.co/public/base",
@@ -122,33 +124,72 @@ async function readViaBlockscout(host: string, address: string): Promise<SplitRa
   };
 }
 
-/** Source 2 — raw `eth_getLogs`, decoded here (oldest-first, so take the last). */
+/**
+ * Source 2 — raw `eth_getLogs`, varrendo PARA TRÁS em janelas.
+ *
+ * A versão anterior pedia `fromBlock: 0x0, toBlock: latest` numa tacada, e o
+ * comentário acima registra que os endpoints aceitavam isso quando foi escrito.
+ * **Não aceitam mais.** Hoje respondem `Block range too large` (Tenderly) e
+ * `eth_getLogs is limited to a 10,000 range` (mainnet.base.org). O socorro
+ * projetado para a queda do Blockscout tinha apodrecido junto — e as duas
+ * fontes caírem ao mesmo tempo é o que impedia aplicar o split.
+ *
+ * Só interessa o ÚLTIMO `SplitUpdated`, então varremos do bloco atual para
+ * trás e paramos no primeiro acerto. Medido contra o split real da SOPA em
+ * 07/09/2026: 24 requisições para chegar ao evento de 02/09. Um split que não
+ * muda há muito tempo custa mais, e por isso há um teto — melhor devolver null
+ * e deixar o chamador recusar do que varrer a cadeia inteira.
+ */
+const JANELA = BigInt(9000);
+const MAX_JANELAS = 120; // ~1,08M blocos ≈ 25 dias na Base
+
+async function jsonRpc<T>(rpc: string, method: string, params: unknown[]): Promise<T | null> {
+  try {
+    const res = await fetch(rpc, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: AbortSignal.timeout(9000),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { result?: T; error?: unknown };
+    if (json.error || json.result === undefined) return null;
+    return json.result;
+  } catch {
+    return null;
+  }
+}
+
 async function readViaRpc(chain: string, address: string): Promise<SplitRaw | null> {
   const rpcs = LOG_RPCS[chain] ?? [];
   for (const rpc of rpcs) {
-    try {
-      const res = await fetch(rpc, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        signal: AbortSignal.timeout(9000),
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_getLogs",
-          params: [{ address, topics: [SPLIT_UPDATED_TOPIC], fromBlock: "0x0", toBlock: "latest" }],
-        }),
-      });
-      if (!res.ok) continue;
-      const json = (await res.json()) as { result?: Array<{ data: `0x${string}` }> };
-      const logs = json.result;
-      if (!Array.isArray(logs) || logs.length === 0) continue; // capped range / no event → next rpc
+    const topo = await jsonRpc<string>(rpc, "eth_blockNumber", []);
+    if (!topo) continue;
 
-      // eth_getLogs returns ascending block order; the last is the live config.
-      const [cfg] = decodeAbiParameters(SPLIT_TUPLE, logs[logs.length - 1].data);
-      const [addrs, allocs, total, incentive] = cfg as unknown as [readonly string[], readonly bigint[], bigint, number];
-      return { addrs: [...addrs], allocs: [...allocs], total, incentive: Number(incentive) };
-    } catch {
-      // try the next endpoint
+    let fim = BigInt(topo);
+    const ZERO = BigInt(0);
+    const UM = BigInt(1);
+    for (let i = 0; i < MAX_JANELAS && fim > ZERO; i++) {
+      const ini = fim > JANELA ? fim - JANELA : ZERO;
+      const logs = await jsonRpc<Array<{ data: `0x${string}` }>>(rpc, "eth_getLogs", [
+        {
+          address,
+          topics: [SPLIT_UPDATED_TOPIC],
+          fromBlock: `0x${ini.toString(16)}`,
+          toBlock: `0x${fim.toString(16)}`,
+        },
+      ]);
+      // null aqui é erro do endpoint (faixa, rate limit): desiste dele e tenta o
+      // próximo, em vez de martelar uma janela que ele não vai servir.
+      if (logs === null) break;
+      if (logs.length > 0) {
+        // Dentro da janela a ordem é crescente; o último é a config viva.
+        const [cfg] = decodeAbiParameters(SPLIT_TUPLE, logs[logs.length - 1].data);
+        const [addrs, allocs, total, incentive] = cfg as unknown as [readonly string[], readonly bigint[], bigint, number];
+        return { addrs: [...addrs], allocs: [...allocs], total, incentive: Number(incentive) };
+      }
+      if (ini === ZERO) break;
+      fim = ini - UM;
     }
   }
   return null;
