@@ -29,20 +29,31 @@ type Tarefa = {
   subdomain: string;
   title: string;
   url: string | null;
+  /** O card no board do GitHub. Existe para rascunho também, ao contrário de `url`. */
+  cardUrl: string | null;
   priority: number;
   deadline: string | null;
   status: string | null;
+};
+
+type Resolvido = {
+  title: string;
+  url: string | null;
+  cardUrl: string | null;
+  status: string | null;
+  vivo: boolean;
 };
 
 /** Títulos + status de vários cards de UM board, numa consulta só. */
 async function resolverCards(
   token: string,
   ids: string[],
-): Promise<Map<string, { title: string; url: string | null; status: string | null; vivo: boolean }>> {
-  const out = new Map<string, { title: string; url: string | null; status: string | null; vivo: boolean }>();
+): Promise<Map<string, Resolvido>> {
+  const out = new Map<string, Resolvido>();
   if (!ids.length) return out;
   const query = `query($ids:[ID!]!){ nodes(ids:$ids){ ... on ProjectV2Item {
-    id isArchived
+    id isArchived databaseId
+    project{ number owner{ ... on Organization{login} ... on User{login} } }
     content{ ... on DraftIssue{title} ... on Issue{title url state} ... on PullRequest{title url state} }
     fieldValues(first:20){ nodes{ ... on ProjectV2ItemFieldSingleSelectValue{ name field{ ... on ProjectV2SingleSelectField{name} } } } }
   } } }`;
@@ -66,9 +77,23 @@ async function resolverCards(
     const status = campos[0]?.name ?? null;
     const fechado = content.state === "CLOSED" || content.state === "MERGED";
     const pronto = /done|conclu|shipped|complete/i.test(status ?? "");
+    // O card EM SI, não o board. Um rascunho não tem página no GitHub, mas todo
+    // item de projeto tem um `databaseId` que abre o painel dele — é o mesmo
+    // link que o GitHub gera ao clicar num card. Sem isto, clicar numa tarefa
+    // levava à página genérica do kanban, o que é quase tão inútil quanto não
+    // levar a lugar nenhum.
+    const proj = (n.project ?? {}) as { number?: number; owner?: { login?: string } };
+    const dono = proj.owner?.login;
+    const dbId = n.databaseId as number | undefined;
+    const cardUrl =
+      dono && proj.number && dbId
+        ? `https://github.com/orgs/${dono}/projects/${proj.number}?pane=issue&itemId=${dbId}`
+        : null;
+
     out.set(id, {
       title: content.title ?? "(sem título)",
       url: content.url ?? null,
+      cardUrl,
       status,
       vivo: !n.isArchived && !fechado && !pronto,
     });
@@ -129,13 +154,13 @@ export async function GET(req: Request) {
     porProjeto.get(l.projectSlug)!.push(l.itemId);
   }
 
-  const resolvidos = new Map<string, Awaited<ReturnType<typeof resolverCards>> extends Map<string, infer V> ? V : never>();
+  const resolvidos = new Map<string, Resolvido>();
   await Promise.all(
     [...porProjeto.entries()].map(async ([slug, ids]) => {
       const proj = getProject(slug);
       const gh = resolveGitHubToken(proj);
       if (!gh) return;
-      const m = await resolverCards(gh, ids).catch(() => new Map());
+      const m = await resolverCards(gh, ids).catch(() => new Map<string, Resolvido>());
       for (const [k, v] of m) resolvidos.set(k, v);
     }),
   );
@@ -153,6 +178,7 @@ export async function GET(req: Request) {
       subdomain: getProject(l.projectSlug).subdomain ?? l.projectSlug,
       title: c.title,
       url: c.url,
+      cardUrl: c.cardUrl,
       priority: l.priority,
       deadline: l.deadline ? l.deadline.toISOString() : null,
       status: c.status,
