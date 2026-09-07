@@ -1,4 +1,9 @@
 export const dynamic = "force-dynamic";
+// Esta página dispara geração pelo OpenClaw (legenda, resposta a snap, resposta
+// a comentário do Instagram). Sem isto a função da Vercel corta a requisição
+// antes de o agente responder, e o erro chega como "timeout" sem dizer de quem.
+// Mesmo pino que o campaign-creator e a home já usam.
+export const maxDuration = 300;
 
 import { PageHeader } from "@/components/page-header";
 import { getDictionary } from "@/lib/i18n/server";
