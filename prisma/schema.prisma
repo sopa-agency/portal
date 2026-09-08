@@ -634,6 +634,11 @@ model CardPriority {
   owner       String? // GitHub login of the task OWNER (ultimate responsible)
   reviewers   String[]  @default([]) // GitHub logins requested to REVIEW the card (like git reviewers)
   projectSlug String?
+  /// Quem criou o card, no portal. Precisa ser nosso: TODO card nasce pelo mesmo
+  /// GITHUB_TOKEN, então o `creator` do GitHub é sempre a mesma conta e não
+  /// responde "quem da equipe pediu isto". Null nos cards anteriores a este
+  /// campo — não havia registro nenhum para preencher retroativamente.
+  createdBy   String?
   updatedBy   String?
   updatedAt   DateTime  @updatedAt
 }

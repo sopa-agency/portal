@@ -39,6 +39,12 @@ export type KanbanItem = {
   owner?: string;
   /** GitHub logins requested to REVIEW the card (like git reviewers). From CardPriority. */
   reviewers?: string[];
+  /**
+   * Quem criou o card, no portal. Vem do CardPriority, não do GitHub: todo card
+   * nasce pelo mesmo token, então o `creator` de lá é a mesma conta para todos.
+   * Ausente nos cards criados antes deste campo existir.
+   */
+  createdBy?: string;
 };
 
 export type KanbanColumn = {
@@ -1173,6 +1179,7 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
       it.deadline = m.deadline;
       it.owner = m.owner;
       it.reviewers = m.reviewers;
+      it.createdBy = m.createdBy;
     }
   }
   for (const items of colItems.values()) items.sort(compareByPriority);

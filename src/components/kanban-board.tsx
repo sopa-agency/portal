@@ -1898,6 +1898,38 @@ export function CardDetailDialog({
                 </button>
               ) : null}
             </div>
+            {/* Quem criou. Só aparece quando existe: os cards anteriores a este
+                campo não têm registro nenhum, e não havia de onde tirar — o
+                `creator` do GitHub é a mesma conta para todos, porque todo card
+                nasce pelo token do portal. Uma linha "criado por —" seria só
+                ruído repetido em cada card velho. */}
+            {item.createdBy && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-foreground-faint">
+                  Criado por
+                </span>
+                {(() => {
+                  const membro = team.find(
+                    (t) => t.username && t.username.toLowerCase() === item.createdBy!.toLowerCase(),
+                  );
+                  return (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-foreground-muted">
+                      {membro ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={membro.avatarUrl}
+                          alt=""
+                          width={16}
+                          height={16}
+                          className="h-4 w-4 rounded-full object-cover"
+                        />
+                      ) : null}
+                      @{item.createdBy}
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {!editing && (
