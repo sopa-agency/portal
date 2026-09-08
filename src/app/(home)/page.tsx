@@ -23,7 +23,8 @@ import { getActiveProject, getAllProjects } from "@/projects";
 import { SopaBriefing, type SopaActionGroup } from "@/components/sopa-briefing";
 import { ForYou, type ForYouMention } from "@/components/for-you";
 import { KanbanActivity } from "@/components/kanban-activity";
-import { fetchKanbanActivity } from "@/lib/github-project";
+import { KanbanProgress, type BoardProgress } from "@/components/kanban-progress";
+import { fetchKanbanActivity, fetchAggregatedBoards } from "@/lib/github-project";
 import { MeetingCoordination } from "@/components/meeting-coordination";
 import { getOpenMeetingActions } from "@/lib/meetings-context";
 import { cookies } from "next/headers";
@@ -39,6 +40,54 @@ import { SchedulerHealth } from "@/components/scheduler-health";
 // Direction B home (from the Claude Design handoff): summary band with the
 // at-a-glance numbers up top, then Morning brief and Socials SIDE BY SIDE —
 // no more top-level tab toggle hiding half the page.
+
+/**
+ * O agregado vem organizado por COLUNA (é assim que o board da SOPA o desenha),
+ * e aqui a gente precisa por BOARD. A virada é essa.
+ *
+ * Os boards não combinaram nomes entre si, então a classificação é por família
+ * e não por igualdade. Coluna que não cai em família nenhuma entra como
+ * backlog: é o balde certo para "existe e ninguém está tocando", e some da
+ * conta só o que está em Done — tarefa concluída não é progresso pendente.
+ */
+const COL_ANDAMENTO = /in[\s-]?progress|em andamento|doing|wip/i;
+const COL_REVISAO = /in[\s-]?review|revis/i;
+const COL_PRONTAS = /ready|pronto|selecionad/i;
+const COL_DONE = /done|conclu|complete|shipped|feito|encerrad|arquivad/i;
+
+function resumirBoards(
+  columns: { name: string; items: { board: string; projectSlug: string; accent: string }[] }[],
+  // O nome do PORTAL, não o título do board no GitHub ("Skatehive Kanban",
+  // "SOPA · Reorg & Ops"). O resto do portal chama esses projetos de SkateHive
+  // e SOPA, e um rótulo diferente aqui faz a pessoa procurar um board que não
+  // existe com esse nome em lugar nenhum — além de não caber na coluna.
+  nomes: Record<string, string>,
+): BoardProgress[] {
+  const porBoard = new Map<string, BoardProgress>();
+  for (const col of columns) {
+    if (COL_DONE.test(col.name)) continue;
+    const faixa: keyof Omit<BoardProgress, "slug" | "name" | "accent"> = COL_ANDAMENTO.test(col.name)
+      ? "andamento"
+      : COL_REVISAO.test(col.name)
+        ? "revisao"
+        : COL_PRONTAS.test(col.name)
+          ? "prontas"
+          : "backlog";
+    for (const it of col.items) {
+      let b = porBoard.get(it.projectSlug);
+      if (!b) {
+        b = { slug: it.projectSlug, name: nomes[it.projectSlug] ?? it.board, accent: it.accent, andamento: 0, revisao: 0, prontas: 0, backlog: 0 };
+        porBoard.set(it.projectSlug, b);
+      }
+      b[faixa]++;
+    }
+  }
+  // Quem tem mais trabalho em curso primeiro — é a linha que alguém lendo de
+  // cima para baixo precisa ver antes de decidir onde entrar.
+  return [...porBoard.values()].sort(
+    (a, b) => b.andamento + b.revisao - (a.andamento + a.revisao) || b.backlog - a.backlog,
+  );
+}
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -151,20 +200,28 @@ export default async function Home() {
 
     // GitHub kanban activity across every portal's board (straight from GitHub).
     // Open action items from recent meetings → Coordenação panel.
-    const [activity, openActions] = await Promise.all([
+    // O estado das colunas (agregado, cacheado 5 min) alimenta a barra de
+    // progresso — é a única fonte que enxerga rascunho.
+    const [activity, openActions, agregado] = await Promise.all([
       fetchKanbanActivity(80).catch(() => []),
       getOpenMeetingActions().catch(() => []),
+      fetchAggregatedBoards().catch(() => ({ columns: [], errors: [] })),
     ]);
     const projectNames = Object.fromEntries(getAllProjects().map((p) => [p.slug, p.name]));
+    const boardProgress = resumirBoards(agregado.columns, projectNames);
 
     return (
       <div className="space-y-7">
         <PageHeader eyebrow={`Daily · ${today}`} title="SOPA" description="Resumo de next actions de todos os portais." />
         <SchedulerHealth />
         {forYou ? <ForYou username={forYou.username} tasks={forYou.tasks} mentions={forYou.mentions} /> : null}
-        <MeetingCoordination actions={openActions} projectNames={projectNames} today={today} />
+        {/* Ordem deliberada: o kanban anda todo dia e é o que responde "como
+            estamos"; a coordenação de reuniões anda em saltos, e nem toda
+            reunião é gravada — então ela informa, mas não abre a página. */}
+        <KanbanProgress boards={boardProgress} />
         <SopaBriefing groups={groups} today={today} />
         <KanbanActivity events={activity} />
+        <MeetingCoordination actions={openActions} projectNames={projectNames} today={today} />
       </div>
     );
   }

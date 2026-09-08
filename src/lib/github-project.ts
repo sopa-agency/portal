@@ -1124,7 +1124,16 @@ export type AggregatedItem = KanbanItem & {
 export type AggregatedColumn = { name: string; items: AggregatedItem[] };
 
 /** Fetch + merge ALL portals' GitHub Project boards into one (read-only). */
+// Seis boards buscados em série, cada um paginando. É a única fonte que enxerga
+// RASCUNHO — e a maioria dos nossos cards é rascunho, então contar por evento do
+// GitHub (que só existe para issue/PR) mostraria um board quase parado. O preço
+// é a lentidão, e o cache de 5 min é o que torna possível chamá-la de uma página
+// que carrega o tempo todo, como o home da SOPA.
+let _aggCache: { data: { columns: AggregatedColumn[]; errors: string[] }; expires: number } | null = null;
+const AGG_TTL_MS = 5 * 60 * 1000;
+
 export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColumn[]; errors: string[] }> {
+  if (_aggCache && _aggCache.expires > Date.now()) return _aggCache.data;
   const { getAllProjects } = await import("@/projects/index");
   const seen = new Set<string>();
   const colItems = new Map<string, AggregatedItem[]>();
@@ -1168,7 +1177,11 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
   }
   for (const items of colItems.values()) items.sort(compareByPriority);
 
-  return { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };
+  const out = { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };
+  // Só cacheia resultado íntegro: guardar por 5 min um board que falhou
+  // esconderia a falha e faria a barra mentir sobre o tamanho do trabalho.
+  if (!errors.length) _aggCache = { data: out, expires: Date.now() + AGG_TTL_MS };
+  return out;
 }
 
 // ---------------------------------------------------------------------------
