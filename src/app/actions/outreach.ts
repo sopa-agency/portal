@@ -200,14 +200,19 @@ function formatDate(ms: number, locale: "pt-BR" | "en-US"): string {
   return new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(ms));
 }
 
-/** A first name to greet with: display name's first word when it's a real name, else the handle. */
+/**
+ * What to greet with: the display name's first word when it's a real name,
+ * else "@handle". Measured on the lapsed segment (2026-09-08): 71 of 74 have
+ * no display name, so the greeting is almost always the handle — with the
+ * "@" it reads as a Hive identity ("E aí, @ratoskatejf"), not an odd name.
+ */
 function firstNameOf(displayName: string | null | undefined, handle: string | null | undefined): string {
   const dn = (displayName ?? "").trim();
   if (dn && !/^wallet\s+0x/i.test(dn) && dn.toLowerCase() !== (handle ?? "").toLowerCase()) {
     const first = dn.split(/\s+/)[0];
     if (first.length >= 2) return first;
   }
-  return handle || "skater";
+  return handle ? `@${handle}` : "skater";
 }
 
 function escHtml(s: string): string {
