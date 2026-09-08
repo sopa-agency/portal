@@ -36,6 +36,49 @@ import { loadCardMeta } from "@/lib/card-meta";
 import { prisma } from "@/lib/prisma";
 
 /**
+ * A linha do CardPriority só some quando NÃO sobrou nada nela.
+ *
+ * Antes cada ação olhava só os campos que ela própria mexia: limpar o fogo
+ * apagava a linha inteira sem consultar `owner` nem `reviewers`, então tirar o
+ * fogo de um card tirava o dono junto, em silêncio. Com a autoria morando na
+ * mesma linha o estrago seria pior — fogo e dono se recolocam à mão, mas quem
+ * criou o card não se recupera de lugar nenhum.
+ */
+function linhaVazia(r: {
+  priority: number;
+  deadline: Date | null;
+  owner: string | null;
+  reviewers: string[];
+  createdBy: string | null;
+}): boolean {
+  return !r.priority && !r.deadline && !r.owner && !r.reviewers.length && !r.createdBy;
+}
+
+/**
+ * Grava quem criou o card, na mesma linha que já guarda fogo, prazo e dono.
+ *
+ * Precisa ser nosso registro: TODO card nasce pelo mesmo GITHUB_TOKEN, então o
+ * `creator` do GitHub é sempre a mesma conta para todos e não responde "quem da
+ * equipe pediu isto". (Dá para conferir: os cards que o portal criou aparecem
+ * lá todos com o mesmo login.)
+ *
+ * `update: {}` de propósito — autoria é escrita uma vez só. Se a linha já
+ * existe, o primeiro autor continua sendo o autor.
+ *
+ * Best-effort: falhar em anotar quem criou não pode derrubar a criação do card.
+ * Um card sem autor é bem menos ruim que um card que não existe.
+ */
+async function registrarAutor(itemId: string, projectSlug: string, username: string) {
+  await prisma.cardPriority
+    .upsert({
+      where: { itemId },
+      create: { itemId, projectSlug, createdBy: username, updatedBy: username },
+      update: {},
+    })
+    .catch(() => {});
+}
+
+/**
  * Separa o corpo do card do prompt-para-o-agente numa resposta só.
  *
  * É um comentário HTML de propósito: se o agente errar e deixar o marcador no
@@ -136,6 +179,7 @@ export async function GET(req: Request) {
       if (m.deadline) it.deadline = m.deadline;
       if (m.owner) it.owner = m.owner;
       if (m.reviewers) it.reviewers = m.reviewers;
+      if (m.createdBy) it.createdBy = m.createdBy;
     }
   }
 
@@ -311,6 +355,7 @@ export async function POST(req: Request) {
       title: title.trim(),
       body: body.body,
     });
+    if (result.ok) await registrarAutor(result.itemId, boardProject.slug, session.username);
     return NextResponse.json(result, { status: result.ok ? 200 : 500 });
   }
 
@@ -377,7 +422,15 @@ export async function POST(req: Request) {
       const d = body.deadline ? new Date(body.deadline) : null;
       deadline = d && !isNaN(d.getTime()) ? d : null;
     }
-    if (!priority && !deadline) {
+    if (
+      linhaVazia({
+        priority,
+        deadline,
+        owner: existing?.owner ?? null,
+        reviewers: existing?.reviewers ?? [],
+        createdBy: existing?.createdBy ?? null,
+      })
+    ) {
       await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
       const tk = process.env.GITHUB_TOKEN?.trim();
       if (tk) void mirrorFireToGithub({ token: tk, itemId, fire: 0 }).catch(() => {});
@@ -407,7 +460,7 @@ export async function POST(req: Request) {
     if (!itemId) return NextResponse.json({ ok: false, error: "itemId required" }, { status: 400 });
     const owner = (body.owner ?? "").trim().toLowerCase() || null;
     const existing = await prisma.cardPriority.findUnique({ where: { itemId } }).catch(() => null);
-    if (!owner && existing && !existing.priority && !existing.deadline) {
+    if (existing && linhaVazia({ ...existing, owner })) {
       await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
       return NextResponse.json({ ok: true, owner: null });
     }
@@ -427,7 +480,7 @@ export async function POST(req: Request) {
       ...new Set((body.reviewers ?? []).map((l) => l.trim().toLowerCase()).filter(Boolean)),
     ];
     const existing = await prisma.cardPriority.findUnique({ where: { itemId } }).catch(() => null);
-    if (!reviewers.length && existing && !existing.priority && !existing.deadline && !existing.owner) {
+    if (existing && linhaVazia({ ...existing, reviewers })) {
       await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
       return NextResponse.json({ ok: true, reviewers: [] });
     }
@@ -528,6 +581,9 @@ export async function POST(req: Request) {
               owner: meta.owner,
               reviewers: meta.reviewers,
               projectSlug: dest.slug,
+              // Quem criou continua sendo quem criou: mudar de board não
+              // transfere autoria para quem arrastou.
+              createdBy: meta.createdBy,
               updatedBy: session.username,
             },
           }),
@@ -788,6 +844,25 @@ export async function POST(req: Request) {
     }
     default:
       return NextResponse.json({ ok: false, error: `Unknown action: ${action}` }, { status: 400 });
+  }
+
+  // Card apagado de vez leva a linha dele junto. Antes a linha ficava órfã, e
+  // isso passava despercebido porque ela era descartada assim que ficava vazia.
+  // Agora a autoria a segura para sempre, então sem esta limpeza o lixo só
+  // cresce. `archive` NÃO entra aqui de propósito: arquivar é recuperável no
+  // GitHub, e voltar um card sem o fogo e o prazo dele seria pior que não voltar.
+  //
+  // CardNote fica: comentário é texto que alguém escreveu, e apagar conversa
+  // como efeito colateral de apagar um card é pior que uma linha órfã.
+  if (action === "delete" && result.ok && itemId) {
+    await prisma.cardPriority.deleteMany({ where: { itemId } }).catch(() => {});
+  }
+
+  // Toda criação de card passa por aqui. Fica depois do switch em vez de dentro
+  // de cada case para não haver um terceiro caminho de criação que alguém
+  // esqueça de instrumentar — o card nasce sem autor e ninguém percebe.
+  if ((action === "addDraft" || action === "createIssue") && result.ok && "itemId" in result) {
+    await registrarAutor(result.itemId as string, boardProject.slug, session.username);
   }
 
   return NextResponse.json(result, { status: result.ok ? 200 : 500 });

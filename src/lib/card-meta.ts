@@ -5,7 +5,14 @@ import { prisma } from "@/lib/prisma";
 // the member-tasks feed (For You), the SOPA aggregated board, and the briefing
 // context. Keeps the CardPriority read logic in one place.
 
-export type CardMeta = { firePriority?: number; deadline?: string; owner?: string; reviewers?: string[] };
+export type CardMeta = {
+  firePriority?: number;
+  deadline?: string;
+  owner?: string;
+  reviewers?: string[];
+  /** Quem criou o card no portal. Ausente nos cards anteriores ao campo. */
+  createdBy?: string;
+};
 
 export async function loadCardMeta(itemIds: string[]): Promise<Map<string, CardMeta>> {
   const ids = [...new Set(itemIds.filter(Boolean))];
@@ -19,6 +26,7 @@ export async function loadCardMeta(itemIds: string[]): Promise<Map<string, CardM
         deadline: r.deadline ? r.deadline.toISOString().slice(0, 10) : undefined,
         owner: r.owner || undefined,
         reviewers: r.reviewers?.length ? r.reviewers : undefined,
+        createdBy: r.createdBy || undefined,
       },
     ]),
   );
