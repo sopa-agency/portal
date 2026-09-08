@@ -10,6 +10,8 @@ export type SendEmailOptions = {
   text: string;
   /** Calendar invite (nodemailer icalEvent): method + raw ICS content. */
   icalEvent?: { method: string; content: string };
+  /** Extra SMTP headers (e.g. List-Unsubscribe for bulk sends). */
+  headers?: Record<string, string>;
 };
 
 export type SendEmailResult =
@@ -56,7 +58,7 @@ function resolveSmtp(prefix?: string): SmtpConfig | null {
 
 export async function sendProjectEmail(
   project: Pick<ProjectConfig, "name" | "agent">,
-  { to, bcc, subject, html, text, icalEvent }: SendEmailOptions,
+  { to, bcc, subject, html, text, icalEvent, headers }: SendEmailOptions,
 ): Promise<SendEmailResult> {
   const prefix = project.agent.gatewayEnvPrefix;
   const smtp = resolveSmtp(prefix);
@@ -81,7 +83,16 @@ export async function sendProjectEmail(
       secure,
       auth: { user, pass },
     });
-    await transporter.sendMail({ from, to, bcc, subject, html, text, ...(icalEvent ? { icalEvent } : {}) });
+    await transporter.sendMail({
+      from,
+      to,
+      bcc,
+      subject,
+      html,
+      text,
+      ...(icalEvent ? { icalEvent } : {}),
+      ...(headers ? { headers } : {}),
+    });
     return { ok: true };
   } catch (err) {
     return {
