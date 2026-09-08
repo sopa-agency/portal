@@ -47,6 +47,7 @@ import {
   Eye,
   Users,
   ChevronDown,
+  FolderInput,
 } from "lucide-react";
 import type { KanbanResult, KanbanColumn, KanbanItem } from "@/lib/github-project";
 import type { BountyDTO } from "@/app/actions/bounty";
@@ -1247,6 +1248,34 @@ function CollapsibleMarkdown({ markdown, githubRepo }: { markdown: string; githu
   );
 }
 
+/**
+ * Três cards do próprio board para a IA copiar o estilo, não o conteúdo.
+ *
+ * Os boards têm convenções de verdade que não estão escritas em lugar nenhum —
+ * o prefixo `[Portal]`/`[Feature]`, o par `👤 Humano:`/`🤖 Agente:`, a medição
+ * com data. Mostrar cards reais ensina isso e acompanha o board quando a
+ * convenção mudar; uma lista chumbada no código envelheceria na semana seguinte.
+ *
+ * Sai de graça: o board já está carregado com os corpos, então isto é uma
+ * varredura em memória, não uma ida ao GitHub.
+ *
+ * A faixa de tamanho é o filtro de qualidade que dá para aplicar sem ler: abaixo
+ * de 250 caracteres é um card de uma linha, que não ensina formato nenhum; acima
+ * de 2200 é um card-dissertação, que ensinaria a escrever demais.
+ */
+function exemplosDoBoard(
+  columns: KanbanColumn[],
+  exceptId: string,
+): { title: string; body: string }[] {
+  return columns
+    .flatMap((c) => c.items)
+    .filter((i) => i.id !== exceptId)
+    .map((i) => ({ title: i.title, body: (i.body ?? "").trim() }))
+    .filter((i) => i.body.length >= 250 && i.body.length <= 2200)
+    .sort((a, b) => b.body.length - a.body.length)
+    .slice(0, 3);
+}
+
 export function CardDetailDialog({
   item,
   team,
@@ -1259,9 +1288,12 @@ export function CardDetailDialog({
   repos,
   defaultRepo,
   statusCtx,
+  currentColumn,
+  styleSamples,
   onSetAssignees,
   onMutate,
   onPatchItem,
+  onMoved,
   onClose,
 }: {
   item: KanbanItem;
@@ -1280,9 +1312,15 @@ export function CardDetailDialog({
   defaultRepo?: string | null;
   /** Board status field + columns — lets the test loop move the card on approve/reject. */
   statusCtx?: { projectId: string; fieldId: string | null; columns: { name: string; optionId?: string }[] };
+  /** Coluna em que este card está — muda o que a IA deve escrever. */
+  currentColumn?: string | null;
+  /** Cards reais do board, de exemplo para a IA pegar o estilo da casa. */
+  styleSamples?: { title: string; body: string }[];
   onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
   onMutate: MutateFn;
   onPatchItem: (itemId: string, patch: Partial<KanbanItem>) => void;
+  /** O card saiu deste board — some com ele daqui. */
+  onMoved?: (itemId: string) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -1377,13 +1415,99 @@ export function CardDetailDialog({
     }
     setAiBusy(true);
     setEditError(null);
-    const r = await onMutate({ action: "aiBody", title, body: current });
+    setAgentPrompt(null);
+    const r = (await onMutate({
+      action: "aiBody",
+      title,
+      body: current,
+      // Sem o repositório o prompt sai genérico ("procure no código"), que é
+      // justamente o que o agente já faria sozinho.
+      repo: repoOf(item.url) ?? issueRepo ?? undefined,
+      // O servidor lê fogo/prazo/dono do banco a partir daqui.
+      itemId: item.id,
+      column: currentColumn ?? undefined,
+      columns: statusCtx?.columns.map((c) => c.name),
+      samples: styleSamples,
+    })) as { ok: boolean; error?: string; body?: string; agentPrompt?: string | null };
     setAiBusy(false);
     if (r.ok && typeof r.body === "string" && r.body.trim()) {
       setDraftBody(r.body.trim());
+      // Só vem quando o card é trabalho de código — o agente decide, e num card
+      // de reunião ou de post o bloco simplesmente não aparece.
+      if (r.agentPrompt?.trim()) setAgentPrompt(r.agentPrompt.trim());
     } else {
       setEditError(r.error ?? "A IA não conseguiu gerar agora.");
     }
+  }
+
+  // --- prompt pronto para colar num agente de codificação ---
+  // Nasce junto com a descrição melhorada: quem acabou de descrever um conserto
+  // é quem vai querer despachá-lo, e reescrever o mesmo texto em formato de
+  // prompt era trabalho manual repetido a cada card.
+  const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
+  const [promptCopied, setPromptCopied] = useState(false);
+  async function copyAgentPrompt() {
+    if (!agentPrompt) return;
+    try {
+      await navigator.clipboard.writeText(agentPrompt);
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 2000);
+    } catch {
+      // Clipboard bloqueado (contexto inseguro/permissão): o texto está à vista
+      // no bloco, então selecionar à mão ainda funciona.
+      setEditError("Não consegui copiar — selecione o texto do prompt à mão.");
+    }
+  }
+
+  // --- mover para outro espaço ---
+  // O card nasce onde a pessoa estava, não onde ele pertence: tarefa da Gnars
+  // acaba no board da SOPA o tempo todo. Sem isto a saída era recriar à mão e
+  // apagar — perdendo fogo, prazo, dono e a conversa no caminho.
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [espacos, setEspacos] = useState<{ slug: string; name: string }[] | null>(null);
+  const [destino, setDestino] = useState("");
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [moveErr, setMoveErr] = useState<string | null>(null);
+
+  async function abrirMover() {
+    setMoveOpen((v) => !v);
+    if (espacos) return;
+    try {
+      const r = await fetch("/api/me/projects", { cache: "no-store" });
+      const j = (await r.json()) as { ok: boolean; projects?: { slug: string; name: string }[] };
+      // Só faz sentido oferecer board em que a pessoa pode escrever, e nunca o
+      // atual. A checagem de verdade é do servidor; isto é para não oferecer
+      // uma opção que só daria 403.
+      setEspacos((j.projects ?? []).filter((p) => p.slug !== projectSlug));
+    } catch {
+      setEspacos([]);
+      setMoveErr("Não consegui listar os espaços agora.");
+    }
+  }
+
+  async function mover() {
+    if (!destino || moveBusy) return;
+    setMoveBusy(true);
+    setMoveErr(null);
+    const r = (await onMutate({
+      action: "moveToProject",
+      itemId: item.id,
+      destProjectSlug: destino,
+    })) as {
+      ok: boolean;
+      error?: string;
+      project?: { name: string };
+      recreated?: boolean;
+      leftBehind?: boolean;
+      column?: string | null;
+    };
+    setMoveBusy(false);
+    if (!r.ok) {
+      setMoveErr(r.error ?? "Não consegui mover o card.");
+      return;
+    }
+    onMoved?.(item.id);
+    onClose();
   }
 
   // --- comments (issues + PRs) ---
@@ -1876,6 +2000,33 @@ export function CardDetailDialog({
             <p className="text-sm italic text-foreground-faint">Sem descrição.</p>
           )}
 
+          {/* Prompt para despachar o card a um agente de codificação. Só existe
+              quando a IA classificou o card como trabalho de código. */}
+          {agentPrompt && (
+            <div className="mt-4 rounded-lg border border-accent-border bg-accent-bg p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent">
+                  <Sparkles className="h-3.5 w-3.5" /> Prompt para o agente
+                </span>
+                <button
+                  type="button"
+                  onClick={copyAgentPrompt}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground"
+                >
+                  {promptCopied ? <Check className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}
+                  {promptCopied ? "Copiado" : "Copiar"}
+                </button>
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground-muted">
+                {agentPrompt}
+              </pre>
+              <p className="mt-2 text-xs text-foreground-faint">
+                Cole num agente rodando dentro do repositório. Ele não é salvo no card — some
+                ao fechar.
+              </p>
+            </div>
+          )}
+
           {/* Reopen a closed issue/PR */}
           {!editing && item.type !== "draft" && item.state === "closed" && item.contentId && (
             <div className="mt-6 border-t border-border pt-4">
@@ -1946,6 +2097,73 @@ export function CardDetailDialog({
                       <MarkdownContent markdown={solveRes.result} githubRepo={issueRepo} />
                     </>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mover o card para o board de outro projeto. */}
+          {!editing && projectSlug && (
+            <div className="mt-6 border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={abrirMover}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground"
+              >
+                <FolderInput className="h-4 w-4" /> Mover para outro espaço
+              </button>
+
+              {moveOpen && (
+                <div className="mt-3 space-y-2">
+                  {espacos === null ? (
+                    <p className="text-xs text-foreground-faint">Carregando espaços…</p>
+                  ) : espacos.length === 0 ? (
+                    <p className="text-xs text-foreground-faint">
+                      Você só tem acesso a este espaço.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SelectMenu
+                          value={destino}
+                          options={espacos.map((e) => ({ value: e.slug, label: e.name }))}
+                          onChange={setDestino}
+                          placeholder="Escolha o espaço"
+                          label="Espaço de destino"
+                          invalid={!destino}
+                          className="max-w-[16rem]"
+                        />
+                        <button
+                          type="button"
+                          onClick={mover}
+                          disabled={!destino || moveBusy}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground transition disabled:opacity-50"
+                        >
+                          {moveBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FolderInput className="h-4 w-4" />
+                          )}
+                          Mover
+                        </button>
+                      </div>
+                      {/* O que muda depende do tipo, e a diferença é grande o
+                          bastante para ser dita ANTES do clique, não depois. */}
+                      {item.type === "draft" ? (
+                        <p className="text-xs text-foreground-subtle">
+                          Rascunho não troca de board no GitHub: ele é recriado no destino com o
+                          mesmo texto e responsáveis, e apagado daqui. Fogo, prazo, dono e os
+                          comentários do portal vão junto — a data de criação recomeça.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-foreground-subtle">
+                          {item.type === "pr" ? "A PR" : "A issue"} continua a mesma: número, link
+                          e comentários do GitHub não mudam. Só o board muda.
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {moveErr && <p className="text-xs text-danger">{moveErr}</p>}
                 </div>
               )}
             </div>
@@ -2613,6 +2831,24 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
     }
   }
 
+  // O card foi para outro board — o servidor já criou lá e apagou aqui. Some
+  // com ele da tela em vez de recarregar o board inteiro: recarregar levaria
+  // segundos e o card sumiria de qualquer jeito.
+  function onMovedToProject(itemId: string) {
+    setBoard((prev) =>
+      prev
+        ? {
+            ...prev,
+            columns: prev.columns.map((c) => ({
+              ...c,
+              items: c.items.filter((i) => i.id !== itemId),
+            })),
+          }
+        : prev,
+    );
+    flash("Card movido de espaço.", "success");
+  }
+
   async function onArchive(itemId: string) {
     if (!board) return;
     setBusy(true);
@@ -3024,9 +3260,12 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
             fieldId: board.statusFieldId,
             columns: board.columns.map((c) => ({ name: c.name, optionId: c.optionId })),
           }}
+          currentColumn={board.columns.find((c) => c.items.some((i) => i.id === detailItem.id))?.name ?? null}
+          styleSamples={exemplosDoBoard(board.columns, detailItem.id)}
           onSetAssignees={onSetAssignees}
           onMutate={(payload) => mutate({ ...payload, projectId: board.projectId })}
           onPatchItem={patchItem}
+          onMoved={onMovedToProject}
           onClose={() => setDetailItem(null)}
         />
       )}

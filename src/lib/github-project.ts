@@ -447,9 +447,19 @@ export async function fetchGitHubProject(project: ProjectConfig): Promise<Kanban
       items: columnMap.get(opt.name) ?? [],
     }));
 
-    // Always append a "No Status" column (the drop target for clearing status),
-    // even when empty, so cards can be dragged back out of a status.
-    columns.push({ name: "No Status", items: noStatusItems });
+    // "No Status" não é coluna do GitHub — é nossa, e serve para uma coisa só:
+    // ser o alvo de arrastar para LIMPAR o status de um card. Ela aparecia
+    // sempre, e como nenhum board tem card sem status, o que todo mundo via era
+    // uma coluna vazia permanente ocupando a largura da tela.
+    //
+    // Passa a aparecer só quando tem card dentro — quando alguém de fato
+    // precisa dela para arrumar o que ficou sem status. O preço, dito por
+    // inteiro: com ela escondida não há como limpar o status de um card, porque
+    // arrastar para cá é o único caminho que existe (ver clearStatus no board).
+    // Ninguém pediu para criar card sem status, então a troca vale.
+    if (noStatusItems.length > 0) {
+      columns.push({ name: "No Status", items: noStatusItems });
+    }
 
     return {
       ok: true,
@@ -1358,4 +1368,253 @@ export async function fetchOpenPullRequests(project: ProjectConfig): Promise<Ope
   out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
   prsCache.set(key, { data: out, expires: Date.now() + 300_000 });
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Mover um card de um board para outro
+// ---------------------------------------------------------------------------
+
+/**
+ * O mínimo de um board para receber um card: o id do projeto e as opções da
+ * coluna de Status.
+ *
+ * Existe separado de `fetchGitHubProject` porque aquele traz os itens todos,
+ * paginando — caro demais para uma pergunta que é só "qual é o id daqui e quais
+ * colunas você tem".
+ */
+export async function fetchProjectMeta(project: ProjectConfig): Promise<
+  MutationResult<{
+    projectId: string;
+    title: string;
+    statusFieldId: string | null;
+    statusOptions: { id: string; name: string }[];
+  }>
+> {
+  const token = resolveGitHubToken(project);
+  if (!token) return { ok: false, error: "GITHUB_TOKEN not set" };
+  if (!project.githubProject) return { ok: false, error: "No GitHub project configured" };
+  const { org, number } = project.githubProject;
+  // O board pode estar sob uma organização (sopa-agency) ou sob uma conta
+  // pessoal (o board do Vlad é sktbrd/9), e não dá para saber qual sem
+  // perguntar. Perguntamos os dois de uma vez — custa o mesmo que um.
+  const query = `query($login: String!, $number: Int!) {
+    organization(login: $login) { projectV2(number: $number) {
+      id title
+      field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
+    } }
+    user(login: $login) { projectV2(number: $number) {
+      id title
+      field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
+    } }
+  }`;
+  type Node = {
+    id: string;
+    title: string;
+    field?: { id?: string; options?: { id: string; name: string }[] } | null;
+  };
+  // Fetch cru em vez de `githubGraphQL`: perguntando organization E user, uma
+  // das duas SEMPRE devolve NOT_FOUND, e `githubGraphQL` trata qualquer entrada
+  // em `errors` como falha — o que reprovaria toda chamada. O GitHub responde
+  // 200 com os dois campos, um preenchido e o outro null, que é o que importa.
+  // É o mesmo tratamento que `fetchGitHubProject` faz logo acima.
+  try {
+    const res = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { Authorization: `bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables: { login: org, number } }),
+      cache: "no-store",
+    });
+    if (!res.ok) return { ok: false, error: `GitHub API returned HTTP ${res.status}` };
+    const json = (await res.json()) as {
+      data?: { organization?: { projectV2?: Node | null } | null; user?: { projectV2?: Node | null } | null };
+      errors?: { message: string }[];
+    };
+    const p = json.data?.organization?.projectV2 ?? json.data?.user?.projectV2;
+    if (!p) {
+      // Nenhum dos dois: aí o erro do GitHub é o motivo de verdade (token sem
+      // acesso, board apagado) e vale mais que um "não encontrado" nosso.
+      return { ok: false, error: json.errors?.[0]?.message ?? `Board ${org}/${number} não encontrado` };
+    }
+    return {
+      ok: true,
+      projectId: p.id,
+      title: p.title,
+      statusFieldId: p.field?.id ?? null,
+      statusOptions: p.field?.options ?? [],
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Unexpected error" };
+  }
+}
+
+export type ItemForMove = {
+  itemId: string;
+  type: "issue" | "pr" | "draft";
+  contentId: string | null;
+  title: string;
+  body: string;
+  assignees: string[];
+  /** Nome da coluna de origem — usado para achar a coluna de mesmo nome no destino. */
+  status: string | null;
+};
+
+/**
+ * Lê o card na origem para reconstruí-lo no destino.
+ *
+ * Lê do GitHub em vez de aceitar o que o cliente mandou: o corpo na tela pode
+ * estar velho, e um rascunho recriado a partir de um corpo velho perde texto
+ * sem ninguém perceber — o original já foi apagado quando dava para conferir.
+ */
+export async function readItemForMove(
+  token: string,
+  itemId: string,
+): Promise<MutationResult<{ item: ItemForMove }>> {
+  const query = `query($id: ID!) { node(id: $id) { ... on ProjectV2Item {
+    id
+    content {
+      __typename
+      ... on DraftIssue { id title body assignees(first: 10) { nodes { login } } }
+      ... on Issue { id title body }
+      ... on PullRequest { id title body }
+    }
+    fieldValues(first: 20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
+      name field { ... on ProjectV2SingleSelectField { name } }
+    } } }
+  } } }`;
+  type Content = {
+    __typename?: string;
+    id?: string;
+    title?: string;
+    body?: string;
+    assignees?: { nodes?: { login: string }[] };
+  };
+  const r = await githubGraphQL<{
+    node?: {
+      content?: Content | null;
+      fieldValues?: { nodes?: { name?: string; field?: { name?: string } }[] };
+    } | null;
+  }>(token, query, { id: itemId });
+  if (!r.ok) return r;
+  const node = r.data.node;
+  if (!node?.content) return { ok: false, error: "Card não encontrado na origem" };
+  const c = node.content;
+  const type = c.__typename === "PullRequest" ? "pr" : c.__typename === "Issue" ? "issue" : "draft";
+  const status =
+    (node.fieldValues?.nodes ?? []).find((f) => f?.field?.name === "Status")?.name ?? null;
+  return {
+    ok: true,
+    item: {
+      itemId,
+      type,
+      contentId: c.id ?? null,
+      title: c.title ?? "(sem título)",
+      body: c.body ?? "",
+      assignees: (c.assignees?.nodes ?? []).map((a) => a.login),
+      status,
+    },
+  };
+}
+
+/** Põe uma issue/PR que já existe num board. Idempotente: já estando lá, devolve o item existente. */
+export async function addExistingContentToProject(args: {
+  token: string;
+  projectId: string;
+  contentId: string;
+}): Promise<MutationResult<{ itemId: string }>> {
+  const query = `mutation($projectId: ID!, $contentId: ID!) {
+    addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) { item { id } }
+  }`;
+  const r = await githubGraphQL<{ addProjectV2ItemById: { item: { id: string } } }>(
+    args.token,
+    query,
+    args,
+  );
+  if (!r.ok) return r;
+  return { ok: true, itemId: r.data.addProjectV2ItemById.item.id };
+}
+
+/**
+ * Move um card para o board de outro projeto.
+ *
+ * São dois caminhos, porque no GitHub são duas coisas diferentes:
+ *
+ * - **Issue/PR** move de verdade. O conteúdo mora no repositório, não no board,
+ *   então basta adicioná-lo ao board de destino e tirá-lo do de origem. Número,
+ *   comentários, histórico e link continuam os mesmos.
+ * - **Rascunho** não move: ele mora DENTRO do board e o GitHub não tem mutação
+ *   para transferi-lo. O jeito é recriar no destino e apagar na origem. O texto
+ *   e os responsáveis vão junto; o que se perde é a data de criação e os campos
+ *   próprios do board de origem que não existem no destino. Rascunho não tem
+ *   comentário no GitHub, então não há conversa para perder.
+ *
+ * A ordem é sempre **cria antes, apaga depois**. Se a criação falhar, nada
+ * aconteceu; se a remoção falhar, o card fica nos dois lugares — chato, mas
+ * recuperável com um clique. O contrário apagaria o card e o texto junto.
+ */
+export async function moveItemToProject(args: {
+  sourceToken: string;
+  sourceProjectId: string;
+  targetToken: string;
+  targetProjectId: string;
+  item: ItemForMove;
+  /** Coluna do destino, quando existe uma equivalente. */
+  targetStatus?: { fieldId: string; optionId: string } | null;
+}): Promise<MutationResult<{ itemId: string; recreated: boolean; leftBehind: boolean }>> {
+  const { item } = args;
+
+  let novoItemId: string;
+  const recreated = item.type === "draft" || !item.contentId;
+
+  if (!recreated) {
+    const add = await addExistingContentToProject({
+      token: args.targetToken,
+      projectId: args.targetProjectId,
+      contentId: item.contentId!,
+    });
+    if (!add.ok) return add;
+    novoItemId = add.itemId;
+  } else {
+    const add = await addDraftIssue({
+      token: args.targetToken,
+      projectId: args.targetProjectId,
+      title: item.title,
+      body: item.body,
+    });
+    if (!add.ok) return add;
+    novoItemId = add.itemId;
+    if (item.assignees.length && add.contentId) {
+      // Best-effort: perder o responsável não justifica desfazer uma mudança que
+      // já deu certo, e o dono de verdade no portal é o `owner` do CardPriority.
+      const ids: Record<string, string> = await resolveUserIds(
+        args.targetToken,
+        item.assignees,
+      ).catch(() => ({}));
+      const validos = item.assignees.map((l) => ids[l.toLowerCase()]).filter(Boolean);
+      if (validos.length)
+        await setDraftAssignees({
+          token: args.targetToken,
+          draftId: add.contentId,
+          assigneeIds: validos,
+        }).catch(() => {});
+    }
+  }
+
+  // Coluna equivalente no destino, quando há. Best-effort pelo mesmo motivo.
+  if (args.targetStatus) {
+    await setItemStatus({
+      token: args.targetToken,
+      projectId: args.targetProjectId,
+      itemId: novoItemId,
+      fieldId: args.targetStatus.fieldId,
+      optionId: args.targetStatus.optionId,
+    }).catch(() => {});
+  }
+
+  const del = await deleteItem({
+    token: args.sourceToken,
+    projectId: args.sourceProjectId,
+    itemId: item.itemId,
+  });
+
+  return { ok: true, itemId: novoItemId, recreated, leftBehind: !del.ok };
 }

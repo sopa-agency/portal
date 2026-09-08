@@ -309,3 +309,26 @@ export async function getSplitDistributeConfig(
     distributionIncentive: raw.incentive,
   };
 }
+
+/**
+ * O dono do split, lido da cadeia.
+ *
+ * `updateSplit` é `onlyOwner`, e uma carteira que não é a dona reverte com
+ * "execution reverted" e mais nada — o erro não diz que o problema é de quem
+ * está assinando. Com o dono na mão, a tela compara antes de mandar e nomeia
+ * as duas pontas.
+ */
+export async function getSplitOwner(address: string, chain: string | null): Promise<string | null> {
+  const rpcs = LOG_RPCS[chain ?? "base"] ?? [];
+  // owner() -> 0x8da5cb5b
+  for (const rpc of rpcs) {
+    const r = await jsonRpc<string>(rpc, "eth_call", [{ to: address, data: "0x8da5cb5b" }, "latest"]);
+    if (typeof r === "string" && r.length >= 66) {
+      const addr = "0x" + r.slice(-40);
+      if (/^0x[0-9a-fA-F]{40}$/.test(addr) && addr !== "0x0000000000000000000000000000000000000000") {
+        return addr;
+      }
+    }
+  }
+  return null;
+}
