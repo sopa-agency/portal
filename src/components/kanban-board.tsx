@@ -1248,6 +1248,34 @@ function CollapsibleMarkdown({ markdown, githubRepo }: { markdown: string; githu
   );
 }
 
+/**
+ * Três cards do próprio board para a IA copiar o estilo, não o conteúdo.
+ *
+ * Os boards têm convenções de verdade que não estão escritas em lugar nenhum —
+ * o prefixo `[Portal]`/`[Feature]`, o par `👤 Humano:`/`🤖 Agente:`, a medição
+ * com data. Mostrar cards reais ensina isso e acompanha o board quando a
+ * convenção mudar; uma lista chumbada no código envelheceria na semana seguinte.
+ *
+ * Sai de graça: o board já está carregado com os corpos, então isto é uma
+ * varredura em memória, não uma ida ao GitHub.
+ *
+ * A faixa de tamanho é o filtro de qualidade que dá para aplicar sem ler: abaixo
+ * de 250 caracteres é um card de uma linha, que não ensina formato nenhum; acima
+ * de 2200 é um card-dissertação, que ensinaria a escrever demais.
+ */
+function exemplosDoBoard(
+  columns: KanbanColumn[],
+  exceptId: string,
+): { title: string; body: string }[] {
+  return columns
+    .flatMap((c) => c.items)
+    .filter((i) => i.id !== exceptId)
+    .map((i) => ({ title: i.title, body: (i.body ?? "").trim() }))
+    .filter((i) => i.body.length >= 250 && i.body.length <= 2200)
+    .sort((a, b) => b.body.length - a.body.length)
+    .slice(0, 3);
+}
+
 export function CardDetailDialog({
   item,
   team,
@@ -1260,6 +1288,8 @@ export function CardDetailDialog({
   repos,
   defaultRepo,
   statusCtx,
+  currentColumn,
+  styleSamples,
   onSetAssignees,
   onMutate,
   onPatchItem,
@@ -1282,6 +1312,10 @@ export function CardDetailDialog({
   defaultRepo?: string | null;
   /** Board status field + columns — lets the test loop move the card on approve/reject. */
   statusCtx?: { projectId: string; fieldId: string | null; columns: { name: string; optionId?: string }[] };
+  /** Coluna em que este card está — muda o que a IA deve escrever. */
+  currentColumn?: string | null;
+  /** Cards reais do board, de exemplo para a IA pegar o estilo da casa. */
+  styleSamples?: { title: string; body: string }[];
   onSetAssignees: (item: KanbanItem, logins: string[]) => Promise<void>;
   onMutate: MutateFn;
   onPatchItem: (itemId: string, patch: Partial<KanbanItem>) => void;
@@ -1389,6 +1423,11 @@ export function CardDetailDialog({
       // Sem o repositório o prompt sai genérico ("procure no código"), que é
       // justamente o que o agente já faria sozinho.
       repo: repoOf(item.url) ?? issueRepo ?? undefined,
+      // O servidor lê fogo/prazo/dono do banco a partir daqui.
+      itemId: item.id,
+      column: currentColumn ?? undefined,
+      columns: statusCtx?.columns.map((c) => c.name),
+      samples: styleSamples,
     })) as { ok: boolean; error?: string; body?: string; agentPrompt?: string | null };
     setAiBusy(false);
     if (r.ok && typeof r.body === "string" && r.body.trim()) {
@@ -3221,6 +3260,8 @@ export function KanbanBoard({ actions }: { actions?: ReactNode }) {
             fieldId: board.statusFieldId,
             columns: board.columns.map((c) => ({ name: c.name, optionId: c.optionId })),
           }}
+          currentColumn={board.columns.find((c) => c.items.some((i) => i.id === detailItem.id))?.name ?? null}
+          styleSamples={exemplosDoBoard(board.columns, detailItem.id)}
           onSetAssignees={onSetAssignees}
           onMutate={(payload) => mutate({ ...payload, projectId: board.projectId })}
           onPatchItem={patchItem}

@@ -232,6 +232,14 @@ type Body = {
   newBody?: string;
   // repoMeta / createIssue / aiBody — "owner/name"
   repo?: string;
+  // aiBody — contexto do board, mandado pelo cliente porque ele JÁ tem o board
+  // inteiro carregado; refazer a busca aqui custaria uma ida ao GitHub por clique.
+  /** Coluna em que o card está agora. */
+  column?: string;
+  /** Todas as colunas do board, na ordem. */
+  columns?: string[];
+  /** Cards de verdade deste board, como exemplo do estilo da casa. */
+  samples?: { title: string; body: string }[];
   // setLabels
   addLabelIds?: string[];
   removeLabelIds?: string[];
@@ -695,18 +703,58 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "title required" }, { status: 400 });
       const { callOpenClaw } = await import("@/lib/openclaw-gateway");
       const current = (body.body ?? "").trim();
-      const repoDica = body.repo?.trim();
+
+      // Fogo/prazo/dono saem do NOSSO banco, não do que o cliente mandou: são a
+      // diferença entre "descreva esta ideia" e "isto vence sexta e é 5🔥".
+      const meta = itemId
+        ? await prisma.cardPriority.findUnique({ where: { itemId } }).catch(() => null)
+        : null;
+
+      // Exemplos do próprio board. Os boards têm convenções de verdade — prefixo
+      // `[Portal]`/`[Feature]`, o par `👤 Humano:`/`🤖 Agente:`, medição com data
+      // — e nenhuma delas está escrita em lugar nenhum. Mostrar três cards reais
+      // ensina o formato sem eu chumbar uma lista aqui que envelhece no dia
+      // seguinte, e acompanha o board quando a convenção mudar.
+      const exemplos = (body.samples ?? [])
+        .filter((e) => e?.title?.trim() && e?.body?.trim())
+        .slice(0, 3)
+        .map((e, i) => `--- exemplo ${i + 1} ---\n# ${e.title.trim()}\n${e.body.trim().slice(0, 1200)}`)
+        .join("\n\n");
+
+      const situacao = [
+        body.column ? `Column: ${body.column}` : null,
+        body.columns?.length ? `Board columns, in order: ${body.columns.join(" · ")}` : null,
+        meta?.priority ? `Fire priority: ${meta.priority} of 5` : null,
+        meta?.deadline ? `Deadline: ${meta.deadline.toISOString().slice(0, 10)}` : null,
+        meta?.owner ? `Owner: @${meta.owner}` : null,
+        body.repo?.trim() ? `Repository: ${body.repo.trim()}` : null,
+        project.repos?.length ? `Repos this project works in: ${project.repos.join(", ")}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
       const prompt = [
         `You help maintain the ${project.name} GitHub project board.`,
-        `Write the body for this card in GitHub-flavored markdown.`,
+        `Write the body for one card, in GitHub-flavored markdown.`,
         ``,
+        `## The card`,
         `Title: ${title.trim()}`,
+        situacao,
         current
-          ? `Current body (improve it — keep its intent and every concrete detail, tighten the rest):\n${current.slice(0, 4000)}`
-          : `The card has no body yet — draft one from the title.`,
-        repoDica ? `Repository this board works in: ${repoDica}` : ``,
-        ``,
-        `Structure: one short context paragraph, then "## Acceptance criteria" as bullets; add a "## Tasks" checklist only when the work clearly splits into steps. Be specific and concise — do not invent requirements beyond what the title and current body imply.`,
+          ? `\nCurrent body — improve it. Keep its intent and EVERY concrete detail; tighten the rest:\n${current.slice(0, 4000)}`
+          : `\nThe card has no body yet — draft one from the title.`,
+        exemplos
+          ? `\n## How cards read on THIS board\nReal cards from the same board. Copy their CONVENTIONS — language, headings, the tags in square brackets, how they split human work from agent work — never their content.\n\n${exemplos}`
+          : ``,
+        `\n## How to write it`,
+        // A regra que faltava e que estragava mais card que qualquer outra: o
+        // prompt era em inglês e não dizia nada sobre idioma, então card escrito
+        // em português voltava em inglês.
+        `Write in the SAME LANGUAGE as the title and the current body. Most cards on these boards are in Portuguese — match the card, not this instruction.`,
+        `Open with one short paragraph of context, then the acceptance criteria as bullets under a heading in that same language ("## Critérios de aceite" in Portuguese, "## Acceptance criteria" in English). Add a "## Tasks" checklist only when the work clearly splits into steps.`,
+        // O que separa os cards bons dos ruins nestes boards é medição, não prosa.
+        `Keep every measurement, date, number, file path, error message, address and link VERBATIM — those are the parts a reader cannot reconstruct, and losing them is the one way to make a card worse by rewriting it.`,
+        `Be specific and concise. Do not invent requirements, deadlines or decisions beyond what the title and current body imply — an honest gap is better than a plausible guess.`,
         `Reply with ONLY the markdown body — no preamble, no surrounding code fence.`,
         ``,
         // Segunda seção, opcional. O card que descreve um conserto já contém tudo
