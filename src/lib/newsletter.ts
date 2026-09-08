@@ -40,6 +40,18 @@ export function unsubscribeUrl(project: ProjectConfig, email: string): string {
   return `${portalBaseUrl(project)}/api/newsletter/unsubscribe?email=${encodeURIComponent(e)}&token=${unsubscribeToken(e)}`;
 }
 
+/**
+ * RFC 8058 one-click unsubscribe headers. Gmail/Yahoo bulk-sender rules want
+ * these on every marketing send; mail clients also surface an "Unsubscribe"
+ * button from them, which keeps unhappy readers off the spam button.
+ */
+export function unsubscribeHeaders(project: ProjectConfig, email: string): Record<string, string> {
+  return {
+    "List-Unsubscribe": `<${unsubscribeUrl(project, email)}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
+
 export type BlastRecipient = { email: string; username: string | null };
 
 /**

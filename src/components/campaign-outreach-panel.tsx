@@ -8,17 +8,17 @@ import {
   sendOutreachBatch,
   type OutreachStatus,
 } from "@/app/actions/outreach";
-
-type Mode = "inactive" | "all_subscribed";
+import { OUTREACH_MODE_LABELS, type OutreachAudienceMode } from "@/lib/outreach-modes";
 
 /**
- * Controlled outreach delivery for a campaign's email — enqueue an audience
- * (inactive skaters by default), then send in manual daily-controlled batches.
- * Per-recipient tracking means nobody is re-emailed within the campaign.
+ * Controlled outreach delivery for a campaign's email — enqueue ONE audience
+ * segment (lapsed skaters by default — the win-back target), then send in
+ * manual batches under a server-enforced 24h ceiling. Per-recipient tracking
+ * means nobody is re-emailed within the campaign.
  */
 export function CampaignOutreachPanel({ campaignId }: { campaignId: string }) {
   const [status, setStatus] = useState<OutreachStatus | null>(null);
-  const [mode, setMode] = useState<Mode>("inactive");
+  const [mode, setMode] = useState<OutreachAudienceMode>("lapsed");
   const [batchSize, setBatchSize] = useState(20);
   const [testEmail, setTestEmail] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -67,8 +67,10 @@ export function CampaignOutreachPanel({ campaignId }: { campaignId: string }) {
       if (res.ok) {
         const parts = [`${res.sent} enviado${res.sent === 1 ? "" : "s"}`];
         if (res.failed) parts.push(`${res.failed} falha${res.failed === 1 ? "" : "s"}`);
+        if (res.skipped) parts.push(`${res.skipped} pulado${res.skipped === 1 ? "" : "s"} (voltaram a postar ou saíram)`);
         if (res.responded) parts.push(`${res.responded} responderam`);
         parts.push(`${res.remaining} na fila`);
+        parts.push(`${res.dailyRemaining} ainda cabem nas próximas 24h`);
         setResult({ kind: "ok", msg: parts.join(" · ") });
         await refresh();
       } else {
@@ -78,7 +80,7 @@ export function CampaignOutreachPanel({ campaignId }: { campaignId: string }) {
   };
 
   const s = status?.ok ? status : null;
-  const stat = (label: string, value: number) => (
+  const stat = (label: string, value: number | string) => (
     <div className="rounded-lg border border-border bg-surface-elevated px-3 py-2">
       <div className="text-[11px] uppercase tracking-wider text-foreground-subtle">{label}</div>
       <div className="text-lg font-semibold text-foreground">{value}</div>
@@ -105,11 +107,12 @@ export function CampaignOutreachPanel({ campaignId }: { campaignId: string }) {
         </p>
       ) : (
         <>
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
             {stat("Na fila", s.pending)}
             {stat("Enviados", s.sent)}
             {stat("Responderam", s.responded)}
-            {stat("Hoje", s.sentToday)}
+            {stat("Pulados", s.skipped)}
+            {stat("Últimas 24h", `${s.sentToday}/${s.dailyCap}`)}
             {stat("Total", s.total)}
           </div>
 
@@ -117,11 +120,14 @@ export function CampaignOutreachPanel({ campaignId }: { campaignId: string }) {
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <select
               value={mode}
-              onChange={(e) => setMode(e.target.value as Mode)}
+              onChange={(e) => setMode(e.target.value as OutreachAudienceMode)}
               className="rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
             >
-              <option value="inactive">Inativos (sem postar 90d+)</option>
-              <option value="all_subscribed">Todos os inscritos</option>
+              {(Object.keys(OUTREACH_MODE_LABELS) as OutreachAudienceMode[]).map((m) => (
+                <option key={m} value={m}>
+                  {OUTREACH_MODE_LABELS[m]}
+                </option>
+              ))}
             </select>
             <button
               type="button"
@@ -160,9 +166,9 @@ export function CampaignOutreachPanel({ campaignId }: { campaignId: string }) {
             <input
               type="number"
               min={1}
-              max={500}
+              max={s.dailyCap}
               value={batchSize}
-              onChange={(e) => setBatchSize(Math.max(1, Math.min(500, Number(e.target.value) || 1)))}
+              onChange={(e) => setBatchSize(Math.max(1, Math.min(s.dailyCap, Number(e.target.value) || 1)))}
               className="w-20 rounded-lg border border-border bg-surface-elevated px-2 py-2 text-sm text-foreground focus:border-border-strong focus:outline-none"
             />
             {confirming ? (
@@ -174,7 +180,7 @@ export function CampaignOutreachPanel({ campaignId }: { campaignId: string }) {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
                 >
                   {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                  Confirmar: enviar {Math.min(batchSize, s.pending)}
+                  Confirmar: enviar {Math.min(batchSize, s.pending, Math.max(0, s.dailyCap - s.sentToday))}
                 </button>
                 <button
                   type="button"
@@ -201,8 +207,9 @@ export function CampaignOutreachPanel({ campaignId }: { campaignId: string }) {
             )}
           </div>
           <p className="mt-2 text-[11px] text-foreground-subtle">
-            Comece com lotes pequenos (warm-up) — disparar tudo de uma vez prejudica a reputação de entrega. Cada
-            lote leva ~150ms por email.
+            Teto de {s.dailyCap} emails por 24h nesta campanha, travado no servidor — o lote nunca passa disso. Comece
+            pequeno (warm-up): a caixa é Gmail comum e o público está parado, o pior caso para cair em spam. Antes de
+            cada envio o portal pula quem se descadastrou ou voltou a postar. ~1s por email.
           </p>
         </>
       )}

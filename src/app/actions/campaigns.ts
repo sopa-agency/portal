@@ -200,11 +200,28 @@ export async function createCampaign(formData: FormData) {
     }
   }
 
+  // The win-back email is a fixed bilingual template, not an AI draft — it is
+  // born with the campaign so the block editor shows it right away; "Generate
+  // everything" later only swaps in the brief's "what's changed" bullets.
+  const seededDocs: { name: string; isMain: boolean; content: string }[] = [
+    { name: "Brief", isMain: true, content: briefContent },
+  ];
+  const { outreachAvailable } = await import("@/lib/outreach-modes");
+  if (template?.id === "we-miss-you" && outreachAvailable(project)) {
+    const { createWeMissYouEmail, emailBrandFor, whatsNewFromBrief } = await import("@/lib/we-miss-you-email");
+    const { serializeEmail } = await import("@/lib/campaign-email");
+    seededDocs.push({
+      name: "Email",
+      isMain: false,
+      content: serializeEmail(createWeMissYouEmail(emailBrandFor(project), { whatsNew: whatsNewFromBrief(briefContent) })),
+    });
+  }
+
   const campaign = await prisma.campaign.create({
     data: {
       name,
       projectSlug: project.slug,
-      documents: { create: { name: "Brief", isMain: true, content: briefContent } },
+      documents: { create: seededDocs },
     },
     select: { id: true },
   });
@@ -642,12 +659,27 @@ export async function generateCampaignArtifacts(campaignId: string): Promise<Gen
 
   const artifactsProject = await getActiveProject();
   let template = detectTemplate(title, artifactsProject);
+  const { outreachAvailable } = await import("@/lib/outreach-modes");
+  const fixedWinBackEmail = template?.id === "we-miss-you" && outreachAvailable(artifactsProject);
+
+  // The win-back brief is filled by hand, never regenerated: its "What's
+  // changed" bullets go into the email verbatim, and an AI rewrite would invent
+  // features. The only hard requirement is that those bullets are real.
+  if (fixedWinBackEmail) {
+    const { whatsNewFromBrief } = await import("@/lib/we-miss-you-email");
+    if (whatsNewFromBrief(brief).some((i) => /\[\[/.test(i.pt) || /\[\[/.test(i.en))) {
+      return {
+        ok: false,
+        error: "Preencha as novidades em \"What's changed since you were last here\" no brief — elas entram no email como estão.",
+      };
+    }
+  }
 
   // For template campaigns where the brief still has [[placeholder]] markers
   // (i.e. user clicked "Generate everything from brief" before filling in the
   // template), regenerate the brief first so the artifacts have real content
   // to draw from. The brief generation handles its own Hive fetch + naming.
-  if (template && brief.includes("[[")) {
+  if (template && !fixedWinBackEmail && brief.includes("[[")) {
     const briefResult = await generateCampaignBrief(campaignId);
     if (!briefResult.ok) {
       return {
@@ -955,16 +987,28 @@ The JSON must be valid — escape newlines inside strings as \\n, escape quotes 
   }
 
   const frontendBase = artifactsProject.hive.frontend ?? "https://peakd.com";
-  if (parsed.email) {
-    const emailContent = serializeEmail(normalizeAiEmail(parsed.email, frontendBase));
+  if (fixedWinBackEmail) {
+    // Fixed bilingual win-back email (src/lib/we-miss-you-email.ts): rebuilt
+    // from the brief's "what's changed" bullets, never from the AI draft. One
+    // document carries both languages, so there is no "Email (PT)" here.
+    const { createWeMissYouEmail, emailBrandFor, whatsNewFromBrief } = await import("@/lib/we-miss-you-email");
+    const emailContent = serializeEmail(
+      createWeMissYouEmail(emailBrandFor(artifactsProject), { whatsNew: whatsNewFromBrief(brief) }),
+    );
     await upsertNamedDocument(campaignId, "Email", emailContent);
     saved.push("Email");
-  } else missing.push("Email");
-  if (parsed.email_pt) {
-    const emailContentPt = serializeEmail(normalizeAiEmail(parsed.email_pt, frontendBase));
-    await upsertNamedDocument(campaignId, "Email (PT)", emailContentPt);
-    saved.push("Email (PT)");
-  } else missing.push("Email (PT)");
+  } else {
+    if (parsed.email) {
+      const emailContent = serializeEmail(normalizeAiEmail(parsed.email, frontendBase));
+      await upsertNamedDocument(campaignId, "Email", emailContent);
+      saved.push("Email");
+    } else missing.push("Email");
+    if (parsed.email_pt) {
+      const emailContentPt = serializeEmail(normalizeAiEmail(parsed.email_pt, frontendBase));
+      await upsertNamedDocument(campaignId, "Email (PT)", emailContentPt);
+      saved.push("Email (PT)");
+    } else missing.push("Email (PT)");
+  }
 
   // Instagram carousel: the AI caption + seeded slide images (Weekly Stoken
   // featured posts, or a source IG carousel), stored as a JSON doc the carousel
@@ -1570,7 +1614,7 @@ EMAIL (this is the critical part — make it visual + clickable):
 - Hive snap + Farcaster cast: short, public-facing "if you've been gone for a minute…" framing — they're the reminder, not the personal outreach.
 - Tweets: broad reminder the door is open; no @-mentions of lapsed accounts.
 - Discord: a DM template mods can copy/paste, with first_name placeholder and the lapsed user's last-post date placeholder ([last_post_date]).
-- Email: personalization tokens {{first_name}} in the H1 and \`{{last_post_date}}\` in the body. Subject is conversational ("Long time, {{first_name}}?"). Single button "Join us again" linking to ${project.hive.frontend ?? "https://peakd.com"}.`;
+- Email: DO NOT draft one. The portal builds the win-back email itself from a fixed bilingual template plus the brief's "What's changed" bullets. Set "email" and "email_pt" to null.`;
   }
   // Suppress unused-variable warning for communityTag; it's available for future template rules.
   void communityTag;
@@ -2380,6 +2424,20 @@ export async function sendCampaignArtifact(
 //     GNARS_SMTP_*/GNARS_EMAIL_* and REELFLIP_SMTP_*/REELFLIP_EMAIL_*. Until set
 //     they show Email = "Not set" on /team and this returns "not configured".
 /** Send the email artifact via SMTP/nodemailer to a single recipient. */
+
+// The single-recipient send and the newsletter blast fill no per-recipient
+// tokens (the blast fills only {{first_name}}). An email still carrying
+// [[placeholders]] or the win-back template's tokens must not leave by either
+// door — that one is the controlled outreach panel, whose test send fills
+// sample values.
+function unsendableAsIs(html: string, subject: string): string | null {
+  if (/\[\[/.test(html) || /\[\[/.test(subject)) return "O email ainda tem [[placeholders]] — preencha antes de enviar.";
+  if (/\{\{\s*(last_post_|username)/.test(html + subject)) {
+    return "Este email usa tokens por destinatário ({{last_post_date}}, {{last_post_link}}…) que este envio não preenche. Use o painel \"Entrega controlada\" abaixo (o \"Enviar teste\" dele preenche valores de exemplo).";
+  }
+  return null;
+}
+
 export async function sendCampaignEmail(
   documentId: string,
   recipient: string,
@@ -2420,6 +2478,8 @@ export async function sendCampaignEmail(
     } else {
       return { ok: false, error: "Email document is empty — nothing to send." };
     }
+    const blocked = unsendableAsIs(html, subject);
+    if (blocked) return { ok: false, error: blocked };
 
     // Plain-text fallback: strip HTML tags.
     const text = html.replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim();
@@ -2497,6 +2557,9 @@ export async function sendCampaignEmailBlast(
     } else {
       return { ok: false, error: "Email document is empty — nothing to send." };
     }
+
+    const blocked = unsendableAsIs(html, subject);
+    if (blocked) return { ok: false, error: blocked };
 
     const { resolveBlastRecipients, blastFooterHtml } = await import("@/lib/newsletter");
     const { sendProjectEmail } = await import("@/lib/email");

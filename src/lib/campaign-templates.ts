@@ -339,44 +339,45 @@ Visits to changelog / app following the post (primary). North-star: % of weekly 
       tagline: "Win-back campaign for skaters who haven't posted in a while.",
       briefSeed: `# We Miss You — [[YYYY-MM-DD]]
 
-A re-engagement push for skaters who posted on SkateHive at some point but have been quiet for 30+ days. We want them to know we noticed they're gone and give them an easy reason to come back.
+A win-back push for skaters who posted on SkateHive at some point and have been quiet for 90+ days. We want them to know we noticed, show them what changed, and give them one low-friction way back.
 
 ## Goal
 Bring lapsed skaters back to post at least one clip. Target: 15% of the win-back audience publishes a new post within 14 days of contact.
 
 ## Audience
-Skaters whose last Hive post on hive-173115 was 30-90 days ago. Filter out spam accounts and one-time posters who never engaged. We're talking to people who used SkateHive seriously then drifted.
+The "Sumiram" segment in the outreach panel: subscribers with a Hive account who posted at least once and have had no post or comment for 90+ days (measured live from Hive when you click "Preparar público"). People who never posted and handles with no Hive account are DIFFERENT segments with different messages — don't send them this one.
 
 ## The offer
-A short, honest "we noticed, here's what's changed, here's a low-friction way back" message. Light incentive: feature in next Weekly Stoken if they post in the window, plus a small $HIVE/HBD welcome-back tip from @skatehive on their return post.
+A short, honest note: we noticed, here's what changed, here's the door. Light incentive: feature in the next Weekly Stoken if they post in the window, plus a small welcome-back tip from @skatehive on their return post.
 
 ## Window
-[[start date]] to [[end date]] — keep the window short (2 weeks) so the urgency is real. Send Hive snap + Farcaster cast on day 1, email + Discord DM on day 3, gentle follow-up on day 10 for non-responders.
+[[start date]] to [[end date]] — keep it short (2 weeks) so the urgency is real. Hive snap + Farcaster cast on day 1, email batches from day 3 (max 20 per 24h — the cap is enforced by the portal), gentle public follow-up on day 10.
 
 ## Channels
-1. Email — primary channel, personalized with first_name + last post date. The conversation, not a broadcast.
+1. Email — primary channel. FIXED bilingual template (Portuguese first, English below — we don't know each reader's language), built by the portal, not by the AI. Per-recipient tokens filled at send time: {{first_name}}, {{last_post_date}} / {{last_post_date_pt}}, {{last_post_link}} (their own last post, linked). Edit copy in the block editor if you must; the "What's changed" list below is what feeds it.
 2. Hive snap on hive-173115 — public-facing version, framed as "if you're reading this and haven't posted in a while…"
 3. Farcaster cast in /skateboard — same as snap.
 4. Discord DM template that mods can send 1:1.
 5. Twitter thread — broad reach, not personalized; mostly to remind everyone the door is open.
 
 ## What's changed since you were last here
-- [[new feature 1 they'll care about]]
-- [[new feature 2 — ...]]
-- [[new community thing — ...]]
+Fill by hand — these bullets go into the email VERBATIM. Write each one as "texto em português / the same in English". Keep them concrete (a feature, a tool, a community thing), 2-3 max.
+- [[novidade 1 em português]] / [[the same in English]]
+- [[novidade 2 em português]] / [[the same in English]]
 
 ## Success metric
-Lapsed skaters who post at least once in the window (primary). North-star: 30-day post-return retention — did they post a second time?
+Lapsed skaters who post at least once in the window (primary — the panel tracks it as "Responderam"). North-star: 30-day post-return retention — did they post a second time?
 
 ## Risks
 - Coming across needy or guilt-trippy → keep tone warm, brief, no "we miss you sooo much."
-- Spamming inactive accounts that left for a reason → respect any prior unsubscribe; suppress unverified addresses.
+- Spam placement → Gmail SMTP + a dormant list is the worst case. Never raise the daily cap (20 per 24h); start with batches of 10 and watch bounces before using the full 20.
 - Over-incentivizing → the tip is a thank-you not a bribe. Don't promise rewards we can't deliver.
 
 ## Next steps
-- [ ] Pull the win-back list from Hive activity logs (last_post_at between 30 and 90 days ago, filter spam).
-- [ ] Confirm tip budget with @xvlad before sending.
-- [ ] Once brief is filled, click "Generate everything from brief" to draft snap, cast, tweets, Discord, and email.
+- [ ] Fill the "What's changed" bullets above (bilingual), then click "Generate everything from brief" — it refreshes the email's list and drafts snap, cast, tweets, Discord.
+- [ ] Send yourself a test from the outreach panel and read both halves on a phone.
+- [ ] Confirm tip budget with @xvlad before the first batch.
+- [ ] "Preparar público" with the "Sumiram" segment, then send small batches daily.
 `,
     },
   ],
