@@ -24,9 +24,10 @@ import type { ProjectConfig } from "@/projects/types";
 
 // The mailbox is plain Gmail SMTP with no warmed-up sending domain, and the
 // audience is dormant — the worst combination for spam placement. So: a hard
-// per-campaign ceiling over any rolling 24h, enforced server-side (the panel's
-// batch size is a convenience, not the guard), and a pause between sends.
-const DAILY_CAP = 50;
+// per-campaign ceiling of 20 over any rolling 24h (the user's call, 2026-09-08),
+// enforced server-side (the panel's batch size is a convenience, not the
+// guard), and a pause between sends.
+const DAILY_CAP = 20;
 const DEFAULT_BATCH_SIZE = 20;
 const MAX_BATCH_SIZE = DAILY_CAP;
 const SEND_SPACING_MS = 800;

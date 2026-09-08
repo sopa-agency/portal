@@ -351,7 +351,7 @@ The "Sumiram" segment in the outreach panel: subscribers with a Hive account who
 A short, honest note: we noticed, here's what changed, here's the door. Light incentive: feature in the next Weekly Stoken if they post in the window, plus a small welcome-back tip from @skatehive on their return post.
 
 ## Window
-[[start date]] to [[end date]] — keep it short (2 weeks) so the urgency is real. Hive snap + Farcaster cast on day 1, email batches from day 3 (max 50 per 24h — the cap is enforced by the portal), gentle public follow-up on day 10.
+[[start date]] to [[end date]] — keep it short (2 weeks) so the urgency is real. Hive snap + Farcaster cast on day 1, email batches from day 3 (max 20 per 24h — the cap is enforced by the portal), gentle public follow-up on day 10.
 
 ## Channels
 1. Email — primary channel. FIXED bilingual template (Portuguese first, English below — we don't know each reader's language), built by the portal, not by the AI. Per-recipient tokens filled at send time: {{first_name}}, {{last_post_date}} / {{last_post_date_pt}}, {{last_post_link}} (their own last post, linked). Edit copy in the block editor if you must; the "What's changed" list below is what feeds it.
@@ -370,7 +370,7 @@ Lapsed skaters who post at least once in the window (primary — the panel track
 
 ## Risks
 - Coming across needy or guilt-trippy → keep tone warm, brief, no "we miss you sooo much."
-- Spam placement → Gmail SMTP + a dormant list is the worst case. Never raise the daily cap; start with batches of 10-20 and watch bounces before going bigger.
+- Spam placement → Gmail SMTP + a dormant list is the worst case. Never raise the daily cap (20 per 24h); start with batches of 10 and watch bounces before using the full 20.
 - Over-incentivizing → the tip is a thank-you not a bribe. Don't promise rewards we can't deliver.
 
 ## Next steps
