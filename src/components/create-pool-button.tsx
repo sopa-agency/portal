@@ -1,5 +1,18 @@
 "use client";
 
+/**
+ * DORMENTE desde 09/09/2026 — nada importa este arquivo.
+ *
+ * Fazia parte da aba "Migração" do Tesouro, removida quando cumpriu o que
+ * prometia: o stream de folha foi desligado (flowRate = 0) e o não-sacado
+ * somava meio centavo entre sete pessoas.
+ *
+ * Não foi apagado porque é a mecânica de a pessoa mexer no próprio dinheiro
+ * pela NOSSA tela — se a folha por stream voltar, é isto que se quer de volta,
+ * e reescrever custa mais que manter. Mas está morto: não confie que funciona
+ * sem religar e testar.
+ */
+
 import { useState, useTransition } from "react";
 import { Waypoints, Loader2, ExternalLink, CheckCircle2 } from "lucide-react";
 import { proposeCreatePool } from "@/app/actions/superfluid";

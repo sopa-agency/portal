@@ -1,3 +1,15 @@
+/**
+ * DORMENTE desde 09/09/2026 — nada importa este arquivo.
+ *
+ * Fazia parte da aba "Migração" do Tesouro, removida quando cumpriu o que
+ * prometia: o cofre da comunidade ficou sem dinheiro de terceiro (US$ 1,84 no
+ * total, sendo 0,83 do Safe da própria SOPA e 1,00 queimado no dead deposit).
+ *
+ * Não foi apagado porque é a mecânica de a pessoa mexer no próprio dinheiro
+ * pela NOSSA tela — se o cofre voltar a captar, é isto que se quer de volta.
+ * Mas está morto: não confie que funciona sem religar e testar.
+ */
+
 import { PiggyBank, ArrowRight } from "lucide-react";
 import { getDictionary } from "@/lib/i18n/server";
 
