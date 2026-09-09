@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Wallet, PiggyBank, Receipt, TrendingUp, PackageOpen, type LucideIcon } from "lucide-react";
+import { Wallet, PiggyBank, Receipt, TrendingUp, type LucideIcon } from "lucide-react";
 import { useUrlTab } from "@/lib/use-url-tab";
 import { useT } from "@/components/locale-provider";
 
@@ -14,9 +14,10 @@ import { useT } from "@/components/locale-provider";
  * solta em /votacao, o pipeline do MOR escondido num collapsible do Tesouro, e
  * a folha em Membros. Quem ia pagar tinha que caçar as três.
  *
- * "Migração" é temporária POR DESENHO: é o que sobrou de Membros e Apoiar
- * (folha por stream, cofre da comunidade) enquanto cada um tira o que é seu.
- * Some quando a última pessoa sacar — e vive no fim justamente por isso.
+ * "Migração" existiu para isso e foi embora quando cumpriu: era o que sobrara
+ * de Membros e Apoiar (folha por stream, cofre da comunidade) enquanto cada um
+ * tirava o que era seu. Saiu em 09/09/2026, com o cofre sem dinheiro de
+ * terceiro e o stream desligado.
  */
 export function TreasuryTabs({
   treasury,
@@ -24,14 +25,12 @@ export function TreasuryTabs({
   costs,
   payments,
   paymentsBadge,
-  migration,
 }: {
   treasury: ReactNode;
   revenue?: ReactNode;
   costs?: ReactNode;
   payments?: ReactNode;
   paymentsBadge?: ReactNode;
-  migration?: ReactNode;
 }) {
   // Ids stay Portuguese: they are the ?tab= value, so translating them would
   // break every link anyone has already shared.
@@ -43,15 +42,14 @@ export function TreasuryTabs({
     ...(revenue ? [{ id: "receita", label: t.revenue, icon: TrendingUp, node: revenue }] : []),
     ...(costs ? [{ id: "custos", label: t.costs, icon: Receipt, node: costs }] : []),
     ...(payments ? [{ id: "pagamentos", label: t.payments, icon: PiggyBank, node: payments, badge: paymentsBadge }] : []),
-    ...(migration ? [{ id: "migracao", label: t.migration, icon: PackageOpen, node: migration }] : []),
   ];
   const [tab, setTab] = useUrlTab("tab", "tesouro");
-  // Links já compartilhados continuam valendo: quem guardou `?tab=membros` ou
-  // `?tab=apoiar` queria o conteúdo que hoje mora em Migração, e quem guardou
-  // um link da urna queria Pagamentos. Cair em "tesouro" seria mandar a pessoa
-  // para uma tela que não é a que ela pediu — pior do que um id desconhecido,
-  // porque parece que funcionou.
-  const alias: Record<string, string> = { membros: "migracao", apoiar: "migracao", votacao: "pagamentos" };
+  // Um link guardado da urna continua valendo: quem salvou `?tab=votacao`
+  // queria Pagamentos. Já `membros`, `apoiar` e `migracao` apontavam para uma
+  // aba que não existe mais, e caem em "tesouro" — a página abre, só não na
+  // tela pedida. Melhor que um 404 de aba, e a tela que eles pediam não tem
+  // mais conteúdo para mostrar.
+  const alias: Record<string, string> = { votacao: "pagamentos" };
   const pedido = alias[tab] ?? tab;
   // Um `?tab=plano` guardado por alguém não quebra a página: um id que não
   // existe mais cai em "tesouro" em vez de renderizar painel nenhum.
