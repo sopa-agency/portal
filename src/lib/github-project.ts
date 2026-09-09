@@ -1143,6 +1143,8 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
   const { getAllProjects } = await import("@/projects/index");
   const seen = new Set<string>();
   const colItems = new Map<string, AggregatedItem[]>();
+  /** chave normalizada → o nome como será mostrado. */
+  const rotulo = new Map<string, string>();
   const order: string[] = [];
   const errors: string[] = [];
   for (const p of getAllProjects()) {
@@ -1158,11 +1160,21 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
     const board = r.title || p.name;
     const statusOptions = r.columns.filter((c) => c.optionId).map((c) => ({ name: c.name, optionId: c.optionId! }));
     for (const col of r.columns) {
-      if (!colItems.has(col.name)) {
-        colItems.set(col.name, []);
-        order.push(col.name);
+      // Agrupa por nome NORMALIZADO. Os boards não combinaram a caixa entre si
+      // — cinco escrevem "In progress" e dois escreviam "In Progress" — e
+      // agrupar pelo nome cru fazia a visão agregada desenhar as duas como
+      // colunas separadas. A segunda parecia morta: só continha os cards dos
+      // dois boards dissidentes, e não existia com esse nome em lugar nenhum
+      // do GitHub. Alinhei os nomes lá, mas a normalização fica: qualquer um
+      // pode criar uma opção com outra caixa amanhã, direto no GitHub.
+      const chave = col.name.trim().toLowerCase();
+      if (!colItems.has(chave)) {
+        colItems.set(chave, []);
+        order.push(chave);
+        // O primeiro board a usar o nome define como ele aparece na tela.
+        rotulo.set(chave, col.name.trim());
       }
-      for (const it of col.items) colItems.get(col.name)!.push({ ...it, board, accent: p.theme.accentDark, logo: p.theme.logo, projectSlug: p.slug, projectId: r.projectId, statusFieldId: r.statusFieldId, statusOptions });
+      for (const it of col.items) colItems.get(chave)!.push({ ...it, board, accent: p.theme.accentDark, logo: p.theme.logo, projectSlug: p.slug, projectId: r.projectId, statusFieldId: r.statusFieldId, statusOptions });
     }
   }
 
@@ -1184,7 +1196,10 @@ export async function fetchAggregatedBoards(): Promise<{ columns: AggregatedColu
   }
   for (const items of colItems.values()) items.sort(compareByPriority);
 
-  const out = { columns: order.map((name) => ({ name, items: colItems.get(name)! })), errors };
+  const out = {
+    columns: order.map((k) => ({ name: rotulo.get(k) ?? k, items: colItems.get(k)! })),
+    errors,
+  };
   // Só cacheia resultado íntegro: guardar por 5 min um board que falhou
   // esconderia a falha e faria a barra mentir sobre o tamanho do trabalho.
   if (!errors.length) _aggCache = { data: out, expires: Date.now() + AGG_TTL_MS };
