@@ -6,6 +6,7 @@
 // section. Theme-aware (semantic tokens, light + dark).
 
 import { useState } from "react";
+import { splitsExplorerUrl } from "@/lib/splits-url";
 import { PIPELINE } from "@/lib/mor-pipeline";
 import type { SplitLeaf } from "@/lib/mor-split-tree";
 import { isOk, type Reading } from "@/lib/reading";
@@ -15,7 +16,7 @@ import { rich } from "@/components/rich-text";
 
 const FILLER = "0x40b2F18912FF46Dc826F522B9cbdb0224739aa66";
 const scan = (a: string) => `https://basescan.org/address/${a}`;
-const splitsUrl = (a: string) => `https://explorer.splits.org/accounts/${a}/?chainId=8453`;
+const splitsUrl = (a: string) => splitsExplorerUrl(a);
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 function Node({ title, desc, addr, href, tone = "default" }: { title: string; desc: string; addr: string; href: string; tone?: "default" | "split" | "swap" | "out" }) {

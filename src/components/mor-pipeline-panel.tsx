@@ -9,6 +9,7 @@
 // (permissionless) run natively here via the injected wallet. Copy is PT-BR.
 
 import { useState } from "react";
+import { splitsExplorerUrl } from "@/lib/splits-url";
 import { createPublicClient, http, getAddress, encodeFunctionData } from "viem";
 import { base } from "viem/chains";
 import { Loader2, ExternalLink, CheckCircle2, AlertTriangle, Plug, RefreshCw, Zap } from "lucide-react";
@@ -24,7 +25,7 @@ import { rich } from "@/components/rich-text";
 
 type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 const pub = createPublicClient({ chain: base, transport: http("https://base-rpc.publicnode.com") });
-const splitsUrl = (addr: string) => `https://explorer.splits.org/accounts/${addr}/?chainId=8453`;
+const splitsUrl = (a: string) => splitsExplorerUrl(a);
 const morIn = (n: number, l: string) => `${n.toLocaleString(l, { maximumFractionDigits: n >= 1 ? 3 : 6 })} MOR`;
 const usdIn = (n: number, l: string) => n.toLocaleString(l, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 

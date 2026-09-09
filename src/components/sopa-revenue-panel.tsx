@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { splitsExplorerUrl } from "@/lib/splits-url";
 import { Briefcase, Plus, Pencil, Trash2, Check, X, Loader2, Link2, ExternalLink } from "lucide-react";
 import {
   createSopaJob,
@@ -27,11 +28,6 @@ export type { OnchainShare };
  * "conta não encontrada" para um contrato que existe. Rede nula (stream que não
  * declara cadeia) cai na Base, que é onde estes splits vivem.
  */
-const CHAIN_IDS: Record<string, number> = { base: 8453, ethereum: 1, optimism: 10, arbitrum: 42161 };
-function splitsExplorerUrl(address: string, chain: string | null): string {
-  const id = (chain && CHAIN_IDS[chain]) || 8453;
-  return `https://explorer.splits.org/accounts/${address}/?chainId=${id}`;
-}
 
 type Draft = { client: string; amountUsd: string; occurredOn: string; status: JobStatus; description: string; credit: string[] };
 
