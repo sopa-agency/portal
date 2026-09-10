@@ -60,7 +60,7 @@ import {
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
 import { listIgCollaborators, type IgCollaboratorSuggestion } from "@/app/actions/ig-collaborators";
-import { CAPTION_MAX, COMMENT_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, stepsInPhase, phaseForStep, PHASES, type ViewTab, type StepId, type PhaseId } from "@/components/post-creator-lib";
+import { CAPTION_MAX, COMMENT_MAX, TITLE_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, stepsInPhase, phaseForStep, PHASES, type ViewTab, type StepId, type PhaseId } from "@/components/post-creator-lib";
 import { IgPreview } from "@/components/post/ig-preview";
 import { IgFeedGrid, type FeedCell } from "@/components/post/ig-feed-grid";
 import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
@@ -80,7 +80,7 @@ import { toast } from "sonner";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
 import { ownEvents } from "@/lib/calendar-scope";
-import { EmojiPicker } from "@/components/emoji-picker";
+import { EmojiPicker, insertAtCaret } from "@/components/emoji-picker";
 
 // Studio (vendored Figma-like design tool) — heavy + browser-only, so it loads
 // on demand when the tab opens.
@@ -186,6 +186,7 @@ function PostDialog({
   const router = useRouter();
   const closeRef = useRef<HTMLButtonElement>(null);
   const captionRef = useRef<HTMLTextAreaElement>(null);
+  const commentRef = useRef<HTMLTextAreaElement>(null);
   const [dialogCaption, setDialogCaption] = useState(post.caption);
   const [dialogComment, setDialogComment] = useState(post.firstComment ?? "");
   const [dialogSchedule, setDialogSchedule] = useState(
@@ -482,12 +483,7 @@ function PostDialog({
                       <div className="flex items-center gap-2">
                         <EmojiPicker
                           align="right"
-                          onPick={(emoji) => {
-                            const el = captionRef.current;
-                            const at = el ? el.selectionStart : dialogCaption.length;
-                            const end = el ? el.selectionEnd : dialogCaption.length;
-                            setDialogCaption(dialogCaption.slice(0, at) + emoji + dialogCaption.slice(end));
-                          }}
+                          onPick={(emoji) => setDialogCaption(insertAtCaret(captionRef.current, dialogCaption, emoji))}
                         />
                         <span className="text-[11px] tabular-nums text-foreground-faint">
                           {dialogCaption.length}/{CAPTION_MAX}
@@ -506,8 +502,15 @@ function PostDialog({
 
                   {/* First comment editor */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-foreground-muted">First comment</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-foreground-muted">First comment</label>
+                      <EmojiPicker
+                        align="right"
+                        onPick={(emoji) => setDialogComment(insertAtCaret(commentRef.current, dialogComment, emoji))}
+                      />
+                    </div>
                     <textarea
+                      ref={commentRef}
                       value={dialogComment}
                       onChange={(e) => setDialogComment(e.target.value)}
                       rows={2}
@@ -1749,6 +1752,11 @@ export function PostCreator({
   const [uploads, setUploads] = useState<UploadState[]>([]);
   const [title, setTitle] = useState(""); // short internal name — identifies the draft in lists
   const [caption, setCaption] = useState("");
+  // Field refs so the emoji picker can drop the emoji at the caret instead of
+  // the end of the text (the creative team writes hooks with emojis mid-line).
+  const titleRef = useRef<HTMLInputElement>(null);
+  const captionFieldRef = useRef<HTMLTextAreaElement>(null);
+  const firstCommentRef = useRef<HTMLTextAreaElement>(null);
   const [topic, setTopic] = useState("");
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
 
@@ -2708,8 +2716,15 @@ export function PostCreator({
               </p>
             </div>
             <div className="space-y-2">
-              <span className="text-xs font-medium text-foreground-muted">Title</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-foreground-muted">Title</span>
+                <EmojiPicker
+                  align="right"
+                  onPick={(emoji) => setTitle(insertAtCaret(titleRef.current, title, emoji, TITLE_MAX))}
+                />
+              </div>
               <input
+                ref={titleRef}
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -2720,7 +2735,7 @@ export function PostCreator({
                   }
                 }}
                 placeholder="e.g. Memória muscular"
-                maxLength={120}
+                maxLength={TITLE_MAX}
                 className="w-full rounded-xl border border-border bg-surface-elevated px-4 py-3 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
               />
               <p className="text-xs text-foreground-faint">
@@ -2978,15 +2993,22 @@ export function PostCreator({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-foreground-muted">Caption</span>
-                <span
-                  className={`text-xs tabular-nums ${
-                    captionOver ? "text-danger" : captionLen > 1800 ? "text-warning" : "text-foreground-faint"
-                  }`}
-                >
-                  {captionLen.toLocaleString()}/{CAPTION_MAX.toLocaleString()}
-                </span>
+                <div className="flex items-center gap-2">
+                  <EmojiPicker
+                    align="right"
+                    onPick={(emoji) => setCaption(insertAtCaret(captionFieldRef.current, caption, emoji))}
+                  />
+                  <span
+                    className={`text-xs tabular-nums ${
+                      captionOver ? "text-danger" : captionLen > 1800 ? "text-warning" : "text-foreground-faint"
+                    }`}
+                  >
+                    {captionLen.toLocaleString()}/{CAPTION_MAX.toLocaleString()}
+                  </span>
+                </div>
               </div>
               <textarea
+                ref={captionFieldRef}
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 onKeyDown={(e) => {
@@ -3162,15 +3184,22 @@ export function PostCreator({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-foreground-muted">First comment</span>
-                <span
-                  className={`text-xs tabular-nums ${
-                    commentOver ? "text-danger" : commentLen > 1800 ? "text-warning" : "text-foreground-faint"
-                  }`}
-                >
-                  {commentLen.toLocaleString()}/{COMMENT_MAX.toLocaleString()}
-                </span>
+                <div className="flex items-center gap-2">
+                  <EmojiPicker
+                    align="right"
+                    onPick={(emoji) => setFirstComment(insertAtCaret(firstCommentRef.current, firstComment, emoji))}
+                  />
+                  <span
+                    className={`text-xs tabular-nums ${
+                      commentOver ? "text-danger" : commentLen > 1800 ? "text-warning" : "text-foreground-faint"
+                    }`}
+                  >
+                    {commentLen.toLocaleString()}/{COMMENT_MAX.toLocaleString()}
+                  </span>
+                </div>
               </div>
               <textarea
+                ref={firstCommentRef}
                 value={firstComment}
                 onChange={(e) => setFirstComment(e.target.value)}
                 onKeyDown={(e) => {

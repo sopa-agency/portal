@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { renameDocument, updateDocumentContent } from "@/app/actions/campaigns";
 import { signPostMediaUpload } from "@/app/actions/post-creator";
 import { MarkdownContent } from "@/components/markdown-content";
-import { EmojiPicker } from "@/components/emoji-picker";
+import { EmojiPicker, insertAtCaret } from "@/components/emoji-picker";
 
 type Mode = "edit" | "preview";
 
@@ -87,10 +87,8 @@ export function CampaignDocumentEditor({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Insert text at the caret (or append) and propagate the change.
-  const insertAtCaret = (snippet: string) => {
-    const el = textareaRef.current;
-    const at = el ? el.selectionStart : content.length;
-    const next = content.slice(0, at) + snippet + content.slice(el ? el.selectionEnd : content.length);
+  const insertSnippet = (snippet: string) => {
+    const next = insertAtCaret(textareaRef.current, content, snippet);
     setContent(next);
     onContentChange?.(next);
   };
@@ -105,7 +103,7 @@ export function CampaignDocumentEditor({
       setUploadError(res.error);
       return;
     }
-    insertAtCaret(formatImageForKind(imageKind, res.url));
+    insertSnippet(formatImageForKind(imageKind, res.url));
   };
 
   const ImageButton = imageKind ? (
@@ -130,7 +128,7 @@ export function CampaignDocumentEditor({
   // Discord announcement.
   const Toolbar = (
     <div className="flex flex-wrap items-center gap-2">
-      <EmojiPicker onPick={insertAtCaret} withServerEmojis={imageKind === "discord"} />
+      <EmojiPicker onPick={insertSnippet} withServerEmojis={imageKind === "discord"} />
       {ImageButton}
       {uploadError && <span className="text-[11px] text-danger">{uploadError}</span>}
     </div>
