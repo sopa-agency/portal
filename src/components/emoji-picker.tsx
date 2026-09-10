@@ -6,6 +6,31 @@ import { EMOJI_CATEGORIES, searchEmojis } from "@/lib/emoji-data";
 import { getServerEmojis, type ServerEmoji } from "@/app/actions/discord-emojis";
 
 /**
+ * Splice `snippet` into `value` at the field's caret (replacing any selection)
+ * and return the new string. After React commits the new value, focus goes
+ * back to the field with the caret placed right after the snippet, so a
+ * creative can pick an emoji and keep typing — or pick several in a row —
+ * without the caret jumping to the end on every insert.
+ */
+export function insertAtCaret(
+  el: HTMLInputElement | HTMLTextAreaElement | null,
+  value: string,
+  snippet: string,
+): string {
+  const at = el?.selectionStart ?? value.length;
+  const end = el?.selectionEnd ?? at;
+  const next = value.slice(0, at) + snippet + value.slice(end);
+  if (el) {
+    const caret = at + snippet.length;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  }
+  return next;
+}
+
+/**
  * Lightweight emoji picker — a button that opens a popover with categorized
  * unicode emojis + search. When `withServerEmojis` is set it adds a "Server"
  * tab that lazy-loads the active project's Discord custom emojis; picking one
