@@ -4,6 +4,7 @@ import type { PostType } from "@/app/actions/post-creator";
 
 export const CAPTION_MAX = 2200;
 export const COMMENT_MAX = 2200;
+export const TITLE_MAX = 120;
 
 export const POST_TYPES: { value: PostType; label: string; hint: string }[] = [
   { value: "IMAGE", label: "Single Image", hint: "1 image" },

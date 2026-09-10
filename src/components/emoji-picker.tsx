@@ -11,23 +11,30 @@ import { getServerEmojis, type ServerEmoji } from "@/app/actions/discord-emojis"
  * back to the field with the caret placed right after the snippet, so a
  * creative can pick an emoji and keep typing — or pick several in a row —
  * without the caret jumping to the end on every insert.
+ *
+ * `maxLength` mirrors the field's own limit: when the snippet would overflow
+ * it the value is returned untouched. Never slice the result instead — an
+ * emoji is two UTF-16 units, and cutting it in half leaves a lone surrogate
+ * that Prisma can't serialize (see lib/sanitize.ts).
  */
 export function insertAtCaret(
   el: HTMLInputElement | HTMLTextAreaElement | null,
   value: string,
   snippet: string,
+  maxLength?: number,
 ): string {
   const at = el?.selectionStart ?? value.length;
   const end = el?.selectionEnd ?? at;
   const next = value.slice(0, at) + snippet + value.slice(end);
+  const fits = maxLength === undefined || next.length <= maxLength;
   if (el) {
-    const caret = at + snippet.length;
+    const caret = fits ? at + snippet.length : at;
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(caret, caret);
     });
   }
-  return next;
+  return fits ? next : value;
 }
 
 /**

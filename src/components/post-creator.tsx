@@ -60,7 +60,7 @@ import {
 } from "@/app/actions/post-creator";
 import { createCampaignFromInstagramPost } from "@/app/actions/campaigns";
 import { listIgCollaborators, type IgCollaboratorSuggestion } from "@/app/actions/ig-collaborators";
-import { CAPTION_MAX, COMMENT_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, stepsInPhase, phaseForStep, PHASES, type ViewTab, type StepId, type PhaseId } from "@/components/post-creator-lib";
+import { CAPTION_MAX, COMMENT_MAX, TITLE_MAX, POST_TYPES, toDatetimeLocalValue, formatLocalDatetime, computeSteps, stepsInPhase, phaseForStep, PHASES, type ViewTab, type StepId, type PhaseId } from "@/components/post-creator-lib";
 import { IgPreview } from "@/components/post/ig-preview";
 import { IgFeedGrid, type FeedCell } from "@/components/post/ig-feed-grid";
 import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
@@ -2720,7 +2720,7 @@ export function PostCreator({
                 <span className="text-xs font-medium text-foreground-muted">Title</span>
                 <EmojiPicker
                   align="right"
-                  onPick={(emoji) => setTitle(insertAtCaret(titleRef.current, title, emoji).slice(0, 120))}
+                  onPick={(emoji) => setTitle(insertAtCaret(titleRef.current, title, emoji, TITLE_MAX))}
                 />
               </div>
               <input
@@ -2735,7 +2735,7 @@ export function PostCreator({
                   }
                 }}
                 placeholder="e.g. Memória muscular"
-                maxLength={120}
+                maxLength={TITLE_MAX}
                 className="w-full rounded-xl border border-border bg-surface-elevated px-4 py-3 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-2 focus:ring-accent/40"
               />
               <p className="text-xs text-foreground-faint">
