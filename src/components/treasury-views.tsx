@@ -257,6 +257,21 @@ const CHAIN_COLORS: Record<string, string> = {
 };
 const chainColor = (c: string) => CHAIN_COLORS[c.toLowerCase()] ?? "#8C8C96";
 
+/**
+ * A regra de poeira, UMA só — para a lista de ativos e para o detalhe por
+ * carteira: abaixo de US$ 5 ou sem preço, fora do que está em protocolo
+ * (posição rende; não é poeira).
+ *
+ * Eram duas regras: US$ 5 na lista, US$ 0,01 no detalhe — e a segunda ainda
+ * mantinha os sem preço. Abrir o multisig da SkateHive (27 tokens, quase tudo
+ * airdrop) mostrava um muro de linhas sem valor logo abaixo de uma lista que
+ * já as tinha escondido. Duas regras para a mesma pergunta era só uma questão
+ * de tempo até divergirem — e divergiram.
+ */
+const DUST_USD = 5;
+const isDust = (valueUsd: number | null, inProtocol: boolean) =>
+  !inProtocol && (valueUsd == null || valueUsd < DUST_USD);
+
 function ChainDots({ chains }: { chains: string[] }) {
   return (
     <span className="inline-flex items-center gap-1" title={chains.join(" · ")}>
@@ -387,8 +402,7 @@ function Overview({
   // Vive aqui, fora da lista, porque a barra parado/rendendo no cabeçalho do
   // card precisa dos mesmos totais que a lista usa — uma conta, dois lugares.
   const split = useMemo(() => {
-    const DUST = 5;
-    const ehPoeira = (a: Asset) => !a.protocol && (a.usdUnknown || a.valueUsd < DUST);
+    const ehPoeira = (a: Asset) => isDust(a.usdUnknown ? null : a.valueUsd, !!a.protocol);
     const poeira = assets.filter(ehPoeira);
     const liquid = assets.filter((a) => !a.protocol && !ehPoeira(a));
     const earning = assets.filter((a) => a.protocol);
@@ -811,20 +825,13 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
   // endereço. Sem ele, tratamos como carteira comum — que é o que quase todo
   // endereço é, e o palpite barato na direção certa.
   const safeUrl = w.safeChainId ? safeAppUrl(w.address, w.safeChainId) : null;
-  // A lista por carteira vinha com 46 de 154 linhas abaixo de dez centavos —
-  // saldos de $0,0001 que empurram o que importa para fora da tela. O filtro
-  // de $0,50 que existe em treasury.ts não alcança aqui: o relatório vem do
-  // cache do indexador, que não passa por ele.
-  //
-  // Filtra a LISTA, não o total. A soma dessa poeira dá centavos e o total está
-  // certo — mexer nele para limpar a tela seria trocar um número correto por um
-  // arredondado sem avisar. E o que ficou de fora é DITO, com a contagem: uma
-  // omissão declarada é diferente de um sumiço.
-  //
-  // Token sem preço fica. Ali não sabemos o valor, e esconder o desconhecido é
-  // pior que esconder o irrelevante.
-  const visiveis = w.tokens.filter((tk) => tk.valueUsd == null || tk.valueUsd >= 0.01);
-  const escondidos = w.tokens.length - visiveis.length;
+  // Mesma regra de poeira da lista de ativos (isDust), mesmo botão. `note`
+  // marca posição de protocolo — essa nunca é poeira. Filtra a LISTA, não o
+  // total: a soma disso dá centavos, e o total está certo.
+  const [dustOpen, setDustOpen] = useState(false);
+  const poeira = w.tokens.filter((tk) => isDust(tk.valueUsd, !!tk.note));
+  const visiveis = dustOpen ? w.tokens : w.tokens.filter((tk) => !isDust(tk.valueUsd, !!tk.note));
+  const poeiraUsd = poeira.reduce((sum, tk) => sum + (tk.valueUsd ?? 0), 0);
   const segs =
     w.totalUsd > 0
       ? toSegments(w.tokens.map((tk) => ({ label: `${tk.symbol}·${tk.chain}`, valueUsd: tk.valueUsd ?? 0 })), t.others)
@@ -901,15 +908,20 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
               </span>
             </div>
           ))}
-          {escondidos > 0 && (
-            <p className="pt-1 text-[11px] text-foreground-faint">
-              +{escondidos} abaixo de US$ 0,01, fora da lista — seguem contados no total.
-            </p>
-          )}
         </div>
       ) : w.failedChains.length === 0 ? (
         <p className="mt-3 text-xs text-foreground-faint">{t.noBalances}</p>
       ) : null}
+      {/* Fora do ternário de propósito: uma carteira só de poeira cai no ramo
+          "sem saldo" e ainda precisa do botão que a mostra. */}
+      {poeira.length > 0 && (
+        <p className="mt-3 text-[11px] leading-relaxed text-foreground-faint">
+          {t.dustHidden(poeira.length, poeiraUsd > 0 ? usd(poeiraUsd) : "")}{" "}
+          <button type="button" onClick={() => setDustOpen((v) => !v)} className="font-semibold text-accent hover:underline">
+            {dustOpen ? t.hideDust : t.showDust}
+          </button>
+        </p>
+      )}
     </div>
   );
 }
