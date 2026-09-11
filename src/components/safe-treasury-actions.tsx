@@ -20,16 +20,20 @@ type Modo = "enviar" | "stake" | "unstake";
 
 export function SafeTreasuryActions({
   safe,
+  token,
   vaultKey,
   vaultAssetSymbol,
 }: {
   safe: string;
+  /** O ativo desta linha. Vem de fora porque os controles moram DENTRO da linha
+   *  do token: a linha ja diz o que é, e um seletor ali seria perguntar de novo
+   *  o que a pessoa acabou de escolher ao clicar naquela linha. */
+  token: TokenEnviavel;
   /** Cofre ligado a este multisig. Sem ele, só o envio aparece. */
   vaultKey?: string;
   vaultAssetSymbol?: string;
 }) {
   const [modo, setModo] = useState<Modo | null>(null);
-  const [token, setToken] = useState<TokenEnviavel>("USDC");
   const [para, setPara] = useState("");
   const [valor, setValor] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -93,15 +97,6 @@ export function SafeTreasuryActions({
         <div className="mt-3 space-y-2">
           {modo === "enviar" && (
             <div className="flex flex-wrap gap-2">
-              <select
-                value={token}
-                onChange={(e) => setToken(e.target.value as TokenEnviavel)}
-                className="rounded-lg border border-border bg-surface-elevated px-2 py-1.5 text-xs text-foreground"
-                aria-label="Token"
-              >
-                <option value="USDC">USDC</option>
-                <option value="ETH">ETH</option>
-              </select>
               <input
                 value={para}
                 onChange={(e) => setPara(e.target.value)}

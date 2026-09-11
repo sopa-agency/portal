@@ -55,7 +55,13 @@ const skatehive: ProjectConfig = {
     hiveAccounts: [
       { label: "SkateHive Community Account", account: "skatehive" },
       { label: "SteemSkate Community Account", account: "steemskate" },
-      { label: "Gnars Community Account", account: "gnars" },
+      // @gnars saiu daqui: ele já é declarado em `gnars.ts`, e a mesma conta em
+      // dois tesouros não era só aparecer na aba errada — o total combinado da
+      // SOPA somava o mesmo dinheiro duas vezes. Medido em 11/09: 15.578 HP +
+      // 103 HIVE + 457 HBD, cerca de US$ 3,7 mil contados em dobro.
+      //
+      // A SkateHive operou essa conta historicamente; operar não é possuir, e o
+      // tesouro responde de quem É o dinheiro.
     ],
   },
   theme: {
