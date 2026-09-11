@@ -42,7 +42,15 @@ type Asset = {
   /** Quebra por rede, para a linha abrir sem uma segunda leitura. Padrão que a
    *  gente pegou do portfolio do swaps.pro: uma linha por ATIVO, expansível —
    *  em vez de uma linha por (ativo × rede), que multiplica a lista. */
-  parts: { chain: string; balance: number; valueUsd: number | null }[];
+  parts: {
+    chain: string;
+    balance: number;
+    valueUsd: number | null;
+    /** De qual carteira veio esta fatia. A tabela agrega por ATIVO, entao sem
+     *  isto a linha sabe quanto existe e nao de onde sai — e nao da para
+     *  oferecer "enviar" sem saber de qual Safe. */
+    wallet?: { label: string; address: string; safeChainId?: number };
+  }[];
   /** Posição de PROTOCOLO (staking, LP, lending) — dinheiro que rende mas não
    *  está solto. Vive numa seção separada: misturar com token à vista faz duas
    *  liquidezes diferentes lerem igual. */
@@ -66,6 +74,7 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
     hostileLabel = false,
     icon: string | null = null,
     protocol: string | null = null,
+    wallet?: { label: string; address: string; safeChainId?: number },
   ) => {
     // The key carries `untrusted`, and that is load-bearing: anyone can deploy a
     // token whose symbol is "USDC". Keying on the symbol alone would add the
@@ -76,7 +85,7 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
     // linhas distintas de propósito.
     const a = map.get(k) ?? { symbol, chains: [], parts: [], balance: 0, valueUsd: 0, usdUnknown: false, untrusted, hostileLabel, icon, protocol };
     if (!a.icon && icon) a.icon = icon;
-    a.parts.push({ chain, balance, valueUsd });
+    a.parts.push({ chain, balance, valueUsd, wallet });
     a.balance += balance;
     if (valueUsd == null) a.usdUnknown = true;
     else a.valueUsd += valueUsd;
@@ -86,7 +95,13 @@ function aggregateAssets(groups: TreasuryGroup[]): Asset[] {
   };
   for (const g of groups) {
     const prices = g.report.prices;
-    for (const w of g.report.evm) for (const t of w.tokens) add(t.symbol, t.chain, t.balance, t.valueUsd, t.untrusted, t.hostileLabel, t.icon ?? null, t.note ?? null);
+    for (const w of g.report.evm)
+      for (const t of w.tokens)
+        add(t.symbol, t.chain, t.balance, t.valueUsd, t.untrusted, t.hostileLabel, t.icon ?? null, t.note ?? null, {
+          label: w.label,
+          address: w.address,
+          safeChainId: w.safeChainId,
+        });
     for (const h of g.report.hive) {
       add("HIVE", "Hive", h.hive + h.hp, (h.hive + h.hp) * prices.hive);
       add("HBD", "Hive", h.hbd + h.hbdSavings, (h.hbd + h.hbdSavings) * prices.hbd);
@@ -209,7 +224,45 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 /** The hero + composition + holdings overview for the current view. */
-function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[]; title: string; hideTotal?: boolean }) {
+/**
+ * O que a gente sabe mover a partir de um Safe.
+ *
+ * Casa com o que `treasury-safe.ts` aceita, e o servidor resolve o endereco —
+ * o navegador manda so o simbolo. Outro token entra aqui e la juntos.
+ */
+function acionavel(symbol: string): boolean {
+  const s = symbol.toUpperCase();
+  return s === "USDC" || s === "ETH";
+}
+
+/** Os Safes que seguram este ativo, sem repetir carteira. */
+function safesDoAtivo(a: Asset): { label: string; address: string; safeChainId?: number }[] {
+  const vistos = new Set<string>();
+  const out: { label: string; address: string; safeChainId?: number }[] = [];
+  for (const p of a.parts) {
+    const w = p.wallet;
+    if (!w?.safeChainId) continue;
+    const k = w.address.toLowerCase();
+    if (vistos.has(k)) continue;
+    vistos.add(k);
+    out.push(w);
+  }
+  return out;
+}
+
+function Overview({
+  groups,
+  title,
+  hideTotal = false,
+  canPropose = false,
+  vault,
+}: {
+  groups: TreasuryGroup[];
+  title: string;
+  hideTotal?: boolean;
+  canPropose?: boolean;
+  vault?: { key: string; assetSymbol: string; chainId: number };
+}) {
   const t = useT().treasury.views;
   // Same wording as the hero's incomplete plate — one phrasing for one meaning.
   const th = useT().treasury.hero;
@@ -440,6 +493,47 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
                       ))}
                   </ul>
                 )}
+                {/* Controles na propria linha do ativo — e nao numa secao a
+                    parte. So aparecem quando as tres coisas valem: a pessoa
+                    esta logada, ALGUM Safe segura este ativo, e e um ativo que
+                    a gente sabe mover.
+
+                    `untrusted` nunca ganha controle: qualquer um publica um
+                    token chamado "USDC", e oferecer "enviar" ao lado dele seria
+                    o portal emprestando credibilidade a um impostor.
+
+                    Posicao de protocolo (a.protocol) tambem nao: aquilo e
+                    dinheiro em stake, com mecanica propria — sacar de la nao e
+                    uma transferencia. */}
+                {canPropose && !a.untrusted && !a.protocol && acionavel(a.symbol) && (
+                  <div className="ml-10 mt-2 space-y-3 border-l border-accent-border pl-3">
+                    {safesDoAtivo(a).map((sw) => (
+                      <div key={sw.address}>
+                        <div className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+                          <span className="font-semibold text-foreground-muted">{sw.label}</span>
+                          <a
+                            href={safeAppUrl(sw.address, sw.safeChainId!) ?? "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-mono text-foreground-faint hover:text-accent"
+                          >
+                            {shortAddr(sw.address)} ↗
+                          </a>
+                        </div>
+                        <SafeTreasuryActions
+                          safe={sw.address}
+                          token={a.symbol.toUpperCase() === "ETH" ? "ETH" : "USDC"}
+                          vaultKey={
+                            vault && vault.chainId === sw.safeChainId && vault.assetSymbol.toUpperCase() === a.symbol.toUpperCase()
+                              ? vault.key
+                              : undefined
+                          }
+                          vaultAssetSymbol={vault?.assetSymbol}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </li>
             );
           };
@@ -498,54 +592,6 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
 // ---------------------------------------------------------------------------
 // Per-wallet detail (kept for drill-down, collapsed by default)
 // ---------------------------------------------------------------------------
-
-/**
- * Os multisigs do tesouro, com as operações que a gente propõe deles.
- *
- * Fica na parte de cima, sempre visível: são poucas carteiras (duas hoje) e
- * é o único lugar da página onde alguém MEXE no dinheiro em vez de olhar.
- */
-function MultisigPanel({
-  groups,
-  vault,
-}: {
-  groups: TreasuryGroup[];
-  vault?: { key: string; assetSymbol: string; chainId: number };
-}) {
-  const safes = groups.flatMap((g) => g.report.evm).filter((w) => w.safeChainId);
-  if (safes.length === 0) return null;
-  return (
-    <section className="rounded-2xl border border-border bg-surface p-5">
-      <h3 className="mb-1 text-sm font-bold uppercase tracking-wider text-foreground">Multisigs</h3>
-      <p className="mb-4 text-xs text-foreground-faint">
-        Tudo aqui entra na fila do Safe e só sai depois das assinaturas — ninguém é debitado por um
-        clique.
-      </p>
-      <div className="space-y-5">
-        {safes.map((w) => (
-          <div key={w.address}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-sm font-semibold text-foreground">{w.label}</span>
-              <a
-                href={safeAppUrl(w.address, w.safeChainId!) ?? "#"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-[11px] text-foreground-subtle hover:text-accent"
-              >
-                {shortAddr(w.address)} ↗
-              </a>
-            </div>
-            <SafeTreasuryActions
-              safe={w.address}
-              vaultKey={vault && vault.chainId === w.safeChainId ? vault.key : undefined}
-              vaultAssetSymbol={vault?.assetSymbol}
-            />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["views"] }) {
   // `safeChainId` só existe quando o Safe Transaction Service reconheceu o
@@ -803,16 +849,8 @@ export function TreasuryViews({
         </div>
       )}
 
-      <Overview groups={visible} title={title} hideTotal={hideTotal} />
+      <Overview groups={visible} title={title} hideTotal={hideTotal} canPropose={canPropose} vault={vault} />
 
-      {/* Os multisigs e o que dá para fazer com eles, à vista.
-          Antes isto morava dentro do card de cada carteira, que vive atrás do
-          colapso "detalhe por carteira" — fechado por padrão. O resultado era
-          um botão que existia, passava no build e ninguém nunca via. Operação
-          de dinheiro não pode depender de a pessoa adivinhar onde clicar. */}
-      {canPropose && (
-        <MultisigPanel groups={visible} vault={vault} />
-      )}
 
       <div>
         <button
