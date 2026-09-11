@@ -4,15 +4,13 @@ import { useState, type ReactNode } from "react";
 import type { TreasuryGroup } from "@/lib/treasury";
 import type { OrgRevenue } from "@/lib/org-revenue";
 import type { FinancialDashboardView } from "@/lib/financial-dashboard";
-import { FinancialDashboard } from "@/components/financial-dashboard";
 import { TreasuryViews } from "@/components/treasury-views";
+import { TreasuryHistoryChart } from "@/components/treasury-history-chart";
+import type { TreasurySeries } from "@/lib/treasury-history";
 import { TreasuryRevenue } from "@/components/treasury-revenue";
-import { Section } from "@/components/section-heading";
-import { usd as usd2 } from "@/lib/format";
-import { TreasuryHealthHero } from "@/components/treasury-health-hero";
 import { dedupeTreasuryGroups } from "@/lib/treasury-aggregate";
 import { useT } from "@/components/locale-provider";
-import { sumReadings } from "@/lib/reading";
+import { type Reading, isOk, ok } from "@/lib/reading";
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -27,12 +25,11 @@ export function SopaTreasury({
   dashboardViews,
   agency,
   part = "treasury",
-  chart,
+  chartData,
   sopaOnly,
   sopaSlug,
   canPropose = false,
   vault,
-  monthlyBurnUsd = 0,
 }: {
   groups: TreasuryGroup[];
   /** Sessão válida — libera os botões de propor no card de cada multisig. */
@@ -40,8 +37,6 @@ export function SopaTreasury({
   /** O cofre ligado aos multisigs (community-vaults é server-only, então desce
    *  como prop). */
   vault?: { key: string; assetSymbol: string; chainId: number };
-  /** Custo fixo mensal do escopo — vira saúde e runway na banda de topo. */
-  monthlyBurnUsd?: number;
   revenue: OrgRevenue | null;
   /** The revenue READ failed (DB down) — show a failure, never an empty section. */
   revenueError?: boolean;
@@ -65,7 +60,20 @@ export function SopaTreasury({
    * O gráfico de saldo, como NÓ. Vem de fora porque a página é quem tem os
    * dados dele; aqui ele só ganha um lugar na grade, ao lado dos números.
    */
-  chart?: ReactNode;
+  /**
+   * O que o gráfico precisa, cru — e não o gráfico pronto.
+   *
+   * Vinha renderizado da página, com todas as séries, e o seletor daqui não o
+   * alcançava: era a queixa original desta tela. As séries já chegam dobradas
+   * por projeto (cardId = slug), então filtrar é escolher a linha do escopo.
+   */
+  chartData?: {
+    wallets: Reading<TreasurySeries[]>;
+    streams: Reading<TreasurySeries[]>;
+    failed: string[];
+    initialLive: TreasurySeries[];
+    initialSyncedAt: string | null;
+  };
   /**
    * Which half to render. Balances and revenue are two questions — how much do
    * we have, and where does it come from — and each earns its own tab. They
@@ -102,12 +110,34 @@ export function SopaTreasury({
   const dash = dashboardViews.find((d) => d.slug === view) ?? dashboardViews[0];
   // sumReadings refuses the sum when any group couldn't be read — that refusal
   // IS the feature. The names ride alongside so "incomplete" says what to chase.
-  const total = sumReadings(visibleGroups.map((g) => g.report.total));
-  const unreadLabels = visibleGroups.flatMap((g) => g.report.unreadLabels);
-  const walletCount = visibleGroups.reduce((s, g) => s + g.report.evm.length + g.report.hive.length, 0);
-  const runwayMonths = dash?.runwayMonths ?? null;
+  // O custo do ESCOPO, não o de todos. `dashboardViews` já traz o burn por
+  // projeto (o custo do Claude é lançado na SOPA, e só nela). O #85 passava o
+  // brandBurn — a soma de todos os projetos — para qualquer aba, e o runway da
+  // SkateHive saía dividindo o caixa dela pelo custo da SOPA inteira.
   const burnUsd = dash?.burnUsd ?? 0;
-  const projLabel = isAll ? t.all : selected?.name ?? "";
+
+  // O gráfico responde ao filtro. `key={view}` remonta o componente ao trocar
+  // de escopo: ele guarda a série "ao vivo" da Zerion em estado interno, e uma
+  // linha puxada para "Todos" não pode sobreviver dentro de "SkateHive".
+  // `streams` fica inteiro: é indexado por card do org-chart, não por projeto,
+  // e o gráfico só o usa quando não há série de carteira nenhuma.
+  const chartNode = chartData
+    ? (() => {
+        const keep = (sr: TreasurySeries) => isAll || sr.cardId === view;
+        const filtra = (r: Reading<TreasurySeries[]>): Reading<TreasurySeries[]> =>
+          isOk(r) ? ok(r.value.filter(keep)) : r;
+        return (
+          <TreasuryHistoryChart
+            key={view}
+            wallets={filtra(chartData.wallets)}
+            streams={chartData.streams}
+            failed={chartData.failed}
+            initialLive={chartData.initialLive.filter(keep)}
+            initialSyncedAt={chartData.initialSyncedAt}
+          />
+        );
+      })()
+    : null;
 
   return (
     <div className="space-y-8">
@@ -153,58 +183,18 @@ export function SopaTreasury({
         </>
       ) : (
         <>
-        {/*
-          A CURVA E OS NÚMEROS DIVIDEM O PALCO, lado a lado.
-          
-          Antes o gráfico ocupava a largura inteira e empurrava total, saúde e
-          "onde está o dinheiro" para baixo da dobra: para ver quanto se tem era
-          preciso rolar por cima de um gráfico que responde outra pergunta.
-          
-          Agora são 7 colunas para a curva e 5 para os números — as duas
-          perguntas que se olham juntas ficam juntas. "Onde está o dinheiro"
-          segue embaixo em largura cheia, que é onde largura serve para alguma
-          coisa: símbolo, rede, quantidade e valor cabem na mesma linha.
-          
-          Empilha abaixo de lg: em tela estreita, coluna ao lado de coluna vira
-          duas colunas ruins.
-        */}
-        <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
-          {chart && <div className="lg:col-span-7">{chart}</div>}
-          <div className={chart ? "lg:col-span-5" : "lg:col-span-12"}>
-            <TreasuryHealthHero
-              layout={chart ? "column" : "row"}
-              label={projLabel}
-              total={total}
-              unreadLabels={unreadLabels}
-              unvalued={visibleGroups.flatMap((g) => g.report.unpriced)}
-              sourceCount={walletCount}
-              walletCount={walletCount}
-              runwayMonths={runwayMonths}
-              watermarkLogo="/projects/sopa/logo.png"
-              runwayFooter={
-                burnUsd > 0
-                  ? isAll
-                    ? t.hero.countingCostsAll(usd2(burnUsd))
-                    : t.hero.countingCosts(usd2(burnUsd))
-                  : t.hero.noCostsFiled
-              }
-            />
-          </div>
-        </div>
-
-        {/*
-          O card "Money in vs out" saiu daqui: a mesma pergunta agora vive
-          colada no gráfico de Saldo por Tesouro, como painel de variação —
-          mesmo eixo do tempo, mesmo cursor. Dois lugares mostrando movimento
-          de dinheiro obrigavam a pessoa a decidir em qual acreditar.
-
-          O componente continua no repo (FinancialDashboard) e as views seguem
-          sendo montadas: voltar é uma linha, se fizer falta.
-        */}
-
-        <Section title={t.sections.where} hint={isAll ? t.sections.whereHintAll : t.sections.whereHint}>
-          <TreasuryViews groups={visibleGroups} hideSelector hideTotal canPropose={canPropose} vault={vault} monthlyBurnUsd={monthlyBurnUsd} />
-        </Section>
+        {/* Uma tela só: banda de KPIs, liquidez ao lado do gráfico, carteiras
+            embaixo. O hero e o palco 7/5 que viviam aqui saíram — a banda de
+            topo do Overview responde as mesmas perguntas, e dois totais na
+            mesma página era o que o #85 tinha deixado. */}
+        <TreasuryViews
+          groups={visibleGroups}
+          hideSelector
+          canPropose={canPropose}
+          vault={vault}
+          monthlyBurnUsd={burnUsd}
+          chart={chartNode}
+        />
 
         {/* Só sob a aba da SOPA. Ver `sopaOnly` acima. */}
         {sopaSlug && view === sopaSlug && sopaOnly}

@@ -517,11 +517,10 @@ treasury: {
   // filter, which is why they aren't two components.
   const sopaOverview = isSopa ? (
     <SopaTreasury
-      monthlyBurnUsd={brandBurn}
       canPropose={!!session}
       vault={vaults[0] ? { key: vaults[0].vault.key, assetSymbol: vaults[0].vault.assetSymbol, chainId: vaults[0].vault.chainId } : undefined}
       part="treasury"
-      chart={
+      chartData={
         // A LINHA VEM DO NOSSO SNAPSHOT, não da série da Zerion.
         //
         // Medido: o endpoint /charts da Zerion não inclui posição de protocolo,
@@ -534,16 +533,16 @@ treasury: {
         // O snapshot horário usa a chamada de saldo, com no_filter, e por isso
         // está certo. Ele tem menos histórico (desde 27/08) — e linha curta e
         // certa vale mais que linha longa e errada num painel de tesouraria.
-        <TreasuryHistoryChart
-          wallets={walletHistory}
-          streams={history}
-          failed={walletChart.failed}
+        {
+          wallets: walletHistory,
+          streams: history,
+          failed: walletChart.failed,
           // O SYNC VOLTA DO BANCO. Antes só o `failed` voltava e a série era
           // descartada — por isso era preciso clicar "sincronizar" a cada
           // carregamento. Ver initialLive no componente.
-          initialLive={walletChart.series}
-          initialSyncedAt={walletChart.syncedAt?.toISOString() ?? null}
-        />
+          initialLive: walletChart.series,
+          initialSyncedAt: walletChart.syncedAt?.toISOString() ?? null,
+        }
       }
       groups={groups}
       revenue={orgRevenue}

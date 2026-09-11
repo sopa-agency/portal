@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { SafeTreasuryActions } from "@/components/safe-treasury-actions";
 import { safeAppUrl, zerionWalletUrl } from "@/lib/wallet-links";
-import { ChevronDown, ExternalLink, Layers, Wallet } from "lucide-react";
+import { ChevronDown, ExternalLink } from "lucide-react";
 import type { TreasuryGroup, EvmWalletReport, HiveAccountReport } from "@/lib/treasury";
 import { TokenLogo } from "@/components/token-logo";
 import { useT } from "@/components/locale-provider";
@@ -214,16 +214,6 @@ function AllocationBar({ segments, total }: { segments: Segment[]; total: number
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[11px] uppercase tracking-wider text-foreground-subtle">{label}</p>
-      <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{value}</p>
-    </div>
-  );
-}
-
-/** The hero + composition + holdings overview for the current view. */
 /**
  * O que a gente sabe mover a partir de um Safe.
  *
@@ -250,6 +240,60 @@ function safesDoAtivo(a: Asset): { label: string; address: string; safeChainId?:
   return out;
 }
 
+/**
+ * Cor de cada rede, como identidade — não como tema. É o que diferencia um
+ * USDC na Base de um USDC na Ethereum quando a linha é a mesma. Tons que leem
+ * nos dois fundos; rede desconhecida cai num cinza que também lê.
+ */
+const CHAIN_COLORS: Record<string, string> = {
+  base: "#2151F5",
+  ethereum: "#8A92B2",
+  zora: "#E86A4A",
+  hive: "#E31337",
+  gnosis: "#3E6957",
+  arbitrum: "#28A0F0",
+  optimism: "#FF0420",
+  polygon: "#8247E5",
+};
+const chainColor = (c: string) => CHAIN_COLORS[c.toLowerCase()] ?? "#8C8C96";
+
+function ChainDots({ chains }: { chains: string[] }) {
+  return (
+    <span className="inline-flex items-center gap-1" title={chains.join(" · ")}>
+      {chains.map((c) => (
+        <span key={c} className="h-2 w-2 rounded-full" style={{ backgroundColor: chainColor(c) }} aria-label={c} />
+      ))}
+    </span>
+  );
+}
+
+function ChainLegend({ chains }: { chains: string[] }) {
+  if (!chains.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-x-3.5 gap-y-1.5">
+      {chains.map((c) => (
+        <span key={c} className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-foreground-faint">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: chainColor(c) }} />
+          {c}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Parado vs rendendo, na proporção do dólar: "quanto disto eu movo hoje?" numa barra. */
+function SplitBar({ liquidUsd, earningUsd }: { liquidUsd: number; earningUsd: number }) {
+  const total = liquidUsd + earningUsd;
+  if (total <= 0) return null;
+  const idle = (liquidUsd / total) * 100;
+  return (
+    <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-surface-elevated" title={`${pct(idle)} · ${pct(100 - idle)}`}>
+      <div className="bg-success" style={{ width: `${idle}%` }} />
+      <div className="bg-accent" style={{ width: `${100 - idle}%` }} />
+    </div>
+  );
+}
+
 function Overview({
   groups,
   title,
@@ -257,9 +301,12 @@ function Overview({
   canPropose = false,
   vault,
   monthlyBurnUsd = 0,
+  chart,
 }: {
   groups: TreasuryGroup[];
   title: string;
+  /** O gráfico do escopo, já filtrado por quem sabe qual é o escopo. */
+  chart?: ReactNode;
   hideTotal?: boolean;
   canPropose?: boolean;
   vault?: { key: string; assetSymbol: string; chainId: number };
@@ -309,17 +356,45 @@ function Overview({
     () => toSegments(assets.map((a) => ({ label: a.symbol, valueUsd: a.valueUsd })), t.others),
     [assets, t.others],
   );
-  const projectSegments = useMemo(
-    () =>
-      toSegments(
-        // A group that couldn't be read is left OUT rather than drawn as a
-        // sliver of zero — the bar shows the composition of what answered.
-        groups.filter((g) => isOk(g.report.total)).map((g) => ({ label: g.name, valueUsd: (g.report.total as { value: number }).value })),
-        t.others,
-      ),
-    [groups, t.others],
-  );
   const multi = groups.length > 1;
+
+  // "Quem tem o quê": por projeto quando há vários; por carteira quando é um só.
+  // Um grupo que não leu fica DE FORA em vez de virar uma fatia de zero — a
+  // barra mostra a composição do que respondeu.
+  const holders = useMemo(() => {
+    if (multi)
+      return groups
+        .filter((g) => isOk(g.report.total))
+        .map((g) => ({ label: g.name, valueUsd: (g.report.total as { value: number }).value }));
+    const g = groups[0];
+    if (!g) return [];
+    return [
+      ...g.report.evm.map((w) => ({ label: w.label, valueUsd: w.totalUsd })),
+      ...g.report.hive.map((a) => ({ label: a.label, valueUsd: a.usd })),
+    ].sort((x, y) => y.valueUsd - x.valueUsd);
+  }, [groups, multi]);
+  const holdersTotal = holders.reduce((sum, h) => sum + h.valueUsd, 0) || 1;
+  const chainsPresent = useMemo(() => [...new Set(assets.flatMap((a) => a.chains))], [assets]);
+
+  // POEIRA ATRÁS DE UM BOTÃO.
+  //
+  // O multisig da SkateHive tem 27 tokens: fora US$ 63 de USDC, o resto é
+  // airdrop sem liquidez. Listar tudo com o mesmo peso faz a lista mentir
+  // sobre onde o dinheiro está. O corte é em US$ 5 e a poeira NÃO some: fica
+  // atrás de "ver poeira", contada e somada. SEM PREÇO TAMBÉM É POEIRA — sem
+  // preço confiável o token não ajuda a responder onde o dinheiro está.
+  //
+  // Vive aqui, fora da lista, porque a barra parado/rendendo no cabeçalho do
+  // card precisa dos mesmos totais que a lista usa — uma conta, dois lugares.
+  const split = useMemo(() => {
+    const DUST = 5;
+    const ehPoeira = (a: Asset) => !a.protocol && (a.usdUnknown || a.valueUsd < DUST);
+    const poeira = assets.filter(ehPoeira);
+    const liquid = assets.filter((a) => !a.protocol && !ehPoeira(a));
+    const earning = assets.filter((a) => a.protocol);
+    const soma = (l: Asset[]) => l.reduce((sum, a) => sum + a.valueUsd, 0);
+    return { poeira, liquid, earning, poeiraUsd: soma(poeira), liquidUsd: soma(liquid), earningUsd: soma(earning) };
+  }, [assets]);
 
   // Live Hive yields (first treasury that carries them). HP APR is an estimate
   // (inflation→vesting); HBD savings APR is authoritative (chain rate).
@@ -337,25 +412,28 @@ function Overview({
   // não se aplica aqui". Um "∞" faria um projeto sem custos declarados parecer
   // mais saudável que um com contas em dia.
   const runwayMeses = monthlyBurnUsd > 0 && isOk(grand) ? grand.value / monthlyBurnUsd : null;
+  const k = t.kpi;
   const saude =
     !isOk(grand)
-      ? { rotulo: "Incompleto", cor: "text-warning", nota: "Parte do tesouro não leu — sem o total não dá para dizer." }
+      ? { rotulo: k.incomplete, cor: "text-warning", nota: k.incompleteNote }
       : runwayMeses == null
-        ? { rotulo: "Sem custo", cor: "text-foreground-muted", nota: "Nenhum custo recorrente lançado neste escopo; os gastos correm pela SOPA." }
+        ? { rotulo: k.noCosts, cor: "text-foreground-muted", nota: k.noneFiled }
         : runwayMeses >= 12
-          ? { rotulo: "Saudável", cor: "text-success", nota: "O caixa cobre bem mais de um ano no ritmo atual." }
+          ? { rotulo: k.healthy, cor: "text-success", nota: k.healthyNote }
           : runwayMeses >= 6
-            ? { rotulo: "De olho", cor: "text-warning", nota: "Menos de um ano de caixa — vale acompanhar de perto." }
-            : { rotulo: "Apertado", cor: "text-danger", nota: "Menos de seis meses no ritmo atual." };
+            ? { rotulo: k.watch, cor: "text-warning", nota: k.watchNote }
+            : { rotulo: k.tight, cor: "text-danger", nota: k.tightNote };
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-border bg-surface">
+    <div className="space-y-5">
       {/* Quatro respostas antes de qualquer lista: quanto, se está bem, por
-          quanto tempo, e onde o dinheiro está guardado. */}
-      <div className="grid grid-cols-1 gap-px border-b border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+          quanto tempo, e onde o dinheiro está guardado. Só quando ninguém
+          acima já respondeu — as marcas têm o hero próprio. */}
+      {!hideTotal && (
+      <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
         <div className="bg-surface p-5">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">
-            Tesouro · {title}
+            {k.treasury} · {title}
           </p>
           {isOk(grand) ? (
             <p className="mt-2.5 text-[2rem] font-bold leading-none tracking-tight tabular-nums text-foreground">
@@ -365,8 +443,8 @@ function Overview({
             <p className="mt-2.5 text-xl font-bold uppercase tracking-tight text-warning">{th.incomplete}</p>
           )}
           <p className="mt-1.5 text-xs text-foreground-muted">
-            {multi ? `${walletCount} carteiras · ` : ""}
-            {assets.length} ativos · {chainCount} redes
+            {multi ? `${walletCount} ${t.wallets.toLowerCase()} · ` : ""}
+            {assets.length} {t.assets.toLowerCase()} · {chainCount} {t.networks.toLowerCase()}
           </p>
           {!isOk(grand) && unreadLabels.length > 0 && (
             <p className="mt-1 text-[11px] leading-snug text-warning">
@@ -376,28 +454,26 @@ function Overview({
         </div>
 
         <div className="bg-surface p-5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">Saúde</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">{k.health}</p>
           <p className={`mt-3 text-2xl font-bold tracking-tight ${saude.cor}`}>{saude.rotulo}</p>
           <p className="mt-1.5 text-xs leading-snug text-foreground-muted text-pretty">{saude.nota}</p>
         </div>
 
         <div className="bg-surface p-5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">Runway</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">{k.runway}</p>
           <p className="mt-2.5 flex items-baseline gap-1.5">
             <span className="text-[1.9rem] font-bold leading-none tracking-tight tabular-nums text-foreground">
               {runwayMeses == null ? "—" : runwayMeses >= 100 ? "99+" : runwayMeses.toFixed(1)}
             </span>
-            {runwayMeses != null && <span className="text-sm text-foreground-muted">meses</span>}
+            {runwayMeses != null && <span className="text-sm text-foreground-muted">{k.months}</span>}
           </p>
           <p className="mt-1.5 text-xs leading-snug text-foreground-muted text-pretty">
-            {monthlyBurnUsd > 0
-              ? `contando ${usd(monthlyBurnUsd)}/mês de custo lançado aqui`
-              : "nenhum custo recorrente lançado neste escopo"}
+            {monthlyBurnUsd > 0 ? k.counting(usd(monthlyBurnUsd)) : k.noneFiled}
           </p>
         </div>
 
         <div className="bg-surface p-5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">Onde está</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">{k.custody}</p>
           <div className="mt-3.5 space-y-2">
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-xs text-foreground-muted">EVM</span>
@@ -415,56 +491,25 @@ function Overview({
         </div>
       </div>
 
-      {/* Composition */}
-      <div className="grid gap-5 p-5 lg:grid-cols-2">
-        {multi && (
-          <div className="space-y-2">
-            <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-              <Layers className="h-3.5 w-3.5" /> {t.byProject}
-            </h4>
-            <AllocationBar segments={projectSegments} total={listedUsd} />
-          </div>
-        )}
-        <div className="space-y-3">
-          <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-            <Wallet className="h-3.5 w-3.5" /> {t.byAsset}
-          </h4>
-          <AllocationBar segments={assetSegments} total={listedUsd} />
-        </div>
-      </div>
+      )}
 
+      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+        {/* Liquidez: o que dá para mover hoje, e o que está preso rendendo. */}
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+          <div className="px-5 pt-5 pb-1">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-[15px] font-semibold tracking-tight text-foreground">{t.liquidity}</h3>
+              <span className="text-[11px] text-foreground-faint">{t.liquidityHint}</span>
+            </div>
+            <ChainLegend chains={chainsPresent} />
+            <SplitBar liquidUsd={split.liquidUsd} earningUsd={split.earningUsd} />
+          </div>
       {/* Holdings — à vista primeiro, rendendo depois.
           Separado de propósito: token solto e posição de protocolo têm
           liquidez diferente e não podem ler como a mesma linha. Padrão vindo do
           portfolio do swaps.pro, que usa abas para a mesma distinção. */}
       {(() => {
-        // POEIRA ATRÁS DE UM BOTÃO.
-        //
-        // O multisig da SkateHive tem 27 tokens: fora US$ 63 de USDC, o resto é
-        // airdrop sem liquidez. Listar tudo com o mesmo peso faz a lista mentir
-        // sobre onde o dinheiro está — que é exatamente o que este bloco se
-        // propõe a responder.
-        //
-        // O corte é em US$ 5 e a poeira NÃO some: fica atrás de "ver mais",
-        // contada e somada no rótulo do botão. Esconder sem dizer quanto foi
-        // escondido seria trocar uma lista ruim por um número incompleto.
-        const DUST = 5;
-        // SEM PREÇO TAMBÉM É POEIRA, e isto é uma correção de rumo.
-        //
-        // Eu tinha deixado o sem-preço de fora do corte com um argumento que
-        // soa bem — "ele não vale menos de 5, ele não tem preço". Só que na
-        // tela o efeito era o oposto do que a lista existe para fazer: NOGS,
-        // WZRD, cbXRP, Buster, skatehive, DeepSeek desfilando com o mesmo peso
-        // do dinheiro de verdade, todos com "USD n/d". Sem preço confiável, o
-        // token não ajuda a responder onde o dinheiro está.
-        //
-        // Continua sem sumir: entra na mesma gaveta, e o botão diz quantos são.
-        const semPreco = (a: Asset) => a.usdUnknown;
-        const ehPoeira = (a: Asset) => !a.protocol && (semPreco(a) || a.valueUsd < DUST);
-        const poeira = assets.filter(ehPoeira);
-        const liquid = assets.filter((a) => !a.protocol && !ehPoeira(a));
-        const earning = assets.filter((a) => a.protocol);
-        const poeiraUsd = poeira.reduce((sum, a) => sum + a.valueUsd, 0);
+        const { poeira, liquid, earning, poeiraUsd } = split;
         const renderRow = (a: Asset) => {
             const share = listedUsd > 0 ? (a.valueUsd / listedUsd) * 100 : 0;
             const color = assetColor(a.symbol);
@@ -496,14 +541,8 @@ function Overview({
                         a title-linkified string — see lib/token-label.ts. */}
                     <span className="text-sm font-semibold text-foreground">{a.symbol}</span>
                     {a.untrusted && <UnverifiedTag hostile={a.hostileLabel} />}
-                    {a.chains.map((c) => (
-                      <span
-                        key={c}
-                        className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-foreground-faint"
-                      >
-                        {c}
-                      </span>
-                    ))}
+                    <ChainDots chains={a.chains} />
+                    <span className="text-[10px] uppercase tracking-wider text-foreground-faint">{a.chains.join(" · ")}</span>
                     {(() => {
                       const apr = aprFor(a.symbol);
                       return apr ? (
@@ -598,51 +637,89 @@ function Overview({
         return (
           <>
             {/*
-              RENDENDO VEM PRIMEIRO. Antes o spot abria a lista e o que está em
-              stake ficava no rodapé — e é o contrário do que a lista responde:
-              dinheiro trabalhando é a posição sobre a qual alguém decide, e
-              dinheiro parado é o troco. No multisig da SkateHive, os US$ 1.916
-              de stETH na MorpheusAI apareciam DEPOIS de US$ 63 de USDC solto.
+              PARADO PRIMEIRO, como no desenho. O código tinha "rendendo
+              primeiro" com um bom motivo — dinheiro trabalhando é a posição
+              sobre a qual se decide. O desenho inverte porque a barra logo
+              acima já mostra a proporção, e "o que dá para mover hoje" é a
+              pergunta que abre a lista. As duas seções continuam separadas:
+              token solto e posição de protocolo têm liquidez diferente.
             */}
-            {earning.length > 0 && (
-              <>
-                <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">
-                  <Layers className="h-3.5 w-3.5 text-foreground-faint" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-                    {t.earning}
-                  </span>
-                </div>
-                <ul className="divide-y divide-border">{earning.map(renderRow)}</ul>
-              </>
-            )}
             {liquid.length > 0 && (
               <>
-                <div className="flex items-center gap-2 border-t border-border bg-surface-elevated px-6 py-2">
-                  <Wallet className="h-3.5 w-3.5 text-foreground-faint" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">
-                    {t.idle}
-                  </span>
+                <div className="flex items-center gap-2 border-t border-border px-6 py-2.5">
+                  <span className="h-1.5 w-1.5 rounded-sm bg-success" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">{t.idle}</span>
+                  <span className="text-[11px] text-foreground-faint">{t.assetCount(liquid.length)}</span>
                 </div>
                 <ul className="divide-y divide-border">{liquid.map(renderRow)}</ul>
               </>
             )}
+            {earning.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 border-t border-border px-6 py-2.5">
+                  <span className="h-1.5 w-1.5 rounded-sm bg-accent" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">{t.earning}</span>
+                  <span className="text-[11px] text-foreground-faint">{t.assetCount(earning.length)}</span>
+                </div>
+                <ul className="divide-y divide-border">{earning.map(renderRow)}</ul>
+              </>
+            )}
             {poeira.length > 0 && (
               <>
-                {dustOpen && (
-                  <ul className="divide-y divide-border border-t border-border">{poeira.map(renderRow)}</ul>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setDustOpen((v) => !v)}
-                  className="w-full border-t border-border px-6 py-2.5 text-left text-[11px] font-medium text-foreground-subtle transition-colors hover:bg-surface-elevated hover:text-foreground"
-                >
-                  {dustOpen ? t.hideSmaller : t.showMore(poeira.length, poeiraUsd > 0 ? usd(poeiraUsd) : "")}
-                </button>
+                {dustOpen && <ul className="divide-y divide-border border-t border-border">{poeira.map(renderRow)}</ul>}
+                <p className="border-t border-border px-6 py-3 text-[11.5px] leading-relaxed text-foreground-faint">
+                  {t.dustHidden(poeira.length, poeiraUsd > 0 ? usd(poeiraUsd) : "")}{" "}
+                  <button type="button" onClick={() => setDustOpen((v) => !v)} className="font-semibold text-accent hover:underline">
+                    {dustOpen ? t.hideDust : t.showDust}
+                  </button>
+                </p>
               </>
             )}
           </>
         );
       })()}
+        </div>
+
+        {/* Coluna direita: a curva, quem tem o quê, e o mix. */}
+        <div className="flex flex-col gap-4">
+          {chart}
+          <div className="rounded-2xl border border-border bg-surface p-5">
+            <h3 className="text-[15px] font-semibold tracking-tight text-foreground">
+              {multi ? t.whoHolds : t.walletsIn(title)}
+            </h3>
+            <div className="mt-3">
+              {holders.map((h, i) => {
+                const share = (h.valueUsd / holdersTotal) * 100;
+                return (
+                  <div key={h.label} className="border-t border-border py-2.5 first:border-t-0">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-[13px] font-semibold text-foreground">{h.label}</span>
+                      <span className="flex items-baseline gap-2.5 tabular-nums">
+                        <span className="text-[13px] font-semibold text-foreground">{usd(h.valueUsd)}</span>
+                        <span className="w-11 text-right text-[11px] text-foreground-faint">{pct(share)}</span>
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-elevated">
+                      <div className="h-full rounded-full" style={{ width: `${Math.max(share, 0.6)}%`, backgroundColor: colorAt(i) }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-surface p-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-[15px] font-semibold tracking-tight text-foreground">{t.assetMix}</h3>
+              <span className="text-[11px] text-foreground-faint">{t.topShown(Math.min(assetSegments.length, 6), assets.length)}</span>
+            </div>
+            <div className="mt-3.5">
+              <AllocationBar segments={assetSegments} total={listedUsd} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <WalletsTable groups={groups} t={t} />
     </div>
   );
 }
@@ -650,6 +727,84 @@ function Overview({
 // ---------------------------------------------------------------------------
 // Per-wallet detail (kept for drill-down, collapsed by default)
 // ---------------------------------------------------------------------------
+
+/**
+ * Toda carteira do escopo, numa tabela: nome, projeto, endereço, quantos
+ * ativos, quanto vale. A linha abre para o detalhe (EvmCard/HiveCard) — onde
+ * vivem o link do Safe, o filtro de poeira e os controles.
+ *
+ * Substitui o colapso "detalhe por carteira". Lista não é extra, é a resposta
+ * a "de quem é o dinheiro" — e ficava atrás de um botão de texto.
+ */
+function WalletsTable({ groups, t }: { groups: TreasuryGroup[]; t: Dictionary["treasury"]["views"] }) {
+  const rows = useMemo(() => {
+    const out: { key: string; name: string; project: string; addr: string; assets: string; usd: number; node: ReactNode }[] = [];
+    for (const g of groups) {
+      for (const w of g.report.evm)
+        out.push({ key: `evm:${w.address}`, name: w.label, project: g.name, addr: shortAddr(w.address), assets: t.assetCount(w.tokens.length), usd: w.totalUsd, node: <EvmCard w={w} t={t} /> });
+      for (const a of g.report.hive)
+        out.push({ key: `hive:${a.account}`, name: a.label, project: g.name, addr: `@${a.account}`, assets: `HP ${num(a.hp, 2)}`, usd: a.usd, node: <HiveCard a={a} t={t} /> });
+    }
+    return out.sort((x, y) => y.usd - x.usd);
+  }, [groups, t]);
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  if (!rows.length) return null;
+  const allOpen = rows.every((r) => open.has(r.key));
+  const toggle = (key: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const projects = new Set(groups.map((g) => g.slug)).size;
+  return (
+    <section>
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <h3 className="text-[17px] font-semibold tracking-tight text-foreground">{t.wallets}</h3>
+          <p className="mt-1 text-[13px] text-foreground-muted">{t.walletsNote(rows.length, projects)}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(allOpen ? new Set() : new Set(rows.map((r) => r.key)))}
+          className="text-xs font-semibold text-accent hover:underline"
+        >
+          {allOpen ? t.collapseAll : t.expandAll}
+        </button>
+      </div>
+      <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-surface">
+        {rows.map((r) => {
+          const aberto = open.has(r.key);
+          return (
+            <div key={r.key} className="border-t border-border first:border-t-0">
+              <button
+                type="button"
+                onClick={() => toggle(r.key)}
+                aria-expanded={aberto}
+                className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-surface-elevated sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[13.5px] font-semibold text-foreground">{r.name}</span>
+                    <span className="rounded border border-border px-1.5 py-px text-[10px] uppercase tracking-wider text-foreground-faint">{r.project}</span>
+                  </div>
+                  <p className="mt-0.5 font-mono text-[11px] text-foreground-faint">{r.addr}</p>
+                </div>
+                <span className="hidden font-mono text-[11.5px] text-foreground-faint sm:block">{r.assets}</span>
+                <span className="flex items-center gap-2">
+                  <span className="w-24 text-right text-[15px] font-semibold tabular-nums text-foreground">{usd(r.usd)}</span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-foreground-faint transition-transform ${aberto ? "rotate-180" : ""}`} />
+                </span>
+              </button>
+              {aberto && <div className="border-t border-border p-4">{r.node}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["views"] }) {
   // `safeChainId` só existe quando o Safe Transaction Service reconheceu o
@@ -808,52 +963,6 @@ function HiveCard({ a, t }: { a: HiveAccountReport; t: Dictionary["treasury"]["v
   );
 }
 
-function WalletDetail({ groups, withHeadings, t }: { groups: TreasuryGroup[]; withHeadings: boolean; t: Dictionary["treasury"]["views"] }) {
-  const th = useT().treasury.hero;
-  return (
-    <div className="space-y-8">
-      {groups.map((g) => (
-        <div key={g.slug} className="space-y-4">
-          {withHeadings && (
-            <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">{g.name}</h3>
-              <span
-                className={`text-sm font-semibold tabular-nums ${isOk(g.report.total) ? "text-foreground-muted" : "text-warning"}`}
-              >
-                {isOk(g.report.total) ? usd(g.report.total.value) : th.incomplete}
-              </span>
-            </div>
-          )}
-          {g.report.evm.length > 0 && (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {g.report.evm.map((w) => (
-                <EvmCard key={w.address} w={w} t={t} />
-              ))}
-            </div>
-          )}
-          {g.report.hive.length > 0 && (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {g.report.hive.map((a) => (
-                <HiveCard key={a.account} a={a} t={t} />
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Dashboard
-// ---------------------------------------------------------------------------
-
-/**
- * Treasury dashboard. A Zerion-style overview (hero total + composition +
- * holdings) sits up top for a fast read; per-wallet detail is tucked into a
- * collapsible section below. Multiple groups (admin overview) add a tab bar and
- * a "by project" allocation.
- */
 export function TreasuryViews({
   groups,
   hideSelector = false,
@@ -861,10 +970,13 @@ export function TreasuryViews({
   canPropose = false,
   vault,
   monthlyBurnUsd = 0,
+  chart,
 }: {
   groups: TreasuryGroup[];
   hideSelector?: boolean;
   hideTotal?: boolean;
+  /** O gráfico do escopo. Vem de fora porque quem sabe o escopo é quem filtra. */
+  chart?: ReactNode;
   /** Custo fixo mensal do escopo — alimenta saúde e runway. */
   monthlyBurnUsd?: number;
   /** Sessão válida — só então os botões de propor aparecem. A trava de verdade
@@ -878,8 +990,6 @@ export function TreasuryViews({
   const tr = useT().treasury;
   const t = tr.views;
   const [view, setView] = useState<string>("all");
-  // Aberto por padrão: é a lista, não um extra.
-  const [showDetail, setShowDetail] = useState(true);
   const multi = groups.length > 1;
   // When a parent owns the project filter (SOPA dashboard), it passes already
   // filtered `groups` and hides this local selector — so balances and revenue
@@ -911,27 +1021,11 @@ export function TreasuryViews({
         </div>
       )}
 
-      <Overview groups={visible} title={title} hideTotal={hideTotal} canPropose={canPropose} vault={vault} monthlyBurnUsd={monthlyBurnUsd} />
+      <Overview groups={visible} title={title} hideTotal={hideTotal} canPropose={canPropose} vault={vault} monthlyBurnUsd={monthlyBurnUsd} chart={chart} />
 
 
       <div>
-        {/* As carteiras ficam À VISTA. Estavam atrás de um botão de texto
-            fechado por padrão, e era ali que moravam os links do Safe, o filtro
-            de poeira e — por um tempo — os controles: tudo invisível para quem
-            abria a página. Quem quer o resumo já o tem acima; quem rola até
-            aqui está procurando exatamente isto. */}
-        <div className="mb-3 flex items-baseline justify-between gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-subtle">{t.walletDetail}</h3>
-          <button
-            type="button"
-            onClick={() => setShowDetail((s) => !s)}
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground-faint transition-colors hover:text-foreground"
-          >
-            <ChevronDown className={`h-3 w-3 transition-transform ${showDetail ? "" : "-rotate-90"}`} />
-            {showDetail ? "recolher" : "mostrar"}
-          </button>
-        </div>
-        {showDetail && <WalletDetail groups={visible} withHeadings={multi && view === "all"} t={t} />}
+        {/* Carteiras vivem dentro do Overview agora — tabela, não colapso. */}
       </div>
 
       {prices && (
