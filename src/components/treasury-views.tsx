@@ -499,17 +499,55 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
 // Per-wallet detail (kept for drill-down, collapsed by default)
 // ---------------------------------------------------------------------------
 
-function EvmCard({
-  w,
-  t,
-  canPropose,
+/**
+ * Os multisigs do tesouro, com as operações que a gente propõe deles.
+ *
+ * Fica na parte de cima, sempre visível: são poucas carteiras (duas hoje) e
+ * é o único lugar da página onde alguém MEXE no dinheiro em vez de olhar.
+ */
+function MultisigPanel({
+  groups,
   vault,
 }: {
-  w: EvmWalletReport;
-  t: Dictionary["treasury"]["views"];
-  canPropose?: boolean;
+  groups: TreasuryGroup[];
   vault?: { key: string; assetSymbol: string; chainId: number };
 }) {
+  const safes = groups.flatMap((g) => g.report.evm).filter((w) => w.safeChainId);
+  if (safes.length === 0) return null;
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <h3 className="mb-1 text-sm font-bold uppercase tracking-wider text-foreground">Multisigs</h3>
+      <p className="mb-4 text-xs text-foreground-faint">
+        Tudo aqui entra na fila do Safe e só sai depois das assinaturas — ninguém é debitado por um
+        clique.
+      </p>
+      <div className="space-y-5">
+        {safes.map((w) => (
+          <div key={w.address}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-sm font-semibold text-foreground">{w.label}</span>
+              <a
+                href={safeAppUrl(w.address, w.safeChainId!) ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-[11px] text-foreground-subtle hover:text-accent"
+              >
+                {shortAddr(w.address)} ↗
+              </a>
+            </div>
+            <SafeTreasuryActions
+              safe={w.address}
+              vaultKey={vault && vault.chainId === w.safeChainId ? vault.key : undefined}
+              vaultAssetSymbol={vault?.assetSymbol}
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["views"] }) {
   // `safeChainId` só existe quando o Safe Transaction Service reconheceu o
   // endereço. Sem ele, tratamos como carteira comum — que é o que quase todo
   // endereço é, e o palpite barato na direção certa.
@@ -613,16 +651,6 @@ function EvmCard({
       ) : w.failedChains.length === 0 ? (
         <p className="mt-3 text-xs text-foreground-faint">{t.noBalances}</p>
       ) : null}
-      {/* Só em multisig, e só logado. Stake/unstake dependem de o cofre estar na
-          MESMA cadeia do Safe — senão a transação seria proposta para um
-          contrato que não existe ali. */}
-      {canPropose && w.safeChainId && (
-        <SafeTreasuryActions
-          safe={w.address}
-          vaultKey={vault && vault.chainId === w.safeChainId ? vault.key : undefined}
-          vaultAssetSymbol={vault?.assetSymbol}
-        />
-      )}
     </div>
   );
 }
@@ -676,19 +704,7 @@ function HiveCard({ a, t }: { a: HiveAccountReport; t: Dictionary["treasury"]["v
   );
 }
 
-function WalletDetail({
-  groups,
-  withHeadings,
-  t,
-  canPropose,
-  vault,
-}: {
-  groups: TreasuryGroup[];
-  withHeadings: boolean;
-  t: Dictionary["treasury"]["views"];
-  canPropose?: boolean;
-  vault?: { key: string; assetSymbol: string; chainId: number };
-}) {
+function WalletDetail({ groups, withHeadings, t }: { groups: TreasuryGroup[]; withHeadings: boolean; t: Dictionary["treasury"]["views"] }) {
   const th = useT().treasury.hero;
   return (
     <div className="space-y-8">
@@ -707,7 +723,7 @@ function WalletDetail({
           {g.report.evm.length > 0 && (
             <div className="grid gap-4 lg:grid-cols-2">
               {g.report.evm.map((w) => (
-                <EvmCard key={w.address} w={w} t={t} canPropose={canPropose} vault={vault} />
+                <EvmCard key={w.address} w={w} t={t} />
               ))}
             </div>
           )}
@@ -789,6 +805,15 @@ export function TreasuryViews({
 
       <Overview groups={visible} title={title} hideTotal={hideTotal} />
 
+      {/* Os multisigs e o que dá para fazer com eles, à vista.
+          Antes isto morava dentro do card de cada carteira, que vive atrás do
+          colapso "detalhe por carteira" — fechado por padrão. O resultado era
+          um botão que existia, passava no build e ninguém nunca via. Operação
+          de dinheiro não pode depender de a pessoa adivinhar onde clicar. */}
+      {canPropose && (
+        <MultisigPanel groups={visible} vault={vault} />
+      )}
+
       <div>
         <button
           type="button"
@@ -800,7 +825,7 @@ export function TreasuryViews({
         </button>
         {showDetail && (
           <div className="mt-4">
-            <WalletDetail groups={visible} withHeadings={multi && view === "all"} t={t} canPropose={canPropose} vault={vault} />
+            <WalletDetail groups={visible} withHeadings={multi && view === "all"} t={t} />
           </div>
         )}
       </div>
