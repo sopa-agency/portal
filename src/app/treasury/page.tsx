@@ -441,6 +441,9 @@ treasury: {
     }),
   );
   const initialCosts = costGroups.flatMap((g) => costScope.bySlug[g.slug] ?? []);
+  // Sobe junto de initialCosts porque a banda de topo do tesouro o consome
+  // antes deste ponto — e um const usado acima da própria declaração não roda.
+  const brandBurn = initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0);
   // Brand portals get the same chart (their own revenue vs their own costs) —
   // they just have no agency jobs to fold in.
   const dashboardViews = buildFinancialDashboardViews({
@@ -514,6 +517,7 @@ treasury: {
   // filter, which is why they aren't two components.
   const sopaOverview = isSopa ? (
     <SopaTreasury
+      monthlyBurnUsd={brandBurn}
       canPropose={!!session}
       vault={vaults[0] ? { key: vaults[0].vault.key, assetSymbol: vaults[0].vault.assetSymbol, chainId: vaults[0].vault.chainId } : undefined}
       part="treasury"
@@ -572,7 +576,6 @@ treasury: {
   // Brand portal (Gnars, SkateHive…): no stake/stream payroll, so the treasury
   // reads as "quanto temos → está saudável? → de onde vem → onde está → o que sai".
   const brandView = groups.find((g) => g.slug === project.slug) ?? groups[0];
-  const brandBurn = initialCosts.filter((c) => c.active).reduce((s, c) => s + c.monthlyUsd, 0);
 
   /* Pagamentos: decidir quanto cada um recebe e mandar o dinheiro são a MESMA
      pergunta. A urna vinha de uma rota solta em /votacao e o pipeline do MOR
