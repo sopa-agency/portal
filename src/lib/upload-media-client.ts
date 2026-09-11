@@ -1,6 +1,6 @@
 "use client";
 
-import { signPostMediaUpload } from "@/app/actions/post-creator";
+import { signPostMediaUpload, uploadPostMedia } from "@/app/actions/post-creator";
 
 /**
  * Direct browser→Pinata upload: ask the server for a short-lived signed URL,
@@ -31,4 +31,20 @@ export async function uploadMediaDirectClient(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * Cover-image upload for a Reel: direct browser→Pinata first, falling back to
+ * the server action when the signed-URL handshake fails. Covers are small, so
+ * the fallback's body limit is never a problem. Shared by the Post Creator's
+ * media step, the scheduled-post dialog and the cross-post curation.
+ */
+export async function uploadCoverImageClient(
+  file: File,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const direct = await uploadMediaDirectClient(file);
+  if (direct.ok) return direct;
+  const fd = new FormData();
+  fd.set("file", file);
+  return uploadPostMedia(fd);
 }

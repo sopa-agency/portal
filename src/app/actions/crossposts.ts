@@ -12,6 +12,7 @@ import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
 import { crossPostPublisherHealth } from "@/lib/scheduler-lease";
 import { normalizeMediaUrl } from "@/lib/social-publish";
+import { tagMediaKind } from "@/lib/post-media";
 import {
   claimForPortalPublish,
   crossPostConfig,
@@ -162,7 +163,15 @@ export async function saveCrossPostPayload(
  */
 export async function approveInstagramCrossPost(
   id: string,
-  edits: { caption?: string; collaborators?: string[] },
+  edits: {
+    caption?: string;
+    collaborators?: string[];
+    /** Reel cover chosen by the curator. `undefined` keeps the author's thumbnail
+     *  from the app (`payload.image_url`); `null` drops it in favour of a frame. */
+    coverUrl?: string | null;
+    /** Reel cover as a frame offset (ms) — only read when there is no coverUrl. */
+    thumbOffsetMs?: number | null;
+  },
   scheduledForISO?: string,
 ): Promise<{ ok: true; scheduledFor: string } | { ok: false; error: string; stale?: boolean }> {
   const g = await gate();
@@ -203,16 +212,33 @@ export async function approveInstagramCrossPost(
   }
 
   // Media order matters for a carousel, so keep the payload's own ordering.
+  // Every URL gets a kind hint (bare IPFS CIDs have no extension), so the
+  // composer, the dialog and the lists can tell the video from the images.
+  const isReel = payload.ig_media_type === "REELS";
   const mediaUrls = (
     payload.media_items?.length
-      ? payload.media_items.map((m) => m.url)
-      : [payload.video_url, payload.image_url].filter((u): u is string => !!u)
+      ? payload.media_items.map((m) => tagMediaKind(m.url, m.type))
+      : isReel && payload.video_url
+        ? // For a video snap the app sends `image_url` as the thumbnail the
+          // author picked, not as a second slide: it becomes the cover below.
+          [tagMediaKind(payload.video_url, "video")]
+        : [
+            payload.video_url && tagMediaKind(payload.video_url, "video"),
+            payload.image_url && tagMediaKind(payload.image_url, "image"),
+          ].filter((u): u is string => !!u)
   ).map(normalizeMediaUrl);
 
   if (mediaUrls.length === 0) {
     await releaseClaim(id);
     return { ok: false, error: "Esse pedido não tem mídia publicável." };
   }
+
+  const authorThumb = isReel && payload.image_url ? tagMediaKind(payload.image_url, "image") : null;
+  const coverUrl = isReel ? (edits.coverUrl !== undefined ? edits.coverUrl : authorThumb) : null;
+  const thumbOffsetMs =
+    isReel && !coverUrl && typeof edits.thumbOffsetMs === "number" && edits.thumbOffsetMs >= 0
+      ? Math.round(edits.thumbOffsetMs)
+      : null;
 
   try {
     await prisma.instagramPost.create({
@@ -222,6 +248,8 @@ export async function approveInstagramCrossPost(
         title: `cross-post @${item.hiveAuthor || item.requestedByHandle}`,
         caption,
         mediaUrls,
+        coverUrl: coverUrl ? normalizeMediaUrl(coverUrl) : null,
+        thumbOffsetMs,
         collaborators,
         scheduledFor: when,
         status: "scheduled",
