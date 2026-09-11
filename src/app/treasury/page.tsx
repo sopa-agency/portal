@@ -15,18 +15,10 @@ import { getTreasuryHistory, getTreasuryWalletHistory, getTreasuryWalletChart } 
 import { TreasuryHistoryChart } from "@/components/treasury-history-chart";
 import { SopaRevenuePanel, type OnchainShare } from "@/components/sopa-revenue-panel";
 import { listSopaJobs } from "@/app/actions/sopa-jobs";
-import { PayrollPanel, type PayrollRosterOption } from "@/components/payroll-panel";
+import type { PayrollRosterOption } from "@/components/payroll-panel";
 import { listPayrollMembers } from "@/app/actions/payroll";
 import { getTeamRoster } from "@/lib/team-roster";
-import { NotConfigured } from "@/components/data-state";
-import { CreatePoolButton } from "@/components/create-pool-button";
-import { StreamActions } from "@/components/stream-actions";
-import { StreamFlowView } from "@/components/stream-flow-view";
-import { StreamSustainability } from "@/components/stream-sustainability";
-import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE, SUPERFLUID } from "@/lib/superfluid";
-import { ConnectPoolButton } from "@/components/connect-pool-button";
-import { MembersTab } from "@/components/members-tab";
-import { WithdrawUsdcx } from "@/components/withdraw-usdcx";
+import { getStreamStatus, findSopaPool, SOPA_POOL_ADDRESS, SOPA_SAFE } from "@/lib/superfluid";
 import { BrandTreasury } from "@/components/brand-treasury";
 import { TreasuryAllocation } from "@/components/treasury-allocation";
 import { getAllocation } from "@/app/actions/allocation";
@@ -45,11 +37,7 @@ import { buildFinancialDashboardViews } from "@/lib/financial-dashboard";
 import { TreasuryBriefingButton } from "@/components/treasury-briefing";
 import { buildTreasuryBriefing } from "@/lib/treasury-briefing";
 import { getSplitConfig } from "@/lib/splits";
-import { VaultStaking } from "@/components/vault-staking";
 import { getCommunityVaults, fetchVaultApy } from "@/lib/community-vaults";
-import { VaultDepositors } from "@/components/vault-depositors";
-import { VaultSupportSummary } from "@/components/vault-support-summary";
-import { VaultFlowView } from "@/components/vault-flow-view";
 import { getVaultDepositors, getVaultFeeAccrued } from "@/lib/vault-depositors";
 
 import { fetchTreasuryGroups, getPrices } from "@/lib/treasury";
@@ -63,7 +51,6 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
 import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
-import { rich } from "@/components/rich-text";
 import { attempt, insufficient, isOk, ok, settledWithin, unread, type Reading } from "@/lib/reading";
 import { readCapitalPosition, realizedApy, type CapitalPosition } from "@/lib/morpheus-capital";
 import { MorpheusCapitalPanel, MorpheusCapitalSkeleton } from "@/components/morpheus-capital-panel";
@@ -338,7 +325,6 @@ treasury: {
   const allocation = isOk(allocRead) ? allocRead.value : null;
   const allocUnknown = !isOk(allocRead);
   const poolAddress = isOk(poolRead) ? poolRead.value : null;
-  const poolUnknown = !isOk(poolRead);
   const stakePosition = isOk(stakeRead) ? stakeRead.value : null;
   const stakeUnknown = !isOk(stakeRead);
   const vaults = isOk(communityVaults) ? communityVaults.value : [];
@@ -378,12 +364,9 @@ treasury: {
   // Idem ao pool: `ok(null)` é "não há pool para consultar"; `unread` é "não
   // consegui ler o status". Só a segunda é falha, e só ela acende o aviso.
   const streamStatus = isOk(streamRead) ? streamRead.value : null;
-  const streamUnknown = poolUnknown || (!!poolAddress && !isOk(streamRead));
   // Flow rate zero com pool existente é a máquina DESLIGADA — estado legítimo,
   // não falha. A tela precisa distingui-lo de "não consegui ler" (streamUnknown)
   // e de "está pagando": três estados, três telas.
-  const streamOff = !!streamStatus && streamStatus.flowRatePerSec <= 0;
-  const streamLifetimeUsd = streamStatus ? streamStatus.lifetimeDistributedUsd : null;
 
   // A onda 2 acabou: a capital teve todo esse tempo para responder. Se a
   // mainnet está pendurada, no máximo 1,5s de espera e o resto da página segue
@@ -850,157 +833,6 @@ treasury: {
           }
           payments={paymentsContent}
           paymentsBadge={session ? <VoteDot /> : undefined}
-          migration={
-            <div className="space-y-8">
-              <div>
-                <h2 className="text-lg font-semibold tracking-tight text-foreground">{t.treasury.migration.title}</h2>
-                <p className="mt-1 max-w-3xl text-sm leading-relaxed text-foreground-muted">{t.treasury.migration.blurb}</p>
-                <p className="mt-2 text-xs font-semibold text-warning">{t.treasury.migration.note}</p>
-              </div>
-              <MembersTab
-                canEdit={!!session}
-                members={payroll
-                  .filter((m) => m.active)
-                  .map((m) => {
-                    const chain = streamStatus?.members.find((sm) => sm.address.toLowerCase() === m.address.toLowerCase());
-                    return {
-                      label: m.label,
-                      address: m.address,
-                      units: m.units,
-                      // `chain` ausente = a leitura do pool falhou. Antes isso
-                      // virava `false` e dois zeros, afirmando o estado da folha
-                      // de cada pessoa a partir de uma leitura que não houve.
-                      connected: chain ? chain.connected : null,
-                      receivedUsd: chain ? chain.receivedUsd : null,
-                      claimedUsd: chain ? chain.claimedUsd : null,
-                    };
-                  })}
-                monthlyUsd={streamStatus?.monthlyUsd ?? null}
-                streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
-                runwayDays={streamStatus?.runwayDays ?? null}
-                bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
-                // O detector deixa de depender do que ele detecta: pool que não
-                // pôde ser DESCOBERTO agora acende o aviso, em vez de apagá-lo.
-                streamFailed={streamUnknown}
-                streamOff={streamOff}
-                lifetimeUsd={streamLifetimeUsd}
-                flow={
-                  <>
-                    <StreamFlowView
-                      members={payroll.filter((m) => m.active).map((m) => ({ label: m.label, units: m.units }))}
-                      streaming={!!streamStatus && streamStatus.flowRatePerSec > 0}
-                      monthlyUsd={streamStatus?.monthlyUsd ?? null}
-                    />
-                    {!poolAddress && (
-                      <NotConfigured>
-                        {rich(t.treasury.pool.missing)}
-                        {t.treasury.pool.missingBody}
-                      </NotConfigured>
-                    )}
-                  </>
-                }
-                sustainability={
-                  poolAddress ? (
-                    <StreamSustainability
-                      failed={!streamStatus}
-                      yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
-                      burnMonthly={streamStatus?.monthlyUsd ?? 0}
-                      bufferUsdcx={streamStatus?.safeUsdcxUsd ?? 0}
-                      runwayDays={streamStatus?.runwayDays ?? null}
-                    />
-                  ) : null
-                }
-                withdraw={<WithdrawUsdcx />}
-                connect={
-                  poolAddress ? (
-                    <ConnectPoolButton
-                      pool={poolAddress}
-                      forwarder={SUPERFLUID.gdaForwarder}
-                      connectedAddresses={(streamStatus?.members ?? []).filter((m) => m.connected).map((m) => m.address.toLowerCase())}
-                    />
-                  ) : null
-                }
-                steps={[
-                  ...(!poolAddress && session ? [{ title: t.treasury.members.stepCreatePool, node: <CreatePoolButton /> }] : []),
-                  { title: t.treasury.members.stepTeam, node: <PayrollPanel initial={payroll} canEdit={!!session} roster={roster} /> },
-                  ...(poolAddress
-                    ? [
-                        {
-                          title: streamOff ? t.treasury.members.stepStreamOff : t.treasury.members.stepTurnOn,
-                          node: (
-                            <div className="space-y-3">
-                              {streamOff && (
-                                <p className="rounded-xl border border-dashed border-border-strong bg-surface-elevated p-3 text-xs leading-relaxed text-foreground-muted">
-                                  {t.treasury.members.offStep}
-                                </p>
-                              )}
-                            <StreamActions
-                              canEdit={!!session}
-                              yieldMonthly={stakePosition?.monthlyYieldUsd ?? null}
-                              bufferUsd={streamStatus?.safeUsdcxUsd ?? 0}
-                              harvestableUsd={stakePosition?.harvestableUsd ?? null}
-                              currentFlowMonthly={streamStatus?.monthlyUsd ?? 0}
-                            />
-                            </div>
-                          ),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-
-              {/* O cofre da comunidade era a aba "Apoiar". Ele não sumiu: sumir
-                  seria afirmar que não há cofre — e quem tem dinheiro lá ficaria
-                  sem a tela por onde tirar. Fica aqui até o último saque. */}
-              <div className="border-t border-border pt-8">
-                {/* O painel do cofre continua sendo o de captação, com botão de
-                    depositar — ele foi movido, não redesenhado. Debaixo de um
-                    título que diz "tire o que é seu", um CTA de depósito é uma
-                    contradição que custa dinheiro de verdade a quem seguir. */}
-                <p className="mb-5 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-                  {t.treasury.migration.vaultWarn}
-                </p>
-                {/* Cofres que não leram NÃO somem da tela. Sumir é afirmar que não
-                    existem — e uma aba inteira que desaparece em silêncio é a
-                    omissão mais difícil de notar que existe. */}
-                {!isOk(communityVaults) ? (
-                  <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-                    ⚠ Os cofres da comunidade não puderam ser lidos
-                    {communityVaults.state === "unread" ? ` — ${communityVaults.reason}` : ""}. Isto NÃO quer dizer que
-                    não há cofre.
-                  </p>
-                ) : vaults.length > 0 ? (
-                  <div className="space-y-6">
-                    {!isOk(vaultDepositors) && (
-                      <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-                        ⚠ Os apoiadores não puderam ser lidos
-                        {vaultDepositors.state === "unread" ? ` — ${vaultDepositors.reason}` : ""}. Os totais abaixo
-                        ficam de fora — zero apoiadores seria afirmação, não leitura.
-                      </p>
-                    )}
-                    {sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned) && (
-                      <VaultSupportSummary
-                        depositedUsd={vaultDepositors.value.filter((d) => !d.isDeadDeposit).reduce((s, d) => s + d.assets, 0)}
-                        apy={sopaVault.apy}
-                        liveYieldUsd={sopaVaultEarned.value + vaultDepositors.value.reduce((s, d) => s + d.earned, 0)}
-                        sopaEarnedUsd={sopaVaultEarned.value}
-                        feeToSopa={sopaVault.fee}
-                      />
-                    )}
-                    {/* The yield flow is a wide horizontal diagram — it reads best at
-                        full width, so everything stacks rather than sitting half-width. */}
-                    <VaultStaking vaults={vaults} />
-                    {sopaVault && isOk(vaultDepositors) && isOk(sopaVaultEarned) && (
-                      <>
-                        <VaultFlowView depositors={vaultDepositors.value} apy={vaultGrossApy} feeToSopa={sopaVault.fee} sopaEarned={sopaVaultEarned.value} />
-                        <VaultDepositors depositors={vaultDepositors.value} apy={sopaVault.apy} feeToSopa={sopaVault.fee} />
-                      </>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          }
         />
       ) : (
         treasuryContent
