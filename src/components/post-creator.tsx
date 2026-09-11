@@ -81,6 +81,8 @@ import { SocialBrandIcon } from "@/components/social-brand-icon";
 import { ScheduledPostDialog } from "@/components/scheduled-post-dialog";
 import { ownEvents } from "@/lib/calendar-scope";
 import { EmojiPicker, insertAtCaret } from "@/components/emoji-picker";
+import { draftThumb, mediaUploads } from "@/lib/post-media";
+import { uploadCoverImageClient } from "@/lib/upload-media-client";
 
 // Studio (vendored Figma-like design tool) — heavy + browser-only, so it loads
 // on demand when the tab opens.
@@ -192,6 +194,10 @@ function PostDialog({
   const [dialogSchedule, setDialogSchedule] = useState(
     post.scheduledFor ? toDatetimeLocalValue(new Date(post.scheduledFor)) : ""
   );
+  // Reel cover — editable here because a scheduled post (every cross-post
+  // starts as one) never passes through the composer's media step.
+  const [dialogCover, setDialogCover] = useState<string | null>(post.coverUrl ?? null);
+  const [dialogThumbOffset, setDialogThumbOffset] = useState<number | null>(post.thumbOffsetMs ?? null);
   const [saving, setSaving] = useState(false);
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
   const [dialogFit, setDialogFit] = useState<"cover" | "contain">("cover");
@@ -216,11 +222,8 @@ function PostDialog({
   if (post.locationNote) appTasks.push(`Location: ${post.locationNote}`);
 
   // Derive uploads + aspect for IgPreview
-  const dialogUploads = post.mediaUrls.map((url) => ({
-    url,
-    previewUrl: url,
-    isVideo: /\.(mp4|mov|webm)(\?|$)/i.test(url),
-  }));
+  const dialogUploads = mediaUploads(post.type, post.mediaUrls);
+  const dialogReelVideo = post.type === "REELS" && dialogUploads[0]?.isVideo ? dialogUploads[0].previewUrl : null;
   const dialogAspectClass = aspectToClass(
     (post.aspectRatio as AspectRatio) ?? (post.type === "REELS" ? "9:16" : "1:1")
   );
@@ -244,22 +247,32 @@ function PostDialog({
     setDialogCaption(post.caption);
     setDialogComment(post.firstComment ?? "");
     setDialogSchedule(post.scheduledFor ? toDatetimeLocalValue(new Date(post.scheduledFor)) : "");
-  }, [post.id, post.caption, post.firstComment, post.scheduledFor]);
+    setDialogCover(post.coverUrl ?? null);
+    setDialogThumbOffset(post.thumbOffsetMs ?? null);
+  }, [post.id, post.caption, post.firstComment, post.scheduledFor, post.coverUrl, post.thumbOffsetMs]);
 
   const captionChanged = dialogCaption !== post.caption;
   const commentChanged = dialogComment !== (post.firstComment ?? "");
   const scheduleChanged = dialogSchedule !== (post.scheduledFor ? toDatetimeLocalValue(new Date(post.scheduledFor)) : "");
-  const hasChanges = captionChanged || commentChanged || scheduleChanged;
+  const coverChanged =
+    dialogCover !== (post.coverUrl ?? null) || dialogThumbOffset !== (post.thumbOffsetMs ?? null);
+  const hasChanges = captionChanged || commentChanged || scheduleChanged || coverChanged;
 
   async function handleSave() {
     setSaving(true);
     setSaveFlash(null);
     try {
-      if (captionChanged || commentChanged) {
-        await updateDraft(post.id, {
+      if (captionChanged || commentChanged || coverChanged) {
+        const res = await updateDraft(post.id, {
           caption: dialogCaption,
           firstComment: dialogComment,
+          ...(coverChanged ? { coverUrl: dialogCover, thumbOffsetMs: dialogThumbOffset } : {}),
         });
+        if (!res.ok) {
+          setSaveFlash(`Error: ${res.error}`);
+          setSaving(false);
+          return;
+        }
       }
       if (scheduleChanged && dialogSchedule) {
         const when = new Date(dialogSchedule);
@@ -518,6 +531,18 @@ function PostDialog({
                       placeholder="First comment (optional)…"
                     />
                   </div>
+
+                  {/* Reel cover — frame scrubber or custom image */}
+                  {dialogReelVideo && (
+                    <ReelCoverPicker
+                      videoUrl={dialogReelVideo}
+                      coverUrl={dialogCover}
+                      thumbOffsetMs={dialogThumbOffset}
+                      onCoverUrl={setDialogCover}
+                      onThumbOffset={setDialogThumbOffset}
+                      uploadImage={uploadCoverImageClient}
+                    />
+                  )}
 
                   {/* Reschedule */}
                   <div className="space-y-1.5">
@@ -911,8 +936,8 @@ function ScheduledCalendar({
       .sort((a, b) => b.t - a.t);
     return withDate.map(({ d }) => ({
       id: d.id,
-      thumb: d.mediaUrls[0] ?? null,
-      isVideo: /\.(mp4|mov|webm)(\?|$)/i.test(d.mediaUrls[0] ?? ""),
+      thumb: draftThumb(d).url,
+      isVideo: draftThumb(d).isVideo,
       isCarousel: d.mediaUrls.length > 1,
       isReel: d.type === "REELS",
       status: d.status === "published" ? "published" : d.status === "scheduled" ? "scheduled" : "draft",
@@ -1160,8 +1185,7 @@ function ScheduledCalendar({
                 {/* Post chips */}
                 <div className="space-y-0.5">
                   {dayPosts.slice(0, CHIP_LIMIT).map((d) => {
-                    const chipThumb = d.mediaUrls[0] ?? null;
-                    const chipIsVideo = /\.(mp4|mov|webm)(\?|$)/i.test(chipThumb ?? "");
+                    const { url: chipThumb, isVideo: chipIsVideo } = draftThumb(d);
                     const chipIsPublished = d.status === "published";
                     const chipDue = !chipIsPublished && d.scheduledFor ? new Date(d.scheduledFor).getTime() <= now : false;
                     const chipManual = d.publishMode === "manual";
@@ -1343,8 +1367,7 @@ function ScheduledSection({
   return (
     <div className="space-y-2">
       {items.map((d) => {
-        const thumb = d.mediaUrls[0] ?? null;
-        const isVideo = /\.(mp4|mov|webm)(\?|$)/i.test(thumb ?? "");
+        const { url: thumb, isVideo } = draftThumb(d);
         const isDue = d.scheduledFor ? new Date(d.scheduledFor).getTime() <= now : false;
         const isManual = d.publishMode === "manual";
 
@@ -1533,8 +1556,7 @@ function DraftStrip({
     <div className="space-y-2">
       {drafts.map((d) => {
         const urls = d.mediaUrls;
-        const thumb = urls[0] ?? null;
-        const isVideo = /\.(mp4|mov|webm)(\?|$)/i.test(thumb ?? "");
+        const { url: thumb, isVideo } = draftThumb(d);
         return (
           <div
             key={d.id}
@@ -2112,19 +2134,6 @@ export function PostCreator({
     setThumbOffsetMs(null);
   }
 
-  // Uploader handed to ReelCoverPicker — direct→Pinata with the server fallback.
-  async function coverUploader(
-    file: File,
-  ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
-    let result = await uploadMediaDirect(file);
-    if (!result.ok) {
-      const fd = new FormData();
-      fd.set("file", file);
-      result = await uploadPostMedia(fd);
-    }
-    return result;
-  }
-
   function moveUpload(index: number, dir: -1 | 1) {
     setUploads((prev) => {
       const next = [...prev];
@@ -2418,13 +2427,7 @@ export function PostCreator({
       setAspectTouched(false);
     }
 
-    setUploads(
-      d.mediaUrls.map((url) => ({
-        url,
-        previewUrl: url,
-        isVideo: /\.(mp4|mov|webm)(\?|$)/i.test(url),
-      })),
-    );
+    setUploads(mediaUploads(d.type, d.mediaUrls));
     setPublishResult(null);
     setSaveMsg(null);
 
@@ -2921,7 +2924,7 @@ export function PostCreator({
                 thumbOffsetMs={thumbOffsetMs}
                 onCoverUrl={setCoverUrl}
                 onThumbOffset={setThumbOffsetMs}
-                uploadImage={coverUploader}
+                uploadImage={uploadCoverImageClient}
               />
             )}
 
@@ -3922,8 +3925,7 @@ export function PostCreator({
                         return tb - ta; // most recent first
                       })
                       .map((d) => {
-                        const thumb = d.mediaUrls[0] ?? null;
-                        const isVideo = /\.(mp4|mov|webm)(\?|$)/i.test(thumb ?? "");
+                        const { url: thumb, isVideo } = draftThumb(d);
                         return (
                           <div
                             key={d.id}
@@ -4146,7 +4148,7 @@ export function PostCreator({
                         const tb = b.scheduledFor ? new Date(b.scheduledFor).getTime() : b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
                         return tb - ta;
                       })
-                      .map((d): FeedCell => ({ id: d.id, thumb: d.mediaUrls[0] ?? null, isVideo: /\.(mp4|mov|webm)(\?|$)/i.test(d.mediaUrls[0] ?? ""), isCarousel: d.mediaUrls.length > 1, isReel: d.type === "REELS", status: d.status === "published" ? "published" : "scheduled" })),
+                      .map((d): FeedCell => ({ id: d.id, thumb: draftThumb(d).url, isVideo: draftThumb(d).isVideo, isCarousel: d.mediaUrls.length > 1, isReel: d.type === "REELS", status: d.status === "published" ? "published" : "scheduled" })),
                   ]}
                 />
               </div>

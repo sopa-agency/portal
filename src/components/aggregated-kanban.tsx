@@ -61,6 +61,22 @@ export function AggregatedKanban({
     if (item) setActive(item);
   }, [columns]);
 
+  // Persisted in the URL (?board=<name>) so a refresh keeps the selected project.
+  const [board, setBoard] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("board"),
+  );
+  const [team, setTeam] = useState<Assignee[] | null>(null);
+  const [dragging, setDragging] = useState<AggregatedItem | null>(null);
+
+  // Validate the persisted ?board against the boards that actually exist; drop stale values.
+  const boardValidated = useRef(false);
+  useEffect(() => {
+    if (boardValidated.current || cols.length === 0) return;
+    boardValidated.current = true;
+    const known = new Set(cols.flatMap((c) => c.items.map((i) => i.board)));
+    if (board && !known.has(board)) setBoard(null);
+  }, [cols, board]);
+
   // Keep ?open=<id> in sync with the open card so any open card has a copyable,
   // shareable URL (and closing clears it). Guarded until the deep-link above ran
   // so the initial ?open isn't stripped before columns arrive.
@@ -69,12 +85,11 @@ export function AggregatedKanban({
     const params = new URLSearchParams(window.location.search);
     if (active) params.set("open", active.id);
     else params.delete("open");
+    if (board) params.set("board", board);
+    else params.delete("board");
     const qs = params.toString();
     window.history.replaceState(window.history.state, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [active]);
-  const [team, setTeam] = useState<Assignee[] | null>(null);
-  const [dragging, setDragging] = useState<AggregatedItem | null>(null);
-  const [board, setBoard] = useState<string | null>(null);
+  }, [active, board]);
   const [personFilter, setPersonFilter] = useState<string[]>([]); // assignee logins (lowercase)
   const [showDone, setShowDone] = useState(false);
   const [toast, setToast] = useState<{ msg: string; level: "error" | "success" | "info" } | null>(null);

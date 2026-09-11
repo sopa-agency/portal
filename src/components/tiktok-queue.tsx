@@ -34,6 +34,7 @@ import {
   type TikTokRow,
 } from "@/app/actions/tiktok";
 import type { TikTokPrivacy } from "@/lib/tiktok";
+import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
 
 const CAPTION_MAX = 2200;
 
@@ -302,6 +303,9 @@ function Composer({
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  // Cover frame (video_cover_timestamp_ms). TikTok's direct post has no custom
+  // image cover, so this is a timestamp only; null = TikTok's default frame.
+  const [coverTimeMs, setCoverTimeMs] = useState<number | null>(null);
   // TikTok's UX guidelines require the privacy dropdown to start with NO value
   // chosen — "" is the unselected state and blocks saving.
   const [pickedPrivacy, setPrivacy] = useState<TikTokPrivacy | "">("");
@@ -333,8 +337,10 @@ function Composer({
     setUploading(true);
     const res = await uploadVideo(file);
     setUploading(false);
-    if (res.ok) setVideoUrl(res.url);
-    else onError(res.error);
+    if (res.ok) {
+      setVideoUrl(res.url);
+      setCoverTimeMs(null); // a new video has its own timeline
+    } else onError(res.error);
   }
 
   function save() {
@@ -351,6 +357,7 @@ function Composer({
         title,
         caption,
         videoUrl,
+        coverTimeMs: videoUrl ? coverTimeMs : null,
         privacy,
         disableComment,
         disableDuet,
@@ -367,6 +374,7 @@ function Composer({
       setTitle("");
       setCaption("");
       setVideoUrl(null);
+      setCoverTimeMs(null);
       setPrivacy("");
       setDiscloseCommercial(false);
       setBrandContent(false);
@@ -419,6 +427,17 @@ function Composer({
             {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
             {videoUrl ? "Trocar vídeo" : "Subir vídeo"}
           </button>
+          {videoUrl && (
+            <ReelCoverPicker
+              lang="pt"
+              title="Capa do vídeo"
+              videoUrl={videoUrl}
+              coverUrl={null}
+              thumbOffsetMs={coverTimeMs}
+              onCoverUrl={() => {}}
+              onThumbOffset={setCoverTimeMs}
+            />
+          )}
         </div>
 
         {/* Fields */}

@@ -25,6 +25,8 @@ import {
   X,
 } from "lucide-react";
 import { SocialBrandIcon } from "@/components/social-brand-icon";
+import { ReelCoverPicker } from "@/components/post/reel-cover-picker";
+import { uploadCoverImageClient } from "@/lib/upload-media-client";
 import {
   approveInstagramCrossPost,
   listCrossPostQueue,
@@ -67,7 +69,7 @@ function ago(iso: string): string {
 // Media
 // ---------------------------------------------------------------------------
 
-function MediaPreview({ payload }: { payload: InstagramPayload }) {
+function MediaPreview({ payload, poster }: { payload: InstagramPayload; poster?: string | null }) {
   const items = mediaOf(payload);
   const [index, setIndex] = useState(0);
   const [broken, setBroken] = useState<Record<number, boolean>>({});
@@ -98,6 +100,7 @@ function MediaPreview({ payload }: { payload: InstagramPayload }) {
           <video
             key={current.url}
             src={current.url}
+            poster={poster ?? undefined}
             controls
             playsInline
             preload="metadata"
@@ -220,6 +223,15 @@ function Detail({
   const [caption, setCaption] = useState(() => payload.caption ?? "");
   const [collabs, setCollabs] = useState<string[]>(() => payload.collaborators ?? []);
   const [collabDraft, setCollabDraft] = useState("");
+  /**
+   * Reel cover. For a video snap the app sends `image_url` as the thumbnail the
+   * author picked, so that is the starting point; the curator can drop it for
+   * a frame of the video, or upload another image. Both land on the
+   * InstagramPost at approval and reach Meta as cover_url / thumb_offset.
+   */
+  const reelVideoUrl = payload.ig_media_type === "REELS" ? payload.video_url : null;
+  const [coverUrl, setCoverUrl] = useState<string | null>(() => (reelVideoUrl ? payload.image_url : null));
+  const [thumbOffsetMs, setThumbOffsetMs] = useState<number | null>(null);
   /** datetime-local value. Empty = publish as soon as the worker picks it up. */
   const [when, setWhen] = useState("");
   /**
@@ -273,7 +285,9 @@ function Detail({
       setBanner(null);
       const res = await approveInstagramCrossPost(
         item.id,
-        { caption, collaborators: collabs },
+        reelVideoUrl
+          ? { caption, collaborators: collabs, coverUrl, thumbOffsetMs }
+          : { caption, collaborators: collabs },
         when ? new Date(when).toISOString() : undefined,
       );
       if (res.ok) {
@@ -354,7 +368,20 @@ function Detail({
       )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-        <MediaPreview payload={payload} />
+        <div className="space-y-3">
+          <MediaPreview payload={payload} poster={reelVideoUrl ? coverUrl : null} />
+          {reelVideoUrl && editable && (
+            <ReelCoverPicker
+              lang="pt"
+              videoUrl={reelVideoUrl}
+              coverUrl={coverUrl}
+              thumbOffsetMs={thumbOffsetMs}
+              onCoverUrl={setCoverUrl}
+              onThumbOffset={setThumbOffsetMs}
+              uploadImage={uploadCoverImageClient}
+            />
+          )}
+        </div>
 
         <div className="space-y-3">
           <div>

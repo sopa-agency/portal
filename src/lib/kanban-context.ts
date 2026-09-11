@@ -1,6 +1,6 @@
 import "server-only";
 import type { ProjectConfig } from "@/projects/types";
-import { fetchGitHubProject } from "@/lib/github-project";
+import { fetchAggregatedBoards, fetchGitHubProject, type AggregatedItem, type KanbanResult } from "@/lib/github-project";
 import { loadCardMeta } from "@/lib/card-meta";
 import { compareByPriority } from "@/lib/kanban-priority";
 
@@ -19,6 +19,73 @@ const ctxCache = new Map<string, { data: string; expires: number }>();
 // A card is "finished" when it sits in a Done-ish column OR is closed/merged.
 // Kept in sync with the same notion in team-admin.ts (getMemberTasks).
 const DONE_COLUMN = /done|conclu|complete|shipped|archiv|encerrad|fechad|✅/i;
+
+export type AssignedTasksContext = {
+  text: string;
+  total: number;
+  errors: string[];
+};
+
+function isFinished(column: string, item: AggregatedItem): boolean {
+  return DONE_COLUMN.test(column) || item.merged === true || (item.state ?? "").toUpperCase() === "CLOSED";
+}
+
+function belongsToIdentity(project: ProjectConfig, item: AggregatedItem): boolean {
+  const identity = project.taskIdentity;
+  if (!identity) return false;
+  if (identity.includeOwnBoard && item.projectSlug === project.slug) return true;
+  const logins = new Set(identity.logins.map((login) => login.trim().toLowerCase()).filter(Boolean));
+  if (item.owner && logins.has(item.owner.toLowerCase())) return true;
+  return item.assignees.some((assignee) => logins.has(assignee.login.toLowerCase()));
+}
+
+function compactTitle(value: string, max = 140): string {
+  const title = value.replace(/\s+/g, " ").trim();
+  return title.length > max ? `${title.slice(0, max)}…` : title;
+}
+
+/**
+ * Every open task that belongs to the configured person across all registered
+ * portal boards. Personal-board cards count even without an explicit assignee;
+ * cards elsewhere need a matching GitHub assignee or portal-owned owner.
+ */
+export async function getAssignedTasksAcrossPortalsContext(project: ProjectConfig): Promise<AssignedTasksContext> {
+  if (!project.taskIdentity) return { text: "", total: 0, errors: [] };
+
+  const aggregated = await fetchAggregatedBoards();
+  const tasks: { status: string; item: AggregatedItem }[] = [];
+  for (const column of aggregated.columns) {
+    for (const item of column.items) {
+      if (isFinished(column.name, item)) continue;
+      if (belongsToIdentity(project, item)) tasks.push({ status: column.name, item });
+    }
+  }
+  tasks.sort((a, b) => compareByPriority(a.item, b.item));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const lines = tasks.map(({ status, item }) => {
+    const fire = item.firePriority ? ` 🔥${item.firePriority}` : "";
+    const due = item.deadline
+      ? ` ⏰${item.deadline}${item.deadline < today ? "(atrasado)" : item.deadline === today ? "(hoje)" : ""}`
+      : "";
+    const githubPriority = item.priority ? ` prioridade:${item.priority}` : "";
+    const owner = item.owner ? ` owner:@${item.owner}` : "";
+    const assigned = item.assignees.length ? ` assignees:${item.assignees.map((a) => `@${a.login}`).join(",")}` : "";
+    const link = item.url ? ` ${item.url}` : "";
+    return `- [${item.board} · ${status}]${fire}${due}${githubPriority} ${compactTitle(item.title)}${owner}${assigned}${link}`;
+  });
+
+  const byPortal = new Map<string, number>();
+  for (const { item } of tasks) byPortal.set(item.board, (byPortal.get(item.board) ?? 0) + 1);
+  const summary = [...byPortal.entries()].map(([board, count]) => `${board} ${count}`).join(" · ");
+  const partial = aggregated.errors.length
+    ? `\nLEITURA PARCIAL — não consegui ler: ${aggregated.errors.join(" | ")}. Não trate esses portais como zero.`
+    : "";
+  const text = tasks.length
+    ? `Total aberto atribuído ao Vlad: ${tasks.length}${summary ? ` — ${summary}` : ""}\n${lines.join("\n")}${partial}`
+    : partial.trim();
+  return { text, total: tasks.length, errors: aggregated.errors };
+}
 
 /**
  * GitHub Project item node ids whose card is finished on `project`'s board
@@ -47,12 +114,15 @@ export async function getDoneCardItemIds(project: ProjectConfig): Promise<Set<st
   return done;
 }
 
-export async function getProjectKanbanContext(project: ProjectConfig): Promise<string> {
+export async function getProjectKanbanContext(
+  project: ProjectConfig,
+  prefetched?: Extract<KanbanResult, { ok: true }>,
+): Promise<string> {
   if (!project.githubProject) return "";
   const cached = ctxCache.get(project.slug);
   if (cached && Date.now() < cached.expires) return cached.data;
   try {
-    const board = await fetchGitHubProject(project);
+    const board = prefetched ?? await fetchGitHubProject(project);
     if (!board.ok) return "";
 
     // Merge portal-owned fire priority (1🔥..5🔥) + deadline so the briefing can
