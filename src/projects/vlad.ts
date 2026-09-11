@@ -94,6 +94,13 @@ const vlad: ProjectConfig = {
     org: "sktbrd",
     number: 9,
   },
+  // One person, two operational identities: GitHub uses sktbrd while portal /
+  // Hive ownership may use xvlad. Every open card on the personal Vlad board
+  // is also Vlad's work even when GitHub has no assignee set.
+  taskIdentity: {
+    logins: ["sktbrd", "xvlad"],
+    includeOwnBoard: true,
+  },
   // Personal-brand framing for campaign-artifact generation (not a Hive platform).
   campaignArtifacts: {
     persona: "Vlad's content lead — a personal influencer brand under Reelflip, Instagram-first (@skate.mkv), with cross-posts to X, Farcaster and Hive (via the SkateHive community)",

@@ -393,6 +393,16 @@ export type ProjectConfig = {
     /** GitHub Project number (Projects V2), e.g. 1 */
     number: number;
   };
+  /**
+   * Personal task identity used by the agent context to collect this person's
+   * open work across every registered portal board.
+   */
+  taskIdentity?: {
+    /** GitHub/portal logins that identify the same person. */
+    logins: string[];
+    /** A personal board belongs to this person even when its cards are unassigned. */
+    includeOwnBoard?: boolean;
+  };
   /** Aggregate ALL portals' Kanban boards into one read-only view (the SOPA hub). */
   kanbanAggregate?: boolean;
   /**
