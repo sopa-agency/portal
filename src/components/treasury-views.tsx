@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { safeAppUrl, zerionWalletUrl } from "@/lib/wallet-links";
 import { ChevronDown, ExternalLink, Layers, Wallet } from "lucide-react";
 import type { TreasuryGroup, EvmWalletReport, HiveAccountReport } from "@/lib/treasury";
 import { TokenLogo } from "@/components/token-logo";
@@ -498,6 +499,24 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
 // ---------------------------------------------------------------------------
 
 function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["views"] }) {
+  // `safeChainId` só existe quando o Safe Transaction Service reconheceu o
+  // endereço. Sem ele, tratamos como carteira comum — que é o que quase todo
+  // endereço é, e o palpite barato na direção certa.
+  const safeUrl = w.safeChainId ? safeAppUrl(w.address, w.safeChainId) : null;
+  // A lista por carteira vinha com 46 de 154 linhas abaixo de dez centavos —
+  // saldos de $0,0001 que empurram o que importa para fora da tela. O filtro
+  // de $0,50 que existe em treasury.ts não alcança aqui: o relatório vem do
+  // cache do indexador, que não passa por ele.
+  //
+  // Filtra a LISTA, não o total. A soma dessa poeira dá centavos e o total está
+  // certo — mexer nele para limpar a tela seria trocar um número correto por um
+  // arredondado sem avisar. E o que ficou de fora é DITO, com a contagem: uma
+  // omissão declarada é diferente de um sumiço.
+  //
+  // Token sem preço fica. Ali não sabemos o valor, e esconder o desconhecido é
+  // pior que esconder o irrelevante.
+  const visiveis = w.tokens.filter((tk) => tk.valueUsd == null || tk.valueUsd >= 0.01);
+  const escondidos = w.tokens.length - visiveis.length;
   const segs =
     w.totalUsd > 0
       ? toSegments(w.tokens.map((tk) => ({ label: `${tk.symbol}·${tk.chain}`, valueUsd: tk.valueUsd ?? 0 })), t.others)
@@ -507,12 +526,15 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">{w.label}</p>
+          {/* Multisig abre no app.safe.global, carteira comum na Zerion. Um Safe
+              num explorador de carteira mostra saldo e esconde justamente o que
+              faz dele um Safe: donos, threshold, fila de assinaturas. */}
           <a
-            href={`https://debank.com/profile/${w.address}`}
+            href={safeUrl ?? zerionWalletUrl(w.address)}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-foreground-subtle transition-colors hover:text-accent"
-            title={w.address}
+            title={`${w.address} — abrir ${safeUrl ? "no Safe" : "na Zerion"}`}
           >
             {shortAddr(w.address)}
             <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
@@ -542,9 +564,9 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
           ⚠ {t.loadFailed} {w.failedChains.join(", ")} {t.unknownNotZero}
         </p>
       )}
-      {w.tokens.length > 0 ? (
+      {visiveis.length > 0 ? (
         <div className="mt-4 space-y-2">
-          {w.tokens.map((tk, i) => (
+          {visiveis.map((tk, i) => (
             <div key={`${tk.symbol}-${tk.chain}-${i}`} className="flex items-center justify-between gap-3 text-sm">
               <span className="flex min-w-0 flex-wrap items-center gap-2">
                 <TokenLogo symbol={tk.symbol} color={colorAt(i)} size={20} />
@@ -571,6 +593,11 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
               </span>
             </div>
           ))}
+          {escondidos > 0 && (
+            <p className="pt-1 text-[11px] text-foreground-faint">
+              +{escondidos} abaixo de US$ 0,01, fora da lista — seguem contados no total.
+            </p>
+          )}
         </div>
       ) : w.failedChains.length === 0 ? (
         <p className="mt-3 text-xs text-foreground-faint">{t.noBalances}</p>

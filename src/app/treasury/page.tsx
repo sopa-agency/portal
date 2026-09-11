@@ -254,6 +254,20 @@ treasury: {
       return hit ? { label: w.label, address: w.address, chainId: hit.chainId, activity: hit.activity } : null;
     }),
   );
+  // A sondagem acima já sabe quem é Safe; o filtro seguinte joga essa resposta
+  // fora ao ficar só com quem tem movimento. Guardamos antes, porque o LINK de
+  // cada carteira depende disso: Safe abre no app.safe.global, carteira comum
+  // na Zerion. Um Safe parado continua sendo um Safe.
+  for (const p of probed) {
+    if (!p) continue;
+    const alvo = p.address.toLowerCase();
+    for (const g of groups) {
+      for (const w of g.report.evm) {
+        if (w.address.toLowerCase() === alvo) w.safeChainId = p.chainId;
+      }
+    }
+  }
+
   const safes = probed.filter((p): p is SafeActivityItem => p !== null && (p.activity.queued.length > 0 || p.activity.history.length > 0));
 
   const prices = await getPrices();

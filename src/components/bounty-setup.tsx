@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { safeAppUrl } from "@/lib/wallet-links";
 import { Loader2, CheckCircle2, XCircle, ChevronDown, ExternalLink, RefreshCw, CircleDashed } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
 import { getBountySetup, saveBountyConfig, type ProjectBounty, type ChainStatus } from "@/app/actions/bounty";
 
-const safeAppUrl = (chainId: number, address: string) => `https://app.safe.global/home?safe=${chainId === 1 ? "eth" : "base"}:${address}`;
 const isReady = (c: ChainStatus) => c.exists && c.delegate === true;
 const isFunded = (c: ChainStatus) => c.exists && !!c.balances && c.balances !== "vazio";
 
@@ -155,8 +155,8 @@ function ProjectBountyRow({
                           <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${ready ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>{ready ? "PRONTO" : "AÇÃO"}</span>
                         )}
                       </span>
-                      {c.exists && project.safeAddress && (
-                        <a href={safeAppUrl(c.chainId, project.safeAddress)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-accent hover:underline">
+                      {c.exists && project.safeAddress && safeAppUrl(project.safeAddress, c.chainId) && (
+                        <a href={safeAppUrl(project.safeAddress, c.chainId)!} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-accent hover:underline">
                           Abrir <ExternalLink className="h-2.5 w-2.5" />
                         </a>
                       )}

@@ -48,7 +48,8 @@ const skatehive: ProjectConfig = {
   treasury: {
     ethWallets: [
       { label: "SkateHive Hot Wallet", address: "0xB4964e1ecA55Db36a94e8aeFfBFBAb48529a2f6c" },
-      { label: "SkateHive Base Multisig", address: "0xC1afA4c0A70B622d7b71d42241Bb4d52B6F3E218" },
+      // impl SafeL2 na Base, 2 de 5 — o link abre no app.safe.global.
+      { label: "SkateHive Base Multisig", address: "0xC1afA4c0A70B622d7b71d42241Bb4d52B6F3E218", safe: { chainId: 8453 } },
       { label: "Treasury Contract", address: "0x4c5086086fda01fb8fcffe491862e7504984a75f" },
     ],
     hiveAccounts: [

@@ -67,6 +67,17 @@ export type EvmWalletReport = {
    * unpriced BY CONFIGURATION, every hour, forever.
    */
   unpriced: { symbol: string; balance: number }[];
+  /**
+   * A cadeia em que este endereço é um Safe, quando é.
+   *
+   * Não sai do config nem de "tem bytecode": um EOA delegado por EIP-7702
+   * TAMBÉM tem código, e um contrato qualquer não é um multisig. Quem responde
+   * é o Safe Transaction Service, preenchido em treasury/page.tsx a partir da
+   * sondagem que já roda ali para o painel de atividade.
+   *
+   * Ausente = carteira comum, até prova em contrário.
+   */
+  safeChainId?: number;
   error?: string;
 };
 
@@ -523,7 +534,7 @@ const keepAndSort = (tokens: EvmToken[]): EvmToken[] =>
     .sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
 
 export async function fetchEvmWallet(
-  wallet: { label: string; address: string; extraTokens?: ExtraToken[] },
+  wallet: { label: string; address: string; extraTokens?: ExtraToken[]; safe?: { chainId: number } },
   ethPrice: number | null,
   morPrice: number | null = null,
 ): Promise<EvmWalletReport> {
@@ -557,7 +568,7 @@ export async function fetchEvmWallet(
     : tokens.length === 0
       ? "sem saldos"
       : undefined;
-  return { label: wallet.label, address: wallet.address, totalUsd, tokens, failedChains, unpriced, error };
+  return { label: wallet.label, address: wallet.address, safeChainId: wallet.safe?.chainId, totalUsd, tokens, failedChains, unpriced, error };
 }
 
 // --- single-address balance (revenue tracking) -------------------------------
@@ -801,13 +812,16 @@ export async function fetchTreasuryGroups(project: ProjectConfig): Promise<Treas
  * terceiro fora do ar não pode virar "não temos dinheiro".
  */
 async function fetchEvmWalletPreferCache(
-  w: { label: string; address: string; extraTokens?: ExtraToken[] },
+  w: { label: string; address: string; extraTokens?: ExtraToken[]; safe?: { chainId: number } },
   ethPrice: number | null,
   morPrice: number | null,
 ): Promise<EvmWalletReport> {
   const cached = await readWalletComposition(w.address).catch(() => null);
   if (!cached) return fetchEvmWallet(w, ethPrice, morPrice);
-  const base = { ...cached.report, label: w.label };
+  // `safe` é declaração nossa, não dado do indexador: precisa ser reaplicada
+  // por cima da foto em cache, senão o link do multisig só sai certo no
+  // caminho sem cache — que é o caminho raro.
+  const base = { ...cached.report, label: w.label, safeChainId: w.safe?.chainId };
   // O cache é a foto do indexador, e ela tem um buraco conhecido: a capital da
   // Morpheus. Preferir o cache SEM completá-lo faria a declaração em
   // `EVM_CHAINS.capital` nunca rodar neste caminho — que é o caminho normal.

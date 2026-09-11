@@ -1,4 +1,5 @@
 import "server-only";
+import { safeAppUrl } from "@/lib/wallet-links";
 import { getAddress, hashTypedData, zeroAddress, encodeFunctionData } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { safeTxService } from "@/lib/safe-tx";
@@ -83,8 +84,7 @@ export async function nextSafeNonce(chainId: number, safeAddr: string): Promise<
   return Math.max(onchain, queued + 1);
 }
 
-const queueUrl = (chainId: number, safe: string) =>
-  `https://app.safe.global/transactions/queue?safe=${chainId === 1 ? "eth" : "base"}:${safe}`;
+const queueUrl = (chainId: number, safe: string) => safeAppUrl(safe, chainId, "queue") ?? "";
 
 /**
  * Build, sign (proposer) and POST a single Safe transaction to the tx service.

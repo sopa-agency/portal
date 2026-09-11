@@ -1,6 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { safeAppUrl } from "@/lib/wallet-links";
 import {
   parseUnits,
   getAddress,
@@ -342,7 +343,7 @@ async function nextSafeNonce(tx: string, safe: string): Promise<number> {
  * POSTs it to the Safe Transaction Service for the owners to approve & execute.
  */
 export async function proposeBountyPayment(id: string, payeeInput: string): Promise<
-  { ok: true; safeTxHash: string; url: string } | { ok: false; error: string }
+  { ok: true; safeTxHash: string; url?: string } | { ok: false; error: string }
 > {
   const g = await globalGate();
   if (!g.ok) return g;
@@ -425,8 +426,7 @@ export async function proposeBountyPayment(id: string, payeeInput: string): Prom
     }
 
     await prisma.bounty.update({ where: { id }, data: { status: "proposed", payeeAddress: payee, safeTxHash } });
-    const appUrl = `https://app.safe.global/transactions/queue?safe=${b.chainId === 1 ? "eth" : "base"}:${safe}`;
-    return { ok: true, safeTxHash, url: appUrl };
+    return { ok: true, safeTxHash, url: safeAppUrl(safe, b.chainId, "queue") ?? undefined };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Falha ao propor pagamento." };
   }

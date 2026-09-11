@@ -251,6 +251,22 @@ export type ProjectConfig = {
     ethWallets: {
       label: string;
       address: string;
+      /**
+       * A cadeia em que este endereço é um Safe, quando é — e o link passa a
+       * abrir no app.safe.global em vez da Zerion.
+       *
+       * Declarado, não detectado, por duas razões medidas:
+       *
+       * 1. O Safe Transaction Service limita por IP. Uma sondagem em runtime
+       *    responde "não é Safe" quando está sobrecarregada, e aí um multisig
+       *    vira link de carteira comum EM SILÊNCIO — o erro mais difícil de
+       *    notar que existe, porque o link abre.
+       * 2. "Tem bytecode" não serve como teste. A hot wallet da SkateHive
+       *    (0xB496…) tem código — é um EOA delegado por EIP-7702
+       *    (EIP7702StatelessDeleGator) — e o tesouro da Gnars (0x72ad…) é um
+       *    Treasury do Nouns Builder. Nenhum dos dois é multisig.
+       */
+      safe?: { chainId: number };
       /** Extra known ERC-20s to ALSO read for this wallet (config-driven, not an
        *  indexer — so no spam/scam tokens leak in). `usd: "one"` prices 1:1 (Super
        *  USDC); `usd: "none"` = balance known but no trustworthy price (rule 5:
