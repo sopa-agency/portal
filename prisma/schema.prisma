@@ -1761,3 +1761,31 @@ model SplitVoteBallot {
   @@unique([roundId, voter])
   @@index([roundId])
 }
+
+/// O relatório diário de uma pessoa: o que ela fez naquele dia, escrito por ela.
+///
+/// Um por pessoa por dia (`@@unique`), gravado por upsert — reabrir e corrigir
+/// é o caso normal, não uma exceção.
+///
+/// `items` existe porque estes relatórios vão ser USADOS depois. O corpo é
+/// prosa, e prosa só se agrega relendo tudo. Quando alguém monta a linha
+/// clicando num commit ou num card, guardamos também a referência crua
+/// (`{kind, ref, label}`) — aí dá para responder "o que saiu do card X nesta
+/// semana" sem tentar reconhecer o card dentro de um texto livre.
+model DailyReport {
+  id        String   @id @default(cuid())
+  /// Usuário do portal (não o login do GitHub — identidade pode ter apelidos).
+  username  String
+  /// O dia RELATADO, não o dia em que foi escrito. Quem escreve às 2h da manhã
+  /// está relatando ontem, e a data tem de ser a que a pessoa escolheu.
+  day       DateTime @db.Date
+  body      String   @db.Text
+  /// Referências que a pessoa trouxe da lista de atividade, na ordem em que
+  /// entraram: [{ kind: "commit"|"card", ref, label, url? }]
+  items     Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([username, day])
+  @@index([day])
+}

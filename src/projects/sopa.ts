@@ -41,7 +41,11 @@ const sopa: ProjectConfig = {
   farcaster: {
     channel: "sopa",
   },
-  repos: [],
+  // O repo do próprio portal. Estava de fora, e isso deixava invisível o
+  // trabalho que a equipe mais faz: o relatório diário lê commits a partir
+  // daqui, e sem esta linha um dia inteiro de commits no portal aparecia como
+  // um dia sem nada.
+  repos: ["sopa-agency/portal"],
   socials: [],
   // "/" is the SOPA home: an aggregated morning briefing with every project's
   // next actions (see src/app/page.tsx + components/sopa-briefing.tsx).

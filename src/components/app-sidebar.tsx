@@ -7,7 +7,7 @@ import type { Dictionary } from "@/lib/i18n/dictionary";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect, useCallback } from "react";
-import { BookOpenText, Briefcase, CalendarDays, ChartColumn, Check, ChevronsUpDown, Flame, FlaskConical, Heart, Home, Landmark, LayoutTemplate, Megaphone, Menu, MessagesSquare, Music2, Newspaper, PanelLeftClose, PanelLeftOpen, Presentation, Search, Settings, Sparkles, SquareKanban, SquarePen, Users, UsersRound, Workflow, X, type LucideIcon } from "lucide-react";
+import { BookOpenText, Briefcase, CalendarDays, ChartColumn, Check, ChevronsUpDown, Flame, FlaskConical, Heart, Home, Landmark, LayoutTemplate, Megaphone, Menu, MessagesSquare, Music2, Newspaper, NotebookPen, PanelLeftClose, PanelLeftOpen, Presentation, Search, Settings, Sparkles, SquareKanban, SquarePen, Users, UsersRound, Workflow, X, type LucideIcon } from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 import { portalUrlFor } from "@/lib/portal-host";
 
@@ -50,6 +50,9 @@ type NavItem = {
   requiresBurnDown?: boolean;
   requiresChat?: boolean;
   requiresMeetings?: boolean;
+  /** Só onde a página faz sentido: ela agrega commits e cards de TODAS as
+   *  marcas, e só a SOPA agrega por desenho. */
+  requiresDiario?: boolean;
   requiresFarcasterTrail?: boolean;
   requiresTikTok?: boolean;
 };
@@ -73,6 +76,7 @@ const NAV: NavItem[] = [
   { href: "/homepage", key: "homepage", icon: LayoutTemplate, group: "publishing", requiresHomepage: true },
 
   { href: "/kanban", key: "kanban", icon: SquareKanban, group: "operations", requiresKanban: true },
+  { href: "/diario", key: "diario", icon: NotebookPen, group: "operations", requiresDiario: true },
   { href: "/treasury", key: "treasury", icon: Landmark, group: "operations" },
   { href: "/org-chart", key: "orgChart", icon: Workflow, group: "operations", requiresOrgChart: true },
   { href: "/portfolio", key: "portfolio", icon: Briefcase, group: "operations", requiresPortfolio: true },
@@ -119,6 +123,7 @@ type AppSidebarProps = {
   hiddenRoutes?: string[];
   postCreatorEnabled?: boolean;
   kanbanEnabled?: boolean;
+  diarioEnabled?: boolean;
   magazineEnabled?: boolean;
   homepageEnabled?: boolean;
   aboutEnabled?: boolean;
@@ -133,7 +138,7 @@ type AppSidebarProps = {
   farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, avatarUrl, registeredWallet = null, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, burnDownEnabled, chatEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, avatarUrl, registeredWallet = null, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, diarioEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, burnDownEnabled, chatEnabled, labEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
   const t = useT();
   const pathname = usePathname();
   const router = useRouter();
@@ -290,6 +295,7 @@ export function AppSidebar({ username, avatarUrl, registeredWallet = null, proje
     if ("requiresBurnDown" in item && item.requiresBurnDown && !burnDownEnabled) return false;
     if ("requiresChat" in item && item.requiresChat && !chatEnabled) return false;
     if ("requiresMeetings" in item && item.requiresMeetings && !meetingsEnabled) return false;
+    if ("requiresDiario" in item && item.requiresDiario && !diarioEnabled) return false;
     if ("requiresFarcasterTrail" in item && item.requiresFarcasterTrail && !farcasterTrailEnabled) return false;
     if ("requiresTikTok" in item && item.requiresTikTok && !tiktokEnabled) return false;
     return true;
