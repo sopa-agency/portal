@@ -531,6 +531,8 @@ treasury: {
   // filter, which is why they aren't two components.
   const sopaOverview = isSopa ? (
     <SopaTreasury
+      canPropose={!!session}
+      vault={vaults[0] ? { key: vaults[0].vault.key, assetSymbol: vaults[0].vault.assetSymbol, chainId: vaults[0].vault.chainId } : undefined}
       part="treasury"
       chart={
         // A LINHA VEM DO NOSSO SNAPSHOT, não da série da Zerion.
@@ -709,7 +711,16 @@ treasury: {
             ) : null}
           </>
         }
-        balances={<TreasuryViews groups={groups} hideTotal />}
+        balances={
+          <TreasuryViews
+            groups={groups}
+            hideTotal
+            canPropose={!!session}
+            // Hoje existe um cofre só, e os dois multisigs vivem na mesma cadeia
+            // que ele. Quando houver outro, isto vira uma escolha por carteira.
+            vault={vaults[0] ? { key: vaults[0].vault.key, assetSymbol: vaults[0].vault.assetSymbol, chainId: vaults[0].vault.chainId } : undefined}
+          />
+        }
         costs={
           <FixedCostsPanel
             groups={costGroups}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { SafeTreasuryActions } from "@/components/safe-treasury-actions";
 import { safeAppUrl, zerionWalletUrl } from "@/lib/wallet-links";
 import { ChevronDown, ExternalLink, Layers, Wallet } from "lucide-react";
 import type { TreasuryGroup, EvmWalletReport, HiveAccountReport } from "@/lib/treasury";
@@ -498,7 +499,17 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
 // Per-wallet detail (kept for drill-down, collapsed by default)
 // ---------------------------------------------------------------------------
 
-function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["views"] }) {
+function EvmCard({
+  w,
+  t,
+  canPropose,
+  vault,
+}: {
+  w: EvmWalletReport;
+  t: Dictionary["treasury"]["views"];
+  canPropose?: boolean;
+  vault?: { key: string; assetSymbol: string; chainId: number };
+}) {
   // `safeChainId` só existe quando o Safe Transaction Service reconheceu o
   // endereço. Sem ele, tratamos como carteira comum — que é o que quase todo
   // endereço é, e o palpite barato na direção certa.
@@ -602,6 +613,16 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
       ) : w.failedChains.length === 0 ? (
         <p className="mt-3 text-xs text-foreground-faint">{t.noBalances}</p>
       ) : null}
+      {/* Só em multisig, e só logado. Stake/unstake dependem de o cofre estar na
+          MESMA cadeia do Safe — senão a transação seria proposta para um
+          contrato que não existe ali. */}
+      {canPropose && w.safeChainId && (
+        <SafeTreasuryActions
+          safe={w.address}
+          vaultKey={vault && vault.chainId === w.safeChainId ? vault.key : undefined}
+          vaultAssetSymbol={vault?.assetSymbol}
+        />
+      )}
     </div>
   );
 }
@@ -655,7 +676,19 @@ function HiveCard({ a, t }: { a: HiveAccountReport; t: Dictionary["treasury"]["v
   );
 }
 
-function WalletDetail({ groups, withHeadings, t }: { groups: TreasuryGroup[]; withHeadings: boolean; t: Dictionary["treasury"]["views"] }) {
+function WalletDetail({
+  groups,
+  withHeadings,
+  t,
+  canPropose,
+  vault,
+}: {
+  groups: TreasuryGroup[];
+  withHeadings: boolean;
+  t: Dictionary["treasury"]["views"];
+  canPropose?: boolean;
+  vault?: { key: string; assetSymbol: string; chainId: number };
+}) {
   const th = useT().treasury.hero;
   return (
     <div className="space-y-8">
@@ -674,7 +707,7 @@ function WalletDetail({ groups, withHeadings, t }: { groups: TreasuryGroup[]; wi
           {g.report.evm.length > 0 && (
             <div className="grid gap-4 lg:grid-cols-2">
               {g.report.evm.map((w) => (
-                <EvmCard key={w.address} w={w} t={t} />
+                <EvmCard key={w.address} w={w} t={t} canPropose={canPropose} vault={vault} />
               ))}
             </div>
           )}
@@ -701,7 +734,24 @@ function WalletDetail({ groups, withHeadings, t }: { groups: TreasuryGroup[]; wi
  * collapsible section below. Multiple groups (admin overview) add a tab bar and
  * a "by project" allocation.
  */
-export function TreasuryViews({ groups, hideSelector = false, hideTotal = false }: { groups: TreasuryGroup[]; hideSelector?: boolean; hideTotal?: boolean }) {
+export function TreasuryViews({
+  groups,
+  hideSelector = false,
+  hideTotal = false,
+  canPropose = false,
+  vault,
+}: {
+  groups: TreasuryGroup[];
+  hideSelector?: boolean;
+  hideTotal?: boolean;
+  /** Sessão válida — só então os botões de propor aparecem. A trava de verdade
+   *  é do servidor (a action confere a sessão); isto evita oferecer um botão
+   *  que só poderia falhar. */
+  canPropose?: boolean;
+  /** O cofre ligado aos multisigs. Desce do servidor porque community-vaults
+   *  é `server-only`. */
+  vault?: { key: string; assetSymbol: string; chainId: number };
+}) {
   const tr = useT().treasury;
   const t = tr.views;
   const [view, setView] = useState<string>("all");
@@ -750,7 +800,7 @@ export function TreasuryViews({ groups, hideSelector = false, hideTotal = false 
         </button>
         {showDetail && (
           <div className="mt-4">
-            <WalletDetail groups={visible} withHeadings={multi && view === "all"} t={t} />
+            <WalletDetail groups={visible} withHeadings={multi && view === "all"} t={t} canPropose={canPropose} vault={vault} />
           </div>
         )}
       </div>
