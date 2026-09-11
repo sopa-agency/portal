@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { splitsExplorerUrl } from "@/lib/splits-url";
 import { useRouter } from "next/navigation";
 import { Copy, Check, ExternalLink, BadgeCheck, TriangleAlert, Globe, Plus, Trash2 } from "lucide-react";
 import { suggestAddressEns, addManualAddress, removeManualAddress } from "@/app/actions/sopa-boards";
@@ -62,7 +63,6 @@ const EXPLORER: Record<string, string> = {
   optimism: "https://optimistic.etherscan.io",
   arbitrum: "https://arbiscan.io",
 };
-const CHAIN_ID: Record<string, number> = { base: 8453, ethereum: 1, optimism: 10, arbitrum: 42161 };
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 // 0xSplits contracts get the Splits app (recipients + distributions), not a raw
@@ -72,7 +72,7 @@ const linkFor = (entry: { chains: string[]; kinds: string[]; address: string }) 
   const chain = entry.chains[0] ?? "base";
   if (entry.kinds.includes("split")) {
     return {
-      url: `https://app.splits.org/accounts/${entry.address}/?chainId=${CHAIN_ID[chain] ?? 8453}`,
+      url: splitsExplorerUrl(entry.address, chain),
       label: "Ver no Splits",
     };
   }
