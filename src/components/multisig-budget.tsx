@@ -1,6 +1,6 @@
 import { Coins, ExternalLink } from "lucide-react";
+import { safeAppUrl } from "@/lib/wallet-links";
 import type { SafeBudget } from "@/lib/safe-tx";
-import { safeAppChainPrefix } from "@/lib/safe-tx";
 import { TokenLogo } from "@/components/token-logo";
 import { getDictionary } from "@/lib/i18n/server";
 
@@ -83,7 +83,7 @@ export async function MultisigBudgets({ budgets }: { budgets: ProjectBudget[] })
                         <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-subtle">
                           {CHAIN_LABEL[ch.chainId] ?? ch.chainId}
                           <a
-                            href={`https://app.safe.global/balances?safe=${safeAppChainPrefix(ch.chainId)}:${b.address}`}
+                            href={safeAppUrl(b.address, ch.chainId, "balances") ?? "#"}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-accent hover:underline"

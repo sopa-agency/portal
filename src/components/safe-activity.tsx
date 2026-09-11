@@ -1,6 +1,6 @@
 import { ExternalLink, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { safeAppUrl } from "@/lib/wallet-links";
 import type { SafeActivity as SafeActivityData, SafeTxView } from "@/lib/safe-tx";
-import { safeAppChainPrefix } from "@/lib/safe-tx";
 import { getDictionary, getLocale } from "@/lib/i18n/server";
 import type { Dictionary } from "@/lib/i18n/dictionary";
 
@@ -55,7 +55,7 @@ export async function SafeActivity({ safes }: { safes: SafeActivityItem[] }) {
       <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground-subtle">{t.title}</h2>
       <div className="grid gap-3 md:grid-cols-2">
         {safes.map((s) => {
-          const queueUrl = `https://app.safe.global/transactions/queue?safe=${safeAppChainPrefix(s.chainId)}:${s.address}`;
+          const queueUrl = safeAppUrl(s.address, s.chainId, "queue");
           return (
             <div key={s.address} className="rounded-xl border border-border bg-surface p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -63,9 +63,11 @@ export async function SafeActivity({ safes }: { safes: SafeActivityItem[] }) {
                   <p className="truncate text-sm font-semibold text-foreground">{s.label}</p>
                   <p className="font-mono text-[11px] text-foreground-faint">{short(s.address)} · {t.threshold(s.activity.threshold)}</p>
                 </div>
-                <a href={queueUrl} target="_blank" rel="noopener noreferrer" className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:border-border-strong hover:text-foreground">
-                  Safe <ExternalLink className="h-3 w-3" />
-                </a>
+                {queueUrl && (
+                  <a href={queueUrl} target="_blank" rel="noopener noreferrer" className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:border-border-strong hover:text-foreground">
+                    Safe <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
               </div>
 
               {s.activity.queued.length > 0 ? (

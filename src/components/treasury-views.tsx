@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { safeAppUrl, zerionWalletUrl } from "@/lib/wallet-links";
 import { ChevronDown, ExternalLink, Layers, Wallet } from "lucide-react";
 import type { TreasuryGroup, EvmWalletReport, HiveAccountReport } from "@/lib/treasury";
 import { TokenLogo } from "@/components/token-logo";
@@ -498,6 +499,10 @@ function Overview({ groups, title, hideTotal = false }: { groups: TreasuryGroup[
 // ---------------------------------------------------------------------------
 
 function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["views"] }) {
+  // `safeChainId` só existe quando o Safe Transaction Service reconheceu o
+  // endereço. Sem ele, tratamos como carteira comum — que é o que quase todo
+  // endereço é, e o palpite barato na direção certa.
+  const safeUrl = w.safeChainId ? safeAppUrl(w.address, w.safeChainId) : null;
   const segs =
     w.totalUsd > 0
       ? toSegments(w.tokens.map((tk) => ({ label: `${tk.symbol}·${tk.chain}`, valueUsd: tk.valueUsd ?? 0 })), t.others)
@@ -507,12 +512,15 @@ function EvmCard({ w, t }: { w: EvmWalletReport; t: Dictionary["treasury"]["view
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">{w.label}</p>
+          {/* Multisig abre no app.safe.global, carteira comum na Zerion. Um Safe
+              num explorador de carteira mostra saldo e esconde justamente o que
+              faz dele um Safe: donos, threshold, fila de assinaturas. */}
           <a
-            href={`https://debank.com/profile/${w.address}`}
+            href={safeUrl ?? zerionWalletUrl(w.address)}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-foreground-subtle transition-colors hover:text-accent"
-            title={w.address}
+            title={`${w.address} — abrir ${safeUrl ? "no Safe" : "na Zerion"}`}
           >
             {shortAddr(w.address)}
             <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />

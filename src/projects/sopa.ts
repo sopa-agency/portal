@@ -83,6 +83,8 @@ const sopa: ProjectConfig = {
       {
         label: "SOPA Safe",
         address: "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2",
+        // SafeProxy → SafeL2 na Base, 2 de 5.
+        safe: { chainId: 8453 },
         extraTokens: [
           // Superfluid Super USDC — SuperToken balanceOf is real-time (includes
           // CFA stream deltas), priced 1:1. NOTE: GDA pool claimable is NOT in

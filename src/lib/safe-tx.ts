@@ -6,10 +6,10 @@ export function safeTxService(chainId: number): string {
   return "https://safe-transaction-base.safe.global"; // default Base (8453)
 }
 
-/** app.safe.global chain short-name prefix. */
-export function safeAppChainPrefix(chainId: number): string {
-  return chainId === 1 ? "eth" : "base";
-}
+// O prefixo de cadeia do app.safe.global saiu daqui: virou `safeChainShortName`
+// em wallet-links.ts, junto de quem monta a URL. Aqui ele devolvia "base" para
+// QUALQUER cadeia que não fosse a 1 — um link que abre, mostra outra rede e não
+// avisa que está errado.
 
 /** Whether a Safe is deployed on a chain (+ its threshold). null on error. */
 export async function fetchSafeInfo(safeAddress: string, chainId: number): Promise<{ exists: boolean; threshold: number } | null> {
