@@ -256,12 +256,16 @@ function Overview({
   hideTotal = false,
   canPropose = false,
   vault,
+  monthlyBurnUsd = 0,
 }: {
   groups: TreasuryGroup[];
   title: string;
   hideTotal?: boolean;
   canPropose?: boolean;
   vault?: { key: string; assetSymbol: string; chainId: number };
+  /** Custo fixo mensal do escopo — vira saúde e runway. Zero = não há custo
+   *  lançado aqui, que é diferente de custo desconhecido. */
+  monthlyBurnUsd?: number;
 }) {
   const t = useT().treasury.views;
   // Same wording as the hero's incomplete plate — one phrasing for one meaning.
@@ -328,32 +332,86 @@ function Overview({
     return null;
   };
 
+  // Runway e saúde: o dinheiro dividido pelo custo lançado NESTE escopo.
+  // Sem custo lançado não há runway — e isso não é "infinito", é "a pergunta
+  // não se aplica aqui". Um "∞" faria um projeto sem custos declarados parecer
+  // mais saudável que um com contas em dia.
+  const runwayMeses = monthlyBurnUsd > 0 && isOk(grand) ? grand.value / monthlyBurnUsd : null;
+  const saude =
+    !isOk(grand)
+      ? { rotulo: "Incompleto", cor: "text-warning", nota: "Parte do tesouro não leu — sem o total não dá para dizer." }
+      : runwayMeses == null
+        ? { rotulo: "Sem custo", cor: "text-foreground-muted", nota: "Nenhum custo recorrente lançado neste escopo; os gastos correm pela SOPA." }
+        : runwayMeses >= 12
+          ? { rotulo: "Saudável", cor: "text-success", nota: "O caixa cobre bem mais de um ano no ritmo atual." }
+          : runwayMeses >= 6
+            ? { rotulo: "De olho", cor: "text-warning", nota: "Menos de um ano de caixa — vale acompanhar de perto." }
+            : { rotulo: "Apertado", cor: "text-danger", nota: "Menos de seis meses no ritmo atual." };
+
   return (
     <div className="overflow-hidden rounded-3xl border border-border bg-surface">
-      {/* Hero */}
-      <div className={`border-b border-border p-5 ${hideTotal ? "" : "bg-gradient-to-br from-accent-bg to-transparent"}`}>
-        {!hideTotal && (
-          <>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">{title}</p>
-            {isOk(grand) ? (
-              <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums text-foreground">{usd(grand.value)}</p>
-            ) : (
-              <>
-                <p className="mt-1 text-2xl font-bold uppercase tracking-tight text-warning">{th.incomplete}</p>
-                {unreadLabels.length > 0 && (
-                  <p className="mt-1 text-[11px] leading-snug text-warning">
-                    {th.incompleteNote(unreadLabels.length, walletCount, unreadLabels.join(", "))}
-                  </p>
-                )}
-              </>
-            )}
-          </>
-        )}
-        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${hideTotal ? "" : "mt-4"}`}>
-          <Stat label="EVM" value={isOk(evmTotal) ? usd(evmTotal.value) : th.incomplete} />
-          <Stat label="Hive" value={isOk(hiveTotal) ? usd(hiveTotal.value) : th.incomplete} />
-          <Stat label={t.assets} value={String(assets.length)} />
-          <Stat label={multi ? t.wallets : t.networks} value={String(multi ? walletCount : chainCount)} />
+      {/* Quatro respostas antes de qualquer lista: quanto, se está bem, por
+          quanto tempo, e onde o dinheiro está guardado. */}
+      <div className="grid grid-cols-1 gap-px border-b border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+        <div className="bg-surface p-5">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">
+            Tesouro · {title}
+          </p>
+          {isOk(grand) ? (
+            <p className="mt-2.5 text-[2rem] font-bold leading-none tracking-tight tabular-nums text-foreground">
+              {usd(grand.value)}
+            </p>
+          ) : (
+            <p className="mt-2.5 text-xl font-bold uppercase tracking-tight text-warning">{th.incomplete}</p>
+          )}
+          <p className="mt-1.5 text-xs text-foreground-muted">
+            {multi ? `${walletCount} carteiras · ` : ""}
+            {assets.length} ativos · {chainCount} redes
+          </p>
+          {!isOk(grand) && unreadLabels.length > 0 && (
+            <p className="mt-1 text-[11px] leading-snug text-warning">
+              {th.incompleteNote(unreadLabels.length, walletCount, unreadLabels.join(", "))}
+            </p>
+          )}
+        </div>
+
+        <div className="bg-surface p-5">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">Saúde</p>
+          <p className={`mt-3 text-2xl font-bold tracking-tight ${saude.cor}`}>{saude.rotulo}</p>
+          <p className="mt-1.5 text-xs leading-snug text-foreground-muted text-pretty">{saude.nota}</p>
+        </div>
+
+        <div className="bg-surface p-5">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">Runway</p>
+          <p className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-[1.9rem] font-bold leading-none tracking-tight tabular-nums text-foreground">
+              {runwayMeses == null ? "—" : runwayMeses >= 100 ? "99+" : runwayMeses.toFixed(1)}
+            </span>
+            {runwayMeses != null && <span className="text-sm text-foreground-muted">meses</span>}
+          </p>
+          <p className="mt-1.5 text-xs leading-snug text-foreground-muted text-pretty">
+            {monthlyBurnUsd > 0
+              ? `contando ${usd(monthlyBurnUsd)}/mês de custo lançado aqui`
+              : "nenhum custo recorrente lançado neste escopo"}
+          </p>
+        </div>
+
+        <div className="bg-surface p-5">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground-subtle">Onde está</p>
+          <div className="mt-3.5 space-y-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs text-foreground-muted">EVM</span>
+              <span className="font-semibold tabular-nums text-foreground">
+                {isOk(evmTotal) ? usd(evmTotal.value) : th.incomplete}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs text-foreground-muted">Hive</span>
+              <span className="font-semibold tabular-nums text-foreground">
+                {isOk(hiveTotal) ? usd(hiveTotal.value) : th.incomplete}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -802,10 +860,13 @@ export function TreasuryViews({
   hideTotal = false,
   canPropose = false,
   vault,
+  monthlyBurnUsd = 0,
 }: {
   groups: TreasuryGroup[];
   hideSelector?: boolean;
   hideTotal?: boolean;
+  /** Custo fixo mensal do escopo — alimenta saúde e runway. */
+  monthlyBurnUsd?: number;
   /** Sessão válida — só então os botões de propor aparecem. A trava de verdade
    *  é do servidor (a action confere a sessão); isto evita oferecer um botão
    *  que só poderia falhar. */
@@ -817,7 +878,8 @@ export function TreasuryViews({
   const tr = useT().treasury;
   const t = tr.views;
   const [view, setView] = useState<string>("all");
-  const [showDetail, setShowDetail] = useState(false);
+  // Aberto por padrão: é a lista, não um extra.
+  const [showDetail, setShowDetail] = useState(true);
   const multi = groups.length > 1;
   // When a parent owns the project filter (SOPA dashboard), it passes already
   // filtered `groups` and hides this local selector — so balances and revenue
@@ -849,23 +911,27 @@ export function TreasuryViews({
         </div>
       )}
 
-      <Overview groups={visible} title={title} hideTotal={hideTotal} canPropose={canPropose} vault={vault} />
+      <Overview groups={visible} title={title} hideTotal={hideTotal} canPropose={canPropose} vault={vault} monthlyBurnUsd={monthlyBurnUsd} />
 
 
       <div>
-        <button
-          type="button"
-          onClick={() => setShowDetail((s) => !s)}
-          className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-foreground-subtle transition-colors hover:text-foreground"
-        >
-          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showDetail ? "rotate-180" : ""}`} />
-          {t.walletDetail}
-        </button>
-        {showDetail && (
-          <div className="mt-4">
-            <WalletDetail groups={visible} withHeadings={multi && view === "all"} t={t} />
-          </div>
-        )}
+        {/* As carteiras ficam À VISTA. Estavam atrás de um botão de texto
+            fechado por padrão, e era ali que moravam os links do Safe, o filtro
+            de poeira e — por um tempo — os controles: tudo invisível para quem
+            abria a página. Quem quer o resumo já o tem acima; quem rola até
+            aqui está procurando exatamente isto. */}
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-subtle">{t.walletDetail}</h3>
+          <button
+            type="button"
+            onClick={() => setShowDetail((s) => !s)}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground-faint transition-colors hover:text-foreground"
+          >
+            <ChevronDown className={`h-3 w-3 transition-transform ${showDetail ? "" : "-rotate-90"}`} />
+            {showDetail ? "recolher" : "mostrar"}
+          </button>
+        </div>
+        {showDetail && <WalletDetail groups={visible} withHeadings={multi && view === "all"} t={t} />}
       </div>
 
       {prices && (

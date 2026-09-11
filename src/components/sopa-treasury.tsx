@@ -32,6 +32,7 @@ export function SopaTreasury({
   sopaSlug,
   canPropose = false,
   vault,
+  monthlyBurnUsd = 0,
 }: {
   groups: TreasuryGroup[];
   /** Sessão válida — libera os botões de propor no card de cada multisig. */
@@ -39,6 +40,8 @@ export function SopaTreasury({
   /** O cofre ligado aos multisigs (community-vaults é server-only, então desce
    *  como prop). */
   vault?: { key: string; assetSymbol: string; chainId: number };
+  /** Custo fixo mensal do escopo — vira saúde e runway na banda de topo. */
+  monthlyBurnUsd?: number;
   revenue: OrgRevenue | null;
   /** The revenue READ failed (DB down) — show a failure, never an empty section. */
   revenueError?: boolean;
@@ -200,7 +203,7 @@ export function SopaTreasury({
         */}
 
         <Section title={t.sections.where} hint={isAll ? t.sections.whereHintAll : t.sections.whereHint}>
-          <TreasuryViews groups={visibleGroups} hideSelector hideTotal canPropose={canPropose} vault={vault} />
+          <TreasuryViews groups={visibleGroups} hideSelector hideTotal canPropose={canPropose} vault={vault} monthlyBurnUsd={monthlyBurnUsd} />
         </Section>
 
         {/* Só sob a aba da SOPA. Ver `sopaOnly` acima. */}

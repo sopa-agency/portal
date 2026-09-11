@@ -151,6 +151,7 @@ export default async function RootLayout({
       { href: "/settings?tab=brain", label: t.nav.items.brain, on: !project.hiddenRoutes?.includes("/brain") },
       { href: "/analytics", label: t.nav.items.analytics, on: true },
       { href: "/kanban", label: t.nav.items.kanban, on: !!project.githubProject || !!project.kanbanAggregate },
+      { href: "/diario", label: t.nav.items.diario, on: !!project.kanbanAggregate },
       { href: "/magazine", label: t.nav.items.magazine, on: !!project.magazine },
       { href: "/homepage", label: t.nav.items.homepage, on: !!project.homepage },
       { href: "/about", label: t.nav.items.about, on: !!project.about },
@@ -197,6 +198,7 @@ export default async function RootLayout({
                 hiddenRoutes={project.hiddenRoutes}
                 postCreatorEnabled={!!project.postCreator}
                 kanbanEnabled={!!project.githubProject || !!project.kanbanAggregate}
+                diarioEnabled={!!project.kanbanAggregate}
                 magazineEnabled={!!project.magazine}
                 homepageEnabled={!!project.homepage}
                 aboutEnabled={!!project.about}
