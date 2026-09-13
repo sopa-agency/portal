@@ -190,7 +190,11 @@ export function SopaTreasury({
         <TreasuryViews
           groups={visibleGroups}
           hideSelector
-          canPropose={canPropose}
+          // Enviar/stake/unstake só sob a aba de um tesouro. Na aba "Todos" as
+          // carteiras da SOPA e da SkateHive aparecem lado a lado, e um botão de
+          // "propor" ali não diz de qual multisig está saindo o dinheiro — quem
+          // vai mover dinheiro escolhe o escopo antes.
+          canPropose={canPropose && !isAll}
           vault={vault}
           monthlyBurnUsd={burnUsd}
           chart={chartNode}
