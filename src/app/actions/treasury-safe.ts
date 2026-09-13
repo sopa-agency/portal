@@ -1,11 +1,9 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { encodeFunctionData, getAddress, isAddress, parseUnits, erc20Abi } from "viem";
-import { SESSION_COOKIE } from "@/lib/auth";
-import { verifySession } from "@/lib/team-access";
-import { getAllProjects } from "@/projects/index";
-import { proposeSafeBatch, proposerAddress, type SafeCall } from "@/lib/safe-propose";
+import { proposeSafeBatch, type SafeCall } from "@/lib/safe-propose";
+// A autorização por Safe é a mesma do claim da capital — mora numa lib só.
+import { autorizarSafe as autorizar } from "@/lib/safe-authz";
 import { COMMUNITY_VAULTS } from "@/lib/community-vaults";
 
 /**
@@ -62,21 +60,6 @@ const ENVIAVEIS: Record<number, Record<TokenEnviavel, { address: string | null; 
  * Safe" atrás de um login. O delegate não assina sozinho (o Safe ainda exige as
  * 2 de 5), mas encher a fila de alguém já é estrago suficiente.
  */
-async function autorizar(safe: string): Promise<
-  { ok: true; chainId: number; label: string } | { ok: false; error: string }
-> {
-  if (!isAddress(safe)) return { ok: false, error: "Endereço inválido." };
-  if (!proposerAddress()) return { ok: false, error: "Proposer não configurado." };
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  const alvo = safe.toLowerCase();
-  for (const p of getAllProjects()) {
-    const w = p.treasury?.ethWallets.find((x) => x.address.toLowerCase() === alvo && x.safe);
-    if (!w?.safe) continue;
-    if (!(await verifySession(token, p))) continue;
-    return { ok: true, chainId: w.safe.chainId, label: w.label };
-  }
-  return { ok: false, error: "Esse multisig não é seu, ou não está declarado neste portal." };
-}
 
 function quantia(valor: string, decimais: number): bigint | null {
   const n = Number(valor);

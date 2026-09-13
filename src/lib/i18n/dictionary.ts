@@ -673,7 +673,8 @@ const en = {
     /** SOPA's USDC in the Morpheus capital pool (Ethereum mainnet, yields MOR). */
     capital: {
       title: "Capital in Morpheus",
-      hint: "SOPA's USDC deposited in Morpheus' capital pool, on Ethereum mainnet. It earns MOR; the claim mints the MOR on Arbitrum, into the Safe.",
+      hint: "What this treasury's Safe has deposited in Morpheus' capital pools (USDC and stETH), on Ethereum mainnet. It earns MOR; the claim mints the MOR on Arbitrum, into the same Safe.",
+      poolLabel: (asset: string) => `${asset} pool`,
       deposited: "Deposited",
       poolShare: (share: string) => `${share} of the pool`,
       accrued: "MOR accrued",
@@ -697,11 +698,11 @@ const en = {
       inDays: (n: number) => `in ${n} day${n === 1 ? "" : "s"}`,
       since: (date: string) => `since ${date}`,
       priceUnread: "MOR price didn't load — the USD value and the yield can't be computed from a price we didn't read.",
-      empty: "The read went through and there is no deposit in the USDC pool right now.",
-      unread: (reason: string) =>
-        `Couldn't read SOPA's position in Morpheus — ${reason}. This does NOT mean there is no deposit.`,
+      empty: "The read went through and this Safe has no deposit in either pool right now.",
+      unread: (owner: string, reason: string) =>
+        `Couldn't read ${owner}'s position in Morpheus — ${reason}. This does NOT mean there is no deposit.`,
       receiverNote:
-        "**The claim goes to the Safe, on Arbitrum — never to the Base top split.** The split is for subnet emissions, which are communal; capital yield is the return on SOPA's own money. Sending it through the split would hand 54% of it to third parties.",
+        "**The claim goes to the same Safe, on Arbitrum — never to a split.** Splits are for subnet emissions, which are communal; capital yield is the return on the treasury's own money. Sending it through a split would hand part of it to third parties.",
       loading: "reading the position on mainnet…",
     },
     /** The Members tab shell: live panel vs admin controls. */
@@ -2282,7 +2283,8 @@ const pt: typeof en = {
     },
     capital: {
       title: "Capital na Morpheus",
-      hint: "O USDC da SOPA depositado no pool de capital da Morpheus, na Ethereum mainnet. Rende MOR; o claim minta o MOR na Arbitrum, direto no Safe.",
+      hint: "O que o Safe deste tesouro tem depositado nos pools de capital da Morpheus (USDC e stETH), na Ethereum mainnet. Rende MOR; o claim minta o MOR na Arbitrum, no mesmo Safe.",
+      poolLabel: (asset: string) => `pool de ${asset}`,
       deposited: "Depositado",
       poolShare: (share: string) => `${share} do pool`,
       accrued: "MOR acumulado",
@@ -2306,11 +2308,11 @@ const pt: typeof en = {
       inDays: (n: number) => `em ${n} dia${n === 1 ? "" : "s"}`,
       since: (date: string) => `desde ${date}`,
       priceUnread: "O preço do MOR não carregou — o valor em dólar e o rendimento não saem de um preço que não foi lido.",
-      empty: "A leitura passou e não há depósito no pool de USDC agora.",
-      unread: (reason: string) =>
-        `Não consegui ler a posição da SOPA na Morpheus — ${reason}. Isto NÃO quer dizer que não há depósito.`,
+      empty: "A leitura passou e este Safe não tem depósito em nenhum dos pools agora.",
+      unread: (owner: string, reason: string) =>
+        `Não consegui ler a posição de ${owner} na Morpheus — ${reason}. Isto NÃO quer dizer que não há depósito.`,
       receiverNote:
-        "**O claim vai pro Safe, na Arbitrum — nunca pro topSplit da Base.** O split é pra emissão de subnet, que é comunal; rendimento de capital é retorno sobre o dinheiro da própria SOPA. Passar pelo split entregaria 54% dele a terceiros.",
+        "**O claim vai pro mesmo Safe, na Arbitrum — nunca pra um split.** Split é pra emissão de subnet, que é comunal; rendimento de capital é retorno sobre o dinheiro do próprio tesouro. Passar por um split entregaria parte dele a terceiros.",
       loading: "lendo a posição na mainnet…",
     },
     members: {

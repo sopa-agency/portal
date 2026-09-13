@@ -9,13 +9,17 @@
 // O botão só existe quando há o que reclamar e a trava já venceu. Um botão que
 // aparece travado convida ao clique e devolve um revert de quatro letras (`d_O`,
 // que é como o contrato diz "faltou taxa"); a tela prefere não oferecer.
+//
+// Um botão por posição: o Safe e o pool vêm de quem o renderiza, porque a
+// SkateHive tem duas posições (USDC e stETH) e cada uma tem o seu claim.
 
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, HandCoins } from "lucide-react";
 import { proposeCapitalClaim } from "@/app/actions/capital-claim";
+import type { PoolKey } from "@/lib/morpheus-capital";
 import { useLocale } from "@/components/locale-provider";
 
-export function CapitalClaimButton() {
+export function CapitalClaimButton({ safe, pool }: { safe: string; pool: PoolKey }) {
   const { t: dict } = useLocale();
   const t = dict.treasury.capital;
   const [busy, setBusy] = useState(false);
@@ -27,7 +31,7 @@ export function CapitalClaimButton() {
     setErr(null);
     setDone(null);
     try {
-      const res = await proposeCapitalClaim();
+      const res = await proposeCapitalClaim({ safe, pool });
       if (res.ok) setDone({ url: res.url, mor: res.mor, fee: res.feeEth });
       else setErr(res.error);
     } catch {

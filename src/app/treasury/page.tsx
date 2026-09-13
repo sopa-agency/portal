@@ -49,10 +49,10 @@ import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { verifySession } from "@/lib/team-access";
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { attempt, insufficient, isOk, ok, settledWithin, unread, type Reading } from "@/lib/reading";
-import { readCapitalPosition, realizedApy, type CapitalPosition } from "@/lib/morpheus-capital";
+import { readCapitalPosition, readCapitalPositions, realizedApy, type CapitalPosition } from "@/lib/morpheus-capital";
 import { MorpheusCapitalPanel, MorpheusCapitalSkeleton } from "@/components/morpheus-capital-panel";
 import { Section } from "@/components/section-heading";
 
@@ -515,6 +515,42 @@ treasury: {
 
   // Two halves of the same component, one per tab: they share the project
   // filter, which is why they aren't two components.
+  // A capital da Morpheus, POR TESOURO. Cada Safe declarado é lido nos dois
+  // pools (USDC e stETH) e o painel entra como slot da aba daquele tesouro.
+  // Enquanto ele vivia solto abaixo do seletor, a aba "SkateHive" continuava
+  // mostrando a posição da SOPA — e a da própria SkateHive (562 USDC + 0,78
+  // stETH na mainnet, medido em 13/09/2026, com o mesmo proposer como
+  // delegate) não aparecia em lugar nenhum, nem tinha claim. Sob "Todos" não há
+  // painel: capital é dinheiro de um dono.
+  const capitalPorTesouro: Record<string, ReactNode> = {};
+  if (isSopa) {
+    for (const g of groups) {
+      const safes = g.report.evm.filter((w) => w.safeChainId);
+      if (safes.length === 0) continue;
+      capitalPorTesouro[g.slug] = (
+        <Section title={t.treasury.capital.title} hint={t.treasury.capital.hint}>
+          <Suspense fallback={<MorpheusCapitalSkeleton label={t.treasury.capital.loading} />}>
+            {safes.map((w) => (
+              <MorpheusCapitalPanel
+                key={w.address}
+                owner={{ label: w.label, address: w.address }}
+                // A leitura da SOPA em USDC já está em curso desde o topo da
+                // página (é o KPI); reaproveitar evita ler o mesmo pool duas vezes.
+                positions={readCapitalPositions(
+                  w.address,
+                  capitalP && w.address.toLowerCase() === SOPA_SAFE.toLowerCase() ? { usdc: capitalP } : undefined,
+                )}
+                morPrice={Promise.resolve(prices.mor)}
+                ethPrice={Promise.resolve(prices.eth)}
+                canPropose={!!session}
+              />
+            ))}
+          </Suspense>
+        </Section>
+      );
+    }
+  }
+
   const sopaOverview = isSopa ? (
     <SopaTreasury
       canPropose={!!session}
@@ -551,6 +587,7 @@ treasury: {
       agency={null}
       sopaOnly={earmarkPanel}
       sopaSlug={project.slug}
+      scoped={capitalPorTesouro}
     />
   ) : null;
 
@@ -636,15 +673,8 @@ treasury: {
           O gráfico entra por DENTRO do SopaTreasury agora (prop `chart`), para
           poder dividir a grade com o hero em vez de empurrá-lo para baixo. */}
       {sopaOverview}
-      {/* Onde o dinheiro está RENDENDO agora. A leitura é da mainnet e mora num
-          Suspense com o await no filho: a página não espera por ela. */}
-      {capitalP && (
-        <Section title={t.treasury.capital.title} hint={t.treasury.capital.hint}>
-          <Suspense fallback={<MorpheusCapitalSkeleton label={t.treasury.capital.loading} />}>
-            <MorpheusCapitalPanel position={capitalP} morPrice={Promise.resolve(prices.mor)} />
-          </Suspense>
-        </Section>
-      )}
+      {/* A capital na Morpheus saiu daqui: é o slot `scoped` do SopaTreasury,
+          um painel por tesouro, sob a aba dele. Ver `capitalPorTesouro`. */}
       {/* As Operações MOR saíram daqui: mudar dinheiro de lugar é assunto de
           Pagamentos, não de "quanto temos". Ficavam num collapsible fechado no
           meio da tela de consulta — presentes o bastante para atrapalhar,

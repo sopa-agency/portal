@@ -1,6 +1,8 @@
 import "server-only";
 
-// A posição da SOPA na capital da Morpheus — e o claim que traz o MOR de volta.
+// A posição de um Safe na capital da Morpheus — e o claim que traz o MOR de volta.
+// Começou só com a SOPA; hoje lê qualquer Safe declarado (a SkateHive também
+// tem posição, em USDC e em stETH).
 //
 // POR QUE ISTO EXISTE
 //
@@ -27,6 +29,20 @@ export const MORPHEUS_POOLS = {
   usdc: getAddress("0x6cCE082851Add4c535352f596662521B4De4750E"),
   stETH: getAddress("0x47176B2Af9885dC6C4575d4eFd63895f7Aaa4790"),
 } as const;
+
+export type PoolKey = keyof typeof MORPHEUS_POOLS;
+
+/**
+ * O ativo de cada pool e as suas casas decimais. Não é enfeite: ler o pool de
+ * stETH com as 6 casas do USDC devolve um depósito 10^12 vezes maior que o
+ * real — e foi exatamente o que esta leitura fazia enquanto só a SOPA (que só
+ * tem USDC) aparecia na tela.
+ */
+export const POOL_ASSET: Record<PoolKey, { symbol: string; decimals: number }> = {
+  usdc: { symbol: "USDC", decimals: 6 },
+  stETH: { symbol: "stETH", decimals: 18 },
+};
+export const POOL_KEYS = Object.keys(MORPHEUS_POOLS) as PoolKey[];
 
 /** O índice do reward pool dentro do DepositPool. Medido: é o 0 que tem depósito. */
 export const REWARD_POOL_INDEX = 0;
@@ -87,7 +103,10 @@ async function call(to: string, data: string): Promise<string | null> {
 
 export type CapitalPosition = {
   pool: string;
-  /** Quanto está depositado, no ativo do pool. */
+  poolKey: PoolKey;
+  /** O ativo do pool: "USDC" ou "stETH". O USD de `deposited` depende dele. */
+  asset: string;
+  /** Quanto está depositado, no ativo do pool — NÃO em dólar quando é stETH. */
   deposited: number;
   /** MOR acumulado e ainda não reclamado. */
   pendingMor: number;
@@ -112,29 +131,31 @@ export type CapitalPosition = {
 };
 
 /**
- * A posição de um endereço no pool de USDC.
+ * A posição de um endereço num pool da capital (USDC por padrão).
  *
  * Devolve Reading porque a leitura atravessa RPC público e pode falhar — e uma
  * falha aqui NÃO pode virar "não há posição". Zero depositado e zero lido são a
  * mesma tela com significados opostos, e num painel de tesouraria a diferença
  * decide se alguém vai atrás do dinheiro ou não.
  */
-export async function readCapitalPosition(owner: string): Promise<Reading<CapitalPosition>> {
+export async function readCapitalPosition(owner: string, poolKey: PoolKey = "usdc"): Promise<Reading<CapitalPosition>> {
   return attempt(async () => {
-    const pool = MORPHEUS_POOLS.usdc;
+    const pool = MORPHEUS_POOLS[poolKey];
+    const { symbol, decimals } = POOL_ASSET[poolKey];
+    const casas = 10 ** decimals;
     const [ud, rw, tot, det] = await Promise.all([
       call(pool, SEL.usersData + pad(owner) + word(REWARD_POOL_INDEX)),
       call(pool, SEL.reward + word(REWARD_POOL_INDEX) + pad(owner)),
       call(pool, SEL.totalDeposited),
       call(pool, SEL.protocolDetails + word(REWARD_POOL_INDEX)),
     ]);
-    if (!ud) throw new Error("o pool de USDC da Morpheus não respondeu");
+    if (!ud) throw new Error(`o pool de ${symbol} da Morpheus não respondeu`);
 
     const w: bigint[] = [];
     for (let i = 2; i < ud.length; i += 64) w.push(BigInt("0x" + ud.slice(i, i + 64)));
 
-    const deposited = Number(w[1] ?? BigInt(0)) / 1e6;
-    const virtual = Number(w[6] ?? BigInt(0)) / 1e6;
+    const deposited = Number(w[1] ?? BigInt(0)) / casas;
+    const virtual = Number(w[6] ?? BigInt(0)) / casas;
     const stakedAtSec = Number(w[0] ?? BigInt(0));
     const stakedAt = stakedAtSec > 0 ? new Date(stakedAtSec * 1000) : null;
     // Trava MÍNIMA do protocolo entre depositar e poder reclamar — hoje sete
@@ -148,6 +169,8 @@ export async function readCapitalPosition(owner: string): Promise<Reading<Capita
 
     return {
       pool,
+      poolKey,
+      asset: symbol,
       deposited,
       pendingMor: rw ? Number(BigInt(rw)) / 1e18 : 0,
       virtual,
@@ -155,11 +178,25 @@ export async function readCapitalPosition(owner: string): Promise<Reading<Capita
       multiplier: deposited > 0 ? virtual / deposited : 1,
       stakedAt,
       claimLockEnd,
-      poolTotal: tot ? Number(BigInt(tot)) / 1e6 : 0,
+      poolTotal: tot ? Number(BigInt(tot)) / casas : 0,
       lockAfterStakeSec: lockAfterStake,
       claimOpensAt: claimUnlockAt({ stakedAt, claimLockEnd, lockAfterStakeSec: lockAfterStake }),
     };
   }, (e) => `posição na Morpheus não leu: ${e instanceof Error ? e.message : String(e)}`);
+}
+
+/**
+ * As posições de um endereço em TODOS os pools, na ordem de `MORPHEUS_POOLS`.
+ *
+ * `reuse` aceita uma leitura já em curso (a página começa a ler a posição da
+ * SOPA em USDC antes de tudo, para o KPI) — sem isso o mesmo pool seria lido
+ * duas vezes por requisição, e RPC público não é de graça em tempo.
+ */
+export function readCapitalPositions(
+  owner: string,
+  reuse?: Partial<Record<PoolKey, Promise<Reading<CapitalPosition>>>>,
+): Promise<Reading<CapitalPosition>[]> {
+  return Promise.all(POOL_KEYS.map((k) => reuse?.[k] ?? readCapitalPosition(owner, k)));
 }
 
 /**
@@ -171,12 +208,16 @@ export async function readCapitalPosition(owner: string): Promise<Reading<Capita
  * para um ano produz um número grande e falso, e número falso num painel de
  * tesouraria é pior que número nenhum.
  */
-export function realizedApy(pos: CapitalPosition, morPriceUsd: number): Reading<number> {
-  if (!pos.stakedAt || pos.deposited <= 0) return insufficient<number>("sem posição para medir");
+export function realizedApy(pos: CapitalPosition, morPriceUsd: number, assetUsd = 1): Reading<number> {
+  // `assetUsd` é o preço do ativo do pool: 1 para USDC, o do ETH para stETH.
+  // Dividir MOR em dólar por stETH em unidades daria um "rendimento" de
+  // milhares por cento — número grande, falso e com cara de verdadeiro.
+  const base = pos.deposited * assetUsd;
+  if (!pos.stakedAt || base <= 0) return insufficient<number>("sem posição para medir");
   const dias = (Date.now() - pos.stakedAt.getTime()) / 86_400_000;
   if (dias < 1) return insufficient<number>(`só ${(dias * 24).toFixed(1)}h desde o depósito — cedo para anualizar`);
   const ganho = pos.pendingMor * morPriceUsd;
-  return { state: "ok", value: (ganho / pos.deposited) * (365 / dias), asOf: Date.now() };
+  return { state: "ok", value: (ganho / base) * (365 / dias), asOf: Date.now() };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,8 +271,8 @@ const FEE_CEILING = BigInt(50_000_000_000_000_000); // 0,05 ETH
  * `insufficient` quando nem o teto passa — quase sempre porque a trava ainda
  * não venceu, e nesse caso o problema não é taxa nenhuma.
  */
-export async function probeClaimFee(owner: string, receiver: string): Promise<Reading<bigint>> {
-  const pool = MORPHEUS_POOLS.usdc;
+export async function probeClaimFee(owner: string, receiver: string, poolKey: PoolKey = "usdc"): Promise<Reading<bigint>> {
+  const pool = MORPHEUS_POOLS[poolKey];
   const from = getAddress(owner);
   const to = getAddress(receiver);
   if (!(await simClaim(pool, from, to, FEE_CEILING))) {

@@ -6,18 +6,22 @@ import { isOk, unread, type Reading } from "@/lib/reading";
 import { rich } from "@/components/rich-text";
 import { usd, pct } from "@/lib/format";
 
-// A posição da SOPA na capital da Morpheus, como painel.
+// A posição de UM Safe na capital da Morpheus, como painel — um bloco por pool
+// em que ele tem depósito (USDC, stETH), cada um com o seu claim.
 //
 // É um Server Component ASSÍNCRONO de propósito: ele recebe PROMESSAS e é
 // quem faz o await. Assim o <Suspense> do pai suspende de verdade — se o await
 // fosse no JSX da página, a página inteira esperaria a mainnet responder (a
 // lição do diagrama do split, que custou 19s neste mesmo arquivo).
 //
-// O preço do MOR vem separado da posição porque falha separado: a posição pode
-// ler e o preço não, e nesse caso a quantidade de MOR aparece e só o valor em
-// dólar (e o rendimento, que depende dele) ficam marcados como não lidos.
+// Os preços vêm separados da posição porque falham separado: a posição pode
+// ler e o preço não, e nesse caso a quantidade aparece e só o valor em dólar
+// (e o rendimento, que depende dele) ficam marcados como não lidos. O stETH
+// precisa do preço do ETH até para dizer quanto está depositado em dólar; o
+// USDC não precisa de preço nenhum.
 
 const morFmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 function Stat({ label, value, sub, hint, tone = "text-foreground", dashed = false }: { label: string; value: string; sub?: string; hint?: string; tone?: string; dashed?: boolean }) {
   return (
@@ -35,103 +39,138 @@ function Stat({ label, value, sub, hint, tone = "text-foreground", dashed = fals
 }
 
 export async function MorpheusCapitalPanel({
-  position,
+  owner,
+  positions,
   morPrice,
+  ethPrice,
+  canPropose,
 }: {
-  position: Promise<Reading<CapitalPosition>>;
+  /** O Safe dono da posição — o receiver do claim, sempre. */
+  owner: { label: string; address: string };
+  /** Uma leitura por pool, na ordem de `MORPHEUS_POOLS`. */
+  positions: Promise<Reading<CapitalPosition>[]>;
   /** USD por MOR; null quando o feed de preço não respondeu. */
   morPrice: Promise<number | null>;
+  /** USD por ETH — o stETH vale isso; null quando o feed não respondeu. */
+  ethPrice: Promise<number | null>;
+  /** Sessão válida: só então o claim é oferecido. */
+  canPropose: boolean;
 }) {
-  const [pos, price, dict, locale] = await Promise.all([position, morPrice, getDictionary(), getLocale()]);
+  const [lidas, price, ethUsd, dict, locale] = await Promise.all([positions, morPrice, ethPrice, getDictionary(), getLocale()]);
   const t = dict.treasury.capital;
 
-  if (!isOk(pos)) {
-    return (
-      <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-        ⚠ {pos.state === "unread" ? t.unread(pos.reason) : t.unread(pos.note)}
-      </p>
-    );
-  }
-  const p = pos.value;
-  if (p.deposited <= 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-border bg-surface p-3 text-xs leading-relaxed text-foreground-faint">
-        {t.empty}
-      </div>
-    );
-  }
+  const falhas = [...new Set(lidas.filter((r) => !isOk(r)).map((r) => (r.state === "unread" ? r.reason : r.note)))];
+  const comDeposito = lidas.filter(isOk).map((r) => r.value).filter((p) => p.deposited > 0);
 
   // Server Component em rota force-dynamic: roda uma vez por requisição, no
   // servidor, e "agora" é exatamente o que "quantos dias até o claim" precisa.
-  // (Mesma justificativa do `dadoVelho` na página.)
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
-  const apy: Reading<number> = price == null ? unread<number>(t.priceUnread) : realizedApy(p, price);
   const dateFmt = (d: Date) => d.toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US", { day: "2-digit", month: "2-digit", year: "numeric" });
-  const share = p.poolTotal > 0 ? pct((p.deposited / p.poolTotal) * 100) : null;
-  // `claimOpensAt` já é a MAIOR das duas travas (protocolo e usuário). Usar
-  // `claimLockEnd` puro, como esta tela fazia, acerta só quando não há trava
-  // opcional — e mostra "liberado" cedo demais justamente para quem travou.
-  const opensAt = p.claimOpensAt ?? p.claimLockEnd;
-  const lockDays = opensAt ? Math.ceil((opensAt.getTime() - now) / 86_400_000) : null;
-  const claimAberto = opensAt != null && opensAt.getTime() <= now;
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Stat
-          label={t.deposited}
-          value={usd(p.deposited)}
-          sub={[p.stakedAt ? t.since(dateFmt(p.stakedAt)) : null, share ? t.poolShare(share) : null].filter(Boolean).join(" · ")}
-        />
-        <Stat
-          label={t.accrued}
-          hint={t.accruedHint}
-          value={`${morFmt(p.pendingMor)} MOR`}
-          sub={price != null ? `≈ ${usd(p.pendingMor * price)}` : "USD n/d"}
-          tone="text-success"
-        />
-        <Stat
-          label={t.multiplier}
-          value={`${p.multiplier.toFixed(3)}×`}
-          sub={p.multiplier < 1.05 ? t.noLock : t.withLock}
-        />
-        {/* Três estados, três formatos. `insufficient` não é falha nem zero: a
-            leitura passou, a janela é que é curta demais para anualizar. */}
-        {isOk(apy) ? (
-          <Stat label={t.realizedApy} hint={t.realizedApyHint} value={pct(apy.value * 100)} sub={locale === "pt" ? "ao ano · medido" : "per year · measured"} tone="text-success" />
-        ) : apy.state === "insufficient" ? (
-          <Stat label={t.realizedApy} hint={t.realizedApyHint} value="—" sub={apy.note} tone="text-foreground-muted" dashed />
-        ) : (
-          <Stat label={t.realizedApy} hint={t.realizedApyHint} value="—" sub={apy.reason} tone="text-warning" dashed />
-        )}
-        {opensAt == null ? (
-          <Stat label={t.claimAt} value="—" tone="text-foreground-muted" dashed />
-        ) : claimAberto ? (
-          <Stat label={t.claimAt} hint={t.claimOpenHint} value={t.claimOpen} tone="text-success" />
-        ) : (
-          <Stat label={t.claimAt} value={dateFmt(opensAt)} sub={t.inDays(lockDays ?? 0)} tone="text-warning" />
-        )}
-      </div>
+      <p className="flex flex-wrap items-baseline gap-x-2 text-xs">
+        <span className="font-semibold text-foreground-muted">{owner.label}</span>
+        <span className="font-mono text-foreground-faint">{shortAddr(owner.address)}</span>
+      </p>
 
-      {claimAberto && p.pendingMor > 0 && (
-        <div className="space-y-2 rounded-xl border border-border bg-surface px-4 py-3">
-          <CapitalClaimButton />
-          <p className="text-[11px] leading-relaxed text-foreground-faint">{t.claimFeeNote}</p>
+      {falhas.map((reason) => (
+        <p key={reason} className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          ⚠ {t.unread(owner.label, reason)}
+        </p>
+      ))}
+
+      {comDeposito.length === 0 && falhas.length === 0 && (
+        <div className="rounded-xl border border-dashed border-border bg-surface p-3 text-xs leading-relaxed text-foreground-faint">
+          {t.empty}
         </div>
       )}
 
-      <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-accent-border bg-accent-bg px-4 py-3 text-xs leading-relaxed text-foreground-muted">
-        <span className="flex-1 min-w-[16rem]">{rich(t.receiverNote)}</span>
-        <a
-          href={`https://etherscan.io/address/${p.pool}`}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex shrink-0 items-center gap-1 font-mono text-[11px] text-accent hover:underline"
-        >
-          <Landmark className="h-3 w-3" /> {p.pool.slice(0, 6)}…{p.pool.slice(-4)} <ExternalLink className="h-3 w-3" />
-        </a>
-      </div>
+      {comDeposito.map((p) => {
+        // USDC vale um dólar por definição do pool; stETH vale o que o ETH vale.
+        const assetUsd = p.poolKey === "usdc" ? 1 : ethUsd;
+        const depositedUsd = assetUsd != null ? p.deposited * assetUsd : null;
+        const apy: Reading<number> =
+          price == null || assetUsd == null ? unread<number>(t.priceUnread) : realizedApy(p, price, assetUsd);
+        const share = p.poolTotal > 0 ? pct((p.deposited / p.poolTotal) * 100) : null;
+        // `claimOpensAt` já é a MAIOR das duas travas (protocolo e usuário).
+        // Usar `claimLockEnd` puro acerta só quando não há trava opcional — e
+        // mostra "liberado" cedo demais justamente para quem travou.
+        const opensAt = p.claimOpensAt ?? p.claimLockEnd;
+        const lockDays = opensAt ? Math.ceil((opensAt.getTime() - now) / 86_400_000) : null;
+        const claimAberto = opensAt != null && opensAt.getTime() <= now;
+
+        return (
+          <div key={p.poolKey} className="space-y-3">
+            <p className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wider text-foreground-faint">
+              <span>{t.poolLabel(p.asset)}</span>
+              <a
+                href={`https://etherscan.io/address/${p.pool}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-mono normal-case tracking-normal text-accent hover:underline"
+              >
+                <Landmark className="h-3 w-3" /> {shortAddr(p.pool)} <ExternalLink className="h-3 w-3" />
+              </a>
+            </p>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+              <Stat
+                label={t.deposited}
+                value={p.poolKey === "usdc" ? usd(p.deposited) : `${p.deposited.toFixed(4)} ${p.asset}`}
+                sub={[
+                  p.poolKey !== "usdc" ? (depositedUsd != null ? `≈ ${usd(depositedUsd)}` : "USD n/d") : null,
+                  p.stakedAt ? t.since(dateFmt(p.stakedAt)) : null,
+                  share ? t.poolShare(share) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              />
+              <Stat
+                label={t.accrued}
+                hint={t.accruedHint}
+                value={`${morFmt(p.pendingMor)} MOR`}
+                sub={price != null ? `≈ ${usd(p.pendingMor * price)}` : "USD n/d"}
+                tone="text-success"
+              />
+              <Stat
+                label={t.multiplier}
+                value={`${p.multiplier.toFixed(3)}×`}
+                sub={p.multiplier < 1.05 ? t.noLock : t.withLock}
+              />
+              {/* Três estados, três formatos. `insufficient` não é falha nem zero: a
+                  leitura passou, a janela é que é curta demais para anualizar. */}
+              {isOk(apy) ? (
+                <Stat label={t.realizedApy} hint={t.realizedApyHint} value={pct(apy.value * 100)} sub={locale === "pt" ? "ao ano · medido" : "per year · measured"} tone="text-success" />
+              ) : apy.state === "insufficient" ? (
+                <Stat label={t.realizedApy} hint={t.realizedApyHint} value="—" sub={apy.note} tone="text-foreground-muted" dashed />
+              ) : (
+                <Stat label={t.realizedApy} hint={t.realizedApyHint} value="—" sub={apy.reason} tone="text-warning" dashed />
+              )}
+              {opensAt == null ? (
+                <Stat label={t.claimAt} value="—" tone="text-foreground-muted" dashed />
+              ) : claimAberto ? (
+                <Stat label={t.claimAt} hint={t.claimOpenHint} value={t.claimOpen} tone="text-success" />
+              ) : (
+                <Stat label={t.claimAt} value={dateFmt(opensAt)} sub={t.inDays(lockDays ?? 0)} tone="text-warning" />
+              )}
+            </div>
+
+            {canPropose && claimAberto && p.pendingMor > 0 && (
+              <div className="space-y-2 rounded-xl border border-border bg-surface px-4 py-3">
+                <CapitalClaimButton safe={owner.address} pool={p.poolKey} />
+                <p className="text-[11px] leading-relaxed text-foreground-faint">{t.claimFeeNote}</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {comDeposito.length > 0 && (
+        <div className="rounded-xl border border-accent-border bg-accent-bg px-4 py-3 text-xs leading-relaxed text-foreground-muted">
+          {rich(t.receiverNote)}
+        </div>
+      )}
     </div>
   );
 }
