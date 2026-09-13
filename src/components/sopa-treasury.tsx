@@ -28,6 +28,7 @@ export function SopaTreasury({
   chartData,
   sopaOnly,
   sopaSlug,
+  scoped,
   canPropose = false,
   vault,
 }: {
@@ -56,6 +57,13 @@ export function SopaTreasury({
   sopaOnly?: ReactNode;
   /** A aba sob a qual `sopaOnly` aparece. Sem ela, o slot não é renderizado. */
   sopaSlug?: string;
+  /**
+   * Conteúdo por tesouro, indexado pelo slug da aba — hoje, a capital na
+   * Morpheus de cada Safe. Sob "Todos" nada disto aparece: cada painel fala de
+   * um dono, e mostrá-los empilhados numa aba que soma tudo devolveria o
+   * problema que este slot resolve (ler a SOPA sob a aba da SkateHive).
+   */
+  scoped?: Record<string, ReactNode>;
   /**
    * O gráfico de saldo, como NÓ. Vem de fora porque a página é quem tem os
    * dados dele; aqui ele só ganha um lugar na grade, ao lado dos números.
@@ -200,6 +208,8 @@ export function SopaTreasury({
           chart={chartNode}
         />
 
+        {/* Só sob a aba daquele tesouro. Ver `scoped` acima. */}
+        {selected && scoped?.[selected.slug]}
         {/* Só sob a aba da SOPA. Ver `sopaOnly` acima. */}
         {sopaSlug && view === sopaSlug && sopaOnly}
         </>
