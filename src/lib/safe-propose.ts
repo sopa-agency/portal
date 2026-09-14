@@ -6,7 +6,7 @@ import { safeTxService } from "@/lib/safe-tx";
 
 // MultiSendCallOnly 1.4.1 (canonical, and already used by the SOPA Safe at
 // setup). Lets us batch N calls into ONE Safe proposal (operation = delegatecall).
-const MULTISEND_CALL_ONLY = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2";
+export const MULTISEND_CALL_ONLY = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2";
 const MULTISEND_ABI = [
   { name: "multiSend", type: "function", stateMutability: "payable", inputs: [{ name: "transactions", type: "bytes" }], outputs: [] },
 ] as const;
@@ -14,7 +14,7 @@ const MULTISEND_ABI = [
 export type SafeCall = { to: string; data: `0x${string}`; value?: bigint };
 
 /** Pack calls into MultiSend's `transactions` bytes: per call operation(0)+to+value+len+data. */
-function encodeMultiSend(calls: SafeCall[]): `0x${string}` {
+export function encodeMultiSend(calls: SafeCall[]): `0x${string}` {
   const parts = calls.map((c) => {
     const to = getAddress(c.to).slice(2).toLowerCase();
     const value = (c.value ?? BigInt(0)).toString(16).padStart(64, "0");

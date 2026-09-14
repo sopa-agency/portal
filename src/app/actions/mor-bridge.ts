@@ -3,7 +3,7 @@
 import { getAddress } from "viem";
 import { autorizarSafe } from "@/lib/safe-authz";
 import { proposeSafeBatch } from "@/lib/safe-propose";
-import { ARBITRUM, bridgeNonce, quoteOft, quoteSwapsPro, readBridgeContext, type BridgeQuote } from "@/lib/mor-bridge";
+import { ARBITRUM, bridgeNonce, quoteOft, quoteSwapsPro, readBridgeContext, simulateAsSafe, type BridgeQuote } from "@/lib/mor-bridge";
 
 /**
  * A ponte do MOR (Arbitrum → Base) a partir do painel de capital.
@@ -79,6 +79,14 @@ export async function proposeMorBridge(args: { safe: string; via: "swapspro" | "
     const ethArb = BigInt(Math.round(Number(ctx.ethArb === "?" ? "0" : ctx.ethArb) * 1e18));
     if (ctx.ethArb !== "?" && ethArb < precisa) {
       return { ok: false, error: `O Safe tem ${ctx.ethArb} ETH na Arbitrum e esta rota precisa de ${quote.costEth}. Manda um pouco de ETH pro Safe lá antes.` };
+    }
+
+    // Roda o batch como o Safe vai rodar. Uma proposta que já não executa
+    // agora não entra na fila — o erro vem para cá, com motivo, e não para
+    // quem for assinar daqui a dez minutos.
+    const sim = await simulateAsSafe(safe, quote.calls);
+    if (!sim.ok) {
+      return { ok: false, error: `A rota não executa agora: ${sim.reason}. Nada foi enfileirado — cota de novo.` };
     }
 
     // Uma ponte nossa vencida no nonce atual? A nova entra no lugar dela.
