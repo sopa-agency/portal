@@ -24,7 +24,7 @@ import "server-only";
 // número.
 
 import { createPublicClient, encodeAbiParameters, encodeFunctionData, erc20Abi, fallback, formatEther, formatUnits, getAddress, http, keccak256, pad, parseAbi } from "viem";
-import { arbitrum } from "viem/chains";
+import { arbitrum, base as baseChain } from "viem/chains";
 import { MULTISEND_CALL_ONLY, encodeMultiSend, proposerAddress, type SafeCall } from "@/lib/safe-propose";
 import { safeTxService } from "@/lib/safe-tx";
 
@@ -39,7 +39,14 @@ const arb = createPublicClient({
   transport: fallback(["https://arbitrum-one-rpc.publicnode.com", "https://gateway.tenderly.co/public/arbitrum"].map((u) => http(u, { timeout: 10_000 }))),
 });
 
+const baseClient = createPublicClient({
+  chain: baseChain,
+  transport: fallback(["https://base-rpc.publicnode.com", "https://mainnet.base.org"].map((u) => http(u, { timeout: 10_000 }))),
+});
+
 const MAINNET_RPCS = ["https://gateway.tenderly.co/public/mainnet", "https://ethereum-rpc.publicnode.com"];
+
+const safeReadAbi = parseAbi(["function getThreshold() view returns (uint256)", "function getOwners() view returns (address[])"]);
 
 /**
  * Taxa do claim na mainnet, medida em 01/09/2026 (0,0000431 ETH) com a margem
@@ -75,6 +82,16 @@ export type BridgeContext = {
   delegateOk: boolean | null;
   /** O endereço que precisa estar registrado — o do SAFE_PROPOSER_PRIVATE_KEY. */
   delegate: string | null;
+  /** MOR do Safe na Base — para ver a ponte chegar. */
+  morBase: string;
+  /**
+   * O Safe NA ARBITRUM: threshold e donos. Com threshold 1, um dono conectado
+   * ao portal executa direto, sem fila — é o que faz a rota do swaps.pro
+   * caber na janela dela. Os Safes lá estão na configuração do dia zero
+   * (SOPA 1-de-3, SkateHive 1-de-2, em 14/09/2026).
+   */
+  threshold: number | null;
+  owners: string[];
 };
 
 /** Lê no serviço da Arbitrum se o proposer já é delegate do Safe. */
@@ -116,11 +133,14 @@ async function ethBalanceMainnet(addr: string): Promise<bigint | null> {
 /** O que o painel precisa saber antes de qualquer clique. Nunca lança: uma leitura que falha vira "?" na tela, não um painel que some. */
 export async function readBridgeContext(safe: string): Promise<BridgeContext> {
   const owner = getAddress(safe);
-  const [mor, ethA, ethM, delegateOk] = await Promise.all([
+  const [mor, ethA, ethM, delegateOk, morB, threshold, owners] = await Promise.all([
     arb.readContract({ address: MOR_ARB, abi: erc20Abi, functionName: "balanceOf", args: [owner] }).catch(() => null),
     arb.getBalance({ address: owner }).catch(() => null),
     ethBalanceMainnet(owner),
     hasArbitrumDelegate(owner),
+    baseClient.readContract({ address: MOR_BASE, abi: erc20Abi, functionName: "balanceOf", args: [owner] }).catch(() => null),
+    arb.readContract({ address: owner, abi: safeReadAbi, functionName: "getThreshold" }).catch(() => null),
+    arb.readContract({ address: owner, abi: safeReadAbi, functionName: "getOwners" }).catch(() => null),
   ]);
   const fmt = (wei: bigint | null, d = 5) => (wei == null ? "?" : Number(formatEther(wei)).toFixed(d));
   return {
@@ -131,6 +151,27 @@ export async function readBridgeContext(safe: string): Promise<BridgeContext> {
     claimsLeft: ethM == null ? -1 : Math.floor(Number(formatEther(ethM)) / CLAIM_FEE_EST_ETH),
     delegateOk,
     delegate: proposerAddress(),
+    morBase: morB == null ? "?" : Number(formatUnits(morB, 18)).toFixed(4),
+    threshold: threshold == null ? null : Number(threshold),
+    owners: (owners ?? []).map((o) => o.toLowerCase()),
+  };
+}
+
+/**
+ * Os argumentos de `execTransaction` para estas chamadas: uma só vai direta
+ * (CALL, com o value dela); mais de uma vai pelo MultiSendCallOnly por
+ * DELEGATECALL, e o value de cada uma sai do saldo do Safe dentro do batch.
+ * É exatamente o que `proposeSafeBatch` enfileira — aqui, para quem executa.
+ */
+export function execParams(calls: SafeCall[]): { to: string; value: string; data: `0x${string}`; operation: 0 | 1 } {
+  if (calls.length === 1) {
+    return { to: getAddress(calls[0].to), value: (calls[0].value ?? BigInt(0)).toString(), data: calls[0].data, operation: 0 };
+  }
+  return {
+    to: MULTISEND_CALL_ONLY,
+    value: "0",
+    data: encodeFunctionData({ abi: MULTISEND_ABI_MIN, functionName: "multiSend", args: [encodeMultiSend(calls)] }),
+    operation: 1,
   };
 }
 

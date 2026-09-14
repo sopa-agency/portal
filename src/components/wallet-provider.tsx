@@ -41,6 +41,13 @@ const WANTED_KEY = "portal-wallet:wanted";
 
 /** Redes que sabemos ensinar a uma carteira que ainda não as tem. */
 const ADD_CHAIN: Record<string, Record<string, unknown>> = {
+  "0xa4b1": {
+    chainId: "0xa4b1",
+    chainName: "Arbitrum One",
+    nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+    rpcUrls: ["https://arb1.arbitrum.io/rpc"],
+    blockExplorerUrls: ["https://arbiscan.io"],
+  },
   "0x2105": {
     chainId: "0x2105",
     chainName: "Base",
