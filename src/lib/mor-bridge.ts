@@ -25,7 +25,8 @@ import "server-only";
 
 import { createPublicClient, encodeFunctionData, erc20Abi, fallback, formatEther, formatUnits, getAddress, http, pad, parseAbi } from "viem";
 import { arbitrum } from "viem/chains";
-import type { SafeCall } from "@/lib/safe-propose";
+import { proposerAddress, type SafeCall } from "@/lib/safe-propose";
+import { safeTxService } from "@/lib/safe-tx";
 
 export const ARBITRUM = 42161;
 export const MOR_ARB = getAddress("0x092bAaDB7DEf4C3981454dD9c0A0D7FF07bCFc86");
@@ -66,7 +67,33 @@ export type BridgeContext = {
   ethMain: string;
   /** Quantos claims o ETH da mainnet ainda paga, pela estimativa. */
   claimsLeft: number;
+  /**
+   * O proposer do portal está registrado como delegate deste Safe no serviço
+   * da Arbitrum? Sem isso nenhuma proposta entra lá. `null` = não deu para
+   * ler (o serviço limita por IP) — a tela oferece o registro mesmo assim.
+   */
+  delegateOk: boolean | null;
+  /** O endereço que precisa estar registrado — o do SAFE_PROPOSER_PRIVATE_KEY. */
+  delegate: string | null;
 };
+
+/** Lê no serviço da Arbitrum se o proposer já é delegate do Safe. */
+export async function hasArbitrumDelegate(safe: string): Promise<boolean | null> {
+  const delegate = proposerAddress();
+  if (!delegate) return null;
+  try {
+    const r = await fetch(`${safeTxService(ARBITRUM)}/api/v2/delegates/?safe=${getAddress(safe)}&delegate=${delegate}`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(8_000),
+      cache: "no-store",
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { results?: { delegate: string }[] };
+    return (j.results ?? []).some((d) => d.delegate.toLowerCase() === delegate.toLowerCase());
+  } catch {
+    return null;
+  }
+}
 
 async function ethBalanceMainnet(addr: string): Promise<bigint | null> {
   for (const rpc of MAINNET_RPCS) {
@@ -89,10 +116,11 @@ async function ethBalanceMainnet(addr: string): Promise<bigint | null> {
 /** O que o painel precisa saber antes de qualquer clique. Nunca lança: uma leitura que falha vira "?" na tela, não um painel que some. */
 export async function readBridgeContext(safe: string): Promise<BridgeContext> {
   const owner = getAddress(safe);
-  const [mor, ethA, ethM] = await Promise.all([
+  const [mor, ethA, ethM, delegateOk] = await Promise.all([
     arb.readContract({ address: MOR_ARB, abi: erc20Abi, functionName: "balanceOf", args: [owner] }).catch(() => null),
     arb.getBalance({ address: owner }).catch(() => null),
     ethBalanceMainnet(owner),
+    hasArbitrumDelegate(owner),
   ]);
   const fmt = (wei: bigint | null, d = 5) => (wei == null ? "?" : Number(formatEther(wei)).toFixed(d));
   return {
@@ -101,6 +129,8 @@ export async function readBridgeContext(safe: string): Promise<BridgeContext> {
     ethArb: fmt(ethA),
     ethMain: fmt(ethM),
     claimsLeft: ethM == null ? -1 : Math.floor(Number(formatEther(ethM)) / CLAIM_FEE_EST_ETH),
+    delegateOk,
+    delegate: proposerAddress(),
   };
 }
 

@@ -726,6 +726,16 @@ const en = {
         ethLow: "Top up ETH on mainnet before the next claim.",
         firm: "A swaps.pro quote is firm for minutes, not hours: if the owners sign later and it reverts, quote again. The LayerZero route has no expiry.",
         failed: (reason: string) => `Couldn't quote — ${reason}`,
+        delegateOk: "The portal's proposer is registered on this Safe's Arbitrum queue.",
+        delegateMissing:
+          "The portal's proposer is not registered on this Safe's Arbitrum queue yet, so nothing can be proposed there. One signature from an owner of the Safe on Arbitrum registers it — no transaction, no gas.",
+        delegateUnknown: "Couldn't check the Arbitrum registration right now (the Safe service throttles). Registering again is harmless.",
+        delegateAction: "Register the proposer (sign with an owner wallet)",
+        delegateConnecting: "Connecting the wallet…",
+        delegateSigning: "Waiting for the signature…",
+        delegateSending: "Registering…",
+        delegateDone: (who: string) => `Registered, signed by ${who}. The bridge can be proposed now.`,
+        delegateNotOwner: (who: string) => `${who} is not an owner of this Safe on Arbitrum. Switch to an owner wallet and sign again.`,
       },
     },
     /** The Members tab shell: live panel vs admin controls. */
@@ -2359,6 +2369,16 @@ const pt: typeof en = {
         ethLow: "Manda ETH pro Safe na mainnet antes do próximo claim.",
         firm: "A cotação do swaps.pro vale minutos, não horas: se os donos assinarem depois e reverter, cota de novo. A rota LayerZero não vence.",
         failed: (reason: string) => `Não consegui cotar — ${reason}`,
+        delegateOk: "O proposer do portal está registrado na fila deste Safe na Arbitrum.",
+        delegateMissing:
+          "O proposer do portal ainda não está registrado na fila deste Safe na Arbitrum, então nada pode ser proposto lá. Uma assinatura de um dono do Safe na Arbitrum registra — sem transação, sem gás.",
+        delegateUnknown: "Não consegui conferir o registro na Arbitrum agora (o serviço do Safe limita). Registrar de novo não faz mal.",
+        delegateAction: "Registrar o proposer (assina com a carteira de um dono)",
+        delegateConnecting: "Conectando a carteira…",
+        delegateSigning: "Esperando a assinatura…",
+        delegateSending: "Registrando…",
+        delegateDone: (who: string) => `Registrado, assinado por ${who}. A ponte já pode ser proposta.`,
+        delegateNotOwner: (who: string) => `${who} não é dono deste Safe na Arbitrum. Troca para a carteira de um dono e assina de novo.`,
       },
     },
     members: {

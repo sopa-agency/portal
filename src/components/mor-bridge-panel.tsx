@@ -18,6 +18,7 @@ import { AlertTriangle, ArrowRightLeft, CheckCircle2, ExternalLink, Loader2 } fr
 import { quoteMorBridge, proposeMorBridge, type PonteCotacao, type PonteRota } from "@/app/actions/mor-bridge";
 import type { BridgeContext } from "@/lib/mor-bridge";
 import { useLocale } from "@/components/locale-provider";
+import { ArbitrumDelegateButton } from "@/components/arbitrum-delegate-button";
 
 const mor = (s: string) => Number(s).toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
@@ -45,6 +46,9 @@ export function MorBridgePanel({
   const [propondo, setPropondo] = useState<"swapspro" | "oft" | null>(null);
   const [feito, setFeito] = useState<{ url: string; receives: string; provider: string } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  // O registro do delegate é um pré-requisito de propor, não de cotar. Vira
+  // `true` na hora em que a assinatura é aceita, sem recarregar a página.
+  const [delegateOk, setDelegateOk] = useState<boolean | null>(initial.delegateOk);
 
   const temMor = initial.morArbWei !== "0" && initial.morArb !== "?";
 
@@ -121,7 +125,7 @@ export function MorBridgePanel({
             piso
             onPropor={() => void propor("swapspro")}
             propondo={propondo === "swapspro"}
-            bloqueado={propondo != null || feito != null}
+            bloqueado={propondo != null || feito != null || delegateOk === false}
           />
           <Rota
             titulo={t.viaOft}
@@ -132,12 +136,25 @@ export function MorBridgePanel({
             piso={false}
             onPropor={() => void propor("oft")}
             propondo={propondo === "oft"}
-            bloqueado={propondo != null || feito != null}
+            bloqueado={propondo != null || feito != null || delegateOk === false}
           />
         </div>
       )}
 
       {cotacao && <p className="text-[11px] leading-relaxed text-foreground-faint">{t.firm}</p>}
+
+      {/* Sem o delegate registrado na Arbitrum, "propor" volta com erro da API
+          do Safe. A tela diz isso ANTES do clique e oferece o registro — uma
+          assinatura de um dono, sem transação. */}
+      {temMor && delegateOk !== true && (
+        <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+          <p className="flex items-start gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {delegateOk === false ? t.delegateMissing : t.delegateUnknown}
+          </p>
+          {initial.delegate && <ArbitrumDelegateButton safe={safe} delegate={initial.delegate} onDone={() => setDelegateOk(true)} />}
+        </div>
+      )}
+      {temMor && delegateOk === true && <p className="text-[11px] text-success">✓ {t.delegateOk}</p>}
 
       {feito && (
         <p className="flex flex-wrap items-center gap-2 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-[11px] leading-relaxed text-success">
