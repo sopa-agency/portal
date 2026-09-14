@@ -21,6 +21,8 @@ import { useLocale } from "@/components/locale-provider";
 import { ArbitrumDelegateButton } from "@/components/arbitrum-delegate-button";
 
 const mor = (s: string) => Number(s).toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+const hhmm = (unix: number) => new Date(unix * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const minsLeft = (unix: number) => Math.floor((unix * 1000 - Date.now()) / 60_000);
 
 /** Custo total em USD de uma rota: perda de câmbio (MOR) + ETH pago pelo Safe. */
 function custoUsd(q: PonteRota, morUsd: number | null, ethUsd: number | null): number | null {
@@ -44,7 +46,7 @@ export function MorBridgePanel({
   const [cotacao, setCotacao] = useState<PonteCotacao | null>(null);
   const [cotando, setCotando] = useState(false);
   const [propondo, setPropondo] = useState<"swapspro" | "oft" | null>(null);
-  const [feito, setFeito] = useState<{ url: string; receives: string; provider: string } | null>(null);
+  const [feito, setFeito] = useState<{ url: string; receives: string; provider: string; deadline?: number; replaced: boolean } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   // O registro do delegate é um pré-requisito de propor, não de cotar. Vira
   // `true` na hora em que a assinatura é aceita, sem recarregar a página.
@@ -160,6 +162,8 @@ export function MorBridgePanel({
         <p className="flex flex-wrap items-center gap-2 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-[11px] leading-relaxed text-success">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
           {t.queued} {t.receives(mor(feito.receives))} · {feito.provider}
+          {feito.deadline ? <strong>{t.signNow(hhmm(feito.deadline))}</strong> : null}
+          {feito.replaced ? <span>{t.replaced}</span> : null}
           <a href={feito.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold underline">
             {t.queueLink} <ExternalLink className="h-3 w-3" />
           </a>
@@ -215,6 +219,7 @@ function Rota({
           <p className="text-sm font-semibold tabular-nums text-foreground">{t.receives(mor(quote.receives))}</p>
           <p className="text-[11px] text-foreground-faint">
             {piso ? t.floor(mor(quote.floor)) : t.exact}
+            {quote.deadline ? ` · ${minsLeft(quote.deadline) > 0 ? t.validUntil(hhmm(quote.deadline), minsLeft(quote.deadline)) : t.expired}` : ""}
             {" · "}
             {t.cost(
               [

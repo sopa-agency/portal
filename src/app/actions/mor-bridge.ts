@@ -3,7 +3,7 @@
 import { getAddress } from "viem";
 import { autorizarSafe } from "@/lib/safe-authz";
 import { proposeSafeBatch } from "@/lib/safe-propose";
-import { ARBITRUM, quoteOft, quoteSwapsPro, readBridgeContext, type BridgeQuote } from "@/lib/mor-bridge";
+import { ARBITRUM, bridgeNonce, quoteOft, quoteSwapsPro, readBridgeContext, type BridgeQuote } from "@/lib/mor-bridge";
 
 /**
  * A ponte do MOR (Arbitrum → Base) a partir do painel de capital.
@@ -34,6 +34,7 @@ const semCalls = (q: BridgeQuote): PonteRota => ({
   lossMor: q.lossMor,
   provider: q.provider,
   expiresAt: q.expiresAt,
+  deadline: q.deadline,
 });
 
 async function cotar(safe: string, amountWei: bigint) {
@@ -57,7 +58,7 @@ export async function quoteMorBridge(args: { safe: string }): Promise<PonteCotac
 }
 
 export async function proposeMorBridge(args: { safe: string; via: "swapspro" | "oft" }): Promise<
-  { ok: true; url: string; receives: string; provider: string } | { ok: false; error: string }
+  { ok: true; url: string; receives: string; provider: string; deadline?: number; replaced: boolean } | { ok: false; error: string }
 > {
   const auth = await autorizarSafe(args.safe);
   if (!auth.ok) return auth;
@@ -80,14 +81,17 @@ export async function proposeMorBridge(args: { safe: string; via: "swapspro" | "
       return { ok: false, error: `O Safe tem ${ctx.ethArb} ETH na Arbitrum e esta rota precisa de ${quote.costEth}. Manda um pouco de ETH pro Safe lá antes.` };
     }
 
+    // Uma ponte nossa vencida no nonce atual? A nova entra no lugar dela.
+    const nonce = await bridgeNonce(safe);
     const res = await proposeSafeBatch({
       chainId: ARBITRUM,
       safe,
       calls: quote.calls,
+      nonce,
       origin: `${auth.label}: ponte de ${Number(quote.sends).toFixed(4)} MOR Arbitrum → Base ${args.via === "oft" ? "(LayerZero OFT)" : "(swaps.pro)"}`,
     });
     if (!res.ok) return res;
-    return { ok: true, url: res.url, receives: quote.receives, provider: quote.provider };
+    return { ok: true, url: res.url, receives: quote.receives, provider: quote.provider, deadline: quote.deadline, replaced: nonce !== undefined };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor a ponte." };
   }
