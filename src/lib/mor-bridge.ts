@@ -23,9 +23,9 @@ import "server-only";
 // para envios maiores. As duas cotações aparecem lado a lado; quem decide vê o
 // número.
 
-import { createPublicClient, encodeFunctionData, erc20Abi, fallback, formatEther, formatUnits, getAddress, http, pad, parseAbi } from "viem";
+import { createPublicClient, encodeAbiParameters, encodeFunctionData, erc20Abi, fallback, formatEther, formatUnits, getAddress, http, keccak256, pad, parseAbi } from "viem";
 import { arbitrum } from "viem/chains";
-import { proposerAddress, type SafeCall } from "@/lib/safe-propose";
+import { MULTISEND_CALL_ONLY, encodeMultiSend, proposerAddress, type SafeCall } from "@/lib/safe-propose";
 import { safeTxService } from "@/lib/safe-tx";
 
 export const ARBITRUM = 42161;
@@ -211,6 +211,118 @@ export async function bridgeNonce(safe: string): Promise<number | undefined> {
   }
 }
 
+const SIM_RPCS = ["https://gateway.tenderly.co/public/arbitrum", "https://arbitrum.drpc.org"];
+
+/**
+ * Executa as chamadas EXATAMENTE como o Safe vai executar, sem assinatura:
+ * com o código do MultiSendCallOnly forjado no endereço do Safe (state
+ * override), um eth_call ao Safe roda o batch em ordem e cada CALL interno
+ * sai do Safe — approve primeiro, ponte depois, com o saldo real de ETH e MOR.
+ * Uma chamada só vai direto. Devolve o motivo do revert quando há.
+ *
+ * Existe porque a fila do Safe aceita qualquer coisa: a proposta de 17:46 de
+ * 14/09 entrou, ninguém conseguiu executá-la, e o erro só apareceu na cara de
+ * quem foi assinar (GS013, que não explica nada). Simular antes é a diferença
+ * entre "não dá agora, cota de novo" e uma proposta morta na fila.
+ */
+export async function simulateAsSafe(safe: string, calls: SafeCall[]): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const owner = getAddress(safe);
+  const value = calls.reduce((s, c) => s + (c.value ?? BigInt(0)), BigInt(0));
+  const single = calls.length === 1;
+  let lastErr = "sem resposta dos RPCs";
+  for (const rpc of SIM_RPCS) {
+    try {
+      const overrides: Record<string, unknown> = {};
+      if (!single) {
+        const code = await jsonRpc(rpc, "eth_getCode", [MULTISEND_CALL_ONLY, "latest"]);
+        if (typeof code !== "string" || code.length < 10) continue;
+        overrides[owner] = { code };
+      }
+      const call = single
+        ? { from: owner, to: getAddress(calls[0].to), data: calls[0].data, value: "0x" + value.toString(16) }
+        : { from: owner, to: owner, data: encodeFunctionData({ abi: MULTISEND_ABI_MIN, functionName: "multiSend", args: [encodeMultiSend(calls)] }), value: "0x" + value.toString(16) };
+      const r = await fetch(rpc, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: AbortSignal.timeout(15_000),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: single ? [call, "latest"] : [call, "latest", overrides] }),
+      });
+      const j = (await r.json()) as { result?: string; error?: { message?: string; data?: string } };
+      if (j.result !== undefined) return { ok: true };
+      if (j.error) {
+        const msg = j.error.message ?? "";
+        // "método não suportado" / "override" = este RPC não simula; tenta o próximo.
+        if (/override|not supported|unknown field|invalid argument/i.test(msg) && !/reverted/i.test(msg)) {
+          lastErr = msg;
+          continue;
+        }
+        let reason = revertReason(j.error.data) || msg.replace(/^execution reverted:?\s*/i, "");
+        // O MultiSend engole o motivo do CALL interno (reverte com data vazio).
+        // Para dizer POR QUE, roda só a última chamada com o allowance do MOR
+        // forjado — slot 6 do contrato do MOR na Arbitrum, medido em 14/09/2026.
+        if (!reason && !single) reason = await reasonOfLastCall(rpc, owner, calls);
+        return { ok: false, reason: reason || "reverteu sem motivo" };
+      }
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+  return { ok: false, reason: `não consegui simular (${lastErr.slice(0, 80)})` };
+}
+
+async function reasonOfLastCall(rpc: string, owner: string, calls: SafeCall[]): Promise<string> {
+  try {
+    const last = calls[calls.length - 1];
+    const spender = getAddress(last.to);
+    const inner = keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [owner as `0x${string}`, BigInt(6)]));
+    const slot = keccak256(encodeAbiParameters([{ type: "address" }, { type: "bytes32" }], [spender, inner]));
+    const amount = "0x" + BigInt("0xffffffffffffffffffffffffffffffff").toString(16).padStart(64, "0");
+    const r = await fetch(rpc, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: AbortSignal.timeout(15_000),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1, method: "eth_call",
+        params: [{ from: owner, to: spender, data: last.data, value: "0x" + (last.value ?? BigInt(0)).toString(16) }, "latest", { [MOR_ARB]: { stateDiff: { [slot]: amount } } }],
+      }),
+    });
+    const j = (await r.json()) as { result?: string; error?: { message?: string; data?: string } };
+    if (j.result !== undefined) return "";
+    return revertReason(j.error?.data) || (j.error?.message ?? "").replace(/^execution reverted:?\s*/i, "");
+  } catch {
+    return "";
+  }
+}
+
+const MULTISEND_ABI_MIN = [
+  { name: "multiSend", type: "function", stateMutability: "payable", inputs: [{ name: "transactions", type: "bytes" }], outputs: [] },
+] as const;
+
+async function jsonRpc(rpc: string, method: string, params: unknown[]): Promise<unknown> {
+  const r = await fetch(rpc, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    signal: AbortSignal.timeout(10_000),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const j = (await r.json()) as { result?: unknown };
+  return j.result;
+}
+
+/** `Error(string)` do revert, quando vem; senão o seletor cru, que ao menos identifica. */
+function revertReason(data?: string): string {
+  if (!data || data === "0x") return "";
+  if (data.startsWith("0x08c379a0")) {
+    try {
+      const len = parseInt(data.slice(74, 138), 16);
+      return Buffer.from(data.slice(138, 138 + len * 2), "hex").toString("utf8");
+    } catch {
+      return "";
+    }
+  }
+  return `erro ${data.slice(0, 10)}`;
+}
+
 /**
  * Rota 2: o OFT. `quoteOFT` com minAmountLD = amount REVERTE (SlippageExceeded)
  * porque o OFT apara para 6 casas — cota com min 0 e usa o que ele diz que
@@ -269,6 +381,11 @@ export async function quoteSwapsPro(safe: string, amountWei: bigint): Promise<Br
     address: owner,
     recipient: owner,
     partner: "sopa-portal",
+    // 3%, não o 1% padrão. Em 14/09/2026 uma proposta cotada a 1% morreu em
+    // NOVE minutos ("Return amount is not enough"): o MOR anda mais que isso
+    // entre propor e assinar. O piso cai uns 2 pontos; numa ponte de US$ 5 são
+    // dez centavos de garantia a menos, contra uma proposta que não executa.
+    slippage: "3",
   });
   const r = await fetch(`https://www.swaps.pro/api/sdk/v1/quote?${q}`, {
     headers: { accept: "application/json" },
