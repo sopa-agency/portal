@@ -3,7 +3,7 @@
 import { getAddress } from "viem";
 import { autorizarSafe } from "@/lib/safe-authz";
 import { proposeSafeBatch } from "@/lib/safe-propose";
-import { ARBITRUM, bridgeNonce, quoteOft, quoteSwapsPro, readBridgeContext, simulateAsSafe, type BridgeQuote } from "@/lib/mor-bridge";
+import { ARBITRUM, bridgeNonce, execParams, quoteOft, quoteSwapsPro, readBridgeContext, simulateAsSafe, type BridgeContext, type BridgeQuote } from "@/lib/mor-bridge";
 
 /**
  * A ponte do MOR (Arbitrum → Base) a partir do painel de capital.
@@ -102,5 +102,49 @@ export async function proposeMorBridge(args: { safe: string; via: "swapspro" | "
     return { ok: true, url: res.url, receives: quote.receives, provider: quote.provider, deadline: quote.deadline, replaced: nonce !== undefined };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor a ponte." };
+  }
+}
+
+/** Relê saldos e estado — para ver a ponte chegar na Base sem recarregar a página. */
+export async function refreshBridgeContext(args: { safe: string }): Promise<{ ok: true; ctx: BridgeContext } | { ok: false; error: string }> {
+  const auth = await autorizarSafe(args.safe);
+  if (!auth.ok) return auth;
+  return { ok: true, ctx: await readBridgeContext(getAddress(args.safe)) };
+}
+
+/**
+ * Monta a ponte para quem vai EXECUTAR direto, com a carteira de um dono —
+ * o caminho que cabe na janela da rota do swaps.pro (cotação e execução no
+ * mesmo movimento). Não passa pela fila nem pelo proposer: o servidor cota,
+ * simula como o Safe e devolve os argumentos de `execTransaction`; a carteira
+ * do dono assina e envia. Só faz sentido com threshold 1, e o próprio Safe
+ * recusa qualquer um que não seja dono (GS026) — a checagem aqui é para a
+ * tela não oferecer o que não vai passar.
+ */
+export async function buildMorBridgeExec(args: { safe: string; via: "swapspro" | "oft" }): Promise<
+  | { ok: true; exec: { to: string; value: string; data: `0x${string}`; operation: 0 | 1 }; receives: string; provider: string; deadline?: number; costEth: string }
+  | { ok: false; error: string }
+> {
+  const auth = await autorizarSafe(args.safe);
+  if (!auth.ok) return auth;
+  const safe = getAddress(args.safe);
+  try {
+    const ctx = await readBridgeContext(safe);
+    const amount = BigInt(ctx.morArbWei);
+    if (amount <= BigInt(0)) return { ok: false, error: "Não há MOR parado na Arbitrum para este Safe." };
+    if (ctx.threshold !== 1) {
+      return { ok: false, error: `Este Safe pede ${ctx.threshold ?? "?"} assinaturas na Arbitrum; executar direto só funciona com 1. Use "Propor no Safe".` };
+    }
+    const quote = args.via === "oft" ? await quoteOft(safe, amount) : await quoteSwapsPro(safe, amount);
+    const precisa = quote.calls.reduce((s, c) => s + (c.value ?? BigInt(0)), BigInt(0));
+    const ethArb = BigInt(Math.round(Number(ctx.ethArb === "?" ? "0" : ctx.ethArb) * 1e18));
+    if (ctx.ethArb !== "?" && ethArb < precisa) {
+      return { ok: false, error: `O Safe tem ${ctx.ethArb} ETH na Arbitrum e esta rota precisa de ${quote.costEth}.` };
+    }
+    const sim = await simulateAsSafe(safe, quote.calls);
+    if (!sim.ok) return { ok: false, error: `A rota não executa agora: ${sim.reason}. Cota de novo.` };
+    return { ok: true, exec: execParams(quote.calls), receives: quote.receives, provider: quote.provider, deadline: quote.deadline, costEth: quote.costEth };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao montar a ponte." };
   }
 }

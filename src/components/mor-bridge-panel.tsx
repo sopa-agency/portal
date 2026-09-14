@@ -15,7 +15,8 @@
 
 import { useState } from "react";
 import { AlertTriangle, ArrowRightLeft, CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
-import { quoteMorBridge, proposeMorBridge, type PonteCotacao, type PonteRota } from "@/app/actions/mor-bridge";
+import { quoteMorBridge, proposeMorBridge, refreshBridgeContext, type PonteCotacao, type PonteRota } from "@/app/actions/mor-bridge";
+import { MorBridgeExecButton } from "@/components/mor-bridge-exec-button";
 import type { BridgeContext } from "@/lib/mor-bridge";
 import { useLocale } from "@/components/locale-provider";
 import { ArbitrumDelegateButton } from "@/components/arbitrum-delegate-button";
@@ -51,6 +52,21 @@ export function MorBridgePanel({
   // O registro do delegate é um pré-requisito de propor, não de cotar. Vira
   // `true` na hora em que a assinatura é aceita, sem recarregar a página.
   const [delegateOk, setDelegateOk] = useState<boolean | null>(initial.delegateOk);
+  // Execução direta (carteira de um dono, sem fila): o resultado e a chegada.
+  const [executada, setExecutada] = useState<{ hash: string; receives: string; provider: string; via: "swapspro" | "oft" } | null>(null);
+  const [morBase, setMorBase] = useState<string>(initial.morBase);
+  const [conferindo, setConferindo] = useState(false);
+  const direto = initial.threshold === 1 && initial.owners.length > 0;
+
+  async function conferir() {
+    setConferindo(true);
+    try {
+      const r = await refreshBridgeContext({ safe });
+      if (r.ok) setMorBase(r.ctx.morBase);
+    } finally {
+      setConferindo(false);
+    }
+  }
 
   const temMor = initial.morArbWei !== "0" && initial.morArb !== "?";
 
@@ -102,6 +118,7 @@ export function MorBridgePanel({
             {temMor ? t.waiting(mor(initial.morArb)) : t.none}
           </p>
           <p className="mt-0.5 text-[11px] text-foreground-faint">{t.hint}</p>
+          {direto && temMor && <p className="mt-1 text-[11px] text-foreground-muted">{t.execHint}</p>}
         </div>
         {temMor && !cotacao && (
           <button
@@ -127,7 +144,8 @@ export function MorBridgePanel({
             piso
             onPropor={() => void propor("swapspro")}
             propondo={propondo === "swapspro"}
-            bloqueado={propondo != null || feito != null || delegateOk === false}
+            bloqueado={propondo != null || feito != null || delegateOk === false || executada != null}
+            direto={direto ? { safe, via: "swapspro", owners: initial.owners, onDone: setExecutada } : null}
           />
           <Rota
             titulo={t.viaOft}
@@ -138,7 +156,8 @@ export function MorBridgePanel({
             piso={false}
             onPropor={() => void propor("oft")}
             propondo={propondo === "oft"}
-            bloqueado={propondo != null || feito != null || delegateOk === false}
+            bloqueado={propondo != null || feito != null || delegateOk === false || executada != null}
+            direto={direto ? { safe, via: "oft", owners: initial.owners, onDone: setExecutada } : null}
           />
         </div>
       )}
@@ -157,6 +176,32 @@ export function MorBridgePanel({
         </div>
       )}
       {temMor && delegateOk === true && <p className="text-[11px] text-success">✓ {t.delegateOk}</p>}
+
+      {executada && (
+        <div className="space-y-2 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-[11px] leading-relaxed text-success">
+          <p className="flex flex-wrap items-center gap-2">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            {t.execDone} {t.receives(mor(executada.receives))} · {executada.provider} · {t.arrival}
+          </p>
+          <p className="flex flex-wrap items-center gap-3">
+            <a
+              href={executada.via === "oft" ? `https://layerzeroscan.com/tx/${executada.hash}` : `https://scan.li.fi/tx/${executada.hash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-semibold underline"
+            >
+              {t.track} <ExternalLink className="h-3 w-3" />
+            </a>
+            <a href={`https://arbiscan.io/tx/${executada.hash}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">
+              {t.onArbiscan} <ExternalLink className="h-3 w-3" />
+            </a>
+            <button type="button" onClick={() => void conferir()} disabled={conferindo} className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2 py-0.5 font-semibold disabled:opacity-50">
+              {conferindo && <Loader2 className="h-3 w-3 animate-spin" />} {t.checkArrival}
+            </button>
+            <span className="tabular-nums">{t.onBase(morBase)}</span>
+          </p>
+        </div>
+      )}
 
       {feito && (
         <p className="flex flex-wrap items-center gap-2 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-[11px] leading-relaxed text-success">
@@ -194,6 +239,7 @@ function Rota({
   onPropor,
   propondo,
   bloqueado,
+  direto,
 }: {
   titulo: string;
   quote: PonteRota | null;
@@ -204,6 +250,8 @@ function Rota({
   onPropor: () => void;
   propondo: boolean;
   bloqueado: boolean;
+  /** Safe 1-de-N na Arbitrum: oferece executar direto com a carteira do dono. */
+  direto: { safe: string; via: "swapspro" | "oft"; owners: string[]; onDone: (r: { hash: string; receives: string; provider: string; via: "swapspro" | "oft" }) => void } | null;
 }) {
   const { t: dict } = useLocale();
   const t = dict.treasury.capital.bridge;
@@ -231,15 +279,18 @@ function Rota({
                 .join(" + "),
             )}
           </p>
-          <button
-            type="button"
-            onClick={onPropor}
-            disabled={bloqueado}
-            className="inline-flex items-center gap-2 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-50"
-          >
-            {propondo && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {propondo ? t.proposing : t.propose}
-          </button>
+          <div className="flex flex-wrap items-start gap-2">
+            {direto && !bloqueado && <MorBridgeExecButton safe={direto.safe} via={direto.via} owners={direto.owners} onDone={direto.onDone} />}
+            <button
+              type="button"
+              onClick={onPropor}
+              disabled={bloqueado}
+              className="inline-flex items-center gap-2 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-50"
+            >
+              {propondo && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {propondo ? t.proposing : t.propose}
+            </button>
+          </div>
         </>
       )}
     </div>
