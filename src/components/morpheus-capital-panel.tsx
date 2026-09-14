@@ -2,6 +2,8 @@ import { ExternalLink, Landmark } from "lucide-react";
 import { getDictionary, getLocale } from "@/lib/i18n/server";
 import { realizedApy, type CapitalPosition } from "@/lib/morpheus-capital";
 import { CapitalClaimButton } from "@/components/capital-claim-button";
+import { MorBridgePanel } from "@/components/mor-bridge-panel";
+import { readBridgeContext } from "@/lib/mor-bridge";
 import { isOk, unread, type Reading } from "@/lib/reading";
 import { rich } from "@/components/rich-text";
 import { usd, pct } from "@/lib/format";
@@ -56,7 +58,11 @@ export async function MorpheusCapitalPanel({
   /** Sessão válida: só então o claim é oferecido. */
   canPropose: boolean;
 }) {
-  const [lidas, price, ethUsd, dict, locale] = await Promise.all([positions, morPrice, ethPrice, getDictionary(), getLocale()]);
+  // O contexto da ponte (MOR parado na Arbitrum, ETH nas duas redes) lê em
+  // paralelo com as posições: é a mesma espera, não uma a mais.
+  const [lidas, price, ethUsd, dict, locale, ponte] = await Promise.all([
+    positions, morPrice, ethPrice, getDictionary(), getLocale(), canPropose ? readBridgeContext(owner.address) : null,
+  ]);
   const t = dict.treasury.capital;
 
   const falhas = [...new Set(lidas.filter((r) => !isOk(r)).map((r) => (r.state === "unread" ? r.reason : r.note)))];
@@ -170,6 +176,13 @@ export async function MorpheusCapitalPanel({
         <div className="rounded-xl border border-accent-border bg-accent-bg px-4 py-3 text-xs leading-relaxed text-foreground-muted">
           {rich(t.receiverNote)}
         </div>
+      )}
+
+      {/* A perna que faltava entre o claim e o restake: o MOR mintado na
+          Arbitrum precisa atravessar para a Base. Só com sessão — cotar é
+          barato, mas propor enfileira no Safe. */}
+      {ponte && (
+        <MorBridgePanel safe={owner.address} initial={ponte} morUsd={price} ethUsd={ethUsd} />
       )}
     </div>
   );

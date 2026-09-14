@@ -3,6 +3,10 @@ import { getAddress, formatUnits } from "viem";
 /** Safe Transaction Service base URL per chain. */
 export function safeTxService(chainId: number): string {
   if (chainId === 1) return "https://safe-transaction-mainnet.safe.global";
+  // A ponte do MOR sai da Arbitrum (o claim da capital minta lá). O proposer
+  // precisa estar registrado como delegate TAMBÉM neste serviço — o registro é
+  // por rede, e o da Base não vale aqui.
+  if (chainId === 42161) return "https://safe-transaction-arbitrum.safe.global";
   return "https://safe-transaction-base.safe.global"; // default Base (8453)
 }
 
