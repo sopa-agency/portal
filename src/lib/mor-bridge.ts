@@ -150,7 +150,66 @@ export type BridgeQuote = {
   /** Onde a proposta aponta (para o rótulo da fila). */
   provider: string;
   expiresAt?: string;
+  /**
+   * Prazo ON-CHAIN da rota, em segundos unix — depois dele a execução reverte.
+   * O `expiresAt` do swaps.pro é a validade do preço (um minuto); o que decide
+   * se a transação passa é o deadline dentro do calldata (~30 min, medido em
+   * 14/09/2026: uma proposta às 17:17 reverteu com GS013 quando assinada
+   * depois das 17:47). O OFT não tem prazo.
+   */
+  deadline?: number;
 };
+
+/**
+ * Procura um prazo dentro do calldata: qualquer palavra alinhada (uint256)
+ * ou uint32/uint64 desalinhado que pareça um timestamp entre agora e dois
+ * dias. Heurística, e assumida como tal: a LI.FI monta o calldata de cada
+ * venue de um jeito, e a gente não vai manter um decodificador por venue
+ * para ler um número. Devolve o MENOR prazo achado, ou undefined.
+ */
+export function findCalldataDeadline(data: string, now = Math.floor(Date.now() / 1000)): number | undefined {
+  const hex = data.startsWith("0x") ? data.slice(2) : data;
+  const lo = now - 60;
+  const hi = now + 2 * 86_400;
+  let best: number | undefined;
+  const consider = (n: number) => {
+    if (n > lo && n < hi && (best === undefined || n < best)) best = n;
+  };
+  // palavras alinhadas de 32 bytes (uint256)
+  for (let i = 8; i + 64 <= hex.length; i += 64) {
+    const w = hex.slice(i, i + 64);
+    if (/^0{48}[0-9a-f]{16}$/.test(w)) consider(parseInt(w.slice(48), 16));
+  }
+  // uint32 desalinhado, precedido de zeros (como a Mayan empacota o prazo)
+  const re = /0{8}([0-9a-f]{8})/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(hex))) consider(parseInt(m[1], 16));
+  return best;
+}
+
+/**
+ * O nonce para propor a ponte. Se a única coisa pendente no nonce atual do
+ * Safe for uma ponte NOSSA (cotação velha que ninguém assinou a tempo), a
+ * nova proposta entra NO MESMO nonce e a substitui — o Safe{Wallet} mostra as
+ * duas como conflitantes e a que executar mata a outra. Sem isto cada nova
+ * cotação empilhava atrás da anterior, e a anterior, vencida, travava a fila.
+ * Qualquer outra coisa pendente (um pagamento, uma rejeição) → nonce normal.
+ */
+export async function bridgeNonce(safe: string): Promise<number | undefined> {
+  const tx = safeTxService(ARBITRUM);
+  const addr = getAddress(safe);
+  try {
+    const info = (await (await fetch(`${tx}/api/v1/safes/${addr}/`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8_000), cache: "no-store" })).json()) as { nonce?: number | string };
+    const onchain = Number(info.nonce ?? NaN);
+    if (!Number.isFinite(onchain)) return undefined;
+    const q = (await (await fetch(`${tx}/api/v2/safes/${addr}/multisig-transactions/?executed=false&nonce=${onchain}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8_000), cache: "no-store" })).json()) as { results?: { origin?: string | null }[] };
+    const pend = q.results ?? [];
+    if (pend.length === 0) return undefined;
+    return pend.every((t) => (t.origin ?? "").includes("ponte de")) ? onchain : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Rota 2: o OFT. `quoteOFT` com minAmountLD = amount REVERTE (SlippageExceeded)
@@ -244,5 +303,6 @@ export async function quoteSwapsPro(safe: string, amountWei: bigint): Promise<Br
     calls,
     provider: `swaps.pro (${j.provider ?? "?"})`,
     expiresAt: j.expiresAt,
+    deadline: findCalldataDeadline(j.tx.data),
   };
 }
