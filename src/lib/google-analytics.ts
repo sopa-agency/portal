@@ -122,8 +122,17 @@ function resolveServiceAccount(envValue: string): Record<string, unknown> {
 
 function getServiceAccountJson(project: ProjectConfig): Record<string, unknown> {
   const prefixKey = `${project.agent.gatewayEnvPrefix}_GOOGLE_SERVICE_ACCOUNT_JSON`;
-  const raw = process.env[prefixKey] ?? process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!raw) throw new Error(`No Google service account env found (tried ${prefixKey} and GOOGLE_SERVICE_ACCOUNT_JSON)`);
+  // Ordem: a credencial da marca, a global, e por último a da SkateHive — que
+  // é a service account DO PORTAL (skatehive-268@…), a mesma que o Vlad
+  // adiciona como Viewer em cada propriedade GA4. Sem este último degrau,
+  // ligar o analytics de um portal novo exigia copiar o MESMO JSON para mais
+  // uma variável (foi assim com o swaps.pro em 15/09/2026). O calendário já
+  // fazia o mesmo fallback.
+  const raw =
+    process.env[prefixKey] ?? process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? process.env.SKATEHIVE_GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) {
+    throw new Error(`No Google service account env found (tried ${prefixKey}, GOOGLE_SERVICE_ACCOUNT_JSON and SKATEHIVE_GOOGLE_SERVICE_ACCOUNT_JSON)`);
+  }
   return resolveServiceAccount(raw);
 }
 
