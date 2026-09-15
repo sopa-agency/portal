@@ -2172,6 +2172,104 @@ Return ONLY the ${spec.label} text. No preamble, no labels, no code fences.`;
   }
 }
 
+/**
+ * Generate N STANDALONE tweets from the brief in ONE call — not a thread, not
+ * one click per tweet. Each becomes its own "Tweet k" document, so it can be
+ * scheduled on the calendar, copied and posted on its own day.
+ *
+ * Exists because "Gerar post → Tweet thread" adds one thread per click: a
+ * campaign that wants two weeks of tweets meant twenty clicks and twenty
+ * model calls, each re-reading the whole brief. Vlad, 15/09/2026, for the
+ * swaps.pro campaign. The model sees the tweets that already exist so the
+ * batch doesn't repeat them.
+ */
+export async function addCampaignTweetBatch(
+  campaignId: string,
+  count: number,
+  instruction?: string,
+): Promise<{ ok: true; documentIds: string[]; created: number } | { ok: false; error: string }> {
+  const n = Math.max(1, Math.min(30, Math.floor(Number(count) || 0)));
+  try {
+    const project = await getActiveProject();
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true, name: true, projectSlug: true, documents: { select: { name: true, content: true, isMain: true } } },
+    });
+    if (!campaign) return { ok: false, error: "Campaign not found." };
+    if (campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
+    const brief = (campaign.documents.find((d) => d.isMain)?.content ?? "").trim();
+    if (!brief) return { ok: false, error: "No brief found — generate or write the brief first." };
+
+    const existing = campaign.documents.filter(
+      (d) => !d.isMain && classifyDocumentKindByName(d.name) === "tweets" && !/\(pt\)/i.test(d.name),
+    );
+    const alreadyWritten = existing
+      .map((d) => d.content.trim())
+      .filter((t) => t.length > 8)
+      .map((t, i) => `#${i + 1}: ${t}`)
+      .join("\n");
+    const voiceHint = project.campaignArtifacts?.voiceHint?.trim();
+    const persona = campaignPersona(project);
+    const templateRules = buildTemplateArtifactRules(undefined, project);
+    const account = project.hive.account;
+    const prompt = `You are ${persona}.${voiceHint ? `\n\nVoice: ${voiceHint}` : ""}
+Campaign: "${campaign.name}"
+Brief:
+${brief}
+${templateRules}
+Task: Write ${n} STANDALONE tweets for X/Twitter, posted from @${account}, to be published on different days. Each tweet must stand on its own (no thread, no numbering, no "1/"), take a genuinely different angle from the others (a benefit, a detail, a question, a comparison, a use case, a number, a quote, a myth to bust…), be under 260 characters, plain text, English. Vary the openings — never start two tweets the same way. Links and emojis are fine when they earn their place.${
+      alreadyWritten ? `\n\nThese tweets already exist for this campaign — do NOT paraphrase them or reuse their hooks:\n${alreadyWritten}` : ""
+    }${instruction?.trim() ? `\n\nApply this direction to all of them: ${instruction.trim()}` : ""}
+Return ONLY a JSON array of ${n} strings. No prose, no labels, no code fences.`;
+
+    await ensureLocalGatewayToken();
+    let raw: string;
+    try {
+      raw = await callOpenClaw(prompt, project.agent.id, { timeoutMs: AI_TIMEOUT_MS, project });
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "AI gateway failed." };
+    }
+    // The model was asked for a JSON array; when it wraps or decorates it, take
+    // the first array in the text. A tweet list that doesn't parse becomes a
+    // "try again", never twenty documents of garbage.
+    const cleaned = stripCodeFence(raw);
+    const match = cleaned.match(/\[[\s\S]*\]/);
+    let tweets: string[] = [];
+    if (match) {
+      try {
+        const parsed: unknown = JSON.parse(match[0]);
+        if (Array.isArray(parsed)) tweets = parsed.filter((t): t is string => typeof t === "string").map((t) => t.trim()).filter(Boolean);
+      } catch {
+        tweets = [];
+      }
+    }
+    if (tweets.length === 0) {
+      // Fallback: one tweet per non-empty line block, the way the thread spec reads.
+      tweets = cleaned.split(/\n\s*\n/).map((t) => t.trim()).filter((t) => t.length > 8 && t.length <= 400);
+    }
+    if (tweets.length === 0) return { ok: false, error: "AI did not return a usable tweet list. Try again." };
+
+    // Names continue the existing numbering: "Tweet 7" after "Tweet 6".
+    const taken = new Set(campaign.documents.map((d) => d.name.toLowerCase()));
+    let k = existing.length;
+    const rows = tweets.slice(0, n).map((content) => {
+      let name = `Tweet ${++k}`;
+      while (taken.has(name.toLowerCase())) name = `Tweet ${++k}`;
+      taken.add(name.toLowerCase());
+      return { campaignId, name, isMain: false, content };
+    });
+    const ids: string[] = [];
+    for (const data of rows) {
+      const doc = await prisma.campaignDocument.create({ data, select: { id: true } });
+      ids.push(doc.id);
+    }
+    revalidatePath(`/campaign-creator/${campaignId}`);
+    return { ok: true, documentIds: ids, created: ids.length };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function addCampaignCast(
   campaignId: string,
   instruction?: string,

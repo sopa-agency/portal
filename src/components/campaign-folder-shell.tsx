@@ -26,8 +26,7 @@ import {
   addCampaignArtifact,
   createDocument,
   deleteDocument,
-  setCampaignDocSchedule,
-} from "@/app/actions/campaigns";
+  setCampaignDocSchedule, addCampaignTweetBatch } from "@/app/actions/campaigns";
 import { GENERATABLE_ARTIFACTS, type GeneratableArtifactKind } from "@/lib/campaign-artifacts";
 import { CampaignCalendar, type CalendarAsset } from "@/components/campaign-calendar";
 import { PressBlastPanel } from "@/components/press-blast-panel";
@@ -170,6 +169,25 @@ export function CampaignFolderShell({
     });
   };
 
+  // N tweets avulsos numa chamada só — cada um vira um doc "Tweet k",
+  // agendável no calendário. Um clique por tweet não escala para uma campanha
+  // de duas semanas.
+  const [batchN, setBatchN] = useState(10);
+  const [batchPending, startBatch] = useTransition();
+  const [batchMsg, setBatchMsg] = useState<string | null>(null);
+  const handleTweetBatch = () => {
+    setBatchMsg(null);
+    setGenError(null);
+    startBatch(async () => {
+      const res = await addCampaignTweetBatch(campaignId, batchN);
+      if (res.ok) {
+        setBatchMsg(`${res.created} tweet${res.created === 1 ? "" : "s"} gerado${res.created === 1 ? "" : "s"}`);
+        if (res.documentIds[0]) setSelectedId(res.documentIds[0]);
+        router.refresh();
+      } else setGenError(res.error);
+    });
+  };
+
   const handleDelete = (doc: CampaignDocument) => {
     if (doc.isMain) return;
     if (!window.confirm(`Delete "${doc.name}"?`)) return;
@@ -274,6 +292,29 @@ export function CampaignFolderShell({
             </div>
           )}
           {genError && <p className="mt-1 text-[10px] text-danger">{genError}</p>}
+          <div className="mt-1 flex items-center gap-1">
+            <input
+              type="number"
+              min={1}
+              max={30}
+              value={batchN}
+              onChange={(e) => setBatchN(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+              disabled={batchPending}
+              aria-label="Quantidade de tweets"
+              className="w-12 rounded-md border border-border bg-surface-elevated px-1.5 py-1 text-center text-[11px] tabular-nums text-foreground disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={handleTweetBatch}
+              disabled={batchPending || genPending}
+              title="Gera N tweets avulsos de uma vez, cada um com um ângulo — um doc por tweet, para agendar dia a dia"
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
+            >
+              {batchPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+              {batchPending ? `Gerando ${batchN} tweets…` : `Gerar ${batchN} tweets`}
+            </button>
+          </div>
+          {batchMsg && <p className="mt-1 text-[10px] text-success">{batchMsg}</p>}
         </div>
         <div className="px-2">
           <button
