@@ -351,6 +351,13 @@ export type ProjectConfig = {
      * Unset = general agent (social analysis, no commits).
      */
     role?: "dev" | "marketing";
+    /**
+     * O agente do OpenClaw que RESPONDE, quando não é o próprio slug. O slug
+     * continua sendo a identidade do briefing (prompt em prompts/<slug>.md,
+     * linha própria por dia); o gateway só empresta o cérebro. O swaps.pro
+     * usa o keepkey-awesome assim — "pensa com o KeepKey, fala como swaps.pro".
+     */
+    gatewayAgent?: string;
   }[];
   agent: {
     /**

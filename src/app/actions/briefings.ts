@@ -185,7 +185,7 @@ export async function regenerateBriefing(
     if (!built.ok) return built;
 
     const job = await prisma.briefingJob.create({
-      data: { agentSlug, projectSlug: project.slug, language, prompt: sanitizeForDb(built.prompt) },
+      data: { agentSlug, projectSlug: project.slug, language, prompt: sanitizeForDb(built.prompt), gatewayAgent: agent.gatewayAgent ?? null },
     });
     return { ok: true, jobId: job.id };
   } catch (err) {
