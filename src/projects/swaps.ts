@@ -86,7 +86,22 @@ const swaps: ProjectConfig = {
   // a mesma tela teria dois endereços, e o segundo é sempre o que fica velho.
   // No agent online — the block reserves the SWAPS_* gateway prefix so the
   // chat/briefings light up the day SWAPS_GATEWAY_URL / _TOKEN are set.
-  briefingAgents: [],
+  // O briefing da home. Guardado como "swapspro" (prompt em prompts/swapspro.md,
+  // linha própria por dia) e respondido pelo keepkey-awesome no gateway — o
+  // swaps.pro não tem agente próprio no OpenClaw, e "briefingAgents: []" era
+  // uma home com "no briefing yet" para sempre e um Regenerate que não
+  // enfileirava nada (15/09/2026). role "dev": o sinal mais forte da casa é o
+  // que foi entregue no repo; não há redes sociais configuradas ainda.
+  briefingAgents: [
+    {
+      slug: "swapspro",
+      label: "swaps.pro",
+      tabLabel: "BRIEF",
+      workspace: "workspace-keepkey-awesome",
+      gatewayAgent: "keepkey-awesome",
+      role: "dev",
+    },
+  ],
   // O board já existia: coinmastersguild/projects/2 tem os 11 issues do
   // coinmastersguild/swapspro (subdomínio app.swaps.pro, ZEROX_API_KEY em prod,
   // LI.FI como integrador, o bug de firmware do KeepKey). Não criamos um novo —

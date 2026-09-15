@@ -125,9 +125,11 @@ async function claimJob() {
 }
 
 async function processJob(job) {
-  console.log(`[briefing-worker] running ${job.agentSlug} (${job.projectSlug}) job ${job.id}`);
+  console.log(`[briefing-worker] running ${job.agentSlug} (${job.projectSlug}) job ${job.id}${job.gatewayAgent ? ` via ${job.gatewayAgent}` : ""}`);
   try {
-    const text = await callAgent(job.prompt, job.agentSlug);
+    // gatewayAgent: quem responde no OpenClaw quando difere do slug (swaps.pro
+    // pensa com o keepkey-awesome). O slug segue sendo a identidade guardada.
+    const text = await callAgent(job.prompt, job.gatewayAgent || job.agentSlug);
     const date = todayIsoDate();
     await prisma.briefing.upsert({
       where: { agentSlug_date: { agentSlug: job.agentSlug, date } },

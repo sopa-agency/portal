@@ -834,6 +834,9 @@ model BriefingJob {
   projectSlug String
   language    String    @default("pt")
   prompt      String    @db.Text
+  // O agente do OpenClaw que responde, quando difere do slug (o swaps.pro pensa
+  // com o keepkey-awesome mas guarda o briefing como "swapspro"). Nulo = slug.
+  gatewayAgent String?
   status      String    @default("queued") // queued | running | done | error
   error       String?
   lockedAt    DateTime?
