@@ -31,7 +31,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Missing ?id= parameter" }, { status: 400 });
   }
 
-  const result = await getDriveFileContent(project, fileId);
+  let result: Awaited<ReturnType<typeof getDriveFileContent>>;
+  try {
+    result = await getDriveFileContent(project, fileId);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ ok: false, error }, { status: 500 });
+  }
 
   // Error result
   if ("ok" in result && !result.ok) {
