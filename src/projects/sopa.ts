@@ -35,7 +35,7 @@ const sopa: ProjectConfig = {
   },
   // Placeholders — every publishing route is hidden on this portal.
   hive: {
-    account: "sopa",
+    account: "s0p4",
     community: "hive-173115",
   },
   farcaster: {
