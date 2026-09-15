@@ -16,7 +16,6 @@ import { snapshotTreasuryWalletsIfDue } from "@/lib/treasury-wallet-snapshots";
 import { rodadaSemanalIfDue } from "@/lib/split-vote-weekly";
 import { refillStreamIfLow } from "@/lib/stream-autopilot";
 import { dispatchSkatehiveScheduledPosts } from "@/lib/skatehive-scheduled-posts";
-import { probeZerionQuota } from "@/lib/zerion-probe";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -109,12 +108,6 @@ export async function GET(req: Request) {
   // why that is the safe choice rather than the sloppy one.
   const skatehiveScheduled = await dispatchSkatehiveScheduledPosts();
 
-  // Sonda de cota da Zerion — uma chamada barata a /v1/chains/ (não consome
-  // cota de carteira) só para capturar os headers de rate limit. Roda aqui
-  // porque a chave é write-only na Vercel: só o runtime a enxerga. Gravada no
-  // Postgres porque log da Vercel não é legível por API. Sai quando a cota
-  // estiver medida e o botão de sync assumir o mesmo logging.
-  const zerionProbe = claimedActions ? await probeZerionQuota() : { ok: false, error: "tick-claimed" };
 
   if (!(await macLeaseIsStale(now))) {
     return NextResponse.json({
@@ -129,11 +122,10 @@ export async function GET(req: Request) {
       walletSnapshot,
       urnaSemanal,
       skatehiveScheduled,
-      zerionProbe,
     });
   }
 
   // Mac is down → take over.
   const result = await runScheduledPublish(now);
-  return NextResponse.json({ ...result, fallback: true, skipped: false, claimedActions, autoBoost, revenue, streamRefill, walletSnapshot, urnaSemanal, skatehiveScheduled, zerionProbe });
+  return NextResponse.json({ ...result, fallback: true, skipped: false, claimedActions, autoBoost, revenue, streamRefill, walletSnapshot, urnaSemanal, skatehiveScheduled });
 }

@@ -1,8 +1,10 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { fetchOnchainRevenueCached } from "@/lib/revenue-onchain";
+import { refreshWalletCompositions } from "@/lib/treasury-wallet-snapshots";
+import { getActiveProject } from "@/projects/index";
 
 /**
  * Atualizar o tesouro, de verdade.
@@ -15,6 +17,7 @@ import { fetchOnchainRevenueCached } from "@/lib/revenue-onchain";
  * É aqui, e só aqui, que a espera é justa: a pessoa clicou e está olhando.
  */
 export async function refreshTreasury(): Promise<{ ok: true; falhas: string[] }> {
+  const project = await getActiveProject();
   const rows = await prisma.sopaBoard.findMany({ where: { board: "orgchart" } }).catch(() => []);
 
   const alvos = new Map<string, { address: string; chain: string | null; label: string }>();
@@ -32,10 +35,15 @@ export async function refreshTreasury(): Promise<{ ok: true; falhas: string[] }>
   }
 
   // Em paralelo: são leituras independentes, e enfileirá-las faria a espera ser
-  // a SOMA delas em vez da mais lenta.
+  // a SOMA delas em vez da mais lenta. Saldos junto: até 15/09/2026 este botão
+  // só relia receita e a composição vinha da mesma linha de cache de antes —
+  // "atualizar" que não atualizava o número principal da página.
   const falhas: string[] = [];
-  await Promise.all(
-    [...alvos.values()].map((t) =>
+  const escopo = [project.slug, ...(project.treasury?.includeProjects ?? [])];
+  const saldos = refreshWalletCompositions(escopo).then((r) => falhas.push(...r.falhas)).catch(() => falhas.push("saldos"));
+  await Promise.all([
+    saldos,
+    ...[...alvos.values()].map((t) =>
       fetchOnchainRevenueCached(t.address, t.chain, { force: true })
         .then((r) => {
           // Ler e falhar não é ler e não ter nada. A falha volta nomeada para o
@@ -44,8 +52,11 @@ export async function refreshTreasury(): Promise<{ ok: true; falhas: string[] }>
         })
         .catch(() => falhas.push(`${t.label} (${t.chain ?? "várias redes"})`)),
     ),
-  );
+  ]);
 
+  // A tag existe em todo fetch de RPC/preço desta camada e nunca era chamada:
+  // sem isto o "Atualizar" servia eth_call de até 5 minutos atrás.
+  revalidateTag("treasury", "max");
   revalidatePath("/treasury");
   return { ok: true, falhas };
 }

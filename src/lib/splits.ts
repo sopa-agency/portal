@@ -255,7 +255,10 @@ export async function getSplitConfig(address: string, chain: string | null): Pro
   // instância; na Vercel, instância fria é a regra e ela pagava 22s de
   // varredura de log por carregamento. Aqui o dado sobrevive ao processo.
   const doBanco = await prisma.splitConfigCache.findUnique({ where: { key: ck } }).catch(() => null);
-  if (doBanco) {
+  // Com validade. Sem ela a linha era para sempre: um re-split de governança
+  // (quem vota, a fatia da SOPA) nunca chegava à tela nem ao mérito.
+  const DB_TTL_MS = 24 * 60 * 60_000;
+  if (doBanco && Date.now() - doBanco.syncedAt.getTime() < DB_TTL_MS) {
     const recipients = (Array.isArray(doBanco.recipients) ? doBanco.recipients : []) as unknown as SplitRecipient[];
     if (recipients.length) {
       const cfg = montar(address, recipients);

@@ -41,12 +41,15 @@ export async function saveChartSync(
  */
 export async function readChartSync(
   scope: string,
-): Promise<{ series: TreasurySeries[]; failed: string[]; syncedAt: Date } | null> {
+): Promise<{ series: TreasurySeries[]; failed: string[]; syncedAt: Date; period: string } | null> {
   const row = await prisma.treasuryChartCache
     .findFirst({ where: { key: { startsWith: `${scope}|` } }, orderBy: { syncedAt: "desc" } })
     .catch(() => null);
   if (!row) return null;
   const series = Array.isArray(row.series) ? (row.series as unknown as TreasurySeries[]) : [];
   if (!series.length) return null;
-  return { series, failed: row.failed, syncedAt: row.syncedAt };
+  // O período vai junto: a série guardada é de UM período, e o seletor do
+  // gráfico precisa abrir nele — antes abria sempre em "3months" mostrando uma
+  // série de outro período.
+  return { series, failed: row.failed, syncedAt: row.syncedAt, period: row.key.slice(scope.length + 1) || "3months" };
 }

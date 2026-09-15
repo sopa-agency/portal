@@ -73,33 +73,6 @@ export async function attempt<T>(
   }
 }
 
-/**
- * The single most important adapter in this file.
- *
- * viem's `multicall({ allowFailure: true })` returns success and failure in the
- * same array shape, and the natural next line is `result ?? 0n`. That line is
- * the bug. This function makes it unwritable: a failed call cannot produce a
- * value, only a reason.
- */
-export function fromCall<T>(
-  call: { status: "success"; result: unknown } | { status: "failure"; error?: unknown },
-  map: (raw: never) => T,
-  reason: string,
-  previous?: Reading<T>,
-): Reading<T> {
-  if (call.status === "failure") {
-    const lastGood =
-      previous && previous.state === "ok" && previous.asOf !== undefined
-        ? { value: previous.value, asOf: previous.asOf }
-        : undefined;
-    return unread(reason, lastGood);
-  }
-  try {
-    return ok(map(call.result as never), Date.now());
-  } catch {
-    return unread(`${reason} — unexpected shape`);
-  }
-}
 
 /**
  * Summing readings is only honest when ALL of them are "ok". A bad read

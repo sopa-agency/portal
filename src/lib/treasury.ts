@@ -7,9 +7,11 @@ import type { ProjectConfig } from "@/projects/types";
 import { sanitizeTokenLabel, labelLooksHostile, SYMBOL_MAX, NAME_MAX } from "@/lib/token-label";
 
 // ---------------------------------------------------------------------------
-// Treasury data — the SAME sources the native apps use:
-// - EVM wallets: the Zapper proxy at api.keepkey.info (what skatehive.app/dao
-//   fetches per address; multi-chain token list with USD values).
+// Treasury data.
+// - EVM wallets: a Zerion (todas as redes numa chamada) lida pelo cron horário
+//   e servida do TreasuryBalanceCache; o fan-out de RPC + Blockscout abaixo é
+//   o fallback quando o cache venceu, e o "Atualizar" da página força a
+//   leitura Zerion (treasury-wallet-snapshots.ts / actions/treasury.ts).
 // - Hive accounts: condenser_api get_accounts + dynamic global props for the
 //   VESTS → HP conversion (skatehive.app/dao math), valued via CoinGecko.
 // ---------------------------------------------------------------------------
@@ -79,6 +81,10 @@ export type EvmWalletReport = {
    */
   safeChainId?: number;
   error?: string;
+  /** Tokens com preço que NINGUÉM verifica (airdrop, imitação): contados e
+   *  separados, nunca somados ao total — a mesma regra do caminho Zerion. */
+  unverifiedUsd?: number;
+  unverifiedCount?: number;
 };
 
 export type HiveAccountReport = {
@@ -148,7 +154,7 @@ export async function getPrices(): Promise<{ hive: number; hbd: number; eth: num
   try {
     const res = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=hive,hive_dollar,ethereum,morpheusai&vs_currencies=usd",
-      { next: { revalidate: 300, tags: ["treasury"] } },
+      { next: { revalidate: 300, tags: ["treasury"] }, signal: AbortSignal.timeout(8000) },
     );
     const data = (await res.json()) as Record<string, { usd?: number }>;
     const eth = data.ethereum?.usd;
@@ -169,12 +175,10 @@ export async function getPrices(): Promise<{ hive: number; hbd: number; eth: num
 }
 
 // --- EVM (live multichain RPC) ------------------------------------------------
-// We query the chains directly instead of the Zapper proxy (api.keepkey.info):
-// that proxy hard-caches and was serving ~days-stale balances AND a stale ETH
-// price (verified by cross-checking 3 independent RPCs + on-chain tx history).
-// Native ETH + native USDC across the chains SkateHive actually holds value on
-// covers ~all of it; the leftover memecoin dust is negligible. Prices come from
-// live CoinGecko (ETH) and $1 for USDC — always current, verifiable on-chain.
+// O caminho de RPC: nativo + USDC + o que está DECLARADO na config (cofres,
+// tokens, stakes, capital) + a enumeração do Blockscout, rede a rede. É o
+// fallback do cache da Zerion e o único que lê extraTokens. Preços: CoinGecko
+// (ETH, MOR) e $1 para USDC.
 
 // ERC-4626 vaults the treasury parks USDC in. Without these, staking looks like
 // the money left the treasury: the balance drops and the total is simply wrong.
@@ -225,7 +229,7 @@ type EvmChain = { key: string; rpcs: string[]; usdc: string; vaults?: Erc4626Vau
 const EVM_CHAINS: EvmChain[] = [
   {
     key: "ethereum",
-    rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://rpc.ankr.com/eth", "https://cloudflare-eth.com"],
+    rpcs: ["https://gateway.tenderly.co/public/mainnet", "https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://rpc.ankr.com/eth", "https://cloudflare-eth.com"],
     usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     capital: [{ contract: "0x6cCE082851Add4c535352f596662521B4De4750E", poolIndex: 0, symbol: "USDC (Morpheus)", decimals: 6 }],
   },
@@ -557,24 +561,35 @@ export async function fetchEvmWallet(
     }
   }
   const tokens = keepAndSort(all);
-  // Soma dos tokens COM preço, e o resto nomeado — em vez de `?? 0`, que fazia
-  // "não sei quanto vale" e "vale zero" somarem igual. Num tesouro esse é o pior
-  // lugar para essa confusão: token sem preço conhecido é comum, token que vale
-  // zero é raro, então o caso frequente estava sendo lido como o caso raro.
-  const totalUsd = tokens.filter((t) => t.valueUsd != null).reduce((sum, t) => sum + t.valueUsd!, 0);
+  // Soma dos tokens COM preço E verificados, e o resto nomeado. Sem preço não é
+  // zero (token sem preço é comum, token que vale zero é raro). E não verificado
+  // não entra no total: a Zerion já fazia isso (unverifiedUsd à parte) e este
+  // caminho somava — a Gnars lia US$ 37 mil aqui e US$ 33 mil lá, por US$ 4,4
+  // mil de um token de airdrop (medido em 15/09/2026). Dois leitores, um total.
+  const confiaveis = tokens.filter((t) => t.valueUsd != null && !t.untrusted);
+  const naoVerificados = tokens.filter((t) => t.valueUsd != null && t.untrusted);
+  const totalUsd = confiaveis.reduce((sum, t) => sum + t.valueUsd!, 0);
   const unpriced = tokens.filter((t) => t.valueUsd == null).map((t) => ({ symbol: t.symbol, balance: t.balance }));
   const error = failedChains.length
     ? `leitura falhou: ${failedChains.join(", ")}`
     : tokens.length === 0
       ? "sem saldos"
       : undefined;
-  return { label: wallet.label, address: wallet.address, safeChainId: wallet.safe?.chainId, totalUsd, tokens, failedChains, unpriced, error };
+  return {
+    label: wallet.label,
+    address: wallet.address,
+    safeChainId: wallet.safe?.chainId,
+    totalUsd,
+    tokens,
+    failedChains,
+    unpriced,
+    error,
+    unverifiedUsd: naoVerificados.reduce((sum, t) => sum + t.valueUsd!, 0),
+    unverifiedCount: naoVerificados.length,
+  };
 }
 
 // --- single-address balance (revenue tracking) -------------------------------
-
-/** EVM chains we can track a receiving wallet/contract/split on. */
-export const EVM_CHAIN_KEYS = EVM_CHAINS.map((c) => c.key);
 
 export type AddressBalance = {
   /** Tokens presentes e sem preço — o total é um PISO, não o valor. */
@@ -596,9 +611,9 @@ export type AddressBalance = {
 };
 
 /**
- * Live native-ETH + USDC balance of any address (wallet, contract, or a 0xSplits
- * split), USD-valued. `chainKey` restricts to one chain; omit for the sum across
- * all supported chains. Reuses the treasury RPC path — same numbers as /treasury.
+ * Saldo de qualquer endereço (carteira, contrato, split), em USD. Sem `chainKey`
+ * é Zerion-primeiro (todas as redes numa chamada, com posição de protocolo) e
+ * cai no fan-out de RPC quando a Zerion falha; com `chainKey`, RPC naquela rede.
  */
 export async function fetchAddressBalance(address: string, chainKey?: string | null): Promise<AddressBalance> {
   const addr = address.trim();
@@ -683,6 +698,7 @@ async function hiveRpc<T>(method: string, params: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
     next: { revalidate: 300, tags: ["treasury"] },
+    signal: AbortSignal.timeout(8000),
   });
   const json = (await res.json()) as { result?: T; error?: { message?: string } };
   if (json.result === undefined) throw new Error(json.error?.message ?? `${method} failed`);
@@ -823,16 +839,27 @@ async function fetchEvmWalletPreferCache(
   // caminho sem cache — que é o caminho raro.
   const base = { ...cached.report, label: w.label, safeChainId: w.safe?.chainId };
   // O cache é a foto do indexador, e ela tem um buraco conhecido: a capital da
-  // Morpheus. Preferir o cache SEM completá-lo faria a declaração em
-  // `EVM_CHAINS.capital` nunca rodar neste caminho — que é o caminho normal.
-  const faltando = await readDeclaredCapital(w.address, base.tokens);
-  if (faltando.length === 0) return base;
+  // Morpheus. O cron já completa a foto com a linha declarada; aqui ela é
+  // SUBSTITUÍDA por uma leitura fresca, nunca somada por cima — somar de novo
+  // dobrava a capital no dia do depósito (a guarda por saldo falha quando o
+  // valor mudou). Se a leitura fresca falhar, fica a linha do cron: falha não
+  // vira zero nem some com o dinheiro.
+  const declaradas = base.tokens.filter((t) => t.note === CAPITAL_NOTE);
+  const restantes = base.tokens.filter((t) => t.note !== CAPITAL_NOTE);
+  const lida = await readDeclaredCapitalReading(w.address, restantes);
+  const capital = lida.ok ? lida.tokens : declaradas;
+  const somaDeclarada = declaradas.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0);
+  const somaCapital = capital.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0);
   return {
     ...base,
-    tokens: [...base.tokens, ...faltando].sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0)),
-    totalUsd: base.totalUsd + faltando.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0),
+    tokens: [...restantes, ...capital].sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0)),
+    totalUsd: base.totalUsd - somaDeclarada + somaCapital,
   };
 }
+
+/** A nota que marca a linha declarada da capital — é por ela que a página sabe
+ *  qual linha do cache substituir. Mudar o texto muda a chave. */
+export const CAPITAL_NOTE = "na capital da Morpheus — rende MOR, sai com unstake";
 
 /**
  * As posições declaradas que o INDEXADOR não enxerga.
@@ -848,8 +875,22 @@ async function fetchEvmWalletPreferCache(
  * o resto do relatório continua de pé. É o oposto de inventar um zero.
  */
 export async function readDeclaredCapital(address: string, jaVisiveis: EvmToken[]): Promise<EvmToken[]> {
+  const r = await readDeclaredCapitalReading(address, jaVisiveis);
+  return r.ok ? r.tokens : [];
+}
+
+/**
+ * A mesma leitura, dizendo quando FALHOU: `ok:false` = pelo menos um pool não
+ * respondeu. Quem tem uma linha anterior (o cache do cron) usa isso para
+ * mantê-la em vez de apagar a capital da tela por uma queda de RPC.
+ */
+export async function readDeclaredCapitalReading(
+  address: string,
+  jaVisiveis: EvmToken[],
+): Promise<{ ok: true; tokens: EvmToken[] } | { ok: false }> {
   const padded = address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
   const pares = EVM_CHAINS.flatMap((chain) => (chain.capital ?? []).map((cp) => ({ chain, cp })));
+  let falhou = false;
   const lidos = await Promise.all(
     pares.map(async ({ chain, cp }) => {
       try {
@@ -869,14 +910,16 @@ export async function readDeclaredCapital(address: string, jaVisiveis: EvmToken[
           chain: chain.key,
           balance: deposited,
           valueUsd: deposited, // USDC 1:1
-          note: "na capital da Morpheus — rende MOR, sai com unstake",
+          note: CAPITAL_NOTE,
         } as EvmToken;
       } catch {
+        falhou = true;
         return null;
       }
     }),
   );
-  return lidos.filter((t): t is EvmToken => t !== null);
+  if (falhou) return { ok: false };
+  return { ok: true, tokens: lidos.filter((t): t is EvmToken => t !== null) };
 }
 
 export async function fetchTreasury(project: ProjectConfig): Promise<TreasuryReport | null> {

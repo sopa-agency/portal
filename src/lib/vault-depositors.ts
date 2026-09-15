@@ -99,7 +99,7 @@ const client = () =>
   createPublicClient({
     chain: base,
     transport: fallback(
-      ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"].map((u) => http(u)),
+      ["https://base-rpc.publicnode.com", "https://base.drpc.org", "https://mainnet.base.org"].map((u) => http(u)),
     ),
   });
 

@@ -107,7 +107,8 @@ async function readFeeSplit(
 
 // The public Base RPC rate-limits; a single endpoint made the whole panel blank
 // out intermittently. Fall through a few before giving up.
-const RPCS = ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"];
+// base.org por último: é o endpoint documentado como rate-limited (base-rpc.ts).
+const RPCS = ["https://base-rpc.publicnode.com", "https://base.drpc.org", "https://mainnet.base.org"];
 const client = () => createPublicClient({ chain: base, transport: fallback(RPCS.map((u) => http(u))) });
 
 export async function fetchVaultApy(address: string): Promise<number | null> {
