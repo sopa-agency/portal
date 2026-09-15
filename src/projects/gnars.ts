@@ -55,6 +55,15 @@ const gnars: ProjectConfig = {
   repos: [
     "r4topunk/gnars-website",
   ],
+  // Voice for campaign artifacts (brief, tweets, casts). Without this the
+  // generator falls back to "a community-owned platform built on Hive", which
+  // is SkateHive's story, not Gnars' — and the tweets come out generic.
+  campaignArtifacts: {
+    persona:
+      "the community lead at Gnars DAO — a Nouns-born skateboarding collective on Base that funds skaters, filmers and DIY skate spots through daily Gnar auctions, onchain proposals and POIDH bounties (gnars.com)",
+    voiceHint:
+      "Skater to skater, noggles-up, builder energy, no hype words. Be concrete: name the real gnars.com page and what a person actually does there — /auctions (one Gnar a day; the winning bid is a DAO vote and the ETH goes to the treasury), /proposals (onchain funding on Base), /community/bounties (ETH escrowed on POIDH: film the trick, upload the proof, get paid), /droposals (funded videos minted as NFTs), /swap (Base, 150+ DEXes, optional 0.5% to the treasury), /nogglesrails (CC0 skate rails worldwide with an open-source build PDF), /stake (back a rider and split the yield), /feed and /propdates. Never invent prizes, numbers, dates or mechanics: use only what the brief says.",
+  },
   socials: [
     {
       platform: "Farcaster",
