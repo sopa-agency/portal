@@ -35,18 +35,24 @@ const sopa: ProjectConfig = {
   },
   hive: {
     account: "s0p4", // criada em 11/09/2026 (PR #87)
-    // ATENÇÃO: hive-173115 é a comunidade da SKATEHIVE. A SOPA não tem
-    // comunidade própria ainda; enquanto for assim, um snap publicado daqui
-    // cairia na comunidade da SkateHive assinado por @s0p4. Publicar em Hive
-    // também depende de SOPA_HIVE_POSTING_KEY, que não existe. Redigir e
-    // agendar funciona; publicar em Hive não, e é proposital até isto mudar.
-    community: "hive-173115",
+    // HiveDevs: a comunidade dos devs que constroem na Hive (3,6 mil inscritos,
+    // ~26 autores ativos em 15/09/2026). É onde uma agência dev conversa com
+    // quem entende o que ela entrega. Estava apontado para a hive-173115, que é
+    // a comunidade da SKATEHIVE — um snap da SOPA cairia lá assinado por @s0p4.
+    // A Hive não tem escolha de comunidade por post no portal (o mag post e o
+    // snap usam esta); LeoFinance (crypto/negócios) e HiveBR (português) são
+    // as alternativas se um dia houver seletor. Publicar ainda depende de
+    // SOPA_HIVE_POSTING_KEY, que não existe: até lá, rascunho e agenda.
+    community: "hive-139531",
   },
   farcaster: {
-    // O canal /sopa NÃO existe no Farcaster (conferido em 15/09/2026) e o
-    // signer da SOPA no banco está revogado (era o fid da Gnars). É um
-    // placeholder que o tipo exige; o cast fica como rascunho para copiar.
-    channel: "sopa",
+    // Padrão só quando ninguém escolhe: o publish de cast tem seletor de canal
+    // por envio (FarcasterChannelSelect). /build é o canal dos builders (38 mil
+    // seguidores) e é o que combina com "mostrar o que foi entregue"; /dev,
+    // /founders e /base ficam a um clique. O canal /sopa não existe, e não
+    // precisa existir. O que falta é um signer da SOPA (o do banco está
+    // revogado; era o fid da Gnars): Settings → conectar Farcaster.
+    channel: "build",
   },
   // O repo do próprio portal. Estava de fora, e isso deixava invisível o
   // trabalho que a equipe mais faz: o relatório diário lê commits a partir
