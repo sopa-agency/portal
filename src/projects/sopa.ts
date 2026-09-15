@@ -33,12 +33,19 @@ const sopa: ProjectConfig = {
     logo: "/projects/sopa/logo.png",
     favicon: "/projects/sopa/logo.svg", // crisp SVG mark for the browser tab
   },
-  // Placeholders — every publishing route is hidden on this portal.
   hive: {
-    account: "s0p4",
+    account: "s0p4", // criada em 11/09/2026 (PR #87)
+    // ATENÇÃO: hive-173115 é a comunidade da SKATEHIVE. A SOPA não tem
+    // comunidade própria ainda; enquanto for assim, um snap publicado daqui
+    // cairia na comunidade da SkateHive assinado por @s0p4. Publicar em Hive
+    // também depende de SOPA_HIVE_POSTING_KEY, que não existe. Redigir e
+    // agendar funciona; publicar em Hive não, e é proposital até isto mudar.
     community: "hive-173115",
   },
   farcaster: {
+    // O canal /sopa NÃO existe no Farcaster (conferido em 15/09/2026) e o
+    // signer da SOPA no banco está revogado (era o fid da Gnars). É um
+    // placeholder que o tipo exige; o cast fica como rascunho para copiar.
     channel: "sopa",
   },
   // O repo do próprio portal. Estava de fora, e isso deixava invisível o
@@ -46,15 +53,31 @@ const sopa: ProjectConfig = {
   // daqui, e sem esta linha um dia inteiro de commits no portal aparecia como
   // um dia sem nada.
   repos: ["sopa-agency/portal"],
-  socials: [],
+  // As redes que a SOPA tem de fato (15/09/2026). O X é o que o site sopa.team
+  // aponta; a Hive é a conta nova. Sem API do X, a métrica dele fica "n/d" e
+  // o tweet é copiar e colar — o mesmo que vale para as outras marcas.
+  socials: [
+    { platform: "X", handle: "@sopaagency", url: "https://x.com/sopaagency", note: "conta da agência; o site sopa.team aponta para cá" },
+    { platform: "Hive", handle: "@s0p4", url: "https://peakd.com/@s0p4", note: "conta da SOPA na Hive, criada em 11/09/2026" },
+  ],
+  // Persona das peças de campanha. Sem isto o gerador se apresentava como "the
+  // growth lead at SOPA — a community-owned platform built on Hive", que é a
+  // SkateHive, não a agência.
+  campaignArtifacts: {
+    persona: "the marketing lead at SOPA — a crypto-native agency that builds and operates community products (SkateHive, Gnars, swaps.pro) and sells that as a service",
+    voiceHint: "Direct, builder-to-builder, no hype words. Show the work (what shipped, what it does), name the product, one idea per post. Portuguese only when the direction asks for it.",
+  },
   // "/" is the SOPA home: an aggregated morning briefing with every project's
   // next actions (see src/app/page.tsx + components/sopa-briefing.tsx).
+  //
+  // Campanhas, sugestões de post e analytics deixaram de ser escondidos em
+  // 15/09/2026: a SOPA tem redes e um site (sopa.team) para cuidar. O analytics
+  // mostra o passo a passo até existir uma propriedade GA4 do sopa.team.
+  // Userbase e brain continuam fora: são da SkateHive (contas do app) e do
+  // agente de marca.
   hiddenRoutes: [
-    "/marketing-suggestions",
-    "/campaign-creator",
     "/userbase",
     "/brain",
-    "/analytics",
   ],
   // No wallets of its own — the page shows the combined view of everything
   // the org operates (empty own group is filtered out).
