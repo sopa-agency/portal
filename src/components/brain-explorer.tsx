@@ -171,7 +171,12 @@ function DriveViewer({ projectName }: { projectName: string }) {
           ? `/api/brain/drive/list?folderId=${encodeURIComponent(folderId)}`
           : "/api/brain/drive/list";
         const res = await fetch(url, { cache: "no-store" });
-        const data = (await res.json()) as DriveListResult;
+        let data: DriveListResult;
+        try {
+          data = (await res.json()) as DriveListResult;
+        } catch {
+          throw new Error(`Drive list failed (HTTP ${res.status})`);
+        }
         setListState(data);
         if (data.ok) setLastSync(writeDriveCache(driveCacheKey(projectName, folderId), data));
       } catch (e) {

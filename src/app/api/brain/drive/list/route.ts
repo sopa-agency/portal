@@ -21,6 +21,13 @@ export async function GET(req: Request) {
   // Optional ?folderId= to drill into subfolders
   const folderId = new URL(req.url).searchParams.get("folderId") ?? undefined;
 
-  const result = await listDriveFolder(project, folderId);
-  return NextResponse.json(result);
+  // Whatever happens, the client gets JSON: an empty 500 here is what the
+  // Brain's Drive tab used to render as "Unexpected end of JSON input".
+  try {
+    const result = await listDriveFolder(project, folderId);
+    return NextResponse.json(result);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ ok: false, reason: "error", error }, { status: 500 });
+  }
 }

@@ -42,6 +42,7 @@ function getServiceAccountJson(
   project: ProjectConfig,
 ): { sa: Record<string, unknown>; clientEmail: string } | { missing: true; note: string } {
   const prefixKey = `${project.agent.gatewayEnvPrefix}_GOOGLE_SERVICE_ACCOUNT_JSON`;
+  const usedKey = process.env[prefixKey] ? prefixKey : "GOOGLE_SERVICE_ACCOUNT_JSON";
   const raw = process.env[prefixKey] ?? process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) {
     return {
@@ -49,8 +50,24 @@ function getServiceAccountJson(
       note: `No Google service account env found (tried ${prefixKey} and GOOGLE_SERVICE_ACCOUNT_JSON)`,
     };
   }
-  const sa = resolveServiceAccount(raw);
-  return { sa, clientEmail: sa.client_email as string };
+  // A value that is neither JSON nor a readable file — typically the local
+  // `.secrets/…json` path copied into Vercel as-is — is "not configured", not
+  // a crash. Left uncaught, the ENOENT here became an empty 500 and the Brain's
+  // Drive tab showed "Unexpected end of JSON input" instead of the reason.
+  try {
+    const sa = resolveServiceAccount(raw);
+    const clientEmail = typeof sa.client_email === "string" ? sa.client_email : "";
+    if (!clientEmail) {
+      return { missing: true, note: `${usedKey} is not a Google service-account JSON (no client_email)` };
+    }
+    return { sa, clientEmail };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const hint = raw.trim().startsWith("{")
+      ? ""
+      : " — the variable holds a file path; on Vercel it must hold the service-account JSON itself, on one line";
+    return { missing: true, note: `${usedKey} could not be read: ${message}${hint}` };
+  }
 }
 
 // ---------------------------------------------------------------------------
