@@ -3,7 +3,6 @@ import { getDictionary, getLocale } from "@/lib/i18n/server";
 import { realizedApy, type CapitalPosition } from "@/lib/morpheus-capital";
 import { MorPipelineSteps, type ClaimStep } from "@/components/mor-pipeline-steps";
 import { readBridgeContext } from "@/lib/mor-bridge";
-import { SOPA_SAFE } from "@/lib/superfluid";
 import { isOk, unread, type Reading } from "@/lib/reading";
 import { usd, pct } from "@/lib/format";
 
@@ -172,7 +171,9 @@ export async function MorpheusCapitalPanel({
           ctx={ciclo}
           morUsd={price}
           ethUsd={ethUsd}
-          canRestake={owner.address.toLowerCase() === SOPA_SAFE.toLowerCase()}
+          // O destino e o mesmo para os dois Safes: o subnet da Gnars (decisao
+          // do Vlad em 14/09/2026). A acao confere que o Safe e da Base.
+          canRestake
         />
       )}
     </div>
