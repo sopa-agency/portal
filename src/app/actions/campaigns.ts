@@ -2183,6 +2183,15 @@ Return ONLY the ${spec.label} text. No preamble, no labels, no code fences.`;
  * swaps.pro campaign. The model sees the tweets that already exist so the
  * batch doesn't repeat them.
  */
+// What separates a usable batch from ten generic posts: every claim comes from
+// the brief, each tweet points at one concrete thing, and the copy-paste hooks
+// ("Myth:/Reality:", "X gets likes, Y gets paid") are off the table.
+const TWEET_GROUNDING_RULES = `Grounding rules:
+- Every fact, number, reward, date, page and mechanic must come from the brief or the voice notes above. If the brief does not say it, do not claim it — no invented prizes, deadlines, counts or steps.
+- Each tweet names one concrete thing the reader can do (open a page, post a clip, place a bid, claim a bounty) and, when the brief points at a page, includes that page's full URL.
+- If the brief lays out themes (for example one feature per day), cover each theme once, in the brief's order, before adding any extra angle.
+- No template hooks ("Myth: … Reality: …", "X gets likes. Y gets paid.", "You don't need …"), no slogans, no filler adjectives, no rhetorical questions stacked on each other.`;
+
 export async function addCampaignTweetBatch(
   campaignId: string,
   count: number,
@@ -2217,7 +2226,8 @@ Campaign: "${campaign.name}"
 Brief:
 ${brief}
 ${templateRules}
-Task: Write ${n} STANDALONE tweets for X/Twitter, posted from @${account}, to be published on different days. Each tweet must stand on its own (no thread, no numbering, no "1/"), take a genuinely different angle from the others (a benefit, a detail, a question, a comparison, a use case, a number, a quote, a myth to bust…), be under 260 characters, plain text, English. Vary the openings — never start two tweets the same way. Links and emojis are fine when they earn their place.${
+Task: Write ${n} STANDALONE tweets for X/Twitter, posted from @${account}, to be published on different days. Each tweet must stand on its own (no thread, no numbering, no "1/"), take a genuinely different angle from the others (a benefit, a detail, a question, a use case, a number from the brief, a step the reader can take today…), be under 260 characters, plain text, English. Vary the openings — never start two tweets the same way. Links and emojis are fine when they earn their place.
+${TWEET_GROUNDING_RULES}${
       alreadyWritten ? `\n\nThese tweets already exist for this campaign — do NOT paraphrase them or reuse their hooks:\n${alreadyWritten}` : ""
     }${instruction?.trim() ? `\n\nApply this direction to all of them: ${instruction.trim()}` : ""}
 Return ONLY a JSON array of ${n} strings. No prose, no labels, no code fences.`;
