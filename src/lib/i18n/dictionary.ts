@@ -327,6 +327,7 @@ const en = {
       staleTitle: "the data is old or something couldn't be read — click to refresh",
       freshTitle: "data is recent",
       readFail: (n: number) => `couldn't read ${n} source${n === 1 ? "" : "s"} — the rest is up to date`,
+      readFailList: (list: string) => `couldn't read: ${list} — the rest is up to date`,
     },
     chart: {
       title: "Balance per treasury",
@@ -2040,6 +2041,7 @@ const pt: typeof en = {
       staleTitle: "os dados estão velhos ou algo não pôde ser lido — clique para atualizar",
       freshTitle: "dados recentes",
       readFail: (n: number) => `não consegui ler ${n} fonte(s) — o resto está atualizado`,
+      readFailList: (list: string) => `não consegui ler: ${list} — o resto está atualizado`,
     },
     chart: {
       title: "Saldo por tesouro",

@@ -362,7 +362,17 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
     const naoLidas: string[] = [];
     const todos: { t: number; usd: number }[] = [];
     for (const rede of redes) {
-      const r = await distribuicoesPorRpc(addr, rede, ethPrice, morPrice);
+      let r = await distribuicoesPorRpc(addr, rede, ethPrice, morPrice);
+      // Uma segunda tentativa, depois de um respiro. O "atualizar" do tesouro
+      // dispara todas as fontes de uma vez, e a Base recebe ~9 eth_getLogs no
+      // mesmo instante: o gateway público engasga numa rajada e responde erro
+      // para uma leitura que, sozinha, passa em 300ms (medido em 15/09/2026 —
+      // era o "couldn't read 1 source" do split do swaps.pro). Sem isto, uma
+      // rajada virava "sem leitura em base" e um total que não era total.
+      if (!r) {
+        await new Promise((ok) => setTimeout(ok, 600 + Math.random() * 600));
+        r = await distribuicoesPorRpc(addr, rede, ethPrice, morPrice);
+      }
       if (!r) {
         naoLidas.push(rede);
         continue;

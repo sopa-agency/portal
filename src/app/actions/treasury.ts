@@ -17,14 +17,17 @@ import { fetchOnchainRevenueCached } from "@/lib/revenue-onchain";
 export async function refreshTreasury(): Promise<{ ok: true; falhas: string[] }> {
   const rows = await prisma.sopaBoard.findMany({ where: { board: "orgchart" } }).catch(() => []);
 
-  const alvos = new Map<string, { address: string; chain: string | null }>();
+  const alvos = new Map<string, { address: string; chain: string | null; label: string }>();
   for (const r of rows) {
     const meta = r.meta && typeof r.meta === "object" && !Array.isArray(r.meta) ? (r.meta as Record<string, unknown>) : {};
     for (const s of Array.isArray(meta.revenueStreams) ? (meta.revenueStreams as Record<string, unknown>[]) : []) {
       const address = typeof s?.address === "string" ? s.address.trim() : "";
       if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
       const chain = s.chain == null || s.chain === "all" ? null : String(s.chain);
-      alvos.set(`${chain ?? "all"}:${address.toLowerCase()}`, { address, chain });
+      // O nome vai junto: "não li 1 fonte" não diz qual, e qual é a única
+      // coisa que quem está olhando quer saber.
+      const label = typeof s.label === "string" && s.label.trim() ? s.label.trim() : `${address.slice(0, 8)}…`;
+      alvos.set(`${chain ?? "all"}:${address.toLowerCase()}`, { address, chain, label });
     }
   }
 
@@ -37,9 +40,9 @@ export async function refreshTreasury(): Promise<{ ok: true; falhas: string[] }>
         .then((r) => {
           // Ler e falhar não é ler e não ter nada. A falha volta nomeada para o
           // botão poder ficar vermelho em vez de fingir sucesso.
-          if (r.error && r.count === 0) falhas.push(`${t.address.slice(0, 8)}…`);
+          if (r.error && r.count === 0) falhas.push(`${t.label} (${t.chain ?? "várias redes"})`);
         })
-        .catch(() => falhas.push(`${t.address.slice(0, 8)}…`)),
+        .catch(() => falhas.push(`${t.label} (${t.chain ?? "várias redes"})`)),
     ),
   );
 
