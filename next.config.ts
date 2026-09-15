@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
     // tracing can't resolve — bundle the whole dir so the Vercel function
     // doesn't ENOENT (e.g. "Cannot read prompt for secretario").
     "/**": ["./prompts/**/*"],
+    // The films studio reads the playbook from the repo at runtime.
+    "/films": ["./docs/filmes-de-feature.md"],
   },
   allowedDevOrigins: [
     "100.101.51.48",

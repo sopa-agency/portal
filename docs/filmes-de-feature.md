@@ -254,6 +254,12 @@ Custo de servidor: zero. Tudo roda no navegador de quem exporta.
 
 ## 7. Ordem de entrega
 
+**Estado (15/09/2026):** lotes 1 a 3 no ar para a Gnars em `/films` (menu
+"Filmes"): motor vendorado em `src/lib/films/` (`types`, `take`, `draw`,
+`render`, `assets`), estúdio em `src/components/films/film-studio.tsx`, os 10
+roteiros em `src/lib/films/gnars.ts`, playbook no painel lateral. Falta do lote
+3 a pasta `🎬 Filmes/` no Drive (depende do lote 0); do lote 4, tudo.
+
 **Lote 0 (Vlad, sem código):** JSON das service accounts na Vercel, Production
 e Preview, e redeploy. Destrava o Drive em produção para Gnars e SkateHive.
 

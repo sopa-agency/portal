@@ -7,7 +7,9 @@ import type { Dictionary } from "@/lib/i18n/dictionary";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useTransition, useState, useRef, useEffect, useCallback } from "react";
-import { BookOpenText, Briefcase, CalendarDays, ChartColumn, Check, ChevronsUpDown, Flame, Heart, Home, Landmark, LayoutTemplate, Megaphone, Menu, MessagesSquare, Music2, Newspaper, NotebookPen, PanelLeftClose, PanelLeftOpen, Presentation, Search, Settings, Sparkles, SquareKanban, SquarePen, Users, UsersRound, Workflow, X, type LucideIcon } from "lucide-react";
+import { BookOpenText, Briefcase, CalendarDays, ChartColumn, Check, ChevronsUpDown, Flame, Heart, Home, Landmark, LayoutTemplate, Megaphone, Menu, MessagesSquare, Music2, Newspaper, NotebookPen, PanelLeftClose, PanelLeftOpen, Presentation, Search, Settings, Sparkles, SquareKanban, SquarePen, Users, UsersRound, Workflow, X, type LucideIcon,
+  Clapperboard,
+} from "lucide-react";
 import { OnlineAvatars } from "@/components/presence";
 import { portalUrlFor } from "@/lib/portal-host";
 
@@ -40,6 +42,7 @@ type NavItem = {
   group?: NavGroupKey;
   requiresPostCreator?: boolean;
   requiresZine?: boolean;
+  requiresFilms?: boolean;
   requiresKanban?: boolean;
   requiresMagazine?: boolean;
   requiresHomepage?: boolean;
@@ -62,6 +65,7 @@ const NAV: NavItem[] = [
 
   { href: "/post-creator", key: "postCreator", icon: SquarePen, group: "creation", requiresPostCreator: true },
   { href: "/zine", key: "zine", icon: BookOpenText, group: "creation", requiresZine: true },
+  { href: "/films", key: "films", icon: Clapperboard, group: "creation", requiresFilms: true },
   { href: "/tiktok", key: "tiktok", icon: Music2, group: "creation", requiresTikTok: true },
   { href: "/campaign-creator", key: "campaignCreator", icon: Megaphone, group: "creation" },
   { href: "/marketing-suggestions", key: "postSuggestions", icon: Sparkles, group: "creation" },
@@ -132,10 +136,11 @@ type AppSidebarProps = {
   meetingsEnabled?: boolean;
   tiktokEnabled?: boolean;
   zineEnabled?: boolean;
+  filmsEnabled?: boolean;
   farcasterTrailEnabled?: boolean;
 };
 
-export function AppSidebar({ username, avatarUrl, registeredWallet = null, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, diarioEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, burnDownEnabled, chatEnabled, zineEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
+export function AppSidebar({ username, avatarUrl, registeredWallet = null, projectName, projectLogo, currentSlug, switchProjects, hiddenRoutes, postCreatorEnabled, kanbanEnabled, diarioEnabled, magazineEnabled, homepageEnabled, aboutEnabled, orgChartEnabled, portfolioEnabled, burnDownEnabled, chatEnabled, zineEnabled, filmsEnabled, meetingsEnabled, farcasterTrailEnabled, tiktokEnabled }: AppSidebarProps) {
   const t = useT();
   const pathname = usePathname();
   const router = useRouter();
@@ -282,6 +287,7 @@ export function AppSidebar({ username, avatarUrl, registeredWallet = null, proje
     if (hiddenRoutes?.includes(item.href)) return false;
     if ("requiresPostCreator" in item && item.requiresPostCreator && !postCreatorEnabled) return false;
     if ("requiresZine" in item && item.requiresZine && !zineEnabled) return false;
+    if ("requiresFilms" in item && item.requiresFilms && !filmsEnabled) return false;
     if ("requiresKanban" in item && item.requiresKanban && !kanbanEnabled) return false;
     if ("requiresMagazine" in item && item.requiresMagazine && !magazineEnabled) return false;
     if ("requiresHomepage" in item && item.requiresHomepage && !homepageEnabled) return false;
