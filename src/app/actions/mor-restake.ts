@@ -1,11 +1,8 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { createPublicClient, http, fallback, encodeFunctionData, getAddress, erc20Abi } from "viem";
-import { SESSION_COOKIE } from "@/lib/auth";
-import { verifySession } from "@/lib/team-access";
-import { getActiveProject } from "@/projects/index";
-import { proposeSafeBatch, proposerAddress } from "@/lib/safe-propose";
+import { proposeSafeBatch } from "@/lib/safe-propose";
+import { autorizarSafe } from "@/lib/safe-authz";
 import { SOPA_SAFE } from "@/lib/superfluid";
 import { PIPELINE, TOKENS, pipelineAbis, warehouseId } from "@/lib/mor-pipeline";
 
@@ -22,44 +19,58 @@ const buildersDeposit = [
 ] as const;
 
 /**
- * Propose restaking SOPA's 10% MOR cut into the Gnars Builder subnet as ONE Safe
- * batch: withdraw the Warehouse credit → approve builders → deposit. The MOR is
- * the SOPA Safe's own; the batch lands in the Safe queue for owners to sign. No
- * hot key, no auto-execution — the button just builds + proposes and hands back
- * the Safe signing link.
+ * Propõe o stake do MOR de um Safe na Base no subnet da Gnars, como UM batch:
+ * saque do crédito no Warehouse (se houver) → approve → deposit. Entra na
+ * fila do Safe para os donos assinarem (2 de 5 na Base). Sem chave quente,
+ * sem execução automática — o botão só monta e propõe.
+ *
+ * Começou só com o Safe da SOPA. Em 14/09/2026 o Vlad pediu o mesmo botão
+ * para a SkateHive, no mesmo subnet: o MOR que chega pela ponte fica no
+ * Safe da Base e o destino dos dois é o subnet da Gnars. A autorização é a
+ * mesma do enviar e do claim — Safe declarado num projeto que a sessão
+ * acessa — e o Safe tem de ser da Base, que é onde os Builders vivem.
+ *
+ * Cada depósito retrava a posição INTEIRA do Safe no subnet por 7 dias.
  */
-export async function proposeMorRestake(): Promise<
+export async function proposeMorRestake(args?: { safe?: string }): Promise<
   { ok: true; url: string; amount: string } | { ok: false; error: string }
 > {
-  const project = await getActiveProject();
-  if (project.slug !== "sopa") return { ok: false, error: "Restake é só da SOPA." };
-  const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value, project);
-  if (!session) return { ok: false, error: "Não autorizado." };
-  if (!proposerAddress()) return { ok: false, error: "Proposer (SAFE_PROPOSER_PRIVATE_KEY) não configurado." };
+  const alvo = args?.safe ?? SOPA_SAFE;
+  const auth = await autorizarSafe(alvo);
+  if (!auth.ok) return auth;
+  if (auth.chainId !== BASE) return { ok: false, error: `${auth.label} não é um Safe da Base; o subnet dos Builders vive lá.` };
 
-  const safe = getAddress(SOPA_SAFE);
+  const safe = getAddress(alvo);
   const mor = getAddress(TOKENS.mor.address);
   const builders = getAddress(PIPELINE.builders);
   try {
-    // Raw balances (wei) so the tx amount is exact: Warehouse credit + wallet MOR.
+    // Saldos crus (wei), para a quantia da tx ser exata: crédito no Warehouse + MOR na carteira.
     const [whCredit, walletMor] = await Promise.all([
       client.readContract({ address: getAddress(PIPELINE.warehouse), abi: pipelineAbis.warehouse as never, functionName: "balanceOf", args: [safe, warehouseId(mor)] }) as Promise<bigint>,
       client.readContract({ address: mor, abi: pipelineAbis.erc20 as never, functionName: "balanceOf", args: [safe] }) as Promise<bigint>,
     ]);
-    const wh = whCredit > BigInt(1) ? whCredit : BigInt(0); // Warehouse leaves 1 wei
+    const wh = whCredit > BigInt(1) ? whCredit : BigInt(0); // o Warehouse deixa 1 wei
     const amount = wh + walletMor;
-    if (amount < BigInt("1000000000000000")) return { ok: false, error: "Nada pra restakear (menos de 0,001 MOR na SOPA)." };
+    if (amount < BigInt("1000000000000000")) return { ok: false, error: `Nada para stakear (menos de 0,001 MOR em ${auth.label}).` };
 
     const calls = [
-      // Warehouse withdraw is permissionless; batching it means one signature for the whole restake.
-      { to: getAddress(PIPELINE.warehouse), data: encodeFunctionData({ abi: pipelineAbis.warehouse, functionName: "withdraw", args: [safe, mor] }) },
+      // O saque do Warehouse é permissionless; no batch, uma assinatura cobre o stake inteiro.
+      // Só entra quando há crédito: a SkateHive não passa pelo split, então não tem.
+      ...(wh > BigInt(0)
+        ? [{ to: getAddress(PIPELINE.warehouse), data: encodeFunctionData({ abi: pipelineAbis.warehouse, functionName: "withdraw", args: [safe, mor] }) }]
+        : []),
       { to: mor, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [builders, amount] }) },
       { to: builders, data: encodeFunctionData({ abi: buildersDeposit, functionName: "deposit", args: [PIPELINE.subnetId, amount] }) },
     ];
-    const res = await proposeSafeBatch({ chainId: BASE, safe, origin: "SOPA: restake 10% MOR na subnet (withdraw + approve + deposit)", calls });
+    const res = await proposeSafeBatch({
+      chainId: BASE,
+      safe,
+      origin: `${auth.label}: stake de ${(Number(amount) / 1e18).toFixed(4)} MOR no subnet da Gnars${wh > BigInt(0) ? " (withdraw + approve + deposit)" : " (approve + deposit)"}`,
+      calls,
+    });
     if (!res.ok) return res;
     return { ok: true, url: res.url, amount: (Number(amount) / 1e18).toFixed(4) };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor restake." };
+    return { ok: false, error: err instanceof Error ? err.message.slice(0, 220) : "Falha ao propor o stake." };
   }
 }

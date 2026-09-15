@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { SafeTreasuryActions } from "@/components/safe-treasury-actions";
+import { MorStakeButton } from "@/components/mor-stake-button";
 import { safeAppUrl, zerionWalletUrl } from "@/lib/wallet-links";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import type { TreasuryGroup, EvmWalletReport, HiveAccountReport } from "@/lib/treasury";
@@ -222,7 +223,8 @@ function AllocationBar({ segments, total }: { segments: Segment[]; total: number
  */
 function acionavel(symbol: string): boolean {
   const s = symbol.toUpperCase();
-  return s === "USDC" || s === "ETH";
+  // MOR: o botao e outro (stake no subnet da Gnars), mas a linha e a mesma.
+  return s === "USDC" || s === "ETH" || s === "MOR";
 }
 
 /** Os Safes que seguram este ativo, sem repetir carteira. */
@@ -631,6 +633,11 @@ function Overview({
                             {shortAddr(sw.address)} ↗
                           </a>
                         </div>
+                        {a.symbol.toUpperCase() === "MOR" ? (
+                          // MOR na Base: o destino e o subnet da Gnars, para a SOPA e
+                          // para a SkateHive — o mesmo batch, proposto na fila do Safe.
+                          <MorStakeButton safe={sw.address} />
+                        ) : (
                         <SafeTreasuryActions
                           safe={sw.address}
                           token={a.symbol.toUpperCase() === "ETH" ? "ETH" : "USDC"}
@@ -641,6 +648,7 @@ function Overview({
                           }
                           vaultAssetSymbol={vault?.assetSymbol}
                         />
+                        )}
                       </div>
                     ))}
                   </div>

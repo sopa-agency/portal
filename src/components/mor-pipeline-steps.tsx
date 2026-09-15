@@ -21,7 +21,7 @@ import { useState } from "react";
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
 import { proposeCapitalClaim } from "@/app/actions/capital-claim";
 import { quoteMorBridge, proposeMorBridge, refreshBridgeContext, type PonteRota } from "@/app/actions/mor-bridge";
-import { proposeMorRestake } from "@/app/actions/mor-restake";
+import { MorStakeButton } from "@/components/mor-stake-button";
 import type { BridgeContext } from "@/lib/mor-bridge";
 import type { PoolKey } from "@/lib/morpheus-capital";
 import { runBridgeExec, type ExecFase } from "@/components/mor-bridge-exec";
@@ -82,7 +82,9 @@ export function MorPipelineSteps({
   const [delegateOk, setDelegateOk] = useState(ctx.delegateOk);
 
   const pendentes = claims.filter((c) => c.pendingMor > 0);
-  const temArb = ctx.morArbWei !== "0" && ctx.morArb !== "?";
+  // Resíduo de ponte (o OFT apara para 6 casas e sobra ~1e-6) não é "ponte a
+  // fazer": abaixo de 0,001 MOR o passo diz que não há nada esperando.
+  const temArb = ctx.morArb !== "?" && BigInt(ctx.morArbWei) >= BigInt("1000000000000000");
   const direto = ctx.threshold === 1 && ctx.owners.length > 0 && wallet.available;
 
   return (
@@ -124,7 +126,7 @@ export function MorPipelineSteps({
       {/* ── 3. restake ───────────────────────────────────────── */}
       <Step n={3} title={t.restake} hint={t.restakeHint}>
         <p className="text-sm font-semibold tabular-nums text-foreground">{t.onBase(morBase === "?" ? "?" : mor(morBase))}</p>
-        {canRestake ? <RestakeAction /> : <p className="text-[11px] text-foreground-faint">{t.restakePending}</p>}
+        {canRestake ? <MorStakeButton safe={safe} compact /> : <p className="text-[11px] text-foreground-faint">{t.restakePending}</p>}
       </Step>
     </div>
   );
@@ -356,45 +358,3 @@ function BridgeAction({
   );
 }
 
-/* ── restake: só a SOPA por enquanto ─────────────────────────────────────── */
-function RestakeAction() {
-  const { t: dict } = useLocale();
-  const t = dict.treasury.capital.steps;
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ url: string; amount: string } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function run() {
-    setBusy(true);
-    setErr(null);
-    try {
-      const r = await proposeMorRestake();
-      if (r.ok) setDone({ url: r.url, amount: r.amount });
-      else setErr(r.error);
-    } catch {
-      setErr(t.restakeAction);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (done) {
-    return (
-      <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-success">
-        <CheckCircle2 className="h-3 w-3" /> {t.restakeQueued(done.amount)}
-        <a href={done.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 underline">
-          {dict.treasury.capital.claimQueueLink} <ExternalLink className="h-2.5 w-2.5" />
-        </a>
-      </p>
-    );
-  }
-  return (
-    <div className="space-y-1">
-      <button type="button" onClick={() => void run()} disabled={busy} className={btn}>
-        {busy && <Loader2 className="h-3 w-3 animate-spin" />}
-        {t.restakeAction}
-      </button>
-      {err && <p className="text-[11px] text-warning">{err}</p>}
-    </div>
-  );
-}
