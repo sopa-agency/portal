@@ -46,7 +46,7 @@ export function classifyDocumentKindByName(name: string): CampaignDocumentKind {
 }
 
 /**
- * kind → the network key `publishLabChannel` dispatches on.
+ * kind → the network key `publishToChannel` dispatches on.
  *
  * A kind ABSENT here cannot be published by the machine at all — Twitter,
  * Instagram, a press release and a TV script are hand-delivered by a human.

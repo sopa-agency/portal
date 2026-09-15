@@ -10,8 +10,10 @@ import {
 } from "@/lib/social-publish";
 import { brandEnv, brandEnvByPrefix } from "@/lib/brand-env";
 
-// Centralized per-channel publish for the Lab — used by both publish-now
-// (labPublishNow) and the scheduler (publishDueLabPosts). Stateless: each
+// Publicação por canal (Hive, Farcaster, Discord, Binance…) para a agenda de
+// campanhas. Nasceu como "lab-publish" para o Lab; o Lab foi aposentado em
+// 15/09/2026 (nunca usado) e isto ficou, porque a agenda das campanhas publica
+// por aqui. Stateless: each
 // channel resolves its own credentials from the project/env.
 
 function slugify(s: string): string {
@@ -113,7 +115,7 @@ async function publishEmailBlast(text: string, project: ProjectConfig): Promise<
     : { ok: false, error: "All sends failed." };
 }
 
-export async function publishLabChannel(
+export async function publishToChannel(
   network: string,
   text: string,
   project: ProjectConfig,

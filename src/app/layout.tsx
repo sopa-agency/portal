@@ -142,7 +142,6 @@ export default async function RootLayout({
     [
       { href: "/", label: t.nav.items.home, on: true },
       { href: "/post-creator", label: t.nav.items.postCreator, on: !!project.postCreator },
-      { href: "/lab", label: t.nav.items.lab, on: !!project.lab },
       { href: "/tiktok", label: t.nav.items.tiktok, on: !!project.tiktok },
       { href: "/zine", label: t.nav.items.zine, on: !!project.zineStudio },
       { href: "/marketing-suggestions", label: t.nav.items.postSuggestions, on: true },
@@ -206,7 +205,6 @@ export default async function RootLayout({
                 portfolioEnabled={!!project.portfolio}
                 burnDownEnabled={!!project.burnDown}
                 chatEnabled={!!project.chat}
-                labEnabled={!!project.lab}
                 zineEnabled={!!project.zineStudio}
                 meetingsEnabled={!!project.meetings}
                 tiktokEnabled={!!project.tiktok}
