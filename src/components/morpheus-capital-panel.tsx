@@ -1,26 +1,27 @@
 import { ExternalLink, Landmark } from "lucide-react";
 import { getDictionary, getLocale } from "@/lib/i18n/server";
 import { realizedApy, type CapitalPosition } from "@/lib/morpheus-capital";
-import { CapitalClaimButton } from "@/components/capital-claim-button";
-import { MorBridgePanel } from "@/components/mor-bridge-panel";
+import { MorPipelineSteps, type ClaimStep } from "@/components/mor-pipeline-steps";
 import { readBridgeContext } from "@/lib/mor-bridge";
+import { SOPA_SAFE } from "@/lib/superfluid";
 import { isOk, unread, type Reading } from "@/lib/reading";
-import { rich } from "@/components/rich-text";
 import { usd, pct } from "@/lib/format";
 
-// A posição de UM Safe na capital da Morpheus, como painel — um bloco por pool
-// em que ele tem depósito (USDC, stETH), cada um com o seu claim.
+// A posição de UM Safe na capital da Morpheus: os números por pool, e embaixo
+// o ciclo em três passos (claim → ponte → restake) com as ações.
+//
+// Números em cima, ações embaixo, numa linha só. Antes as ações vinham
+// espalhadas — claim no meio dos números, ponte num bloco, delegate noutro —
+// e a tela virou uma lista de botões. Ver `MorPipelineSteps`.
 //
 // É um Server Component ASSÍNCRONO de propósito: ele recebe PROMESSAS e é
 // quem faz o await. Assim o <Suspense> do pai suspende de verdade — se o await
-// fosse no JSX da página, a página inteira esperaria a mainnet responder (a
-// lição do diagrama do split, que custou 19s neste mesmo arquivo).
+// fosse no JSX da página, a página inteira esperaria a mainnet responder.
 //
 // Os preços vêm separados da posição porque falham separado: a posição pode
 // ler e o preço não, e nesse caso a quantidade aparece e só o valor em dólar
 // (e o rendimento, que depende dele) ficam marcados como não lidos. O stETH
-// precisa do preço do ETH até para dizer quanto está depositado em dólar; o
-// USDC não precisa de preço nenhum.
+// precisa do preço do ETH até para dizer quanto está depositado em dólar.
 
 const morFmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 3 });
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -55,12 +56,12 @@ export async function MorpheusCapitalPanel({
   morPrice: Promise<number | null>;
   /** USD por ETH — o stETH vale isso; null quando o feed não respondeu. */
   ethPrice: Promise<number | null>;
-  /** Sessão válida: só então o claim é oferecido. */
+  /** Sessão válida: só então o ciclo de ações aparece. */
   canPropose: boolean;
 }) {
-  // O contexto da ponte (MOR parado na Arbitrum, ETH nas duas redes) lê em
-  // paralelo com as posições: é a mesma espera, não uma a mais.
-  const [lidas, price, ethUsd, dict, locale, ponte] = await Promise.all([
+  // O contexto do ciclo (MOR na Arbitrum e na Base, ETH, Safe da Arbitrum)
+  // lê em paralelo com as posições: é a mesma espera, não uma a mais.
+  const [lidas, price, ethUsd, dict, locale, ciclo] = await Promise.all([
     positions, morPrice, ethPrice, getDictionary(), getLocale(), canPropose ? readBridgeContext(owner.address) : null,
   ]);
   const t = dict.treasury.capital;
@@ -73,6 +74,11 @@ export async function MorpheusCapitalPanel({
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const dateFmt = (d: Date) => d.toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  const claims: ClaimStep[] = comDeposito.map((p) => {
+    const opensAt = p.claimOpensAt ?? p.claimLockEnd;
+    return { pool: p.poolKey, asset: p.asset, pendingMor: p.pendingMor, open: opensAt != null && opensAt.getTime() <= now, opensAt: opensAt ? dateFmt(opensAt) : null };
+  });
 
   return (
     <div className="space-y-3">
@@ -101,14 +107,12 @@ export async function MorpheusCapitalPanel({
           price == null || assetUsd == null ? unread<number>(t.priceUnread) : realizedApy(p, price, assetUsd);
         const share = p.poolTotal > 0 ? pct((p.deposited / p.poolTotal) * 100) : null;
         // `claimOpensAt` já é a MAIOR das duas travas (protocolo e usuário).
-        // Usar `claimLockEnd` puro acerta só quando não há trava opcional — e
-        // mostra "liberado" cedo demais justamente para quem travou.
         const opensAt = p.claimOpensAt ?? p.claimLockEnd;
         const lockDays = opensAt ? Math.ceil((opensAt.getTime() - now) / 86_400_000) : null;
         const claimAberto = opensAt != null && opensAt.getTime() <= now;
 
         return (
-          <div key={p.poolKey} className="space-y-3">
+          <div key={p.poolKey} className="space-y-2">
             <p className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wider text-foreground-faint">
               <span>{t.poolLabel(p.asset)}</span>
               <a
@@ -139,13 +143,7 @@ export async function MorpheusCapitalPanel({
                 sub={price != null ? `≈ ${usd(p.pendingMor * price)}` : "USD n/d"}
                 tone="text-success"
               />
-              <Stat
-                label={t.multiplier}
-                value={`${p.multiplier.toFixed(3)}×`}
-                sub={p.multiplier < 1.05 ? t.noLock : t.withLock}
-              />
-              {/* Três estados, três formatos. `insufficient` não é falha nem zero: a
-                  leitura passou, a janela é que é curta demais para anualizar. */}
+              <Stat label={t.multiplier} value={`${p.multiplier.toFixed(3)}×`} sub={p.multiplier < 1.05 ? t.noLock : t.withLock} />
               {isOk(apy) ? (
                 <Stat label={t.realizedApy} hint={t.realizedApyHint} value={pct(apy.value * 100)} sub={locale === "pt" ? "ao ano · medido" : "per year · measured"} tone="text-success" />
               ) : apy.state === "insufficient" ? (
@@ -161,28 +159,21 @@ export async function MorpheusCapitalPanel({
                 <Stat label={t.claimAt} value={dateFmt(opensAt)} sub={t.inDays(lockDays ?? 0)} tone="text-warning" />
               )}
             </div>
-
-            {canPropose && claimAberto && p.pendingMor > 0 && (
-              <div className="space-y-2 rounded-xl border border-border bg-surface px-4 py-3">
-                <CapitalClaimButton safe={owner.address} pool={p.poolKey} />
-                <p className="text-[11px] leading-relaxed text-foreground-faint">{t.claimFeeNote}</p>
-              </div>
-            )}
           </div>
         );
       })}
 
-      {comDeposito.length > 0 && (
-        <div className="rounded-xl border border-accent-border bg-accent-bg px-4 py-3 text-xs leading-relaxed text-foreground-muted">
-          {rich(t.receiverNote)}
-        </div>
-      )}
-
-      {/* A perna que faltava entre o claim e o restake: o MOR mintado na
-          Arbitrum precisa atravessar para a Base. Só com sessão — cotar é
-          barato, mas propor enfileira no Safe. */}
-      {ponte && (
-        <MorBridgePanel safe={owner.address} initial={ponte} morUsd={price} ethUsd={ethUsd} />
+      {/* O ciclo, com as ações. Só com sessão: cotar é barato, mas propor e
+          executar mexem em dinheiro. */}
+      {ciclo && comDeposito.length > 0 && (
+        <MorPipelineSteps
+          safe={owner.address}
+          claims={claims}
+          ctx={ciclo}
+          morUsd={price}
+          ethUsd={ethUsd}
+          canRestake={owner.address.toLowerCase() === SOPA_SAFE.toLowerCase()}
+        />
       )}
     </div>
   );
