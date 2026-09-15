@@ -466,13 +466,15 @@ async function readTreasury(project: ProjectConfig): Promise<Reading<string>> {
     // mais recente por endereço — e com duas linhas por hora, o número que o
     // agente afirmava dependia da ordem que o banco devolvesse.
     //
-    // Fixei no `wallet`, e não por acaso: medindo os dois lado a lado por 88
-    // horas, o Zerion lê o multisig da SkateHive em US$ 2.201 contra US$ 84 do
-    // RPC. A diferença é airdrop — 27 tokens, quase todos lixo sem liquidez,
-    // que o Zerion precifica e o RPC ignora. O leitor da página é o conservador,
-    // e é o mesmo número que a pessoa vê na tela.
+    // Fixei no `address` (Zerion), que é o que a PÁGINA serve do cache. O
+    // comentário anterior dizia que a diferença para o RPC (US$ 2.201 contra
+    // US$ 84 no multisig da SkateHive) era airdrop sem liquidez; medido de novo
+    // em 15/09/2026, o não-verificado vale US$ 0,02 — a diferença é stETH na
+    // Morpheus e USDC na Morpho, posição de protocolo que o RPC não enxerga.
+    // O agente afirmava US$ 84 para um tesouro de US$ 2,2 mil. O leitor RPC
+    // do snapshot deixou de existir.
     const rows = await prisma.treasuryWalletSnapshot.findMany({
-      where: { projectSlug: project.slug, reader: "wallet" },
+      where: { projectSlug: project.slug, reader: "address" },
       orderBy: { takenAt: "desc" },
       take: 40,
       select: {
@@ -531,7 +533,7 @@ async function readTreasury(project: ProjectConfig): Promise<Reading<string>> {
       out.push("  Este total está INCOMPLETO. Não o apresente como o tesouro inteiro.");
     }
     out.push(
-      "  Vem do leitor por RPC, o mesmo da página de Tesouro — conta o que está declarado na config e ignora token de airdrop sem liquidez.",
+      "  Vem da Zerion, o mesmo leitor da página de Tesouro — inclui posição de protocolo (stake, capital) e deixa token não verificado fora do total.",
     );
     return out.join("\n");
   });

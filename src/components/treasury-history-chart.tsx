@@ -33,6 +33,7 @@ export function TreasuryHistoryChart({
   failed = [],
   initialLive,
   initialSyncedAt,
+  initialPeriod,
 }: {
   /**
    * Saldo por CARTEIRA de tesouro, como LEITURA.
@@ -63,6 +64,8 @@ export function TreasuryHistoryChart({
   /** Quando esse sync foi feito. Dado guardado que se anuncia não é dado velho
    *  disfarçado de fresco. */
   initialSyncedAt?: string | null;
+  /** O período da série sincronizada; o seletor abre nele. */
+  initialPeriod?: string;
 }) {
   const { locale, t: dict } = useLocale();
   const t = dict.treasury.chart;
@@ -73,7 +76,7 @@ export function TreasuryHistoryChart({
   );
   // Três meses por padrão: um mês mostra pouco movimento num tesouro que se
   // move devagar, e a pergunta que as pessoas fazem olhando isto é de trimestre.
-  const [period, setPeriod] = useState("3months");
+  const [period, setPeriod] = useState(initialPeriod ?? "3months");
   // A série CRUA da Zerion. A corrigida é derivada logo abaixo — guardar a
   // corrigida no estado faria a correção rodar sobre ela mesma a cada render.
   const [live, setLive] = useState<TreasurySeries[] | null>(initialLive?.length ? initialLive : null);

@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { saveWalletComposition } from "@/lib/treasury-balance-cache";
 import { getAllProjects } from "@/projects/index";
-import { fetchAddressBalance, fetchEvmWallet, getPrices, hiveAccountBalances, readDeclaredCapital, type ExtraToken, type EvmToken } from "@/lib/treasury";
+import { fetchAddressBalance, getPrices, hiveAccountBalances, readDeclaredCapital, type ExtraToken, type EvmToken } from "@/lib/treasury";
 
 // Fotografa o saldo de cada carteira de tesouro configurada, de hora em hora.
 //
@@ -137,43 +137,6 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
       });
     }
 
-    // ── O SEGUNDO leitor, na mesma hora ────────────────────────────────────
-    // fetchEvmWallet é o que a PÁGINA usa: fan-out de RPC puro, cego para
-    // posição de protocolo, mas o único que lê os extraTokens declarados na
-    // config (USDCx, gnars). O de cima é Zerion-primeiro: enxerga protocolo e
-    // não conhece extraToken nenhum.
-    //
-    // Enquanto os dois existirem, qualquer métrica de saúde colhida por um fala
-    // do caminho DELE. Fotografar os dois na mesma hora transforma "eles
-    // divergem" de suposição em número — e é esse número que decide se a
-    // convergência deve trazer os extraTokens junto (opção 1) ou pode
-    // dispensá-los (opção 3).
-    //
-    // Custo: fan-out de RPC público por carteira por hora. Não consome cota da
-    // Zerion.
-    if (prices) {
-      const page = await fetchEvmWallet(
-        { label: w.label, address: w.address, extraTokens: w.extraTokens },
-        prices.eth,
-        prices.mor,
-      ).catch(() => null);
-      const pageBad = !page || page.failedChains.length > 0;
-      await prisma.treasuryWalletSnapshot
-        .create({
-          data: {
-            projectSlug: w.projectSlug,
-            label: w.label,
-            address: w.address,
-            kind: "evm",
-            reader: "wallet",
-            totalUsd: pageBad ? null : page!.totalUsd,
-            failedChains: page?.failedChains ?? [],
-            reason: pageBad ? (page?.error ?? "leitura da página falhou") : null,
-            source: "rpc",
-          },
-        })
-        .catch(() => {});
-    }
   }
 
   // Hive na mesma foto. As contas Hive entram no total do hero exatamente como
@@ -205,4 +168,42 @@ export async function snapshotTreasuryWalletsIfDue(now: number): Promise<{ ran: 
   }
 
   return { ran: true, wrote, skipped: failed };
+}
+
+/**
+ * Relê a composição de carteiras AGORA e grava o cache — o que o botão
+ * "Atualizar" precisa. Uma chamada Zerion por carteira (todas as redes), mais a
+ * capital declarada; sem ponto no gráfico (o gráfico é do cron horário).
+ * Devolve os rótulos das que não leram. Barato: seis carteiras = seis chamadas.
+ */
+export async function refreshWalletCompositions(projectSlugs: string[]): Promise<{ atualizadas: number; falhas: string[] }> {
+  const alvo = treasuryWallets().filter((w) => projectSlugs.includes(w.projectSlug));
+  const falhas: string[] = [];
+  let atualizadas = 0;
+  await Promise.all(
+    alvo.map(async (w) => {
+      const lido = await fetchAddressBalance(w.address, null).catch((e) => ({ error: String(e) }) as const);
+      if (!("totalUsd" in lido) || lido.error) {
+        falhas.push(w.label);
+        return;
+      }
+      const base = lido as { totalUsd: number; tokens?: EvmToken[]; failedChains?: string[]; unpriced?: { symbol: string; balance: number }[]; source?: string | null; unverifiedUsd?: number; unverifiedCount?: number };
+      const faltando = await readDeclaredCapital(w.address, base.tokens ?? []).catch(() => [] as EvmToken[]);
+      const tokens = [...(base.tokens ?? []), ...faltando].sort((x, y) => (y.valueUsd ?? 0) - (x.valueUsd ?? 0));
+      await saveWalletComposition({
+        address: w.address,
+        label: w.label,
+        projectSlug: w.projectSlug,
+        source: base.source ?? "zerion",
+        totalUsd: base.totalUsd + faltando.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0),
+        tokens,
+        failedChains: base.failedChains ?? [],
+        unpriced: base.unpriced,
+        unverifiedUsd: base.unverifiedUsd,
+        unverifiedCount: base.unverifiedCount,
+      });
+      atualizadas++;
+    }),
+  );
+  return { atualizadas, falhas };
 }

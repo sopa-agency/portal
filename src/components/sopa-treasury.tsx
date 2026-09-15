@@ -81,6 +81,7 @@ export function SopaTreasury({
     failed: string[];
     initialLive: TreasurySeries[];
     initialSyncedAt: string | null;
+    initialPeriod?: string | null;
   };
   /**
    * Which half to render. Balances and revenue are two questions — how much do
@@ -142,6 +143,7 @@ export function SopaTreasury({
             failed={chartData.failed}
             initialLive={chartData.initialLive.filter(keep)}
             initialSyncedAt={chartData.initialSyncedAt}
+            initialPeriod={chartData.initialPeriod ?? undefined}
           />
         );
       })()

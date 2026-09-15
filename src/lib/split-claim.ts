@@ -90,7 +90,6 @@ const CHAINS: Record<string, ChainDef> = {
 };
 
 /** Compat: a Base continua sendo a lista padrão para quem importava daqui. */
-export const CLAIM_TOKENS = CHAINS.base.tokens;
 
 const erc20Abi = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }] },

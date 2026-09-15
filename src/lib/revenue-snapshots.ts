@@ -59,7 +59,10 @@ export async function snapshotRevenueIfDue(now = Date.now()): Promise<{ ran: boo
     // Sequential-ish but small; a handful of addresses. Chunk to be gentle on RPCs.
     for (const t of targets) {
       const bal = await fetchAddressBalance(t.address, t.chain).catch(() => null);
-      if (!bal) continue;
+      // Leitura que falhou (ou parcial) NÃO vira ponto: um zero gravado por
+      // engano desenha uma queda que nunca houve, e stream em rede fora da
+      // lista (polygon, gnosis) gravava 0 todo dia.
+      if (!bal || bal.error || bal.failedChains.length) continue;
       await prisma.revenueSnapshot
         .create({ data: { cardId: t.cardId, address: t.address, chain: t.chain, label: t.label || null, totalUsd: bal.totalUsd, takenAt } })
         .then(() => { recorded++; })

@@ -118,8 +118,8 @@ export default async function TreasuryPage() {
     // A Zerion NÃO é chamada aqui — mas o ÚLTIMO SYNC que alguém pediu volta do
     // banco, em vez de o gráfico recomeçar do zero a cada F5.
     readChartSync(isSopa ? "all" : project.slug)
-      .then((c) => ({ series: c?.series ?? [], failed: c?.failed ?? [], syncedAt: c?.syncedAt ?? null }))
-      .catch(() => ({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[], syncedAt: null as Date | null })),
+      .then((c) => ({ series: c?.series ?? [], failed: c?.failed ?? [], syncedAt: c?.syncedAt ?? null, period: c?.period ?? null }))
+      .catch(() => ({ series: [] as Awaited<ReturnType<typeof getTreasuryWalletChart>>["series"], failed: [] as string[], syncedAt: null as Date | null, period: null as string | null })),
   ]);
 
   const pesadoP = Promise.all([
@@ -285,8 +285,13 @@ treasury: {
   // atualizar de verde ou vermelho. Duas fontes porque saldo e receita são
   // lidos por caminhos diferentes; vale o MAIS VELHO dos dois, que é o que
   // limita a confiança na tela.
+  // Entre as carteiras DESTA tela, a linha mais velha — a mais nova escondia
+  // uma carteira de 85 min atrás atrás de outra de 2 min.
+  const enderecos = groups.flatMap((g) => g.report.evm.map((w) => w.address.toLowerCase()));
   const [ultimoSaldo, ultimaReceita] = await Promise.all([
-    prisma.treasuryBalanceCache.findFirst({ orderBy: { syncedAt: "desc" }, select: { syncedAt: true } }).catch(() => null),
+    prisma.treasuryBalanceCache
+      .findFirst({ where: enderecos.length ? { address: { in: enderecos } } : undefined, orderBy: { syncedAt: "asc" }, select: { syncedAt: true } })
+      .catch(() => null),
     prisma.revenueReadCache.findFirst({ orderBy: { syncedAt: "desc" }, select: { syncedAt: true } }).catch(() => null),
   ]);
   const datas = [ultimoSaldo?.syncedAt, ultimaReceita?.syncedAt].filter(Boolean) as Date[];
@@ -578,6 +583,7 @@ treasury: {
           // carregamento. Ver initialLive no componente.
           initialLive: walletChart.series,
           initialSyncedAt: walletChart.syncedAt?.toISOString() ?? null,
+          initialPeriod: walletChart.period ?? null,
         }
       }
       groups={groups}

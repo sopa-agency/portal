@@ -33,6 +33,7 @@ export async function baseRpc<T>(method: string, params: unknown[], cache: Cache
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
         next: { revalidate: cache.revalidate, tags: cache.tags },
+        signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) {
         lastErr = new Error(`${url} → HTTP ${res.status}`);

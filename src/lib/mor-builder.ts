@@ -16,7 +16,8 @@ const BUILDERS = "0x42BB446eAE6dca7723a9eBdb81EA88aFe77eF4B9" as const;
 const MOR_BASE = "0x7431aDa8a591C955a994a21710752EF9b882b8e3";
 
 // eth_call works on the plain public RPCs (unlike eth_getLogs); fall through a few.
-const RPCS = ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"];
+// base.org por último: é o endpoint documentado como rate-limited (base-rpc.ts).
+const RPCS = ["https://base-rpc.publicnode.com", "https://base.drpc.org", "https://mainnet.base.org"];
 const client = createPublicClient({ chain: base, transport: fallback(RPCS.map((u) => http(u))) });
 
 const ABI = [
