@@ -95,6 +95,21 @@ const swaps: ProjectConfig = {
     org: "coinmastersguild",
     number: 2,
   },
+  // GA4 "swapspro" (conta SwapsPro, criada 28/08/2026, stream G-93QVXQ3NLY em
+  // https://swaps.pro) e o domínio no Search Console — o TXT de verificação já
+  // está no DNS (Vercel). A leitura usa a service account do portal
+  // (skatehive-268@skatehive-94e95.iam.gserviceaccount.com), que já é Viewer
+  // da conta GA; no Search Console ela ainda precisa ser adicionada como
+  // usuária — até lá a aba mostra "sem acesso", não zero.
+  analytics: {
+    ga4PropertyId: "551907009",
+    gscSiteUrl: "sc-domain:swaps.pro",
+    // Preview de Vercel é a equipe testando. Localhost já sai por padrão — e
+    // era o grosso do que a propriedade media (952 de 1.379 sessões em 28
+    // dias, até o site ganhar o gate de ambiente).
+    excludeHostnames: [".vercel.app"],
+    brandedTerms: ["swaps.pro", "swapspro", "swaps pro"],
+  },
   agent: {
     /**
      * PENSA com o agente do KeepKey, FALA como swaps.pro.
