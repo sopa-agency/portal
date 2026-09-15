@@ -173,6 +173,10 @@ export function CampaignFolderShell({
   // agendável no calendário. Um clique por tweet não escala para uma campanha
   // de duas semanas.
   const [batchN, setBatchN] = useState(10);
+  // Sem briefing não há de onde tirar tweet — e o botão vivo mandava a pessoa
+  // clicar enquanto o brief ainda estava sendo redigido, para levar um "No
+  // brief found" (15/09/2026). Desabilitado, com o motivo no title.
+  const temBrief = enriched.some((d) => d.isMain && getContent(d).trim().length > 0);
   const [batchPending, startBatch] = useTransition();
   const [batchMsg, setBatchMsg] = useState<string | null>(null);
   const handleTweetBatch = () => {
@@ -306,8 +310,8 @@ export function CampaignFolderShell({
             <button
               type="button"
               onClick={handleTweetBatch}
-              disabled={batchPending || genPending}
-              title="Gera N tweets avulsos de uma vez, cada um com um ângulo — um doc por tweet, para agendar dia a dia"
+              disabled={batchPending || genPending || !temBrief}
+              title={temBrief ? "Gera N tweets avulsos de uma vez, cada um com um ângulo — um doc por tweet, para agendar dia a dia" : "Gere ou escreva o briefing primeiro"}
               className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground-muted transition hover:border-border-strong hover:text-foreground disabled:opacity-50"
             >
               {batchPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
