@@ -144,6 +144,7 @@ export default async function RootLayout({
       { href: "/post-creator", label: t.nav.items.postCreator, on: !!project.postCreator },
       { href: "/tiktok", label: t.nav.items.tiktok, on: !!project.tiktok },
       { href: "/zine", label: t.nav.items.zine, on: !!project.zineStudio },
+      { href: "/films", label: t.nav.items.films, on: !!project.films },
       { href: "/marketing-suggestions", label: t.nav.items.postSuggestions, on: true },
       { href: "/campaign-creator", label: t.nav.items.campaignCreator, on: true },
       { href: "/userbase", label: t.nav.items.userbase, on: true },
@@ -206,6 +207,7 @@ export default async function RootLayout({
                 burnDownEnabled={!!project.burnDown}
                 chatEnabled={!!project.chat}
                 zineEnabled={!!project.zineStudio}
+                filmsEnabled={!!project.films}
                 meetingsEnabled={!!project.meetings}
                 tiktokEnabled={!!project.tiktok}
                 farcasterTrailEnabled={isTrailParticipant(project.slug)}

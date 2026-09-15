@@ -173,6 +173,12 @@ export type ProjectConfig = {
    */
   zineStudio?: boolean;
   /**
+   * When true, the Films nav item + /films route are enabled — the feature-film
+   * studio (short MP4s per product page, exported in the browser). Scenes live
+   * in src/lib/films/<slug>.ts; the playbook in docs/filmes-de-feature.md.
+   */
+  films?: boolean;
+  /**
    * When true, the TikTok nav item + /tiktok route are enabled — a review queue
    * for TikTok videos (draft → approve → schedule → publish). Unlike Instagram,
    * the credentials are NOT env-only: the brand connects its account through
