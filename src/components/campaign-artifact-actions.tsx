@@ -107,7 +107,7 @@ export function CampaignArtifactActions({
   const [discordChannel, setDiscordChannel] = useState<string | null>(null); // per-send channel override
   const [farcasterChannel, setFarcasterChannel] = useState<string | null>(null); // per-send Farcaster channel override
 
-  // --- schedule (queues a LabScheduledPost the scheduler publishes later) ---
+  // --- schedule (sets the document scheduledFor; the campaign lane publishes it) ---
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const [scheduleStatus, setScheduleStatus] = useState<

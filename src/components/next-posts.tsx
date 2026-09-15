@@ -53,7 +53,7 @@ export function NextPosts({
       </div>
 
       {upcoming.length === 0 ? (
-        <p className="py-6 text-center text-xs text-foreground-faint">Nada agendado. Agende posts no Lab / Post Creator.</p>
+        <p className="py-6 text-center text-xs text-foreground-faint">Nada agendado. Agende posts no Post Creator ou nas campanhas.</p>
       ) : (
         <ul className="space-y-2">
           {upcoming.map((e) => (

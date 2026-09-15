@@ -7,7 +7,6 @@ const skatehive: ProjectConfig = {
   magazine: true,
   homepage: true,
   crossPostQueue: true,
-  lab: true,
   zineStudio: true,
   name: "SkateHive",
   description: "Internal marketing ops portal for SkateHive.",

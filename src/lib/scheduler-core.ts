@@ -22,7 +22,7 @@ import {
 } from "@/app/actions/marketing-suggestions";
 import { publishInstagramPost, type IgUserTag } from "@/lib/instagram-publish";
 import { publishFacebookPost, facebookCrosspostEnabled } from "@/lib/facebook-publish";
-import { publishLabChannel } from "@/lib/lab-publish";
+import { publishToChannel } from "@/lib/channel-publish";
 import { publishTikTokVideo, type TikTokPrivacy } from "@/lib/tiktok";
 import { ensureInstagramMedia } from "@/lib/transcode-ig";
 import {
@@ -352,61 +352,6 @@ async function publishDueIgPosts(now: number): Promise<IgResult[]> {
   return results;
 }
 
-// ---------------------------------------------------------------------------
-// Lab cross-network scheduled posts (non-Instagram) — published via the shared
-// publishLabChannel dispatch. Mirrors the IG lane: atomic claim + stale-recover.
-// ---------------------------------------------------------------------------
-
-const LAB_MAX_PER_TICK = 5;
-
-type LabResult = {
-  id: string;
-  projectSlug: string;
-  network: string;
-  ok: boolean;
-  url?: string;
-  error?: string;
-};
-
-async function publishDueLabPosts(now: number): Promise<LabResult[]> {
-  const staleThreshold = new Date(now - STALE_PUBLISHING_MS);
-  const candidates = await prisma.labScheduledPost.findMany({
-    where: {
-      OR: [
-        { status: "scheduled", scheduledFor: { lte: new Date(now) } },
-        { status: "publishing", updatedAt: { lte: staleThreshold } },
-      ],
-    },
-    orderBy: { scheduledFor: "asc" },
-    take: LAB_MAX_PER_TICK * 3,
-  });
-
-  const results: LabResult[] = [];
-  for (const post of candidates) {
-    if (results.length >= LAB_MAX_PER_TICK) break;
-    const claim = await prisma.labScheduledPost.updateMany({
-      where: { id: post.id, status: { in: ["scheduled", "publishing"] } },
-      data: { status: "publishing" },
-    });
-    if (claim.count === 0) continue;
-    const project = getProject(post.projectSlug);
-    try {
-      const r = await publishLabChannel(post.network, post.text, project);
-      await prisma.labScheduledPost.update({
-        where: { id: post.id },
-        data: r.ok
-          ? { status: "published", resultUrl: r.url ?? null, error: null }
-          : { status: "failed", error: r.error },
-      });
-      results.push({ id: post.id, projectSlug: post.projectSlug, network: post.network, ok: r.ok, url: r.ok ? r.url : undefined, error: r.ok ? undefined : r.error });
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      await prisma.labScheduledPost.update({ where: { id: post.id }, data: { status: "failed", error } });
-      results.push({ id: post.id, projectSlug: post.projectSlug, network: post.network, ok: false, error });
-    }
-  }
-  return results;
-}
 
 // ---------------------------------------------------------------------------
 // TikTok scheduled-post publishing
@@ -524,12 +469,11 @@ export type TickResult = {
     error?: string;
   }>;
   instagram: IgResult[];
-  lab?: LabResult[];
   campaignDocs?: CampaignDocResult[];
   tiktok?: TikTokTickResult[];
 };
 
-/** Publish everything currently due (tweets + Instagram + Lab cross-network).
+/** Publish everything currently due (tweets + Instagram + campaign calendar).
  *  Idempotent/safe to run concurrently — each lane uses an atomic claim or
  *  clears its schedule on success. */
 // ---------------------------------------------------------------------------
@@ -610,7 +554,7 @@ async function reconcileCrossPosts(now: number): Promise<number> {
 //
 // This publishes the calendar DIRECTLY off the document, the same way the four
 // lanes above publish off their own rows. Deliberately NOT by copying the text
-// into LabScheduledPost: a copy goes stale the moment someone edits the doc, and
+// into a copy table: a copy goes stale the moment someone edits the doc, and
 // two copies means two chances to double-post. The doc is the single source of
 // truth, and `postedAt` on it is the done-marker.
 //
@@ -674,7 +618,7 @@ async function publishDueCampaignDocs(now: number): Promise<CampaignDocResult[]>
     const projectSlug = doc.campaign.projectSlug;
     const project = getProject(projectSlug);
     try {
-      const r = await publishLabChannel(network, text, project);
+      const r = await publishToChannel(network, text, project);
       await prisma.campaignDocument.update({
         where: { id: doc.id },
         data: r.ok
@@ -692,16 +636,15 @@ async function publishDueCampaignDocs(now: number): Promise<CampaignDocResult[]>
 }
 
 export async function runScheduledPublish(now: number): Promise<TickResult> {
-  const [tweetDue, igResults, labResults, campaignDocResults, tiktokResults] = await Promise.all([
+  const [tweetDue, igResults, campaignDocResults, tiktokResults] = await Promise.all([
     findDueItems(now),
     publishDueIgPosts(now),
-    publishDueLabPosts(now),
     // Isolated: the TikTok lane is the newest and its table may not exist yet on
     // an environment that hasn't run create-tiktok-tables.cjs. A rejection here
     // would take the WHOLE tick down with it — including Instagram — so it
     // degrades to an empty result instead.
     // Same isolation rationale as TikTok below: a campaign-calendar failure must
-    // never take Instagram and the Lab down with it.
+    // never take Instagram down with it.
     publishDueCampaignDocs(now).catch(() => [] as CampaignDocResult[]),
     publishDueTikTokPosts(now).catch((err) => [
       {
@@ -736,7 +679,6 @@ export async function runScheduledPublish(now: number): Promise<TickResult> {
     checkedAt: new Date(now).toISOString(),
     processed,
     instagram: igResults,
-    lab: labResults,
     campaignDocs: campaignDocResults,
     tiktok: tiktokResults,
   };

@@ -728,7 +728,7 @@ export async function markPosted(
 
 export type CalendarExtra = {
   id: string;
-  kind: "suggestion" | "repo" | "instagram" | "lab";
+  kind: "suggestion" | "repo" | "instagram";
   /** Origin project. Always the active portal — the calendars are scoped to it;
    *  kept on the event so the UI can prove that and never mislabel a post. */
   projectSlug: string;
@@ -789,23 +789,6 @@ export async function listCalendarExtras(): Promise<
     };
     harvest(sugRuns, "suggestion");
     harvest(repoRuns, "repo");
-
-    // Lab-scheduled cross-network posts (non-IG) — this project's only.
-    const labPosts = await prisma.labScheduledPost.findMany({
-      where: { projectSlug: project.slug, status: { in: ["scheduled", "publishing"] } },
-      select: { id: true, projectSlug: true, network: true, text: true, scheduledFor: true },
-    });
-    for (const lp of labPosts) {
-      events.push({
-        id: `lab:${lp.id}`,
-        kind: "lab",
-        projectSlug: lp.projectSlug,
-        projectName: project.name,
-        platform: lp.network,
-        title: lp.text.slice(0, 600),
-        when: lp.scheduledFor.toISOString(),
-      });
-    }
 
     events.sort((a, b) => (a.when < b.when ? -1 : 1));
     return { ok: true, events };

@@ -82,7 +82,6 @@ const vlad: ProjectConfig = {
   ],
   postCreator: true,
   meetings: true,
-  lab: true,
   // Vlad doesn't use the shared userbase (email list) or Analytics (no site yet).
   hiddenRoutes: ["/userbase", "/analytics"],
   // Personal Kanban — GitHub Project V2 (PRIVATE) owned by the sktbrd USER

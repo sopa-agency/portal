@@ -2348,10 +2348,9 @@ Return ONLY the cast text. No preamble, no labels, no code fences.`;
 }
 
 /**
- * Queue one artifact to publish later. Writes a LabScheduledPost, which the
+ * Queue one artifact to publish later. Sets the document's scheduledFor, which the
  * scheduler's publishDueLabPosts picks up at `scheduledFor`. Deliberately does
- * NOT go through the lab's own action: scheduling a campaign artifact shouldn't
- * require the Lab feature flag to be on for the project.
+ * Agenda pelo `scheduledFor` do documento, na raia da agenda de campanhas.
  */
 export async function scheduleCampaignArtifact(
   documentId: string,
@@ -2379,15 +2378,11 @@ export async function scheduleCampaignArtifact(
     if (Number.isNaN(when.getTime())) return { ok: false, error: "Data inválida." };
     if (when.getTime() <= Date.now()) return { ok: false, error: "Escolha um horário no futuro." };
 
-    await prisma.labScheduledPost.create({
-      data: {
-        projectSlug: project.slug,
-        network,
-        text,
-        scheduledFor: when,
-        createdBy: session.username,
-      },
-    });
+    // O agendamento vira o `scheduledFor` do PRÓPRIO documento — a raia da
+    // agenda de campanhas publica dali (publishDueCampaignDocs). Antes isto
+    // gravava numa tabela do Lab, uma segunda fila para a mesma coisa; o Lab
+    // foi aposentado em 15/09/2026 e a tabela nunca teve uma linha.
+    await prisma.campaignDocument.update({ where: { id: doc.id }, data: { scheduledFor: when, publishError: null } });
     revalidatePath(`/campaign-creator`);
     return { ok: true, scheduledFor: when.toISOString() };
   } catch (err) {

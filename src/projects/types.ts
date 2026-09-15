@@ -167,12 +167,6 @@ export type ProjectConfig = {
    */
   about?: boolean;
   /**
-   * When true, the Lab nav item + /lab route are enabled — an experimental
-   * unified post/campaign composer (compose once → live multi-network preview
-   * → schedule). Doesn't touch the production Post Creator / Campaign Creator.
-   */
-  lab?: boolean;
-  /**
    * When true, the Zine Studio nav item + /zine route are enabled — a page-based
    * editor for printable zines (Reelflip-family brands). Imports from Drive +
    * SkateHive, exports a print-ready PDF.
