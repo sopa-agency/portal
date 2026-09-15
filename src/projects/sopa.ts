@@ -57,8 +57,20 @@ const sopa: ProjectConfig = {
   // aponta; a Hive é a conta nova. Sem API do X, a métrica dele fica "n/d" e
   // o tweet é copiar e colar — o mesmo que vale para as outras marcas.
   socials: [
-    { platform: "X", handle: "@sopaagency", url: "https://x.com/sopaagency", note: "conta da agência; o site sopa.team aponta para cá" },
-    { platform: "Hive", handle: "@s0p4", url: "https://peakd.com/@s0p4", note: "conta da SOPA na Hive, criada em 11/09/2026" },
+    {
+      platform: "X",
+      handle: "@sopaagency",
+      url: "https://x.com/sopaagency",
+      note: "conta da agência; o site sopa.team aponta para cá",
+      summary: "The agency's X account — what SOPA ships and operates, builder to builder. No X API: tweets are drafted here and posted by hand.",
+    },
+    {
+      platform: "Hive",
+      handle: "@s0p4",
+      url: "https://peakd.com/@s0p4",
+      note: "conta da SOPA na Hive, criada em 11/09/2026",
+      summary: "SOPA's Hive account. No posting key in the portal yet and no community of its own, so Hive pieces are drafts until that exists.",
+    },
   ],
   // Persona das peças de campanha. Sem isto o gerador se apresentava como "the
   // growth lead at SOPA — a community-owned platform built on Hive", que é a
