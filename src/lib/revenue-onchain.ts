@@ -294,6 +294,55 @@ async function distribuicoesPorRpc(addr: string, chain: string, ethPrice: number
   return null;
 }
 
+/**
+ * Distribuições de um split numa rede, lidas pelo INDEXADOR (Blockscout), no
+ * mesmo formato que o RPC devolve — para o caminho multi-rede poder preferir o
+ * indexador e cair no RPC só quando ele não responde.
+ *
+ * Existe porque a fonte "em várias redes" ia direto de RPC, com eth_getLogs
+ * desde o bloco zero, e a Base recusa isso (403/413) nos gateways públicos.
+ * Era o "couldn't read: Swaps.Pro EVM fees" do refresh, dia sim, dia não —
+ * enquanto a mesma leitura pelo Blockscout passava em 300 ms. Uma rede lida
+ * por dois caminhos diferentes conforme o stream declara ou não a cadeia é
+ * uma inconsistência que só aparece quando uma delas falha.
+ *
+ * null = o indexador NÃO respondeu (não sei). Lista vazia = li e não houve.
+ */
+async function distribuicoesPorBlockscout(addr: string, host: string, ethPrice: number, morPrice: number | null): Promise<RpcLeitura> {
+  const items: DecodedLog[] = [];
+  let next: Record<string, string> | null | undefined = {};
+  let pages = 0;
+  let respondeu = false;
+  while (next && pages < REALIZED_MAX_PAGES) {
+    const res = await bs(host, `/addresses/${addr}/logs`, pages === 0 ? {} : (next as Record<string, string>));
+    if (!res) break;
+    respondeu = true;
+    items.push(...((res.items as DecodedLog[]) ?? []));
+    next = res.next_page_params;
+    pages++;
+  }
+  if (!respondeu) return null;
+  const param = (log: DecodedLog, name: string): string | undefined =>
+    log.decoded?.parameters?.find((p) => p.name === name)?.value as string | undefined;
+  const evs: { t: number; usd: number; bloco?: string }[] = [];
+  let semPreco = 0;
+  for (const log of items) {
+    const call = log.decoded?.method_call ?? "";
+    const t = Date.parse(log.block_timestamp ?? "") || 0;
+    if (call.startsWith("AuctionSettled")) {
+      const amt = Number(param(log, "amount") ?? 0) / 1e18;
+      if (amt > 0) evs.push({ t, usd: amt * ethPrice });
+    } else if (call.startsWith("SplitDistributed")) {
+      const token = (param(log, "token") ?? "").toLowerCase();
+      const raw = Number(param(log, "amount") ?? 0);
+      const usd = emDolar(token, raw, ethPrice, morPrice);
+      if (usd == null) semPreco++;
+      else if (usd > 0) evs.push({ t, usd });
+    }
+  }
+  return { evs, semPreco };
+}
+
 /** Sum realized revenue from a contract's decoded events (AuctionSettled / SplitDistributed). */
 export async function fetchOnchainRevenue(address: string, chainKey: string | null): Promise<RealizedRevenue> {
   const addr = address.trim().toLowerCase();
@@ -362,16 +411,16 @@ export async function fetchOnchainRevenue(address: string, chainKey: string | nu
     const naoLidas: string[] = [];
     const todos: { t: number; usd: number }[] = [];
     for (const rede of redes) {
-      let r = await distribuicoesPorRpc(addr, rede, ethPrice, morPrice);
-      // Uma segunda tentativa, depois de um respiro. O "atualizar" do tesouro
-      // dispara todas as fontes de uma vez, e a Base recebe ~9 eth_getLogs no
-      // mesmo instante: o gateway público engasga numa rajada e responde erro
-      // para uma leitura que, sozinha, passa em 300ms (medido em 15/09/2026 —
-      // era o "couldn't read 1 source" do split do swaps.pro). Sem isto, uma
-      // rajada virava "sem leitura em base" e um total que não era total.
+      // Indexador primeiro, como no caminho de rede única; RPC só de reserva.
+      const hostRede = BLOCKSCOUT_HOST[rede];
+      let r: RpcLeitura = hostRede ? await distribuicoesPorBlockscout(addr, hostRede, ethPrice, morPrice) : null;
+      if (!r) r = await distribuicoesPorRpc(addr, rede, ethPrice, morPrice);
+      // Uma segunda tentativa, depois de um respiro: o "atualizar" dispara
+      // todas as fontes de uma vez e um gateway público engasga na rajada.
       if (!r) {
         await new Promise((ok) => setTimeout(ok, 600 + Math.random() * 600));
-        r = await distribuicoesPorRpc(addr, rede, ethPrice, morPrice);
+        r = hostRede ? await distribuicoesPorBlockscout(addr, hostRede, ethPrice, morPrice) : null;
+        if (!r) r = await distribuicoesPorRpc(addr, rede, ethPrice, morPrice);
       }
       if (!r) {
         naoLidas.push(rede);
