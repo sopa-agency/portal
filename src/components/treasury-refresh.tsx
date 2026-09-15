@@ -73,7 +73,7 @@ export function TreasuryRefreshProvider({
       try {
         const r = await refreshTreasury();
         setFalhouAgora(r.falhas.length > 0);
-        if (r.falhas.length) setErro(t.readFail(r.falhas.length));
+        if (r.falhas.length) setErro(t.readFailList(r.falhas.join(", ")));
       } catch (e) {
         setFalhouAgora(true);
         setErro(e instanceof Error ? e.message : String(e));
