@@ -22,7 +22,18 @@ export const FORMATS: Record<FilmFormat, { label: string; width: number; height:
  */
 export type AssetSource = `public:${string}` | `drive:${string}` | `data:${string}`;
 
-export type FilmAssets = Record<string, HTMLImageElement | undefined>;
+/** Como olhar uma cena 3D num frame: giro por segundo, ângulos extras, zoom. */
+export type Scene3DView = { spin?: number; yaw?: number; pitch?: number; zoom?: number };
+
+/** Um renderizador 3D (three.js) que devolve o seu canvas para o frame t. */
+export type Scene3D = {
+  kind: "3d";
+  frame: (t: number, width: number, height: number, view?: Scene3DView) => HTMLCanvasElement;
+  dispose?: () => void;
+};
+
+export type FilmAsset = HTMLImageElement | Scene3D;
+export type FilmAssets = Record<string, FilmAsset | undefined>;
 
 export type FilmBrand = {
   name: string;
@@ -51,6 +62,11 @@ export type FeatureFilm = {
   exampleValues?: boolean;
   /** Imagens além do logo da marca (id → fonte). */
   assets?: Record<string, AssetSource>;
+  /**
+   * Assets que não são imagem (uma cena three.js, por exemplo), preparados
+   * uma vez antes do estúdio liberar a prévia. Recebe a cor da marca.
+   */
+  prepare?: (brand: { accent: string }) => Promise<Record<string, FilmAsset>>;
   /**
    * Desenha a ação centrada em (0,0), numa caixa de ~560×520 (escala do 16:9).
    * `t` é o tempo local da cena em segundos.
