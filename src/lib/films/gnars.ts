@@ -29,6 +29,7 @@ function burst(p: Parameters<FeatureFilm["draw"]>[0], t: number, from: number, x
 
 const auctions: FeatureFilm = {
   id: "auctions",
+  describe: "Auction card: the real Gnar artwork in a square tile on the left; current bid, countdown timer and three bidder avatars on the right; the cursor types a bid (0.45 ETH) into the input, presses \"Place bid\", the card flips to \"Bid placed\" with confetti and shows the next Gnar.",
   label: "Auctions",
   url: "gnars.com/auctions",
   tweetDoc: "Tweet 1",
@@ -107,6 +108,7 @@ const auctions: FeatureFilm = {
 
 const proposals: FeatureFilm = {
   id: "proposals",
+  describe: "A list of three proposals with photo thumbnails, status pills and ETH asked; the cursor opens the first one, which expands to a detail card with a photo header, author, description, a FOR bar filling to 78% and a vote counter; the cursor presses \"For\" and the card confirms \"Voted for\" with confetti.",
   label: "Proposals",
   url: "gnars.com/proposals",
   tweetDoc: "Tweet 2",
@@ -188,6 +190,7 @@ const proposals: FeatureFilm = {
 
 const bounties: FeatureFilm = {
   id: "bounties",
+  describe: "A bounty card with a skate photo header, the title \"Impossible late flip\", reward 0.023 ETH with the ETH logo, POIDH escrow badge, three milestones (Film it, Upload proof, Get paid); the cursor presses \"Claim bounty\", an upload bar fills, then \"Verified · paid onchain\" with confetti.",
   label: "Bounties",
   url: "gnars.com/community/bounties",
   tweetDoc: "Tweet 3",
@@ -250,6 +253,7 @@ const bounties: FeatureFilm = {
 
 const droposals: FeatureFilm = {
   id: "droposals",
+  describe: "A 3×2 grid of video tiles with real photos and play buttons, cascading in; the first tile lifts and the cursor opens it; it expands to a big frame with slow zoom, a pulsing play ring, the title \"Gnargentina · Droposal #110\", pills \"Minted as NFT\" and mint price, and a \"Watch the part\" button.",
   label: "Droposals",
   url: "gnars.com/droposals",
   tweetDoc: "Tweet 4",
@@ -324,6 +328,7 @@ const droposals: FeatureFilm = {
 
 const swap: FeatureFilm = {
   id: "swap",
+  describe: "A swap card: pay row ETH with logo, amount 0.1 typed by the cursor, receive row MOR with logo showing 128.4, a checkbox \"Support Gnars treasury (0.5%)\" that the cursor ticks (confetti), \"Review swap\" pressed, then a review state with two coin medallions (ETH → MOR) joined by a running light and a summary box.",
   label: "Swap",
   url: "gnars.com/swap",
   tweetDoc: "Tweet 5",
@@ -403,6 +408,7 @@ const globePoint = (lat: number, lon: number, rot: number, R: number) => {
 
 const nogglesrails: FeatureFilm = {
   id: "nogglesrails",
+  describe: "A rotating globe drawn with real latitude/longitude pins for the 16 rails, city labels fading with depth; the 3D NogglesRail sculpture spinning in the centre; three polaroids of real rails (Nairobi, Buenos Aires, São Paulo) entering at the end; counters 16 rails · 9 countries · 4 continents; a CC0 pill.",
   label: "NogglesRails",
   url: "gnars.com/nogglesrails",
   tweetDoc: "Tweet 6",
@@ -485,6 +491,7 @@ const RIDERS: [string, string][] = [["Vlad", "vlad"], ["Yan", "yan"], ["r4to", "
 
 const stake: FeatureFilm = {
   id: "stake",
+  describe: "A \"Stake or Die\" card with four rider tiles showing real cutout photos; the cursor picks Vlad (tile lifts with a glow), types 100 USDC, a bar splits the yield 50/50 between you and rider+treasury, \"Stake\" pressed, confirmation with confetti.",
   label: "Stake",
   url: "gnars.com/stake",
   tweetDoc: "Tweet 7",
@@ -555,6 +562,7 @@ const FEED_EVENTS: [string, string, string, string][] = [
 
 const feed: FeatureFilm = {
   id: "feed",
+  describe: "A live feed card: events slide in from the top every ~1 s (bids with noggles icons, a vote with a rider avatar, a proposal created, a bounty claimed with the POIDH logo), newest highlighted, timestamps on the right, a pulsing live dot in the header.",
   label: "Live feed",
   url: "gnars.com/feed",
   tweetDoc: "Tweet 8",
@@ -603,6 +611,7 @@ const feed: FeatureFilm = {
 
 const propdates: FeatureFilm = {
   id: "propdates",
+  describe: "A propdate card with a photo header (Kenya), \"Prop 118 · Executed\", title \"Skate Across Africa\", a vertical timeline with three updates appearing one by one (two done with checks, one pending pulsing), and a 2-of-3 milestones progress bar.",
   label: "Propdates",
   url: "gnars.com/propdates",
   tweetDoc: "Tweet 9",
@@ -644,6 +653,7 @@ const propdates: FeatureFilm = {
 
 const treasury: FeatureFilm = {
   id: "treasury",
+  describe: "A treasury card: an animated sparkline in the header, three stat rows counting up (sponsorship yield, vault fee, MOR rewards with the Morpheus logo), an \"example amounts\" pill, and a two-colour bar showing principal kept by depositors vs the yield split.",
   label: "Treasury",
   url: "gnars.com/treasury",
   tweetDoc: "Tweet 10",
@@ -689,6 +699,7 @@ const treasury: FeatureFilm = {
 // vermelho dos noggles que o portal usa como tema. Vermelho fica nos noggles
 // e na escultura, que são vermelhos de verdade.
 export const gnarsFilms: FilmSet = {
-  brand: { name: "Gnars", site: "gnars.com", accent: "#fce560" },
+  brand: { name: "Gnars", site: "gnars.com", accent: "#fce560", backdrop: "glow" },
   films: [auctions, proposals, bounties, droposals, swap, nogglesrails, stake, feed, propdates, treasury],
+  extraAssets: { rail3d: `${A}/nograil.glb`, noggles: `${A}/noggles.png`, logo: "public:/projects/gnars/logo.png", gnar1: `${A}/gnar-1.webp`, gnar2: `${A}/gnar-2.webp` },
 };

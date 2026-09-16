@@ -25,42 +25,55 @@ export function renderFilm(canvas: HTMLCanvasElement, film: FeatureFilm, seconds
   ctx.fillRect(0, 0, w, h);
   const p = painter(ctx, c, t, assets);
 
-  // Fundo: luz da cor do projeto, partículas determinísticas, órbitas lentas.
-  p.glow(w * 0.68, h * 0.5, w * 0.64, c.accent + "22");
-  p.glow(w * 0.15, h * 0.18, w * 0.46, "#ffffff08");
-  for (let i = 0; i < 85; i++) {
-    const depth = 0.3 + (i % 9) / 9;
-    const px = ((i * 157.37 + t * 9 * depth) % (w + 120)) - 60;
-    const py = ((((i * 97.71 - t * 13 * depth) % (h + 120)) + h + 120) % (h + 120)) - 60;
-    p.circle(px, py, 0.5 + depth, `rgba(255,255,255,${0.05 + depth * 0.12})`);
+  // Fundo. "orbits": luz da marca, partículas, órbitas com luzes correndo.
+  // "glow": duas luzes difusas deslizando devagar e um grão fino; nada de
+  // linhas. A Gnars usa "glow".
+  if (brand.backdrop === "glow") {
+    const sweep = Math.sin(t * 0.25);
+    p.glow(w * (0.62 + sweep * 0.08), h * (0.48 - sweep * 0.06), w * 0.7, c.accent + "1c");
+    p.glow(w * (0.18 - sweep * 0.05), h * (0.85 + sweep * 0.05), w * 0.5, c.accent + "10");
+    p.glow(w * 0.5, h * 0.1, w * 0.5, "#ffffff06");
+    for (let i = 0; i < 140; i++) {
+      const gx = (i * 233.17 + t * 2) % w;
+      const gy = (i * 151.31 + t * 1.3) % h;
+      p.circle(gx, gy, 0.6 + (i % 3) * 0.3, `rgba(255,255,255,${0.03 + (i % 5) * 0.012})`);
+    }
+  } else {
+    p.glow(w * 0.68, h * 0.5, w * 0.64, c.accent + "22");
+    p.glow(w * 0.15, h * 0.18, w * 0.46, "#ffffff08");
+    for (let i = 0; i < 85; i++) {
+      const depth = 0.3 + (i % 9) / 9;
+      const px = ((i * 157.37 + t * 9 * depth) % (w + 120)) - 60;
+      const py = ((((i * 97.71 - t * 13 * depth) % (h + 120)) + h + 120) % (h + 120)) - 60;
+      p.circle(px, py, 0.5 + depth, `rgba(255,255,255,${0.05 + depth * 0.12})`);
+    }
+    ctx.save();
+    ctx.translate(w * 0.55, h * 0.58);
+    ctx.rotate(-0.4 + t * 0.035);
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 270 + i * 85, 95 + i * 48, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = c.accent + "12";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    for (const [i, phase] of [[1, 0], [3, 0.5]] as const) {
+      const a = (t * 0.22 + phase) * Math.PI * 2;
+      const rx = 270 + i * 85, ry = 95 + i * 48;
+      const x = Math.cos(a) * rx, y = Math.sin(a) * ry;
+      p.glow(x, y, 26, c.accent + "70");
+      p.circle(x, y, 2.2, c.accent);
+      const trail = ctx.createLinearGradient(Math.cos(a - 0.5) * rx, Math.sin(a - 0.5) * ry, x, y);
+      trail.addColorStop(0, c.accent + "00");
+      trail.addColorStop(1, c.accent + "aa");
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, a - 0.5, a);
+      ctx.strokeStyle = trail;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.restore();
   }
-  ctx.save();
-  ctx.translate(w * 0.55, h * 0.58);
-  ctx.rotate(-0.4 + t * 0.035);
-  for (let i = 0; i < 4; i++) {
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 270 + i * 85, 95 + i * 48, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = c.accent + "12";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-  // Duas luzes correndo pelas órbitas, em fases diferentes.
-  for (const [i, phase] of [[1, 0], [3, 0.5]] as const) {
-    const a = (t * 0.22 + phase) * Math.PI * 2;
-    const rx = 270 + i * 85, ry = 95 + i * 48;
-    const x = Math.cos(a) * rx, y = Math.sin(a) * ry;
-    p.glow(x, y, 26, c.accent + "70");
-    p.circle(x, y, 2.2, c.accent);
-    const trail = ctx.createLinearGradient(Math.cos(a - 0.5) * rx, Math.sin(a - 0.5) * ry, x, y);
-    trail.addColorStop(0, c.accent + "00");
-    trail.addColorStop(1, c.accent + "aa");
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rx, ry, 0, a - 0.5, a);
-    ctx.strokeStyle = trail;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-  ctx.restore();
 
   // Chrome do filme: logo + nome no topo, rótulo da cena à direita.
   ctx.save();

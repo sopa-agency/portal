@@ -6,8 +6,10 @@
 // gravação é a do FeatureStudio.tsx do swaps.pro (@ 38c1644), adaptada.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, BookOpen, Check, Copy, Film, HardDrive, Loader2, Pause, Pencil, Play, RotateCcw, Save, Sparkles, Square, Undo2, X } from "lucide-react";
-import { resetFilmText, saveFilmText } from "@/app/actions/films";
+import { ArrowDownToLine, BookOpen, Check, Code2, Copy, Film, HardDrive, Loader2, Pause, Pencil, Play, RotateCcw, Save, Shuffle, Sparkles, Square, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { deleteFilmScene, generateFilmScene, remixFilmScene, resetFilmText, saveFilmScene, saveFilmText, type StoredScene } from "@/app/actions/films";
+import { parseSpec, specToFilm, type FilmSpec } from "@/lib/films/spec";
+import { loadRail3D } from "@/lib/films/three-rail";
 import { useLocale } from "@/components/locale-provider";
 import { MarkdownContent } from "@/components/markdown-content";
 import { fetchDriveIndex, loadFilmAssets, type DriveIndex } from "@/lib/films/assets";
@@ -67,6 +69,26 @@ const STR = {
     edited: "editado",
     saved: "Texto salvo. A prévia e a exportação já usam o novo.",
     restored: "Roteiro restaurado.",
+    genScene: "Gerar cena com IA",
+    generating: "Gerando cena… (até 2 min)",
+    genLabel: "Feature (nome curto)",
+    genUrl: "Página mostrada",
+    genAbout: "O que a página faz, ou o tweet",
+    genInstruction: "Direção (opcional)",
+    remix: "Remixar com IA",
+    remixing: "Remixando… (até 2 min)",
+    remixInstruction: "O que mudar nesta cena",
+    editScene: "Editar cena (JSON)",
+    apply: "Aplicar na prévia",
+    deleteScene: "Apagar cena",
+    confirmDelete: "Apagar esta cena? Não tem volta.",
+    sceneSaved: "Cena salva.",
+    sceneDeleted: "Cena apagada.",
+    sceneCreated: "Cena nova na lista. Toque play.",
+    badgeAi: "IA",
+    badgeRemix: "remix",
+    badgeData: "dados",
+    onlyData: "Cenas em código se editam no repositório; remixe para ter uma versão em dados editável.",
   },
   en: {
     title: "Feature films",
@@ -119,6 +141,26 @@ const STR = {
     edited: "edited",
     saved: "Text saved. Preview and export already use it.",
     restored: "Script restored.",
+    genScene: "Generate scene with AI",
+    generating: "Generating scene… (up to 2 min)",
+    genLabel: "Feature (short name)",
+    genUrl: "Page shown",
+    genAbout: "What the page does, or the tweet",
+    genInstruction: "Direction (optional)",
+    remix: "Remix with AI",
+    remixing: "Remixing… (up to 2 min)",
+    remixInstruction: "What to change in this scene",
+    editScene: "Edit scene (JSON)",
+    apply: "Apply to preview",
+    deleteScene: "Delete scene",
+    confirmDelete: "Delete this scene? This cannot be undone.",
+    sceneSaved: "Scene saved.",
+    sceneDeleted: "Scene deleted.",
+    sceneCreated: "New scene in the list. Press play.",
+    badgeAi: "AI",
+    badgeRemix: "remix",
+    badgeData: "data",
+    onlyData: "Coded scenes are edited in the repo; remix one to get an editable data version.",
   },
 };
 
@@ -127,17 +169,40 @@ type AssetState =
   | { status: "error"; error: string }
   | { status: "ready"; assets: FilmAssets; missing: string[]; drive: { ok: true; count: number } | { ok: false; note: string } };
 
-export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, texts: initialTexts }: { projectSlug: string; accent: string; logo: string; playbook: string; githubRepo?: string; texts: Record<string, FilmText> }) {
+export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, texts: initialTexts, scenes: initialScenes }: { projectSlug: string; accent: string; logo: string; playbook: string; githubRepo?: string; texts: Record<string, FilmText>; scenes: StoredScene[] }) {
   const { locale } = useLocale();
   const s = STR[locale === "pt" ? "pt" : "en"];
   const set = useMemo(() => filmsForProject(projectSlug), [projectSlug]);
   // O roteiro pode fixar o accent da marca (o amarelo do logo da Gnars); sem
   // isso vale o accent do tema do portal.
-  const brand = useMemo<FilmBrand>(() => ({ name: set?.brand.name ?? projectSlug, site: set?.brand.site ?? "", accent: set?.brand.accent ?? accent, logo: `public:${logo}` }), [set, projectSlug, accent, logo]);
+  const brand = useMemo<FilmBrand>(() => ({ name: set?.brand.name ?? projectSlug, site: set?.brand.site ?? "", accent: set?.brand.accent ?? accent, logo: `public:${logo}`, backdrop: set?.brand.backdrop }), [set, projectSlug, accent, logo]);
   // Os roteiros em código (para carregar assets) e os mesmos com os textos
   // editados por cima (para desenhar, copiar e exportar).
-  const baseFilms = useMemo(() => set?.films ?? [], [set]);
+  const [stored, setStored] = useState<StoredScene[]>(initialScenes);
+  /** JSON aplicado na prévia mas ainda não salvo, por cena. */
+  const [specDrafts, setSpecDrafts] = useState<Record<string, FilmSpec>>({});
+  const baseFilms = useMemo<FeatureFilm[]>(() => {
+    const coded = (set?.films ?? []).map((f) => ({ ...f, origin: { kind: "code" as const } }));
+    const data = stored.map((sc) => {
+      const spec = specDrafts[sc.sceneId] ?? sc.spec;
+      // Um asset .glb referenciado por uma camada scene3d vira uma cena three.js.
+      const glb = Object.entries(spec.assets ?? {}).find(([id, src]) => src.endsWith(".glb") && spec.layers.some((l) => l.type === "scene3d" && l.asset === id));
+      const prepare = glb ? async () => ({ [glb[0]]: await loadRail3D(glb[1].replace(/^public:/, ""), { frameColor: "#FF2D2D" }) }) : undefined;
+      const film = specToFilm(spec, { prepare });
+      const assets = Object.fromEntries(Object.entries(film.assets ?? {}).filter(([, src]) => !src.endsWith(".glb")));
+      return { ...film, assets, origin: { kind: "data" as const, source: sc.source as "ai" | "remix" | "manual", basedOn: sc.basedOn } };
+    });
+    return [...coded, ...data];
+  }, [set, stored, specDrafts]);
   const [texts, setTexts] = useState<Record<string, FilmText>>(initialTexts);
+  const [genOpen, setGenOpen] = useState(false);
+  const [gen, setGen] = useState({ label: "", url: "", about: "", instruction: "" });
+  const [generating, setGenerating] = useState(false);
+  const [remixText, setRemixText] = useState("");
+  const [remixing, setRemixing] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
+  const [jsonText, setJsonText] = useState("");
+  const [jsonError, setJsonError] = useState("");
   const [draft, setDraft] = useState<{ id: string; text: FilmText } | null>(null);
   const [saving, setSaving] = useState(false);
   const films = useMemo(() => baseFilms.map((f) => applyText(f, draft && draft.id === f.id ? draft.text : texts[f.id])), [baseFilms, texts, draft]);
@@ -297,6 +362,113 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
     }
   }
 
+  function selectById(id: string) {
+    const idx = baseFilms.findIndex((f) => f.id === id);
+    if (idx >= 0) {
+      setSelected(idx);
+      setAll(false);
+      setDraft(null);
+      setJsonOpen(false);
+      reset();
+    }
+  }
+  async function runGenerate() {
+    setGenerating(true);
+    setMessage("");
+    try {
+      const r = await generateFilmScene({ label: gen.label, url: gen.url, about: gen.about, instruction: gen.instruction || undefined });
+      if (r.ok) {
+        setStored((all) => [...all, r.scene]);
+        setGenOpen(false);
+        setGen({ label: "", url: "", about: "", instruction: "" });
+        setMessage(s.sceneCreated);
+        // seleciona depois que baseFilms recalcular
+        setTimeout(() => selectById(r.scene.sceneId), 0);
+      } else setMessage(r.error);
+    } finally {
+      setGenerating(false);
+    }
+  }
+  async function runRemix() {
+    if (!film || !remixText.trim()) return;
+    setRemixing(true);
+    setMessage("");
+    try {
+      const r = await remixFilmScene(film.id, remixText);
+      if (r.ok) {
+        setStored((all) => [...all, r.scene]);
+        setRemixText("");
+        setMessage(s.sceneCreated);
+        setTimeout(() => selectById(r.scene.sceneId), 0);
+      } else setMessage(r.error);
+    } finally {
+      setRemixing(false);
+    }
+  }
+  function openJson() {
+    if (!film) return;
+    const sc = stored.find((x) => x.sceneId === film.id);
+    if (!sc) return;
+    setJsonText(JSON.stringify(specDrafts[sc.sceneId] ?? sc.spec, null, 2));
+    setJsonError("");
+    setJsonOpen(true);
+  }
+  function applyJson(): FilmSpec | null {
+    if (!film) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (e) {
+      setJsonError(e instanceof Error ? e.message : "Invalid JSON");
+      return null;
+    }
+    const r = parseSpec(parsed);
+    if (!r.ok) {
+      setJsonError(r.error);
+      return null;
+    }
+    const spec = { ...r.spec, id: film.id };
+    setJsonError("");
+    setSpecDrafts((all) => ({ ...all, [film.id]: spec }));
+    return spec;
+  }
+  async function saveJson() {
+    if (!film) return;
+    const spec = applyJson();
+    if (!spec) return;
+    setSaving(true);
+    try {
+      const r = await saveFilmScene(film.id, spec);
+      if (r.ok) {
+        setStored((all) => all.map((x) => (x.sceneId === film.id ? r.scene : x)));
+        setSpecDrafts((all) => {
+          const next = { ...all };
+          delete next[film.id];
+          return next;
+        });
+        setMessage(s.sceneSaved);
+      } else setJsonError(r.error);
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function removeScene() {
+    if (!film || !window.confirm(s.confirmDelete)) return;
+    setSaving(true);
+    try {
+      const r = await deleteFilmScene(film.id);
+      if (r.ok) {
+        setStored((all) => all.filter((x) => x.sceneId !== film.id));
+        setJsonOpen(false);
+        setSelected(0);
+        reset();
+        setMessage(s.sceneDeleted);
+      } else setMessage(r.error);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function copyTweet() {
     if (!film) return;
     try {
@@ -438,9 +610,33 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right"><p className="text-3xl font-bold leading-none text-accent">{films.length}</p><p className="text-[11px] font-semibold uppercase tracking-wider text-foreground-subtle">{s.films(films.length, total)}</p></div>
+          <button type="button" onClick={() => { setGenOpen((v) => !v); setMessage(""); }} disabled={recording} className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground transition disabled:opacity-50"><Wand2 className="h-4 w-4" /> {s.genScene}</button>
           <button type="button" onClick={() => setPlaybookOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-accent-border bg-accent-bg px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent/20"><BookOpen className="h-4 w-4" /> {s.playbook}</button>
         </div>
       </header>
+
+      {genOpen && (
+        <section className="mt-5 rounded-2xl border border-accent-border bg-surface p-4" aria-label={s.genScene}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs text-foreground-muted">{s.genLabel}
+              <input value={gen.label} maxLength={40} onChange={(e) => setGen({ ...gen, label: e.target.value })} className="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm text-foreground" />
+            </label>
+            <label className="text-xs text-foreground-muted">{s.genUrl}
+              <input value={gen.url} maxLength={80} placeholder={`${brand.site}/…`} onChange={(e) => setGen({ ...gen, url: e.target.value })} className="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm text-foreground" />
+            </label>
+            <label className="text-xs text-foreground-muted sm:col-span-2">{s.genAbout}
+              <textarea value={gen.about} maxLength={1200} rows={4} onChange={(e) => setGen({ ...gen, about: e.target.value })} className="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground" />
+            </label>
+            <label className="text-xs text-foreground-muted sm:col-span-2">{s.genInstruction}
+              <input value={gen.instruction} maxLength={600} onChange={(e) => setGen({ ...gen, instruction: e.target.value })} className="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm text-foreground" />
+            </label>
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <button type="button" onClick={() => void runGenerate()} disabled={generating || !gen.label.trim() || !gen.url.trim() || !gen.about.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground disabled:opacity-50">{generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} {generating ? s.generating : s.genScene}</button>
+            <button type="button" onClick={() => setGenOpen(false)} disabled={generating} className="rounded-lg px-3 py-1.5 text-sm text-foreground-muted">{s.close}</button>
+          </div>
+        </section>
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[260px_1fr]">
         <aside className="rounded-2xl border border-border bg-surface p-3" aria-label={s.sequence}>
@@ -452,11 +648,11 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
                 type="button"
                 disabled={recording}
                 aria-pressed={selected === i && !all}
-                onClick={() => { setSelected(i); setAll(false); setDraft(null); reset(); setPlaying(true); }}
+                onClick={() => { setSelected(i); setAll(false); setDraft(null); setJsonOpen(false); reset(); setPlaying(true); }}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition disabled:opacity-50 ${selected === i && !all ? "border border-accent-border bg-accent-bg text-foreground" : "border border-transparent text-foreground-muted hover:bg-surface-elevated hover:text-foreground"}`}
               >
                 <span className="font-mono text-[11px] text-foreground-subtle">{String(i + 1).padStart(2, "0")}</span>
-                <span className="flex-1 truncate font-medium">{item.label}{texts[item.id] && <span className="ml-1.5 rounded bg-accent-bg px-1 text-[9px] font-semibold uppercase tracking-wider text-accent">{s.edited}</span>}</span>
+                <span className="flex-1 truncate font-medium">{item.label}{item.origin?.kind === "data" && <span className="ml-1.5 rounded bg-surface-elevated px-1 text-[9px] font-semibold uppercase tracking-wider text-foreground-muted">{item.origin.source === "ai" ? s.badgeAi : item.origin.source === "remix" ? s.badgeRemix : s.badgeData}</span>}{texts[item.id] && <span className="ml-1.5 rounded bg-accent-bg px-1 text-[9px] font-semibold uppercase tracking-wider text-accent">{s.edited}</span>}</span>
                 <span className="text-[11px] text-foreground-subtle">{item.seconds}s</span>
               </button>
             ))}
@@ -515,6 +711,32 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
             {film.exampleValues && <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">{s.exampleValues}</p>}
             {!draft && (
               <button type="button" onClick={startEdit} disabled={recording} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-2.5 py-1 text-xs font-semibold text-accent disabled:opacity-50"><Pencil className="h-3.5 w-3.5" /> {s.edit}</button>
+            )}
+          </section>
+
+          <section className="mt-4 rounded-2xl border border-border bg-surface p-4" aria-label={s.remix}>
+            <div className="flex flex-wrap items-center gap-2">
+              <input value={remixText} maxLength={600} placeholder={s.remixInstruction} disabled={remixing || recording} onChange={(e) => setRemixText(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm text-foreground" />
+              <button type="button" onClick={() => void runRemix()} disabled={remixing || recording || !remixText.trim()} className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-bg px-3 py-1.5 text-sm font-semibold text-accent disabled:opacity-50">{remixing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shuffle className="h-4 w-4" />} {remixing ? s.remixing : s.remix}</button>
+              {film.origin?.kind === "data" ? (
+                <>
+                  <button type="button" onClick={openJson} disabled={recording} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm font-semibold text-foreground disabled:opacity-50"><Code2 className="h-4 w-4" /> {s.editScene}</button>
+                  <button type="button" onClick={() => void removeScene()} disabled={saving || recording} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-danger disabled:opacity-50"><Trash2 className="h-4 w-4" /> {s.deleteScene}</button>
+                </>
+              ) : (
+                <p className="w-full text-xs text-foreground-subtle">{s.onlyData}</p>
+              )}
+            </div>
+            {jsonOpen && film.origin?.kind === "data" && (
+              <div className="mt-3">
+                <textarea value={jsonText} rows={18} spellCheck={false} onChange={(e) => setJsonText(e.target.value)} className="w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 font-mono text-xs text-foreground" aria-label={s.editScene} />
+                {jsonError && <p className="mt-1 text-xs text-danger">{jsonError}</p>}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => applyJson()} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm font-semibold text-foreground"><Play className="h-4 w-4" /> {s.apply}</button>
+                  <button type="button" onClick={() => void saveJson()} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {saving ? s.saving : s.save}</button>
+                  <button type="button" onClick={() => setJsonOpen(false)} className="rounded-lg px-3 py-1.5 text-sm text-foreground-muted">{s.close}</button>
+                </div>
+              </div>
             )}
           </section>
 
