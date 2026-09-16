@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { FilmStudio } from "@/components/films/film-studio";
-import { loadFilmScenes, loadFilmTexts } from "@/app/actions/films";
+import { loadFilmPlaybook, loadFilmScenes, loadFilmTexts } from "@/app/actions/films";
 import { getActiveProject } from "@/projects";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 export default async function FilmsPage() {
   const project = await getActiveProject();
   if (!project.films) notFound();
-  const playbook = await fs.readFile(path.join(process.cwd(), "docs", "filmes-de-feature.md"), "utf8").catch(() => "");
+  const repoPlaybook = await fs.readFile(path.join(process.cwd(), "docs", "filmes-de-feature.md"), "utf8").catch(() => "");
+  const custom = await loadFilmPlaybook(project.slug).catch(() => null);
   const texts = await loadFilmTexts(project.slug).catch(() => ({}));
   const scenes = await loadFilmScenes(project.slug).catch(() => []);
   return (
@@ -21,7 +22,9 @@ export default async function FilmsPage() {
       projectSlug={project.slug}
       accent={project.theme.accentDark}
       logo={project.theme.logo}
-      playbook={playbook}
+      playbook={custom?.markdown ?? repoPlaybook}
+      playbookDefault={repoPlaybook}
+      playbookIsCustom={!!custom}
       texts={texts}
       scenes={scenes}
       githubRepo="sopa-agency/portal"

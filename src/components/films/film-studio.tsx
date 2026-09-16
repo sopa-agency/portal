@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, BookOpen, Check, Code2, Copy, Film, HardDrive, Loader2, Pause, Pencil, Play, RotateCcw, Save, Shuffle, Sparkles, Square, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { deleteFilmScene, generateFilmScene, remixFilmScene, resetFilmText, saveFilmScene, saveFilmText, type StoredScene } from "@/app/actions/films";
+import { deleteFilmScene, generateFilmScene, remixFilmScene, resetFilmPlaybook, resetFilmText, saveFilmPlaybook, saveFilmScene, saveFilmText, type StoredScene } from "@/app/actions/films";
 import { parseSpec, specToFilm, type FilmSpec } from "@/lib/films/spec";
 import { loadRail3D } from "@/lib/films/three-rail";
 import { useLocale } from "@/components/locale-provider";
@@ -89,6 +89,11 @@ const STR = {
     badgeRemix: "remix",
     badgeData: "dados",
     onlyData: "Cenas em código se editam no repositório; remixe para ter uma versão em dados editável.",
+    playbookEdit: "Editar playbook",
+    playbookRestore: "Restaurar o do repositório",
+    playbookSaved: "Playbook salvo.",
+    playbookRestored: "Playbook do repositório restaurado.",
+    playbookCustom: "editado neste projeto",
   },
   en: {
     title: "Feature films",
@@ -161,6 +166,11 @@ const STR = {
     badgeRemix: "remix",
     badgeData: "data",
     onlyData: "Coded scenes are edited in the repo; remix one to get an editable data version.",
+    playbookEdit: "Edit playbook",
+    playbookRestore: "Restore repository version",
+    playbookSaved: "Playbook saved.",
+    playbookRestored: "Repository playbook restored.",
+    playbookCustom: "edited for this project",
   },
 };
 
@@ -169,7 +179,7 @@ type AssetState =
   | { status: "error"; error: string }
   | { status: "ready"; assets: FilmAssets; missing: string[]; drive: { ok: true; count: number } | { ok: false; note: string } };
 
-export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, texts: initialTexts, scenes: initialScenes }: { projectSlug: string; accent: string; logo: string; playbook: string; githubRepo?: string; texts: Record<string, FilmText>; scenes: StoredScene[] }) {
+export function FilmStudio({ projectSlug, accent, logo, playbook: initialPlaybook, playbookDefault, playbookIsCustom, githubRepo, texts: initialTexts, scenes: initialScenes }: { projectSlug: string; accent: string; logo: string; playbook: string; playbookDefault: string; playbookIsCustom: boolean; githubRepo?: string; texts: Record<string, FilmText>; scenes: StoredScene[] }) {
   const { locale } = useLocale();
   const s = STR[locale === "pt" ? "pt" : "en"];
   const set = useMemo(() => filmsForProject(projectSlug), [projectSlug]);
@@ -220,6 +230,42 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
   const [download, setDownload] = useState<{ url: string; name: string } | null>(null);
   const [videoType, setVideoType] = useState<string | undefined>();
   const [playbookOpen, setPlaybookOpen] = useState(false);
+  const [playbook, setPlaybook] = useState(initialPlaybook);
+  const [playbookCustom, setPlaybookCustom] = useState(playbookIsCustom);
+  const [playbookEditing, setPlaybookEditing] = useState(false);
+  const [playbookDraft, setPlaybookDraft] = useState("");
+  const [playbookMsg, setPlaybookMsg] = useState("");
+  const [playbookBusy, setPlaybookBusy] = useState(false);
+  async function savePlaybook() {
+    setPlaybookBusy(true);
+    setPlaybookMsg("");
+    try {
+      const r = await saveFilmPlaybook(playbookDraft);
+      if (r.ok) {
+        setPlaybook(r.markdown);
+        setPlaybookCustom(true);
+        setPlaybookEditing(false);
+        setPlaybookMsg(s.playbookSaved);
+      } else setPlaybookMsg(r.error);
+    } finally {
+      setPlaybookBusy(false);
+    }
+  }
+  async function restorePlaybook() {
+    setPlaybookBusy(true);
+    setPlaybookMsg("");
+    try {
+      const r = await resetFilmPlaybook();
+      if (r.ok) {
+        setPlaybook(playbookDefault);
+        setPlaybookCustom(false);
+        setPlaybookEditing(false);
+        setPlaybookMsg(s.playbookRestored);
+      } else setPlaybookMsg(r.error);
+    } finally {
+      setPlaybookBusy(false);
+    }
+  }
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cancelRef = useRef<(() => void) | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -575,12 +621,32 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
     <>
       {playbookOpen && <button type="button" aria-label="Fechar" className="fixed inset-0 z-40 bg-black/50" onClick={() => setPlaybookOpen(false)} />}
       <aside className={`fixed inset-y-0 right-0 z-50 w-[min(760px,100%)] transform border-l border-border bg-surface shadow-2xl transition-transform ${playbookOpen ? "translate-x-0" : "translate-x-full"}`} aria-hidden={!playbookOpen}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <p className="flex items-center gap-2 text-sm font-semibold text-foreground"><BookOpen className="h-4 w-4 text-accent" /> {s.playbook} · docs/filmes-de-feature.md</p>
-          <button type="button" onClick={() => setPlaybookOpen(false)} className="rounded-md p-1 text-foreground-muted hover:text-foreground" aria-label="Fechar"><X className="h-4 w-4" /></button>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
+          <p className="flex items-center gap-2 text-sm font-semibold text-foreground"><BookOpen className="h-4 w-4 text-accent" /> {s.playbook}{playbookCustom && <span className="rounded bg-accent-bg px-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">{s.playbookCustom}</span>}</p>
+          <div className="flex items-center gap-2">
+            {playbookEditing ? (
+              <>
+                <button type="button" onClick={() => void savePlaybook()} disabled={playbookBusy || !playbookDraft.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-accent-foreground disabled:opacity-50">{playbookBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} {playbookBusy ? s.saving : s.save}</button>
+                <button type="button" onClick={() => setPlaybookEditing(false)} disabled={playbookBusy} className="rounded-lg px-2.5 py-1 text-xs text-foreground-muted">{s.close}</button>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={() => { setPlaybookDraft(playbook); setPlaybookEditing(true); setPlaybookMsg(""); }} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-2.5 py-1 text-xs font-semibold text-foreground"><Pencil className="h-3.5 w-3.5" /> {s.playbookEdit}</button>
+                {playbookCustom && <button type="button" onClick={() => void restorePlaybook()} disabled={playbookBusy} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs text-foreground-muted disabled:opacity-50"><Undo2 className="h-3.5 w-3.5" /> {s.playbookRestore}</button>}
+              </>
+            )}
+            <button type="button" onClick={() => setPlaybookOpen(false)} className="rounded-md p-1 text-foreground-muted hover:text-foreground" aria-label="Fechar"><X className="h-4 w-4" /></button>
+          </div>
         </div>
+        {playbookMsg && <p role="status" className="border-b border-border px-5 py-2 text-xs text-foreground-muted">{playbookMsg}</p>}
         <div className="h-[calc(100%-49px)] overflow-y-auto px-6 py-5">
-          {playbook ? <MarkdownContent markdown={playbook} githubRepo={githubRepo} /> : <p className="text-sm text-foreground-muted">docs/filmes-de-feature.md</p>}
+          {playbookEditing ? (
+            <textarea value={playbookDraft} onChange={(e) => setPlaybookDraft(e.target.value)} spellCheck={false} aria-label={s.playbookEdit} className="h-full min-h-[70vh] w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 font-mono text-xs leading-relaxed text-foreground" />
+          ) : playbook ? (
+            <MarkdownContent markdown={playbook} githubRepo={githubRepo} />
+          ) : (
+            <p className="text-sm text-foreground-muted">docs/filmes-de-feature.md</p>
+          )}
         </div>
       </aside>
     </>
