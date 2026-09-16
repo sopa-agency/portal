@@ -151,6 +151,30 @@ um frame** (moldura de dispositivo ou card com sombra, com um movimento lento
 de paralaxe), nunca como o filme inteiro. Um screenshot parado é uma imagem,
 não um filme.
 
+**Assets do próprio site, copiados para `/public/projects/gnars/films/`
+(15/09/2026):** a escultura 3D do NogglesRail (`nograil.glb`, o mesmo
+`public/models/NogRail-colors.glb` do gnars.com), o ícone dela, os noggles
+vermelhos, dois Gnars reais renderizados pelo nouns.build a partir do
+`tokenURI` na Base (`gnar-1.webp`, `gnar-2.webp`), os cutouts dos oito riders
+da página /stake, cinco fotos de rails (Quênia, Minas Gerais, Buenos Aires,
+Chicago, Sopa de Letras) reduzidas a 1000 px, e os logos POIDH, Morpheus e
+Base. Tudo é da casa ou CC0 (NogglesRails e os Gnars). Quando o site ganhar
+um asset novo, o caminho é o mesmo: copiar para essa pasta, referenciar com
+`public:`.
+
+### 4.4 Cenas 3D (three.js)
+
+Um asset pode ser uma cena three.js em vez de uma imagem. O roteiro declara
+`prepare({ accent })`, que carrega o GLB uma vez e devolve um `Scene3D`; a
+cena chama `p.scene3d("rail3d", x, y, w, h, { spin })`, que renderiza o frame
+`t` num canvas WebGL próprio e o desenha no canvas 2D com `drawImage`. A
+rotação é função do tempo, então prévia, scrubber e exportação batem. Materiais
+iguais aos do gnars.com/nogglesrails: armação `MeshPhysicalMaterial` metálica
+na cor do projeto com clearcoat, lentes branca e preta, `RoomEnvironment`
+para os reflexos. `three` entra por `import()` dinâmico, só quando a cena
+precisa. Sem a cena (WebGL indisponível, GLB que não carregou), o filme cai
+para o ícone 2D e a página lista o asset em falta.
+
 ### 4.3 Interpretação da interface
 
 É o que dá cara ao filme e é a parte mais cara. No swaps.pro só o filme do

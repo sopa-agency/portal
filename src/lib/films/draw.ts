@@ -3,7 +3,7 @@
 // peças de interface interpretada (card, row, input, pill, button, stat,
 // cursor) que todos os projetos reaproveitam. Tudo é função de (ctx, t).
 
-import type { FilmAssets } from "./types";
+import type { FilmAssets, Scene3DView } from "./types";
 import { clamp, smooth } from "./take";
 
 export const FONT = '"Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -118,28 +118,124 @@ export function painter(ctx: CanvasRenderingContext2D, c: Palette, t: number, as
     ctx.fillStyle = light;
     ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
   }
+  const img = (id: string): HTMLImageElement | null => {
+    const asset = assets[id];
+    return asset && "naturalWidth" in asset && asset.naturalWidth ? asset : null;
+  };
   /** Imagem por id; um asset que não carregou simplesmente não aparece. */
   function image(id: string, x: number, y: number, width: number, height = width) {
-    const asset = assets[id];
-    if (!asset || !asset.naturalWidth) return false;
+    const asset = img(id);
+    if (!asset) return false;
     const scale = Math.min(width / asset.naturalWidth, height / asset.naturalHeight);
     const iw = asset.naturalWidth * scale, ih = asset.naturalHeight * scale;
     ctx.drawImage(asset, x + (width - iw) / 2, y + (height - ih) / 2, iw, ih);
     return true;
   }
-  /** Imagem recortada num retângulo arredondado (cover), para screenshots/frames. */
-  function imageCover(id: string, x: number, y: number, width: number, height: number, radius = 12) {
-    const asset = assets[id];
-    if (!asset || !asset.naturalWidth) return false;
+  /**
+   * Imagem recortada num retângulo arredondado (cover). `zoom`/`dx`/`dy` dão
+   * o movimento lento de câmera (Ken Burns); `anchor` alinha o corte.
+   */
+  function imageCover(id: string, x: number, y: number, width: number, height: number, radius = 12, opts: { zoom?: number; dx?: number; dy?: number; anchor?: "top" | "center" } = {}) {
+    const asset = img(id);
+    if (!asset) return false;
     ctx.save();
     ctx.beginPath();
     ctx.roundRect(x, y, width, height, radius);
     ctx.clip();
-    const scale = Math.max(width / asset.naturalWidth, height / asset.naturalHeight);
+    const scale = Math.max(width / asset.naturalWidth, height / asset.naturalHeight) * (opts.zoom ?? 1);
     const iw = asset.naturalWidth * scale, ih = asset.naturalHeight * scale;
-    ctx.drawImage(asset, x + (width - iw) / 2, y, iw, ih);
+    const top = opts.anchor === "top" ? y : y + (height - ih) / 2;
+    ctx.drawImage(asset, x + (width - iw) / 2 + (opts.dx ?? 0), top + (opts.dy ?? 0), iw, ih);
     ctx.restore();
     return true;
+  }
+  /** Cena three.js desenhada no frame t; falso quando não foi preparada. */
+  function scene3d(id: string, x: number, y: number, width: number, height: number, view?: Scene3DView) {
+    const asset = assets[id];
+    if (!asset || !("kind" in asset) || asset.kind !== "3d") return false;
+    ctx.drawImage(asset.frame(t, width, height, view), x, y, width, height);
+    return true;
+  }
+  /** Foto tipo polaroid, inclinada, com moldura clara e sombra. */
+  function polaroid(id: string, x: number, y: number, width: number, height: number, angle = 0, caption?: string) {
+    ctx.save();
+    ctx.translate(x + width / 2, y + height / 2);
+    ctx.rotate(angle);
+    ctx.shadowColor = "#000000a0";
+    ctx.shadowBlur = 30;
+    ctx.shadowOffsetY = 14;
+    rect(-width / 2, -height / 2, width, height + 26, "#f3efe6", 6);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    if (!imageCover(id, -width / 2 + 8, -height / 2 + 8, width - 16, height - 16, 3)) rect(-width / 2 + 8, -height / 2 + 8, width - 16, height - 16, "#1a1a1a", 3);
+    if (caption) text(caption, 0, height / 2 + 14, 11, "#3a3630", 650, "center");
+    ctx.restore();
+  }
+  /** Luz correndo ao longo de uma linha (rastro), como nos filmes do swaps.pro. */
+  function streak(x: number, y: number, x2: number, y2: number, delay = 0, color = c.accent) {
+    line(x, y, x2, y2, color + "20", 1.5);
+    const p = (Math.max(0, t - delay) * 0.42) % 1, tail = Math.max(0, p - 0.18);
+    const g = ctx.createLinearGradient(x + (x2 - x) * tail, y + (y2 - y) * tail, x + (x2 - x) * p + 0.01, y + (y2 - y) * p + 0.01);
+    g.addColorStop(0, color + "00");
+    g.addColorStop(1, color);
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + (x2 - x) * tail, y + (y2 - y) * tail);
+    ctx.lineTo(x + (x2 - x) * p, y + (y2 - y) * p);
+    ctx.stroke();
+    glow(x + (x2 - x) * p, y + (y2 - y) * p, 13, color + "88");
+  }
+  /** Moeda/tile biselado com o logo dentro, rótulo embaixo. */
+  function coin(id: string, x: number, y: number, radius: number, label?: string, tint = c.accent) {
+    ctx.save();
+    glow(x, y, radius * 1.8, tint + "16");
+    ctx.shadowColor = "#000000";
+    ctx.shadowBlur = 28;
+    ctx.shadowOffsetY = 14;
+    circle(x, y, radius, "#141316");
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    const fill = ctx.createLinearGradient(x - radius, y - radius, x + radius, y + radius);
+    fill.addColorStop(0, "#3a383d");
+    fill.addColorStop(0.3, "#1c1b1f");
+    fill.addColorStop(1, "#0a0a0c");
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ring(x, y, radius, 0, Math.PI * 2, tint + "55", 1.5);
+    ring(x, y, radius - 5, -2.6, 1.7, "#ffffff40", 2);
+    if (!image(id, x - radius * 0.62, y - radius * 0.62, radius * 1.24)) text(id.toUpperCase().slice(0, 3), x, y + radius * 0.3, radius * 0.7, c.text, 800, "center");
+    if (label) text(label, x, y + radius + 28, 15, c.text, 650, "center");
+    ctx.restore();
+  }
+  /** Linha de tendência suave (valores 0..1) com brilho no último ponto. */
+  function sparkline(values: number[], x: number, y: number, width: number, height: number, progress = 1, color = c.accent) {
+    const n = Math.max(2, Math.floor(values.length * clamp(progress)));
+    ctx.save();
+    ctx.beginPath();
+    values.slice(0, n).forEach((v, i) => {
+      const px = x + (i / (values.length - 1)) * width, py = y + height - v * height;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+    const lx = x + ((n - 1) / (values.length - 1)) * width, ly = y + height - values[n - 1] * height;
+    glow(lx, ly, 14, color + "80");
+    circle(lx, ly, 3.5, color);
+    ctx.restore();
+  }
+  /** Escurece as bordas do frame inteiro (chamado pelo renderizador). */
+  function vignette(width: number, height: number, strength = 0.55) {
+    const g = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.35, width / 2, height / 2, Math.max(width, height) * 0.75);
+    g.addColorStop(0, "#00000000");
+    g.addColorStop(1, `rgba(0,0,0,${strength})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, height);
   }
 
   // ── Interface interpretada ────────────────────────────────────────────────
@@ -286,5 +382,5 @@ export function painter(ctx: CanvasRenderingContext2D, c: Palette, t: number, as
     ctx.restore();
   }
 
-  return { ctx, t, c, a, text, measure, fit, wrap, rect, line, circle, ring, glow, image, imageCover, card, row, input, pill, button, stat, check, spinner, progress, avatar, noggles, cursor, fade, reveal };
+  return { ctx, t, c, a, text, measure, fit, wrap, rect, line, circle, ring, glow, image, imageCover, scene3d, polaroid, streak, coin, sparkline, vignette, card, row, input, pill, button, stat, check, spinner, progress, avatar, noggles, cursor, fade, reveal };
 }

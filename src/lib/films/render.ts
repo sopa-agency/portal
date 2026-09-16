@@ -44,6 +44,22 @@ export function renderFilm(canvas: HTMLCanvasElement, film: FeatureFilm, seconds
     ctx.lineWidth = 1;
     ctx.stroke();
   }
+  // Duas luzes correndo pelas órbitas, em fases diferentes.
+  for (const [i, phase] of [[1, 0], [3, 0.5]] as const) {
+    const a = (t * 0.22 + phase) * Math.PI * 2;
+    const rx = 270 + i * 85, ry = 95 + i * 48;
+    const x = Math.cos(a) * rx, y = Math.sin(a) * ry;
+    p.glow(x, y, 26, c.accent + "70");
+    p.circle(x, y, 2.2, c.accent);
+    const trail = ctx.createLinearGradient(Math.cos(a - 0.5) * rx, Math.sin(a - 0.5) * ry, x, y);
+    trail.addColorStop(0, c.accent + "00");
+    trail.addColorStop(1, c.accent + "aa");
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, a - 0.5, a);
+    ctx.strokeStyle = trail;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
   ctx.restore();
 
   // Chrome do filme: logo + nome no topo, rótulo da cena à direita.
@@ -71,14 +87,19 @@ export function renderFilm(canvas: HTMLCanvasElement, film: FeatureFilm, seconds
   // No 9:16 a ação desce um pouco, para não deixar o terço de baixo vazio.
   const cy = wide ? 345 : titleY + (h > 1000 ? 470 : 395);
   const scale = wide ? 0.96 : 0.94;
+  // Entra subindo e crescendo (spring), depois deriva devagar como uma câmera
+  // no ombro: nada parado na tela.
+  const enter = out((t - 0.5) / 1.1);
   ctx.save();
-  ctx.translate(cx, cy);
-  ctx.scale(scale, scale);
+  ctx.translate(cx + Math.sin(t * 0.6) * 4, cy + (1 - enter) * 40 + Math.cos(t * 0.45) * 3);
+  const s2 = scale * (0.94 + 0.06 * enter);
+  ctx.scale(s2, s2);
   ctx.globalAlpha *= bodyIn;
   film.draw(p, t, assets);
   ctx.restore();
   if (!wide) p.text(brand.site, w / 2, Math.min(h - 46, cy + 305), 23, c.text, 600, "center");
   ctx.restore();
+  p.vignette(w, h, 0.5);
 
   // Assinatura: logo grande, nome, URL da página.
   if (closing > 0) {

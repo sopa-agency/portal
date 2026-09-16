@@ -12,7 +12,7 @@ import { MarkdownContent } from "@/components/markdown-content";
 import { fetchDriveIndex, loadFilmAssets, type DriveIndex } from "@/lib/films/assets";
 import { filmsForProject } from "@/lib/films";
 import { renderFilm } from "@/lib/films/render";
-import { captionOf, FORMATS, sceneAt, supportedVideoType, totalSeconds, type AssetSource, type FeatureFilm, type FilmAssets, type FilmBrand, type FilmFormat } from "@/lib/films/types";
+import { captionOf, FORMATS, sceneAt, supportedVideoType, totalSeconds, type AssetSource, type FeatureFilm, type FilmAsset, type FilmAssets, type FilmBrand, type FilmFormat } from "@/lib/films/types";
 
 const STR = {
   pt: {
@@ -132,12 +132,14 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo }: 
   const dims = FORMATS[format];
   const assets = assetState.status === "ready" ? assetState.assets : null;
 
-  // Assets por cena, com os ids da cena mapeados para o namespace "<id>:<asset>".
+  // Assets por cena: tudo que está no namespace "<id>:" (imagens e cenas 3D
+  // preparadas) mais o logo da marca.
   const assetsFor = useCallback(
     (f: FeatureFilm): FilmAssets => {
       if (!assets) return {};
       const view: FilmAssets = { logo: assets.logo };
-      for (const key of Object.keys(f.assets ?? {})) view[key] = assets[`${f.id}:${key}`];
+      const prefix = `${f.id}:`;
+      for (const key of Object.keys(assets)) if (key.startsWith(prefix)) view[key.slice(prefix.length)] = assets[key];
       return view;
     },
     [assets],
@@ -162,15 +164,31 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo }: 
       const sources: Record<string, AssetSource> = { logo: brand.logo };
       for (const f of films) for (const [key, src] of Object.entries(f.assets ?? {})) sources[`${f.id}:${key}`] = src;
       const loaded = await loadFilmAssets(sources, drive, ["logo"]);
+      // Cenas 3D e outros assets que não são imagem: preparados uma vez, em
+      // paralelo; uma que falhe entra em "missing" e o filme desenha sem ela.
+      const missing = [...loaded.missing];
+      const prepared = await Promise.all(
+        films.map(async (f) => {
+          if (!f.prepare) return {} as Record<string, FilmAsset>;
+          try {
+            const r = await f.prepare({ accent });
+            return Object.fromEntries(Object.entries(r).map(([k, v]) => [`${f.id}:${k}`, v]));
+          } catch (e) {
+            console.warn(`[films] prepare ${f.id}:`, e);
+            missing.push(`${f.id}:3d`);
+            return {} as Record<string, FilmAsset>;
+          }
+        }),
+      );
       if (!active) return;
-      setAssetState({ status: "ready", assets: loaded.assets, missing: loaded.missing, drive: driveResult.ok ? { ok: true, count: driveResult.index.size } : { ok: false, note: driveResult.note } });
+      setAssetState({ status: "ready", assets: Object.assign({}, loaded.assets, ...prepared), missing: missing.sort(), drive: driveResult.ok ? { ok: true, count: driveResult.index.size } : { ok: false, note: driveResult.note } });
     })().catch((e: unknown) => {
       if (active) setAssetState({ status: "error", error: e instanceof Error ? e.message : String(e) });
     });
     return () => {
       active = false;
     };
-  }, [brand.logo, films, attempt]);
+  }, [brand.logo, films, attempt, accent]);
 
   useEffect(() => {
     if (canvasRef.current && assets && current) renderFilm(canvasRef.current, current.film, current.local, assetsFor(current.film), brand);
