@@ -1808,3 +1808,12 @@ model FilmScene {
   @@unique([projectSlug, sceneId])
   @@index([projectSlug])
 }
+
+/// Playbook do estúdio de filmes editado na página, por projeto. Sem linha,
+/// vale docs/filmes-de-feature.md do repositório. Tabela criada por SQL.
+model FilmPlaybook {
+  projectSlug String   @id
+  markdown    String   @db.Text
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+}

@@ -36,7 +36,9 @@ projeto, e o que vem depois.
 - **Editar cena (JSON)**: nas cenas em dados, o JSON inteiro abre num editor;
   "Aplicar na prévia" mostra ao vivo, "Salvar" grava, "Apagar cena" remove.
 - **Assets**: a coluna diz o que carregou, o que o Drive tem e o que falta.
-- **Playbook**: este documento, no painel lateral.
+- **Playbook**: este documento, no painel lateral, editável por projeto
+  ("Editar playbook" grava na tabela `FilmPlaybook`; "Restaurar o do
+  repositório" volta a `docs/filmes-de-feature.md`).
 
 ---
 

@@ -226,3 +226,40 @@ export async function deleteFilmScene(sceneId: string): Promise<{ ok: true } | {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+// ── Playbook editável por projeto ───────────────────────────────────────────
+
+export async function loadFilmPlaybook(projectSlug: string): Promise<{ markdown: string; updatedAt: string } | null> {
+  const row = await prisma.filmPlaybook.findUnique({ where: { projectSlug } });
+  return row ? { markdown: row.markdown, updatedAt: row.updatedAt.toISOString() } : null;
+}
+
+export async function saveFilmPlaybook(markdown: string): Promise<{ ok: true; markdown: string } | { ok: false; error: string }> {
+  const g = await guard();
+  if (!g.ok) return { ok: false, error: g.error };
+  const clean = markdown.replace(/\r\n/g, "\n").trim().slice(0, 60_000);
+  if (!clean) return { ok: false, error: "The playbook cannot be empty. Restore the repository version instead." };
+  try {
+    await prisma.filmPlaybook.upsert({
+      where: { projectSlug: g.projectSlug },
+      create: { projectSlug: g.projectSlug, markdown: clean, updatedBy: g.username },
+      update: { markdown: clean, updatedBy: g.username },
+    });
+    revalidatePath("/films");
+    return { ok: true, markdown: clean };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function resetFilmPlaybook(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await guard();
+  if (!g.ok) return { ok: false, error: g.error };
+  try {
+    await prisma.filmPlaybook.deleteMany({ where: { projectSlug: g.projectSlug } });
+    revalidatePath("/films");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
