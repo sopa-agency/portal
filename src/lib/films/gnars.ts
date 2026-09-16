@@ -360,7 +360,7 @@ const swap: FeatureFilm = {
       });
     } else {
       p.text("Swap", -222, -190, 24, p.c.text, 700);
-      p.image("base", 118, -208, 20, 20);
+      p.image("base", 222 - p.measure("Base · 150+ DEXes", 12, 600) - 26, -207, 20, 20);
       p.text("Base · 150+ DEXes", 222, -192, 12, p.c.muted, 600, "right");
       p.text("YOU PAY", -222, -152, 11, p.c.muted, 650);
       p.row(-222, -140, 190, 56, { active: t > 1.9 });
@@ -413,7 +413,8 @@ const nogglesrails: FeatureFilm = {
   tweet:
     "NogglesRails: community-funded skate rails from Praça XV in Rio to Nairobi to Rusutsu, all CC0, with an open-source build PDF anyone can copy. No rail in your city? That's a proposal. https://gnars.com/nogglesrails",
   assets: { icon: `${A}/nograil-icon.png`, k1: `${A}/rails/kenya.jpg`, k2: `${A}/rails/argentina.jpg`, k3: `${A}/rails/sopadeletras.jpg` },
-  prepare: async ({ accent }) => ({ rail3d: await loadRail3D("/projects/gnars/films/nograil.glb", { frameColor: accent }) }),
+  // A escultura fica no vermelho "OG Nogglesrail" do site, seja qual for o accent.
+  prepare: async () => ({ rail3d: await loadRail3D("/projects/gnars/films/nograil.glb", { frameColor: "#FF2D2D" }) }),
   captions: ["Rails around the world", "All CC0, one open PDF", "No rail near you? Propose one"],
   captionAt: (t) => stage(t, [[4.5, 0], [8.4, 1]] as const, 2),
   draw(p, t) {
@@ -684,7 +685,10 @@ const treasury: FeatureFilm = {
   },
 };
 
+// O accent dos filmes é o amarelo do logo (#fce560, 55% dos pixels), não o
+// vermelho dos noggles que o portal usa como tema. Vermelho fica nos noggles
+// e na escultura, que são vermelhos de verdade.
 export const gnarsFilms: FilmSet = {
-  brand: { name: "Gnars", site: "gnars.com" },
+  brand: { name: "Gnars", site: "gnars.com", accent: "#fce560" },
   films: [auctions, proposals, bounties, droposals, swap, nogglesrails, stake, feed, propdates, treasury],
 };

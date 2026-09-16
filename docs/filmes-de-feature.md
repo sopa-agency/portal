@@ -1,332 +1,215 @@
-# Filmes de feature: vídeos curtos para os tweets de produto
+# Filmes de feature: o estúdio do portal
 
-O swaps.pro tem um estúdio em `/demo/features`: 11 filmes de 8 a 16 s, um por
-feature, cada um com abertura, ação e assinatura, exportados em MP4 no próprio
-navegador e pareados com um tweet. Entrou no repositório em 15/09/2026
-(`coinmastersguild/swapspro`, commit `38c1644`, "add isolated feature video
-studio and tweet copy"). A ideia aqui é a mesma coisa como parte do portal,
-para todos os projetos, começando pela Gnars, que já tem os 10 tweets de
-feature escritos na campanha "Gnars.com features".
+Rota `/films` (menu "Filmes"), ligada por `project.films`. Um filme curto
+(8 a 16 s) por página do produto, pareado com o tweet da campanha, exportado
+em MP4 no próprio navegador. Sem servidor, sem custo, sem dependência de
+serviço externo.
 
-Este documento é o playbook: o que o swaps.pro fez, o que o portal já tem, de
-onde vem cada pedaço de um filme (roteiro, assets, interface), como se exporta,
-como se posta, e o plano de entrega em lotes.
+Este é o playbook: o que a página faz, como um filme é feito (roteiro,
+assets, interface), como se exporta e posta, como adicionar filmes a um
+projeto, e o que vem depois.
 
 ---
 
-## 1. O que o swaps.pro fez (lido no commit)
+## 1. O que a página faz
 
-Cerca de 1.200 linhas de TypeScript em `src/app/demo/features/`, sem
-dependência nova, sem servidor, sem áudio:
-
-| Arquivo | Papel |
-|---|---|
-| `featureScript.ts` | A lista das 11 cenas: `id`, `label`, `headline` (duas linhas), `subtitle`, `seconds`, `steps` (três legendas de acessibilidade) e `tweet` (a legenda, com quebras de linha). `sceneAt(segundos)` acha a cena e o tempo local; `supportedVideoType()` escolhe MP4 (`avc1.42001E`) e cai para WebM. Formatos: 16:9 em 1280×720, 4:5 em 1080×1350, 9:16 em 1080×1920. |
-| `swapTake.ts` | A coreografia do filme do swap como **função pura do tempo**: `swapUseAt(t)` devolve o estágio (escolhe token, digita 0.25, procura ZEC, rota, review, confirma, recibo), a posição do cursor por keyframes e o texto digitado. Nenhum frame depende do anterior, então dá para arrastar o scrubber para trás. |
-| `drawSwapUse.ts` | A **interpretação da interface**: o card de swap desenhado em Canvas 2D a partir do estado de `swapUseAt(t)`, com cursor, digitação, spinner e recibo roteirizado. É a única cena que recria a interface; as outras são motion graphics (moedas convergindo, órbitas, radar, skyline). |
-| `renderFeature.ts` | O renderizador: `renderFeature(canvas, cena, t, assets)`. Helpers pequenos (`text`, `fit`, `rect`, `line`, `circle`, `ring`, `glow`, `image`, `coin`) e três easings (`out`, `smooth`, `spring`). Abertura com títulos em cascata, corpo por cena, assinatura em crossfade com o wordmark e a URL. |
-| `commercialAssets.ts` | Assets pré-carregados como `HTMLImageElement` de fontes same-origin (`/public` e o proxy de logos do app). Exportar só libera quando **todos** carregaram; imagem que falha mostra "tentar de novo", nunca um placeholder. |
-| `FeatureStudio.tsx` | A página: menu de cenas, prévia com scrubber, formato, "Todas as cenas", "Copiar tweet", "Gerar vídeo". Exportação com `canvas.captureStream(30)` + `MediaRecorder` a 8 Mbps, loop por `requestAnimationFrame`, cancela se a aba ficar oculta, arquivo local para baixar. |
-| `e2e/feature-studio.spec.ts` | Testes de navegador: prévia de todas as cenas, assets reais, retry de imagem, cancelamento, um vídeo decodificado contém o wordmark, e nenhuma chamada financeira ou de analytics sai da rota. |
-
-Regras que eles escreveram e valem para nós: valores de exemplo sempre
-rotulados ("scripted walkthrough. example amounts."); sem preço, retorno,
-saldo, hash ou link de explorer; a única chamada de rede permitida é a de
-logos; rota `noindex` e fora do sitemap.
-
-**Decisão:** não reescrever. Vendorar esses arquivos no portal (como foi feito
-com o `reelflip-studio` em `src/components/studio/`) e trocar o que é do
-swaps.pro por o que é do projeto: assets, cenas, marca e legenda.
+- **Cenas**: uma por feature, na coluna da esquerda, com a duração.
+- **Prévia** com play e scrubber; a cena é função pura do tempo, então o
+  scrubber anda para trás sem estado acumulado.
+- **Formatos**: 16:9 em 1280×720 para o X, 4:5 em 1080×1350 para feed, 9:16
+  em 1080×1920 para Reels/TikTok. O layout se reorganiza por formato.
+- **Gerar vídeo**: MP4 gravado em tempo real no navegador (um filme de 12 s
+  leva 12 s, com a aba visível; aba oculta cancela). WebM quando o navegador
+  não grava MP4. "Todas as cenas" gera o reel inteiro.
+- **Tweet da cena** com "Copiar tweet", quebras de linha preservadas, e o
+  aviso quando o filme mostra valores de exemplo.
+- **Editar texto**: manchete (2 linhas), subtítulo, legendas por estágio e
+  tweet, com a prévia mudando ao vivo. "Salvar" grava por projeto e cena
+  (tabela `FilmTextOverride`); "Restaurar roteiro" volta ao texto em código.
+  Cena editada ganha o selo "editado".
+- **Assets**: a coluna diz o que carregou, o que o Drive tem e o que falta.
+- **Playbook**: este documento, no painel lateral.
 
 ---
 
-## 2. O que o portal já tem (e vai reaproveitar)
+## 2. Anatomia de um filme
 
-| Peça | Onde | O que faz |
-|---|---|---|
-| Exportação de vídeo no navegador | `src/components/studio/video-editor.tsx` | O mesmo mecanismo do swaps.pro (`captureStream` + `MediaRecorder`), mais mistura de áudio por WebAudio, se um dia quisermos música. |
-| Assets do Drive, seguros para canvas | `/api/brain/drive/file?id=…&mode=raw` | Proxy same-origin: a imagem do Drive entra no canvas sem "taint". Já usado pelo Zine Studio, pelo seletor de imagem e pela capa da revista. |
-| Listagem do Drive por projeto | `/api/brain/drive/list` + `project.googleDrive.folderId` | Pasta raiz do projeto, subpastas, filtro por tipo. |
-| Marca por projeto | `project.theme` (accent claro/escuro, fundos, bordas) + `theme.logo` em `/public/projects/<slug>/` | Cores e logo do projeto sem configurar nada novo. |
-| Texto dos tweets | Campanha → documentos "Tweet N" | O tweet é a legenda do filme. Ver [campanha da Gnars](https://gnars.sopa.team/campaign-creator/cmu2vin8p0000l804sdd63aej). |
-| Levar o vídeo para um post | `onUseInPost` no Post Creator | O arquivo exportado entra no fluxo de post existente; upload para IPFS via `uploadMediaDirectClient`. |
-| Imagem estática por HTML | `/api/studio/quick` e `/api/studio/render` (satori) | Serve para o thumbnail/poster do filme, não para o vídeo. |
+Três tempos, sempre nesta ordem.
 
-Pré-requisito que não é código: `GNARS_GOOGLE_SERVICE_ACCOUNT_JSON` e
-`SKATEHIVE_GOOGLE_SERVICE_ACCOUNT_JSON` na Vercel ainda guardam o caminho do
-arquivo local, então o Drive não carrega em produção (PR #107 mostra o motivo
-na tela). Sem isso, o estúdio só funciona com assets de `/public` e upload.
-
----
-
-## 3. Anatomia de um filme
-
-Um filme tem três tempos. Sempre os três, nesta ordem.
-
-1. **Abertura (2 a 4 s):** logo do projeto e uma frase em duas linhas
-   (`headline`). É o corte de duas linhas do tweet, não uma frase nova.
-   Ex.: "Different chains. / One destination."
+1. **Abertura (2 a 4 s):** logo do projeto e a manchete em duas linhas. É o
+   corte de duas linhas do tweet, não uma frase nova.
 2. **Ação (5 a 10 s):** a interface interpretada, com uma única interação
    roteirizada: o cursor entra, digita um valor, aperta um botão, a tela
    responde. Uma ação por filme. Se tem duas ideias, são dois filmes.
-3. **Assinatura (2 s):** crossfade para o wordmark e a URL da página
-   (`gnars.com/auctions`), com o convite curto quando o tweet tiver um.
+3. **Assinatura (2 s):** crossfade para o logo, o nome e a URL da página.
 
-Regras de duração e formato:
-- 8 a 16 s por filme. O reel "todas as cenas" é só a soma, com a mesma
-  legenda-mãe.
-- Os três formatos do swaps.pro: 16:9 em 1280×720 para o X, 4:5 em 1080×1350
-  para feed, 9:16 em 1080×1920 para Reels/TikTok. O roteiro é o mesmo; o
-  layout se reorganiza por formato, não se escala.
-- Sem áudio por padrão. Música é uma faixa opcional vinda do Drive,
-  misturada pelo WebAudio que já existe no editor de vídeo.
-- Área segura: 5% de margem em todos os lados; nada de texto nos 12% de baixo
-  no 9:16 (a UI do X/TikTok cobre).
+Regras:
+- 8 a 16 s por filme. O reel é só a soma, com a mesma legenda-mãe.
+- Sem áudio por padrão.
+- Área segura: 5% de margem; nada de texto nos 12% de baixo no 9:16.
+- Nada parado na tela: o fundo tem partículas e luzes correndo nas órbitas, a
+  ação entra com spring e deriva devagar como uma câmera no ombro.
 
 ---
 
-## 4. As três fontes de um filme
+## 3. As três fontes de um filme
 
-### 4.1 Roteiro (texto e tempo)
+### 3.1 Roteiro (texto e tempo)
 
-Cada feature é um roteiro em código, não em prompt. Um arquivo por projeto,
-`src/lib/films/<slug>.ts`, exporta a lista de cenas no mesmo formato do
-`featureScript.ts` do swaps.pro, mais o que é nosso (página, documento do
-tweet, assets do Drive):
+Cada feature é um roteiro em código, `src/lib/films/<slug>.ts`, com a lista
+de cenas do projeto:
 
 ```ts
-export const gnarsFilms: FeatureFilm[] = [
-  {
-    id: "auctions",
-    label: "Auctions",
-    url: "gnars.com/auctions",
-    tweetDoc: "Tweet 1",            // documento da campanha que é a legenda
-    seconds: 12,
-    headline: ["One Gnar a day.", "One vote per bid."],
-    subtitle: "Daily auctions on Base",
-    steps: ["Open the live auction", "Place a bid", "Hold a vote"],
-    take: auctionTakeAt,            // (t) => estado da cena, função pura do tempo
-    assets: { logo: "public:/projects/gnars/logo.png", screen: "drive:screens/auctions.png" },
-  },
-  // …
-];
+{
+  id: "auctions",
+  label: "Auctions",
+  url: "gnars.com/auctions",
+  tweetDoc: "Tweet 1",            // documento da campanha que é a legenda
+  seconds: 12,
+  headline: ["One Gnar a day.", "One vote per bid."],
+  subtitle: "Daily auctions on Base",
+  steps: ["Open the live auction", "Place a bid", "Hold a vote in the DAO"],
+  captions: [...], captionAt: (t) => stage(t, [[2.7, 0], [5.6, 1]], 2),
+  tweet: "…",
+  exampleValues: true,
+  assets: { gnar: "public:/projects/gnars/films/gnar-1.webp" },
+  draw(p, t, assets) { /* a ação, centrada em (0,0), numa caixa de ~560×520 */ },
+}
 ```
 
-Por que código e não configuração: cada cena de ação precisa de desenho
-(uma auction card, uma lista de propostas, um mapa de rails), e desenho é
-função. A configuração fica só para o que é texto, tempo e caminho de asset.
+Por que código e não configuração: cada cena de ação precisa de desenho (uma
+auction card, uma lista de propostas, um globo), e desenho é função. O que é
+texto é editável na página; o que é desenho fica em código.
 
-A coreografia de cada cena segue o padrão do `swapTake.ts`: uma função pura
-`takeAt(t)` que devolve o estágio, a posição do cursor e o texto digitado.
-Nada de estado acumulado entre frames; o scrubber precisa andar para trás.
+A coreografia é uma função pura do tempo. Os helpers de `take.ts` (`stage`,
+`typed`, `cursorAt`, `countUp`, easings) devolvem tudo que a cena precisa
+para desenhar o instante `t`. Nada depende do frame anterior.
 
-O texto de abertura e assinatura vem do tweet correspondente. **Manchete,
-subtítulo, legendas e tweet são editáveis no estúdio** ("Editar texto" abaixo
-do tweet): a prévia muda enquanto se digita, "Salvar" grava por projeto e cena
-na tabela `FilmTextOverride`, "Restaurar roteiro" volta ao texto em código.
-A cena com texto editado ganha o selo "editado" na lista. O desenho da ação
-(o que está dentro do card) continua em código.
+### 3.2 Assets
 
-### 4.2 Assets do Drive
-
-O swaps.pro carrega tudo de `/public` e do proxy de logos do app. O portal
-adiciona o Drive, pela pasta por projeto dentro da raiz do Drive do projeto
-(`project.googleDrive.folderId`):
+Fontes aceitas: `public:` (arquivo em `/public`), `drive:` (caminho dentro da
+pasta `🎬 Filmes/` na raiz do Drive do projeto, servido pelo proxy same-origin
+para o canvas não ficar "tainted") e `data:`. Nada de URL externa.
 
 ```
 🎬 Filmes/
-  logo.png              PNG com alpha, 1024 px de largura, fundo transparente
-  wordmark.png          opcional
-  screens/<feature>.png screenshot real da página, 2× (2880 px de largura no desktop)
-  clips/<feature>.mp4   H.264, até 10 s, sem áudio, 1920×1080 ou 1080×1920
-  audio/<nome>.mp3      opcional
+  logo.png              PNG com alpha, 1024 px de largura
+  screens/<feature>.png screenshot real da página, 2×
+  clips/<feature>.mp4   H.264, até 10 s, sem áudio
 ```
 
-O resolvedor de assets aceita `public:` (arquivo em `/public`) e `drive:`
-(caminho dentro de `🎬 Filmes/`, resolvido para
-`/api/brain/drive/file?id=…&mode=raw` pela listagem). Nada de URL externa: só
-proxy do Drive, upload (IPFS via Pinata, que já existe) ou `/public`. Como no
-swaps.pro, exportar só libera quando todos os assets carregaram, e imagem que
-falha mostra "tentar de novo", nunca um placeholder.
+Exportar só libera quando o logo da marca carregou; asset do Drive que não
+existe some do desenho e a página lista o que falta. Screenshots e fotos
+entram como camada dentro de um frame (card, polaroid, moldura), com
+movimento lento de câmera (Ken Burns), nunca como o filme inteiro.
 
-Screenshots e clipes reais são bem-vindos, mas entram como **camada dentro de
-um frame** (moldura de dispositivo ou card com sombra, com um movimento lento
-de paralaxe), nunca como o filme inteiro. Um screenshot parado é uma imagem,
-não um filme.
+**Assets do próprio site**, copiados para `/public/projects/<slug>/films/`:
+para a Gnars, a escultura 3D do NogglesRail (`nograil.glb`), dois Gnars reais
+(via `tokenURI` na Base, render do nouns.build), os cutouts dos riders da
+página /stake, cinco fotos de rails, noggles, logos POIDH e Morpheus. Tudo da
+casa ou CC0. Quando o site ganhar um asset novo, o caminho é o mesmo: copiar
+para a pasta e referenciar com `public:`.
 
-**Assets do próprio site, copiados para `/public/projects/gnars/films/`
-(15/09/2026):** a escultura 3D do NogglesRail (`nograil.glb`, o mesmo
-`public/models/NogRail-colors.glb` do gnars.com), o ícone dela, os noggles
-vermelhos, dois Gnars reais renderizados pelo nouns.build a partir do
-`tokenURI` na Base (`gnar-1.webp`, `gnar-2.webp`), os cutouts dos oito riders
-da página /stake, cinco fotos de rails (Quênia, Minas Gerais, Buenos Aires,
-Chicago, Sopa de Letras) reduzidas a 1000 px, e os logos POIDH, Morpheus e
-Base. Tudo é da casa ou CC0 (NogglesRails e os Gnars). Quando o site ganhar
-um asset novo, o caminho é o mesmo: copiar para essa pasta, referenciar com
-`public:`.
+### 3.3 Interpretação da interface
 
-### 4.4 Cenas 3D (three.js)
+A regra: **interpretar, não copiar**. A cena recria a página em primitivas do
+estúdio (`draw.ts`), com as cores do projeto, e anima a única interação do
+roteiro. Primitivas: `card`, `row`, `input` (com digitação e caret), `pill`,
+`button` (com estado pressionado), `stat`, `progress`, `avatar`, `image`,
+`imageCover` (Ken Burns), `polaroid`, `coin` (tile biselado com logo),
+`streak` (luz correndo), `sparkline`, `cursor`, `fade`, `reveal` (cascata),
+`wrap`, `noggles`, `scene3d`.
 
-Um asset pode ser uma cena three.js em vez de uma imagem. O roteiro declara
-`prepare({ accent })`, que carrega o GLB uma vez e devolve um `Scene3D`; a
-cena chama `p.scene3d("rail3d", x, y, w, h, { spin })`, que renderiza o frame
-`t` num canvas WebGL próprio e o desenha no canvas 2D com `drawImage`. A
-rotação é função do tempo, então prévia, scrubber e exportação batem. Materiais
-iguais aos do gnars.com/nogglesrails: armação `MeshPhysicalMaterial` metálica
-na cor do projeto com clearcoat, lentes branca e preta, `RoomEnvironment`
-para os reflexos. `three` entra por `import()` dinâmico, só quando a cena
-precisa. Sem a cena (WebGL indisponível, GLB que não carregou), o filme cai
-para o ícone 2D e a página lista o asset em falta.
-
-### 4.3 Interpretação da interface
-
-É o que dá cara ao filme e é a parte mais cara. No swaps.pro só o filme do
-swap tem isso (`drawSwapUse.ts`); as outras dez cenas são motion graphics de
-logos. Para páginas de produto como as da Gnars, a interpretação é o centro.
-A regra: **interpretar, não copiar**. A cena da ação recria a interface em
-primitivas do estúdio, com as cores do projeto, e anima a única interação do
-roteiro.
-
-Primitivas (poucas, reutilizadas por todos os projetos; os helpers do
-`renderFeature.ts` são o ponto de partida):
-- `card` (superfície com borda e sombra), `row` (linha de lista), `input`
-  (campo com valor digitado ao vivo), `pill` (token/tag), `button`
-  (com estado pressionado), `stat` (número grande + rótulo), `avatar`,
-  `frame` (moldura de dispositivo para screenshot/clipe), `map-pin`.
-- `cursor`: sempre visível na ação, keyframes de posição como em
-  `swapTake.ts`, com movimento ease-out de 300 a 600 ms entre alvos e clique
-  com um pulso.
-- `type`: digitação a 40 a 60 ms por caractere.
-- `reveal`: entrada de elementos em cascata (60 ms entre itens).
-
-Cenas de ação por projeto são composições dessas primitivas. Para a Gnars:
-
-| Feature | Cena de ação | Interação |
-|---|---|---|
-| Auctions | auction-card | cursor digita um lance, aperta "Place bid", o timer reage |
-| Proposals | proposal-list | lista entra em cascata, cursor abre uma, barra de votos cresce |
-| Bounties | bounty-card | card com recompensa em ETH, cursor aperta "Claim", estado "proof uploaded" |
-| Droposals | media-grid | grade de capas em cascata, uma abre em frame com o clipe do Drive |
-| Swap | swap-card | escolhe token, digita valor, marca "Support Gnars treasury", "Review swap" |
-| NogglesRails | map-pins | mapa com pins caindo (Rio, Nairobi, Rusutsu…), contador de países |
-| Stake | rider-card | escolhe um rider, deposita, barra de yield se divide em dois |
-| Live feed | feed-stream | eventos entrando de cima, um por vez, com timestamps |
-| Propdates | timeline | proposta → updates entrando na linha do tempo |
-| Treasury | stats-board | três `stat` (yield, fee, MOR) subindo até o valor |
-
-O que é proibido na interpretação (as regras do swaps.pro, adotadas):
-- Números que pareçam medidos (saldo real, preço, quantos abertos hoje). Só
-  valores de exemplo, e quando aparecem na legenda, com a linha "example
-  amounts" ou "scripted walkthrough".
+Proibido na interpretação:
+- Números que pareçam medidos (saldo, preço, quantos abertos hoje). Só valores
+  de exemplo, e a legenda diz "example amounts" quando aparecem.
 - Hash de transação, link de explorer, recibo que pareça real.
-- Logos de terceiros como endosso (uma ação tokenizada, uma exchange).
-- Prometer velocidade, melhor preço, retorno, anonimato.
-- Recriar a interface pixel a pixel. A interpretação é mais limpa que o
-  produto: menos itens, fontes maiores, um foco só.
+- Logo de terceiro como endosso. Promessa de velocidade, preço, retorno.
+- Recriar pixel a pixel. A interpretação é mais limpa que o produto: menos
+  itens, fontes maiores, um foco só.
+
+### 3.4 Cor da marca
+
+O roteiro fixa `brand.accent` quando a cor da marca não é a do tema do
+portal. A Gnars usa o amarelo do logo (`#fce560`); o vermelho fica onde é
+vermelho de verdade (os noggles, a escultura no preset "OG Nogglesrail"
+`#FF2D2D`). Sem `brand.accent`, vale o accent do tema do projeto. A paleta
+(`paletteFor`) deriva o resto: fundo escuro neutro, superfícies, texto sobre o
+accent claro ou escuro conforme a luminância.
+
+### 3.5 Cenas 3D (three.js)
+
+Um asset pode ser uma cena three.js. O roteiro declara `prepare()`, que
+carrega o GLB uma vez e devolve um `Scene3D`; a cena chama
+`p.scene3d("rail3d", x, y, w, h, { spin })`, que renderiza o frame `t` num
+canvas WebGL próprio e o desenha no canvas 2D. A rotação é função do tempo,
+então prévia, scrubber e exportação batem. `three` entra por `import()`
+dinâmico só quando a cena precisa. Sem WebGL ou sem GLB, o filme cai para o
+ícone 2D e a página lista o asset em falta.
 
 ---
 
-## 5. Motor: como vira MP4
+## 4. Motor: como vira MP4
 
-Confirmado pelo código do swaps.pro: **um roteiro, um renderizador em
-canvas**. A cena é desenhada por funções em Canvas 2D a partir de uma função
-pura do tempo; a prévia e a exportação usam o mesmo desenho. A exportação é
-`captureStream(30)` + `MediaRecorder` a 8 Mbps, em tempo real (um filme de
-12 s leva 12 s para exportar, com a aba visível; aba oculta cancela).
+Um roteiro, um renderizador em canvas (`render.ts`): fundo, abertura, ação
+(`film.draw`) e assinatura. Prévia e exportação usam o mesmo desenho. A
+exportação é `captureStream(30)` + `MediaRecorder` a 8 Mbps.
 
 Por que não DOM/CSS direto: não dá para gravar DOM em vídeo no navegador sem
 passar por canvas. O caminho "serializa o DOM em SVG `foreignObject` e desenha
-no canvas a cada frame" existe, mas exige fontes e imagens embutidas em data
-URI, animação dirigida por JS (CSS animation não sobrevive à serialização) e
-fica pesado para 30 fps. O swaps.pro chegou à mesma conclusão.
+por frame" exige fontes e imagens embutidas, animação dirigida por JS e fica
+pesado a 30 fps. Com poucas primitivas, canvas é mais barato e previsível.
 
-O que fica igual ao "gerador HTML": as cenas são escritas em TypeScript com
-helpers declarativos (camadas, tempos, easing), a mesma ergonomia de compor
-"em HTML" sem a limitação de exportação.
-
-Evolução possível sem mudar o roteiro: trocar o `MediaRecorder` por
-`VideoEncoder` (WebCodecs) + um muxer MP4, e exportar frame a frame fora do
-tempo real, também em segundo plano. Só se a exportação em tempo real virar
-gargalo.
-
-Custo de servidor: zero. Tudo roda no navegador de quem exporta.
+Evolução possível sem mudar o roteiro: `VideoEncoder` (WebCodecs) + um muxer
+MP4, exportando frame a frame fora do tempo real. Só se a exportação em tempo
+real virar gargalo.
 
 ---
 
-## 6. Da campanha ao tweet postado
+## 5. Da campanha ao tweet postado
 
-1. Na campanha, cada documento "Tweet N" que tenha uma feature ligada mostra
-   **"Gerar filme"**. Abre o estúdio já na feature, com a legenda (o tweet) ao
-   lado do preview e o botão "Copiar tweet", como no swaps.pro.
-2. A pessoa escolhe o formato (16:9 por padrão), confere os assets (a página
-   lista o que achou no Drive e o que falta), toca o preview, exporta.
-3. **"Usar no post"** leva o MP4 ao Post Creator; **"Baixar"** salva local.
-   O estúdio também sobe o MP4 para o IPFS e grava a URL no documento do
-   tweet, para a peça não ficar só na máquina de quem exportou.
-4. Postar no X: hoje o portal abre o composer do X com o texto (intent). O
-   intent não anexa mídia, então o vídeo é anexado à mão no composer. Se um
-   dia formos pela API do X, o documento já tem o MP4 e a legenda juntos.
-5. Antes de postar, o checklist (abaixo).
-
-### Checklist antes de postar
-
-- A página ainda faz o que o filme mostra. Abrir a URL da assinatura.
-- Legenda é o tweet da campanha, com as quebras de linha preservadas.
-- Se a ação usa valores de exemplo ou um fluxo roteirizado, a legenda diz.
-- Nenhum número que pareça medido, nenhuma promessa (velocidade, preço,
-  retorno), nenhum "hoje" que não seja verdade no dia do post.
-- Formato certo para o canal; assinatura legível no celular.
+1. O tweet da cena é a legenda; "Copiar tweet" preserva as quebras de linha.
+2. Escolher o formato, conferir os assets, tocar a prévia, exportar.
+3. Baixar o MP4 e anexar à mão no composer do X (o intent do portal não anexa
+   mídia). O documento do tweet na campanha guarda a legenda.
+4. Checklist antes de postar:
+   - A página ainda faz o que o filme mostra. Abrir a URL da assinatura.
+   - Se a ação usa valores de exemplo, a legenda diz.
+   - Nenhum número que pareça medido, nenhuma promessa, nenhum "hoje" que não
+     seja verdade no dia do post.
+   - Formato certo para o canal; assinatura legível no celular.
 
 ---
 
-## 7. Ordem de entrega
+## 6. Como adicionar filmes a um projeto
 
-**Estado (15/09/2026):** lotes 1 a 3 no ar para a Gnars em `/films` (menu
-"Filmes"): motor vendorado em `src/lib/films/` (`types`, `take`, `draw`,
-`render`, `assets`), estúdio em `src/components/films/film-studio.tsx`, os 10
-roteiros em `src/lib/films/gnars.ts`, playbook no painel lateral. Falta do lote
-3 a pasta `🎬 Filmes/` no Drive (depende do lote 0); do lote 4, tudo.
-
-**Lote 0 (Vlad, sem código):** JSON das service accounts na Vercel, Production
-e Preview, e redeploy. Destrava o Drive em produção para Gnars e SkateHive.
-
-**Lote 1, motor vendorado:** copiar `featureScript.ts`, `renderFeature.ts`,
-`commercialAssets.ts`, `FeatureStudio.tsx` e o CSS do swapspro (commit
-`38c1644`) para `src/components/films/`, com o cabeçalho "vendored from …
-sync manually" como no Studio; generalizar o que é do swaps.pro (paleta lime,
-wordmark, lista fixa de assets) em parâmetros do projeto; rota `/films`
-ligada por `project.films`; resolvedor `public:` / `drive:`. Sem dependência
-nova.
-
-**Lote 2, primitivas e marca:** as primitivas da seção 4.3 em cima dos
-helpers do renderizador, cursor, digitação, cascata; tokens de cor do projeto;
-fontes.
-
-**Lote 3, Gnars:** os 10 roteiros da tabela, um por tweet da campanha, com a
-pasta `🎬 Filmes/` no Drive da Gnars preenchida (logo, screenshots das 10
-páginas). Entrega: 10 MP4 em 16:9 exportados e conferidos no checklist.
-
-**Lote 4, integração:** "Gerar filme" no documento do tweet, "Usar no post",
-upload para IPFS com URL gravada no documento, aviso de tweet editado depois
-do roteiro. O teste de navegador do swaps.pro (vídeo decodificado contém o
-wordmark) vem junto.
-
-**Depois:** swaps.pro no portal importando as mesmas 11 cenas do repositório
-deles (o estúdio original continua lá), depois SkateHive e KeepKey, cada um
-com seu `src/lib/films/<slug>.ts`.
+1. `films: true` no `src/projects/<slug>.ts`.
+2. `src/lib/films/<slug>.ts` exportando um `FilmSet` (`brand` + `films`), e a
+   linha no registro em `src/lib/films/index.ts`.
+3. Assets em `/public/projects/<slug>/films/` (ou no Drive, em `🎬 Filmes/`).
+4. Uma cena por tweet da campanha; `tweetDoc` aponta o documento.
+5. Verificar: build de produção num worktree, Chrome headless com sessão
+   assinada, frames por cena, uma exportação de verdade.
 
 ---
 
-## 8. Decisões em aberto (Vlad)
+## 7. Estado e o que vem depois
 
-1. Nome da rota e do item de menu: `/films` ("Filmes") ou dentro do Post
-   Creator como terceiro modo do Studio. A proposta é rota própria: o fluxo é
-   menu de features → preview → exportar → legenda, diferente de editar um
-   post.
-2. Vendorar o motor do swaps.pro (proposta) ou escrever do zero.
-3. Guardar o MP4 no IPFS automaticamente a cada exportação, ou só quando a
-   pessoa clicar "Usar no post".
-4. 9:16 e 4:5 desde o lote 1 (o motor vendorado já traz) ou só 16:9 até os 10
-   filmes da Gnars saírem.
-5. Música: faixa opcional do Drive já no lote 1, ou nunca (o swaps.pro
-   exporta sem áudio).
+**Entregue (Gnars, 15/09/2026):** rota, motor, 10 cenas com assets reais e a
+escultura 3D, texto editável por cena, playbook no painel.
+
+**Próximo:** roteiros em dados, não em código — um formato de cena (camadas,
+tempos, primitivas) que a IA do portal escreve e reescreve. Com isso: "Gerar
+cena" a partir de um tweet ou de uma página, "Remixar" uma cena existente com
+uma instrução, e editar a cena inteira (não só o texto) na página. As cenas
+em código continuam como referência e como fallback.
+
+**Depois:** "Gerar filme" dentro do documento do tweet na campanha, "Usar no
+post", MP4 guardado no IPFS com a URL no documento, swaps.pro, SkateHive e
+KeepKey com seus próprios `src/lib/films/<slug>.ts`.
+
+---
+
+*O motor nasceu do estúdio de comerciais do swaps.pro
+(`coinmastersguild/swapspro` @ `38c1644`, `src/app/demo/features`), vendorado
+e generalizado aqui. O original continua no repositório deles.*

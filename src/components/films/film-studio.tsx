@@ -131,7 +131,9 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
   const { locale } = useLocale();
   const s = STR[locale === "pt" ? "pt" : "en"];
   const set = useMemo(() => filmsForProject(projectSlug), [projectSlug]);
-  const brand = useMemo<FilmBrand>(() => ({ name: set?.brand.name ?? projectSlug, site: set?.brand.site ?? "", accent, logo: `public:${logo}` }), [set, projectSlug, accent, logo]);
+  // O roteiro pode fixar o accent da marca (o amarelo do logo da Gnars); sem
+  // isso vale o accent do tema do portal.
+  const brand = useMemo<FilmBrand>(() => ({ name: set?.brand.name ?? projectSlug, site: set?.brand.site ?? "", accent: set?.brand.accent ?? accent, logo: `public:${logo}` }), [set, projectSlug, accent, logo]);
   // Os roteiros em código (para carregar assets) e os mesmos com os textos
   // editados por cima (para desenhar, copiar e exportar).
   const baseFilms = useMemo(() => set?.films ?? [], [set]);
@@ -204,7 +206,7 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
         baseFilms.map(async (f) => {
           if (!f.prepare) return {} as Record<string, FilmAsset>;
           try {
-            const r = await f.prepare({ accent });
+            const r = await f.prepare({ accent: brand.accent });
             return Object.fromEntries(Object.entries(r).map(([k, v]) => [`${f.id}:${k}`, v]));
           } catch (e) {
             console.warn(`[films] prepare ${f.id}:`, e);
@@ -221,7 +223,7 @@ export function FilmStudio({ projectSlug, accent, logo, playbook, githubRepo, te
     return () => {
       active = false;
     };
-  }, [brand.logo, baseFilms, attempt, accent]);
+  }, [brand.logo, brand.accent, baseFilms, attempt]);
 
   useEffect(() => {
     if (canvasRef.current && assets && current) renderFilm(canvasRef.current, current.film, current.local, assetsFor(current.film), brand);
