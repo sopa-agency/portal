@@ -27,6 +27,14 @@ projeto, e o que vem depois.
   tweet, com a prévia mudando ao vivo. "Salvar" grava por projeto e cena
   (tabela `FilmTextOverride`); "Restaurar roteiro" volta ao texto em código.
   Cena editada ganha o selo "editado".
+- **Gerar cena com IA**: nome da feature, página, o que ela faz (ou o tweet)
+  e uma direção opcional; o agente do projeto escreve a cena em dados (ver
+  3.6), validada antes de entrar na lista com o selo "IA".
+- **Remixar com IA**: uma instrução sobre a cena selecionada gera uma versão
+  nova em dados (selo "remix"); vale para cenas em código também, que passam
+  pela descrição delas.
+- **Editar cena (JSON)**: nas cenas em dados, o JSON inteiro abre num editor;
+  "Aplicar na prévia" mostra ao vivo, "Salvar" grava, "Apagar cena" remove.
 - **Assets**: a coluna diz o que carregou, o que o Drive tem e o que falta.
 - **Playbook**: este documento, no painel lateral.
 
@@ -147,6 +155,27 @@ então prévia, scrubber e exportação batem. `three` entra por `import()`
 dinâmico só quando a cena precisa. Sem WebGL ou sem GLB, o filme cai para o
 ícone 2D e a página lista o asset em falta.
 
+### 3.6 Cenas em dados (o que a IA escreve)
+
+Uma cena pode ser um JSON em vez de código: `FilmSpec` (`src/lib/films/spec.ts`),
+com id, label, url, seconds, headline, subtitle, captions (+ captionTimes),
+tweet, exampleValues, assets e `layers`. Cada camada tem tipo (card, rect,
+row, text, pill, button, input, image, polaroid, coin, stat, progress, check,
+avatar, sparkline, streak, timer, cursor, burst, scene3d), posição no mesmo
+sistema das cenas em código (ação centrada em 0,0) e tempo: `in` (quando
+aparece), `out` (quando some), `enter` (fade, rise, spring, none). A história
+é contada com tempos: o cursor anda por keyframes, clica quando o botão tem
+`press` no mesmo segundo, o input digita entre `typeFrom` e `typeTo`, o
+estado troca com `out` numa camada e `in` na outra, `burst` comemora.
+
+O interpretador (`drawSpec`) desenha com as mesmas primitivas; `specToFilm`
+transforma o JSON numa cena igual às outras (prévia, formatos, exportação,
+texto editável). O zod valida tudo antes do banco e do canvas. A IA recebe o
+guia do formato (`SPEC_GUIDE`), uma cena de exemplo e o catálogo de assets do
+projeto (os `public:` dos roteiros mais `extraAssets`, inclusive o GLB, que
+vira uma camada `scene3d`). As cenas ficam na tabela `FilmScene`
+(`sceneId` único por projeto, `spec`, `source` ia/remix/manual, `basedOn`).
+
 ---
 
 ## 4. Motor: como vira MP4
@@ -198,11 +227,14 @@ real virar gargalo.
 **Entregue (Gnars, 15/09/2026):** rota, motor, 10 cenas com assets reais e a
 escultura 3D, texto editável por cena, playbook no painel.
 
-**Próximo:** roteiros em dados, não em código — um formato de cena (camadas,
-tempos, primitivas) que a IA do portal escreve e reescreve. Com isso: "Gerar
-cena" a partir de um tweet ou de uma página, "Remixar" uma cena existente com
-uma instrução, e editar a cena inteira (não só o texto) na página. As cenas
-em código continuam como referência e como fallback.
+**Entregue (16/09/2026):** cenas em dados (3.6): "Gerar cena com IA",
+"Remixar com IA" (também a partir das cenas em código), editor JSON com
+prévia ao vivo, salvar e apagar. As cenas em código continuam como referência
+e como fallback.
+
+**Próximo:** um editor visual por cima do JSON (arrastar camadas, ajustar
+tempos numa linha do tempo) e "Gerar cena" direto do documento do tweet na
+campanha.
 
 **Depois:** "Gerar filme" dentro do documento do tweet na campanha, "Usar no
 post", MP4 guardado no IPFS com a URL no documento, swaps.pro, SkateHive e

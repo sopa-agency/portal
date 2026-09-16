@@ -1787,3 +1787,24 @@ model FilmTextOverride {
 
   @@id([projectSlug, filmId])
 }
+
+/// Cena em dados do estúdio de filmes (/films): o JSON validado (FilmSpec),
+/// gerada pela IA, remixada ou escrita à mão. Convive com as cenas em código.
+/// Tabela criada por SQL direto (db push bloqueado pelo drift).
+model FilmScene {
+  id          String   @id @default(cuid())
+  projectSlug String
+  /// Slug único por projeto; vira o id da cena no estúdio.
+  sceneId     String
+  spec        Json
+  /// "ai" | "remix" | "manual"
+  source      String   @default("manual")
+  /// Cena de origem de um remix (id da cena em código ou de outra FilmScene).
+  basedOn     String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectSlug, sceneId])
+  @@index([projectSlug])
+}

@@ -42,6 +42,8 @@ export type FilmBrand = {
   /** Cor de destaque em hex de 6 dígitos (vem do tema do projeto). */
   accent: string;
   logo: AssetSource;
+  /** Fundo: "orbits" (órbitas com luzes correndo) ou "glow" (luz difusa deslizando, grão fino, sem órbitas). */
+  backdrop?: "orbits" | "glow";
 };
 
 export type FeatureFilm = {
@@ -65,6 +67,10 @@ export type FeatureFilm = {
   tweet: string;
   /** O filme mostra valores de exemplo: a legenda precisa dizer isso. */
   exampleValues?: boolean;
+  /** Uma frase sobre o que a ação mostra (a IA usa para remixar cenas em código). */
+  describe?: string;
+  /** De onde a cena veio quando é dado, não código. */
+  origin?: { kind: "code" } | { kind: "data"; source: "ai" | "remix" | "manual"; basedOn?: string | null };
   /** Imagens além do logo da marca (id → fonte). */
   assets?: Record<string, AssetSource>;
   /**
@@ -108,8 +114,10 @@ export function applyText(film: FeatureFilm, text?: FilmText | null): FeatureFil
 }
 
 export type FilmSet = {
-  brand: Omit<FilmBrand, "accent" | "logo"> & Partial<Pick<FilmBrand, "accent" | "logo">>;
+  brand: Omit<FilmBrand, "accent" | "logo"> & Partial<Pick<FilmBrand, "accent" | "logo" | "backdrop">>;
   films: FeatureFilm[];
+  /** Assets que as cenas em dados podem usar além dos que os roteiros declaram (ex.: o GLB da escultura). */
+  extraAssets?: Record<string, AssetSource>;
 };
 
 export const totalSeconds = (films: readonly FeatureFilm[]) => films.reduce((n, f) => n + f.seconds, 0);
