@@ -56,6 +56,11 @@ export type FeatureFilm = {
   subtitle: string;
   /** Três legendas curtas (acessibilidade e a linha de rodapé), uma por terço. */
   steps: [string, string, string];
+  /**
+   * Legendas por estágio quando a cena tem mais de três (ou quer outras
+   * palavras); `captionAt` devolve o índice aqui. Sem isso, valem os `steps`.
+   */
+  captions?: string[];
   /** A legenda do post, com as quebras de linha. */
   tweet: string;
   /** O filme mostra valores de exemplo: a legenda precisa dizer isso. */
@@ -72,9 +77,35 @@ export type FeatureFilm = {
    * `t` é o tempo local da cena em segundos.
    */
   draw: (p: Painter, t: number, assets: FilmAssets) => void;
-  /** Legenda no tempo t; por padrão, `steps` por terços. */
-  captionAt?: (t: number) => string;
+  /** Índice da legenda no tempo t (em `captions`, ou em `steps`); por padrão, terços. */
+  captionAt?: (t: number) => number;
 };
+
+/** O que pode ser editado no estúdio, por cena. */
+export type FilmText = {
+  headline: [string, string];
+  subtitle: string;
+  captions: string[];
+  tweet: string;
+};
+
+export function textOf(film: FeatureFilm): FilmText {
+  return { headline: [...film.headline] as [string, string], subtitle: film.subtitle, captions: [...(film.captions ?? film.steps)], tweet: film.tweet };
+}
+
+/** A cena com os textos editados por cima do roteiro (mantém o desenho). */
+export function applyText(film: FeatureFilm, text?: FilmText | null): FeatureFilm {
+  if (!text) return film;
+  const captions = text.captions.length ? text.captions : film.captions ?? film.steps;
+  return {
+    ...film,
+    headline: [text.headline[0] || film.headline[0], text.headline[1] || film.headline[1]],
+    subtitle: text.subtitle || film.subtitle,
+    captions,
+    steps: [captions[0] ?? film.steps[0], captions[1] ?? film.steps[1], captions[2] ?? film.steps[2]],
+    tweet: text.tweet || film.tweet,
+  };
+}
 
 export type FilmSet = {
   brand: Omit<FilmBrand, "accent" | "logo"> & Partial<Pick<FilmBrand, "accent" | "logo">>;
@@ -84,8 +115,9 @@ export type FilmSet = {
 export const totalSeconds = (films: readonly FeatureFilm[]) => films.reduce((n, f) => n + f.seconds, 0);
 
 export function captionOf(film: FeatureFilm, local: number): string {
-  if (film.captionAt) return film.captionAt(local);
-  return film.steps[Math.min(2, Math.floor((local / film.seconds) * 3))];
+  const list = film.captions ?? film.steps;
+  const index = film.captionAt ? film.captionAt(local) : Math.min(2, Math.floor((local / film.seconds) * 3));
+  return list[Math.max(0, Math.min(list.length - 1, index))] ?? "";
 }
 
 export function sceneAt(seconds: number, films: readonly FeatureFilm[]) {

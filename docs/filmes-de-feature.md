@@ -120,9 +120,12 @@ A coreografia de cada cena segue o padrão do `swapTake.ts`: uma função pura
 `takeAt(t)` que devolve o estágio, a posição do cursor e o texto digitado.
 Nada de estado acumulado entre frames; o scrubber precisa andar para trás.
 
-O texto de abertura e assinatura vem do tweet correspondente. Se o tweet mudar
-na campanha, o roteiro é atualizado à mão; a página avisa quando o tweet
-ligado ao filme foi editado depois do roteiro.
+O texto de abertura e assinatura vem do tweet correspondente. **Manchete,
+subtítulo, legendas e tweet são editáveis no estúdio** ("Editar texto" abaixo
+do tweet): a prévia muda enquanto se digita, "Salvar" grava por projeto e cena
+na tabela `FilmTextOverride`, "Restaurar roteiro" volta ao texto em código.
+A cena com texto editado ganha o selo "editado" na lista. O desenho da ação
+(o que está dentro do card) continua em código.
 
 ### 4.2 Assets do Drive
 

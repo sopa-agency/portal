@@ -49,7 +49,7 @@ export function cursorAt(t: number, keys: readonly PointerKey[], clicks: readonl
 }
 
 /** Estágio por faixas de tempo: `stage(t, [[1.9, "a"], [3.5, "b"]], "c")`. */
-export function stage<S extends string>(t: number, bounds: readonly (readonly [number, S])[], last: S): S {
+export function stage<S extends string | number>(t: number, bounds: readonly (readonly [number, S])[], last: S): S {
   for (const [until, s] of bounds) if (t < until) return s;
   return last;
 }

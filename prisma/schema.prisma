@@ -1772,3 +1772,18 @@ model DailyReport {
   @@unique([username, day])
   @@index([day])
 }
+
+/// Texto editado no estúdio de filmes (/films), por projeto e cena: manchete,
+/// subtítulo, legendas e tweet. O roteiro em código continua sendo o padrão;
+/// a linha aqui só existe quando alguém editou. Tabela criada por SQL direto
+/// (db push está bloqueado pelo drift antigo).
+model FilmTextOverride {
+  projectSlug String
+  filmId      String
+  /// { headline: [string, string], subtitle: string, captions: string[], tweet: string }
+  text        Json
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+
+  @@id([projectSlug, filmId])
+}

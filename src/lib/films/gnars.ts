@@ -40,51 +40,65 @@ const auctions: FeatureFilm = {
     "One Gnar goes up for auction every day on Base. The winning bid gives you a vote in the DAO, and the ETH goes to the treasury that pays for trips, rails and video parts. The live one is here. https://gnars.com/auctions",
   exampleValues: true,
   assets: { gnar: `${A}/gnar-1.webp`, next: `${A}/gnar-2.webp`, noggles: `${A}/noggles.png`, r1: `${A}/riders/yan.png`, r2: `${A}/riders/r4to.png`, r3: `${A}/riders/zima.png` },
-  captionAt: (t) => stage(t, [[2.7, "Open the live auction"], [5.6, "Place a bid"], [8.5, "Bid placed"]] as const, "Hold a vote in the DAO"),
+  captions: ["Open the live auction", "Place a bid", "Bid placed", "Hold a vote in the DAO"],
+  captionAt: (t) => stage(t, [[2.7, 0], [5.6, 1], [8.5, 2]] as const, 3),
   draw(p, t) {
     const s = stage(t, [[2.7, "browse"], [5.6, "bid"], [6.1, "pressing"]] as const, "placed");
-    const cursor = cursorAt(t, [{ at: 0.6, x: 210, y: 210 }, { at: 2.4, x: 70, y: 128 }, { at: 3.1, x: 70, y: 128 }, { at: 5.2, x: 0, y: 204 }, { at: 6.4, x: 0, y: 204 }, { at: 7.4, x: 230, y: 250 }], [2.7, 5.6], 0.5, 7.4);
+    const cursor = cursorAt(t, [{ at: 0.6, x: 210, y: 210 }, { at: 2.4, x: 70, y: 70 }, { at: 3.1, x: 70, y: 70 }, { at: 5.2, x: 0, y: 204 }, { at: 6.4, x: 0, y: 204 }, { at: 7.4, x: 230, y: 250 }], [2.7, 5.6], 0.5, 7.4);
     p.card(-250, -240, 500, 480);
     p.image("noggles", -224, -220, 40, 20);
     p.text("Gnar 6005", -172, -200, 22, p.c.text, 700);
     p.pill(146, -224, "LIVE", { active: true });
-    // O Gnar de verdade (nouns.build), com zoom lento e a luz da marca.
-    p.glow(0, -100, 200, p.c.accent + "20");
-    if (!p.imageCover("gnar", -222, -178, 444, 150, 14, { zoom: 1 + t * 0.008, dy: -10 - t * 2 })) {
-      p.rect(-222, -178, 444, 150, p.c.surface2, 14);
-      p.noggles(-64, -128, 130);
-    }
-    // Quem está dando lance: três riders, mais o contador.
+    // O Gnar inteiro (é quadrado), num tile à esquerda, com a luz da marca.
+    p.glow(-127, -81, 170, p.c.accent + "22");
+    p.ctx.save();
+    p.ctx.beginPath();
+    p.ctx.roundRect(-222, -176, 190, 190, 14);
+    p.ctx.clip();
+    p.rect(-222, -176, 190, 190, p.c.surface2, 0);
+    const wobble = 1 + Math.sin(t * 0.8) * 0.01;
+    p.ctx.translate(-127, -81);
+    p.ctx.scale(wobble, wobble);
+    if (!p.image("gnar", -95, -95, 190, 190)) p.noggles(-64, -30, 130);
+    p.ctx.restore();
+    p.rect(-222, -176, 190, 190, "#00000000", 14, p.c.accent + "40");
+    // Coluna da direita: lance, tempo, quem está dando lance.
+    p.text("CURRENT BID", -12, -160, 11, p.c.muted, 650);
+    p.text(s === "placed" ? "0.45 ETH" : "0.42 ETH", -12, -128, 28, s === "placed" ? p.c.accent : p.c.text, 800);
+    p.text("ENDS IN", -12, -90, 11, p.c.muted, 650);
+    p.text(mmss(Math.max(0, 299 - Math.floor(t))), -12, -58, 28, p.c.text, 800);
     ["r1", "r2", "r3"].forEach((id, i) => {
-      const x = -212 + i * 22;
-      p.circle(x, -8, 13, p.c.surface2);
+      const x = 2 + i * 22;
+      p.circle(x, -22, 13, p.c.surface2);
       p.ctx.save();
       p.ctx.beginPath();
-      p.ctx.arc(x, -8, 12, 0, Math.PI * 2);
+      p.ctx.arc(x, -22, 12, 0, Math.PI * 2);
       p.ctx.clip();
-      p.imageCover(id, x - 12, -20, 24, 24, 0, { anchor: "top" });
+      p.imageCover(id, x - 12, -34, 24, 24, 0, { anchor: "top", zoom: 2.2 });
       p.ctx.restore();
     });
-    p.text(`${countUp(t, 0.8, 12, 1.4) + (s === "placed" ? 1 : 0)} bids`, -136, -3, 12, p.c.muted, 600);
-    p.text("CURRENT BID", 222, -14, 11, p.c.muted, 650, "right");
-    p.text(s === "placed" ? "0.45 ETH" : "0.42 ETH", 222, 14, 26, s === "placed" ? p.c.accent : p.c.text, 800, "right");
-    p.text("ENDS IN", -222, 44, 11, p.c.muted, 650);
-    p.text(mmss(Math.max(0, 299 - Math.floor(t))), -222, 74, 26, p.c.text, 800);
+    p.text(`${countUp(t, 0.8, 12, 1.4) + (s === "placed" ? 1 : 0)} bids`, 78, -17, 12, p.c.muted, 600);
     if (s === "placed") {
       p.fade(6.1, 0.4, () => {
-        p.rect(-222, 96, 444, 70, p.c.accent + "18", 14, p.c.accent + "60");
-        p.check(-196, 131, 9);
-        p.text("Bid placed · 0.45 ETH", -176, 137, 18, p.c.text, 700);
+        p.rect(-222, 40, 444, 62, p.c.accent + "18", 14, p.c.accent + "60");
+        p.check(-196, 71, 9);
+        p.text("Bid placed · 0.45 ETH", -176, 77, 18, p.c.text, 700);
       });
       p.fade(7, 0.5, () => {
-        p.text("Win it and you hold one vote in the DAO.", -222, 200, 14, p.c.muted, 500);
-        p.imageCover("next", 150, 176, 72, 48, 8, { zoom: 1.1 });
-        p.text("NEXT", 150, 240, 10, p.c.muted, 650);
+        p.text("Win it and you hold one vote in the DAO.", -222, 136, 14, p.c.muted, 500);
+        p.ctx.save();
+        p.ctx.beginPath();
+        p.ctx.roundRect(158, 112, 64, 64, 10);
+        p.ctx.clip();
+        p.rect(158, 112, 64, 64, p.c.surface2, 0);
+        p.image("next", 158, 112, 64, 64);
+        p.ctx.restore();
+        p.text("NEXT", 158, 192, 10, p.c.muted, 650);
       });
-      burst(p, t, 6.15, 0, 130);
+      burst(p, t, 6.15, 0, 70);
     } else {
       const value = typed("0.45", t, 3.1, 4.1);
-      p.input(-222, 96, 444, 56, value ? `Ξ ${value}` : "", "Ξ 0.45 or more", { focused: s === "bid", caret: s === "bid" && t < 4.4 && caretOn(t), size: 20 });
+      p.input(-222, 40, 444, 56, value ? `Ξ ${value}` : "", "Ξ 0.45 or more", { focused: s === "bid", caret: s === "bid" && t < 4.4 && caretOn(t), size: 20 });
       p.button(-222, 176, 444, 52, s === "browse" ? "Enter a bid" : "Place bid", { enabled: s !== "browse", pressed: s === "pressing" ? clickAt(t, [5.6]) : 1 });
     }
     p.cursor(cursor);
@@ -104,7 +118,8 @@ const proposals: FeatureFilm = {
     "Every trip, rail and video part Gnars has funded started as a proposal on gnars.com, written by the skaters who wanted it. Read how they pitched theirs, then write yours. https://gnars.com/proposals",
   exampleValues: true,
   assets: { p1: `${A}/rails/minas-gerais.jpg`, p2: `${A}/rails/argentina.jpg`, p3: `${A}/rails/kenya.jpg`, author: `${A}/riders/pamtech.png` },
-  captionAt: (t) => stage(t, [[3.2, "Read how they pitched"], [7.5, "Open one and see the vote"]] as const, "Vote, then write yours"),
+  captions: ["Read how they pitched", "Open one and see the vote", "Vote, then write yours"],
+  captionAt: (t) => stage(t, [[3.2, 0], [7.5, 1]] as const, 2),
   draw(p, t) {
     const opened = at(t, 3.4, 0.5);
     const cursor = cursorAt(t, [{ at: 0.6, x: 230, y: 230 }, { at: 2.9, x: -60, y: -150 }, { at: 3.6, x: -60, y: -150 }, { at: 7.1, x: -120, y: 196 }, { at: 8, x: -120, y: 196 }, { at: 9, x: 240, y: 250 }], [3.2, 7.5], 0.5, 9);
@@ -184,7 +199,8 @@ const bounties: FeatureFilm = {
     "Gnars Bounties work like this: someone posts the trick they want to see and puts ETH in escrow on POIDH. You film it, upload the proof, and the first legit claim gets paid onchain. No grant form, no waiting. https://gnars.com/community/bounties",
   exampleValues: true,
   assets: { photo: `${A}/rails/chicago.jpg`, poidh: `${A}/poidh.png`, eth: "public:/tokens/eth.svg" },
-  captionAt: (t) => stage(t, [[4.8, "Pick a bounty"], [7.8, "Upload the proof"]] as const, "Paid onchain"),
+  captions: ["Pick a bounty", "Upload the proof", "Paid onchain"],
+  captionAt: (t) => stage(t, [[4.8, 0], [7.8, 1]] as const, 2),
   draw(p, t) {
     const s = stage(t, [[4.8, "open"], [5.3, "claiming"], [7.8, "uploading"]] as const, "paid");
     const cursor = cursorAt(t, [{ at: 0.6, x: 220, y: 220 }, { at: 4.4, x: 0, y: 204 }, { at: 5.2, x: 0, y: 204 }, { at: 6.2, x: 230, y: 250 }], [4.8], 0.5, 6.2);
@@ -244,7 +260,8 @@ const droposals: FeatureFilm = {
   tweet:
     "The video parts and tour edits the DAO funds don't disappear into a feed. They get minted as Droposals and live on gnars.com, Gnargentina included. Scrub through the archive. https://gnars.com/droposals",
   assets: { t1: `${A}/rails/argentina.jpg`, t2: `${A}/rails/chicago.jpg`, t3: `${A}/rails/kenya.jpg`, t4: `${A}/rails/minas-gerais.jpg`, t5: `${A}/rails/sopadeletras.jpg`, t6: `${A}/nograil-icon.png` },
-  captionAt: (t) => stage(t, [[3.5, "Scrub the archive"], [6.5, "Open a part"]] as const, "Minted as an NFT"),
+  captions: ["Scrub the archive", "Open a part", "Minted as an NFT"],
+  captionAt: (t) => stage(t, [[3.5, 0], [6.5, 1]] as const, 2),
   draw(p, t) {
     const opened = at(t, 3.7, 0.5);
     const cursor = cursorAt(t, [{ at: 0.6, x: 230, y: 230 }, { at: 3.1, x: -170, y: -140 }, { at: 3.8, x: -170, y: -140 }, { at: 5, x: 240, y: 250 }], [3.5], 0.5, 5);
@@ -318,7 +335,8 @@ const swap: FeatureFilm = {
     "You can trade any token on Base straight from gnars.com, best route across 150+ DEXes. Tick \"Support Gnars treasury\" and 0.5% of the trade goes to the pot that builds skate spots. Same swap, one extra reason. https://gnars.com/swap",
   exampleValues: true,
   assets: { eth: "public:/tokens/eth.svg", mor: `${A}/morpheus.webp`, base: "public:/tokens/base.png" },
-  captionAt: (t) => stage(t, [[2.2, "Choose what you pay"], [5, "Enter the amount"], [7.6, "Tick “Support Gnars treasury”"], [9.4, "Review the swap"]] as const, "Scripted walkthrough · example amounts"),
+  captions: ["Choose what you pay", "Enter the amount", "Tick “Support Gnars treasury”", "Review the swap", "Scripted walkthrough · example amounts"],
+  captionAt: (t) => stage(t, [[2.2, 0], [5, 1], [7.6, 2], [9.4, 3]] as const, 4),
   draw(p, t) {
     const s = stage(t, [[2.2, "idle"], [5, "typing"], [7.6, "ticking"], [8.1, "pressing"]] as const, "review");
     const cursor = cursorAt(t, [{ at: 0.6, x: 220, y: 220 }, { at: 1.9, x: 150, y: -130 }, { at: 2.5, x: 150, y: -130 }, { at: 4.6, x: -205, y: 92 }, { at: 5.4, x: -205, y: 92 }, { at: 7.3, x: 0, y: 204 }, { at: 8.3, x: 0, y: 204 }, { at: 9.2, x: 240, y: 250 }], [2.2, 5, 7.6], 0.5, 9.2);
@@ -396,7 +414,8 @@ const nogglesrails: FeatureFilm = {
     "NogglesRails: community-funded skate rails from Praça XV in Rio to Nairobi to Rusutsu, all CC0, with an open-source build PDF anyone can copy. No rail in your city? That's a proposal. https://gnars.com/nogglesrails",
   assets: { icon: `${A}/nograil-icon.png`, k1: `${A}/rails/kenya.jpg`, k2: `${A}/rails/argentina.jpg`, k3: `${A}/rails/sopadeletras.jpg` },
   prepare: async ({ accent }) => ({ rail3d: await loadRail3D("/projects/gnars/films/nograil.glb", { frameColor: accent }) }),
-  captionAt: (t) => stage(t, [[4.5, "Rails around the world"], [8.4, "All CC0, one open PDF"]] as const, "No rail near you? Propose one"),
+  captions: ["Rails around the world", "All CC0, one open PDF", "No rail near you? Propose one"],
+  captionAt: (t) => stage(t, [[4.5, 0], [8.4, 1]] as const, 2),
   draw(p, t) {
     // Globo com as coordenadas reais, girando; grade só na face visível.
     const R = 232, rot = -35 + t * 9;
@@ -476,7 +495,8 @@ const stake: FeatureFilm = {
     "Stake or Die. Pick a Gnars rider and back them with a deposit that stays yours and keeps earning. You keep half the yield, the other half backs your rider and the treasury. https://gnars.com/stake",
   exampleValues: true,
   assets: Object.fromEntries(RIDERS.map(([, id]) => [id, `${A}/riders/${id}.png`])),
-  captionAt: (t) => stage(t, [[2.8, "Pick a rider"], [5.5, "Deposit"], [8.2, "The yield is split in two"]] as const, "Your deposit stays yours"),
+  captions: ["Pick a rider", "Deposit", "The yield is split in two", "Your deposit stays yours"],
+  captionAt: (t) => stage(t, [[2.8, 0], [5.5, 1], [8.2, 2]] as const, 3),
   draw(p, t) {
     const s = stage(t, [[2.8, "pick"], [5.5, "amount"], [8.2, "split"], [8.7, "pressing"]] as const, "staked");
     const cursor = cursorAt(t, [{ at: 0.6, x: 220, y: 220 }, { at: 2.5, x: -168, y: -150 }, { at: 3.2, x: -168, y: -150 }, { at: 4.4, x: 120, y: -30 }, { at: 5.2, x: 120, y: -30 }, { at: 7.9, x: 0, y: 204 }, { at: 9, x: 0, y: 204 }, { at: 9.8, x: 240, y: 250 }], [2.8, 4.7, 8.2], 0.5, 9.8);
