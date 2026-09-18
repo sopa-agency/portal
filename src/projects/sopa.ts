@@ -54,10 +54,8 @@ const sopa: ProjectConfig = {
     // revogado; era o fid da Gnars): Settings → conectar Farcaster.
     channel: "build",
   },
-  // O repo do próprio portal. Estava de fora, e isso deixava invisível o
-  // trabalho que a equipe mais faz: o relatório diário lê commits a partir
-  // daqui, e sem esta linha um dia inteiro de commits no portal aparecia como
-  // um dia sem nada.
+  // O repo do próprio portal: é onde a equipe mais trabalha, então é ele que
+  // alimenta o que lê commits da SOPA.
   repos: ["sopa-agency/portal"],
   // As redes que a SOPA tem de fato (15/09/2026). O X é o que o site sopa.team
   // aponta; a Hive é a conta nova. Sem API do X, a métrica dele fica "n/d" e
