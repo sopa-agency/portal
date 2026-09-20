@@ -15,6 +15,7 @@ import { sponsorConfigured } from "@/lib/farcaster-sponsor";
 import { FarcasterProjectConnect } from "@/components/farcaster-project-connect";
 import { resolveFarcasterSigner } from "@/lib/farcaster-signer";
 import { SettingsTabs, type SettingsTab } from "@/components/settings-tabs";
+import { ApiAccess } from "@/components/api-access";
 import { MyWallets } from "@/components/my-wallets";
 import { KanbanFxToggle } from "@/components/kanban-fx-toggle";
 import { BrainExplorer } from "@/components/brain-explorer";
@@ -136,6 +137,8 @@ export default async function SettingsPage() {
     { id: "brain", label: "Brain", content: brainSection },
     { id: "trail", label: "Curation Trail", content: trailSection },
     { id: "bounties", label: "Bounties", content: bountiesSection },
+    // Token pessoal + MCP: qualquer membro logado cria o seu.
+    { id: "api", label: "API & MCP", content: <ApiAccess /> },
   ];
 
   return (

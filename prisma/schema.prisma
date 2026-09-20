@@ -1796,3 +1796,28 @@ model FilmPlaybook {
   updatedBy   String?
   updatedAt   DateTime @updatedAt
 }
+
+/// Token pessoal de API/MCP. O token em si só existe na tela em que foi criado:
+/// o banco guarda o sha256. Pertence a uma PESSOA (username do portal), e o que
+/// ele enxerga é o que ela enxerga — o acesso por projeto é checado a cada
+/// chamada, então tirar alguém do time tira o token dela junto.
+/// Tabela criada por SQL direto (db push bloqueado pelo drift).
+model ApiToken {
+  id              String    @id @default(cuid())
+  username        String
+  name            String
+  tokenHash       String    @unique
+  /// Começo do token, para a pessoa reconhecer qual é qual na lista.
+  prefix          String
+  /// "read" sempre. "agents" deixa perguntar aos agentes (gasta modelo): só admin cria.
+  scopes          String[]  @default(["read"])
+  calls           Int       @default(0)
+  /// Contador diário de perguntas aos agentes: "YYYY-MM-DD" + quantas.
+  agentCallsDay   String?
+  agentCallsCount Int       @default(0)
+  createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+
+  @@index([username])
+}
