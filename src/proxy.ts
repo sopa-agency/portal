@@ -45,6 +45,10 @@ const PUBLIC_PATHS = [
   // sessão e a pessoa recebe o HTML do /login onde esperava JSON.
   "/app-idea",
   "/api/app-idea",
+  // API e MCP dos membros: autenticam por Bearer (token pessoal) DENTRO da
+  // rota. Sem estas linhas o cliente MCP receberia o HTML do /login.
+  "/api/mcp",
+  "/api/v1",
 ];
 
 // Páginas públicas de verdade: renderizam SEM a moldura do portal e sem sessão.
