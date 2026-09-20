@@ -36,11 +36,18 @@ export async function listTokens(username: string): Promise<TokenRow[]> {
   return rows.map((r) => ({ id: r.id, name: r.name, prefix: r.prefix, scopes: r.scopes, calls: r.calls, createdAt: r.createdAt.toISOString(), lastUsedAt: r.lastUsedAt?.toISOString() ?? null }));
 }
 
+/** Nome de quem não escolheu nome: o token nasce pronto, sem formulário. */
+export const AUTO_TOKEN_NAME = "Meu agente";
+const autoName = () => `${AUTO_TOKEN_NAME} · ${new Date().toISOString().slice(0, 10)}`;
+
 /** Cria o token e devolve o segredo — a única vez em que ele existe em claro. */
 export async function createToken(username: string, name: string, scopes: Scope[]): Promise<{ ok: true; token: string; row: TokenRow } | { ok: false; error: string }> {
   const u = username.toLowerCase();
-  const clean = name.replace(/\s+/g, " ").trim().slice(0, 60);
-  if (!clean) return { ok: false, error: "Dê um nome ao token (onde ele vai ser usado)." };
+  const clean = name.replace(/\s+/g, " ").trim().slice(0, 60) || autoName();
+  // Token automático que ninguém chegou a usar depois de um dia é aba aberta e
+  // fechada sem copiar: sai de cena para não virar pilha. O prazo protege quem
+  // configurou um cliente agora e ainda não fez a primeira chamada.
+  await prisma.apiToken.updateMany({ where: { username: u, revokedAt: null, calls: 0, name: { startsWith: AUTO_TOKEN_NAME }, createdAt: { lt: new Date(Date.now() - 86_400_000) } }, data: { revokedAt: new Date() } }).catch(() => {});
   const ativos = await prisma.apiToken.count({ where: { username: u, revokedAt: null } });
   if (ativos >= MAX_TOKENS_PER_USER) return { ok: false, error: `Limite de ${MAX_TOKENS_PER_USER} tokens ativos. Revogue um antes de criar outro.` };
   const secret = TOKEN_PREFIX + crypto.randomBytes(30).toString("base64url");

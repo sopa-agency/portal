@@ -1,6 +1,6 @@
 # API & MCP do portal
 
-Cada membro cria um token pessoal em **Settings → API & MCP** e leva o contexto
+Cada membro tem um token pessoal em **Settings → API & MCP** e leva o contexto
 da SOPA e dos projetos para o próprio agente (Claude Code, Claude Desktop,
 Cursor) ou para um script.
 
@@ -15,8 +15,12 @@ Tudo é leitura. A exceção é `ask_agent`, que gasta modelo: exige o escopo
 `agents` (só admin marca, ao criar o token) e para em 10 perguntas por dia por
 token.
 
-O banco guarda só o sha256 do token. O segredo aparece uma vez, na tela em que
-nasce. Limite de 10 tokens ativos por pessoa.
+O token é gerado para a pessoa: quem abre a aba sem nenhum já recebe o seu, com
+os comandos de conexão preenchidos. Para outro cliente, um clique gera outro;
+nome e escopo `agents` ficam em Opções. O banco guarda só o sha256, então o
+segredo aparece uma vez, na tela em que nasce. Limite de 10 tokens ativos por
+pessoa; token automático que ninguém usou em um dia é revogado na geração
+seguinte.
 
 ## Endpoints
 

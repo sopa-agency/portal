@@ -18,10 +18,20 @@ async function me(): Promise<{ ok: true; username: string; admin: boolean } | { 
   return { ok: true, username: session.username, admin: access.role === "admin" };
 }
 
-export async function myApiTokens(): Promise<{ ok: true; tokens: TokenRow[]; admin: boolean } | { ok: false; error: string }> {
+/**
+ * Os tokens de quem está logado. Com `issueFirst`, quem ainda não tem nenhum
+ * já recebe o seu: a pessoa abre a aba e os comandos vêm preenchidos, sem
+ * formulário. `fresh` é o segredo desse token — a única vez em que ele volta.
+ */
+export async function myApiTokens(issueFirst = false): Promise<{ ok: true; tokens: TokenRow[]; admin: boolean; fresh: string | null } | { ok: false; error: string }> {
   const m = await me();
   if (!m.ok) return m;
-  return { ok: true, tokens: await listTokens(m.username), admin: m.admin };
+  const tokens = await listTokens(m.username);
+  if (issueFirst && tokens.length === 0) {
+    const made = await createToken(m.username, "", []);
+    if (made.ok) return { ok: true, tokens: [made.row], admin: m.admin, fresh: made.token };
+  }
+  return { ok: true, tokens, admin: m.admin, fresh: null };
 }
 
 export async function createApiToken(name: string, withAgents: boolean): Promise<{ ok: true; token: string; row: TokenRow } | { ok: false; error: string }> {

@@ -1,15 +1,16 @@
 "use client";
 
-// Settings → API & MCP. Cada pessoa cria o próprio token, vê o segredo UMA vez,
-// e leva para o cliente que quiser: MCP (Claude Code, Claude Desktop, Cursor…)
+// Settings → API & MCP. Quem abre a aba sem token já recebe o seu, com os
+// comandos preenchidos; o segredo aparece UMA vez. Dali vai para o cliente que
+// a pessoa quiser: MCP (Claude Code, Claude Desktop, Cursor…)
 // ou REST. O token enxerga o que a pessoa enxerga no portal.
 //
 // A segunda metade da aba ensina a usar: a primeira mensagem para colar, pedidos
 // prontos por família, os atalhos "/" e o catálogo de ferramentas. Exemplos e
 // atalhos vêm de `lib/mcp/guide` — a mesma fonte que o agente lê em `get_guide`.
 
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, Copy, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Check, ChevronDown, Copy, KeyRound, Loader2, Trash2 } from "lucide-react";
 import { apiCatalog, createApiToken, myApiTokens, revokeApiToken } from "@/app/actions/api-tokens";
 import type { TokenRow } from "@/lib/api-tokens";
 import type { CatalogEntry } from "@/lib/mcp/tools";
@@ -19,12 +20,16 @@ import { useLocale } from "@/components/locale-provider";
 const STR = {
   pt: {
     intro: "Um token pessoal dá ao seu agente (Claude Code, Cursor, um script) o contexto da SOPA e dos projetos: o retrato de cada projeto, kanban, o que está no seu nome, reuniões, tesouro, custos, campanhas e as notas dos agentes. Ele enxerga o que você enxerga no portal, e só leitura.",
-    newToken: "Novo token",
-    namePlaceholder: "Onde vai usar (ex.: Claude Code no notebook)",
+    ready: "Seu token está pronto",
+    readyHint: "Copie agora: ele não aparece de novo. Os comandos abaixo já vêm com ele — é colar e usar.",
+    another: "Conectar outro cliente",
+    anotherHint: (n: number) => `Você tem ${n} token${n === 1 ? "" : "s"} ativo${n === 1 ? "" : "s"}. O segredo só aparece na hora em que o token nasce; para conectar outro cliente, gere um novo e os comandos abaixo vêm preenchidos.`,
+    issuing: "Gerando seu token…",
+    generate: "Gerar novo token",
+    generating: "Gerando…",
+    options: "Opções",
+    namePlaceholder: "Nome, para você reconhecer depois (opcional)",
     withAgents: "Permitir perguntar aos agentes (gasta modelo; até 10 por dia)",
-    create: "Criar token",
-    creating: "Criando…",
-    onceTitle: "Copie agora. Este token não aparece de novo.",
     copy: "Copiar",
     copied: "Copiado",
     yourTokens: "Seus tokens",
@@ -39,7 +44,7 @@ const STR = {
     claudeCode: "Claude Code",
     jsonClients: "Claude Desktop, Cursor e outros clientes MCP (JSON)",
     rest: "REST, para scripts",
-    placeholderNote: "Os exemplos usam o token recém-criado quando ele está na tela; senão, troque SEU_TOKEN.",
+    placeholderNote: "Sem um token recém-gerado na tela, os comandos mostram SEU_TOKEN: gere um novo acima que eles se preenchem.",
     agents: "agentes",
     first: "2 · A primeira mensagem",
     firstHint: "Conectou? Cole isto no seu agente. Ele confere quem você é, lista seus projetos e te mostra o que dá para pedir. O servidor também já entrega isso ao modelo na conexão, então perguntar \"o que eu posso pedir sobre a SOPA?\" funciona igual.",
@@ -53,12 +58,16 @@ const STR = {
   },
   en: {
     intro: "A personal token gives your agent (Claude Code, Cursor, a script) the context of SOPA and its projects: each project's snapshot, kanban, what is on you, meetings, treasury, costs, campaigns and the agents' notes. It sees what you see in the portal, read-only.",
-    newToken: "New token",
-    namePlaceholder: "Where it will be used (e.g. Claude Code on my laptop)",
+    ready: "Your token is ready",
+    readyHint: "Copy it now: it will not be shown again. The commands below already carry it — paste and go.",
+    another: "Connect another client",
+    anotherHint: (n: number) => `You have ${n} active token${n === 1 ? "" : "s"}. The secret only shows when a token is born; to connect another client, generate a new one and the commands below fill themselves in.`,
+    issuing: "Generating your token…",
+    generate: "Generate a new token",
+    generating: "Generating…",
+    options: "Options",
+    namePlaceholder: "A name, so you recognise it later (optional)",
     withAgents: "Allow asking the agents (spends model budget; up to 10 a day)",
-    create: "Create token",
-    creating: "Creating…",
-    onceTitle: "Copy it now. This token will not be shown again.",
     copy: "Copy",
     copied: "Copied",
     yourTokens: "Your tokens",
@@ -73,7 +82,7 @@ const STR = {
     claudeCode: "Claude Code",
     jsonClients: "Claude Desktop, Cursor and other MCP clients (JSON)",
     rest: "REST, for scripts",
-    placeholderNote: "The examples use the token you just created while it is on screen; otherwise replace YOUR_TOKEN.",
+    placeholderNote: "Without a freshly generated token on screen the commands show YOUR_TOKEN: generate a new one above and they fill themselves in.",
     agents: "agents",
     first: "2 · The first message",
     firstHint: "Connected? Paste this into your agent. It checks who you are, lists your projects and shows what you can ask. The server also hands this to the model on connect, so asking \"what can I ask about SOPA?\" works just as well.",
@@ -124,23 +133,30 @@ export function ApiAccess() {
   const [admin, setAdmin] = useState(false);
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [showTools, setShowTools] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
   const [name, setName] = useState("");
   const [withAgents, setWithAgents] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fresh, setFresh] = useState<string | null>(null);
+  const issuedOnOpen = useRef(false);
   // A origem é a do portal em que a pessoa está (cada marca tem o seu domínio).
   const origin = useSyncExternalStore(() => () => {}, () => window.location.origin, () => "https://sopa.sopa.team");
 
-  async function load() {
-    const r = await myApiTokens();
+  async function load(issueFirst = false) {
+    const r = await myApiTokens(issueFirst);
     if (r.ok) {
       setTokens(r.tokens);
       setAdmin(r.admin);
+      if (r.fresh) setFresh(r.fresh);
     } else setError(r.error);
   }
   useEffect(() => {
-    void load();
+    // Quem ainda não tem token recebe o seu ao abrir a aba. A trava evita emitir
+    // dois quando o efeito roda em dobro (modo estrito, em desenvolvimento).
+    if (issuedOnOpen.current) return;
+    issuedOnOpen.current = true;
+    void load(true);
     void apiCatalog().then(setCatalog).catch(() => {});
   }, []);
 
@@ -174,49 +190,35 @@ export function ApiAccess() {
     <div className="space-y-6">
       <p className="max-w-3xl text-sm leading-relaxed text-foreground-muted">{s.intro}</p>
 
-      <section className="rounded-2xl border border-border bg-surface p-4">
-        <p className="flex items-center gap-2 text-sm font-semibold text-foreground"><Plus className="h-4 w-4 text-accent" /> {s.newToken}</p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <input value={name} maxLength={60} placeholder={s.namePlaceholder} onChange={(e) => setName(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground" />
-          <button type="button" onClick={() => void create()} disabled={busy || !name.trim()} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-50">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />} {busy ? s.creating : s.create}
-          </button>
-        </div>
-        {admin && (
-          <label className="mt-3 flex items-center gap-2 text-xs text-foreground-muted">
-            <input type="checkbox" checked={withAgents} onChange={(e) => setWithAgents(e.target.checked)} /> {s.withAgents}
-          </label>
+      <section className={`rounded-2xl border p-4 ${fresh ? "border-warning/40 bg-warning/10" : "border-border bg-surface"}`}>
+        {tokens === null ? (
+          <p className="flex items-center gap-2 text-sm text-foreground-muted"><Loader2 className="h-4 w-4 animate-spin" /> {s.issuing}</p>
+        ) : (
+          <>
+            <p className="flex items-center gap-2 text-sm font-semibold text-foreground"><KeyRound className={`h-4 w-4 ${fresh ? "text-warning" : "text-accent"}`} /> {fresh ? s.ready : s.another}</p>
+            <p className="mt-1 max-w-3xl text-xs leading-relaxed text-foreground-muted">{fresh ? s.readyHint : s.anotherHint(tokens.length)}</p>
+            {fresh && <div className="mt-3"><CopyBlock text={fresh} label={s.copy} copiedLabel={s.copied} /></div>}
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <button type="button" onClick={() => void create()} disabled={busy} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${fresh ? "border border-border bg-surface text-foreground hover:border-border-strong" : "bg-accent text-accent-foreground"}`}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />} {busy ? s.generating : s.generate}
+              </button>
+              <button type="button" onClick={() => setShowOptions((v) => !v)} className="inline-flex items-center gap-1 text-xs font-medium text-foreground-muted hover:text-foreground">
+                {s.options} <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showOptions ? "rotate-180" : ""}`} />
+              </button>
+            </div>
+            {showOptions && (
+              <div className="mt-3 space-y-2">
+                <input value={name} maxLength={60} placeholder={s.namePlaceholder} onChange={(e) => setName(e.target.value)} className="w-full max-w-md rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground" />
+                {admin && (
+                  <label className="flex items-center gap-2 text-xs text-foreground-muted">
+                    <input type="checkbox" checked={withAgents} onChange={(e) => setWithAgents(e.target.checked)} /> {s.withAgents}
+                  </label>
+                )}
+              </div>
+            )}
+          </>
         )}
         {error && <p className="mt-2 text-xs text-danger">{error}</p>}
-        {fresh && (
-          <div className="mt-4 rounded-xl border border-warning/40 bg-warning/10 p-3">
-            <p className="mb-2 text-xs font-semibold text-warning">{s.onceTitle}</p>
-            <CopyBlock text={fresh} label={s.copy} copiedLabel={s.copied} />
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-2xl border border-border bg-surface p-4">
-        <p className="text-sm font-semibold text-foreground">{s.yourTokens}</p>
-        {tokens === null ? (
-          <p className="mt-3 flex items-center gap-2 text-xs text-foreground-muted"><Loader2 className="h-3 w-3 animate-spin" /> …</p>
-        ) : tokens.length === 0 ? (
-          <p className="mt-3 text-xs text-foreground-subtle">{s.none}</p>
-        ) : (
-          <ul className="mt-3 space-y-2">
-            {tokens.map((t) => (
-              <li key={t.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                  {t.name}
-                  {t.scopes.includes("agents") && <span className="ml-2 rounded bg-accent-bg px-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">{s.agents}</span>}
-                </span>
-                <span className="font-mono text-xs text-foreground-subtle">{t.prefix}…</span>
-                <span className="text-xs text-foreground-subtle">{s.created} {when(t.createdAt)} · {t.lastUsedAt ? `${s.lastUsed} ${when(t.lastUsedAt)}` : s.never} · {t.calls} {s.calls}</span>
-                <button type="button" onClick={() => void revoke(t.id)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-danger hover:bg-surface"><Trash2 className="h-3.5 w-3.5" /> {s.revoke}</button>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       <section className="space-y-4 rounded-2xl border border-border bg-surface p-4">
@@ -300,6 +302,28 @@ export function ApiAccess() {
           )}
         </section>
       )}
+      <section className="rounded-2xl border border-border bg-surface p-4">
+        <p className="text-sm font-semibold text-foreground">{s.yourTokens}</p>
+        {tokens === null ? (
+          <p className="mt-3 flex items-center gap-2 text-xs text-foreground-muted"><Loader2 className="h-3 w-3 animate-spin" /> …</p>
+        ) : tokens.length === 0 ? (
+          <p className="mt-3 text-xs text-foreground-subtle">{s.none}</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {tokens.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {t.name}
+                  {t.scopes.includes("agents") && <span className="ml-2 rounded bg-accent-bg px-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">{s.agents}</span>}
+                </span>
+                <span className="font-mono text-xs text-foreground-subtle">{t.prefix}…</span>
+                <span className="text-xs text-foreground-subtle">{s.created} {when(t.createdAt)} · {t.lastUsedAt ? `${s.lastUsed} ${when(t.lastUsedAt)}` : s.never} · {t.calls} {s.calls}</span>
+                <button type="button" onClick={() => void revoke(t.id)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-danger hover:bg-surface"><Trash2 className="h-3.5 w-3.5" /> {s.revoke}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
