@@ -35,21 +35,52 @@ claude mcp add --transport http sopa https://sopa.sopa.team/api/mcp \
   --header "Authorization: Bearer sopa_pat_…"
 ```
 
-## Ferramentas
+## Como o contexto é organizado
 
-| Ferramenta | Devolve |
-|------------|---------|
-| `whoami` | quem é o token, escopos, projetos e papel em cada um |
-| `list_projects` | ficha de cada projeto: descrição, repositórios, redes, agente, kanban |
-| `get_briefing` | o briefing mais recente do agente do projeto (ou o de uma data) |
-| `get_kanban` | colunas com contagem e os cards filtrados por coluna, responsável ou texto |
-| `get_card` | um card inteiro, com o corpo |
-| `get_treasury` | saldo por carteira, maiores tokens, quando foi lido |
-| `get_costs` | a planilha de custos fixos, com o mensal em USD |
-| `get_team` | membros e papéis; na SOPA, também os pesos do split em vigor |
-| `list_campaigns` / `get_campaign` | campanhas, e o briefing e os textos de uma |
-| `list_brain_files` / `read_brain_file` | os documentos do workspace do agente |
-| `ask_agent` | pergunta ao agente do projeto (escopo `agents`, 10 por dia) |
+O catálogo tem famílias, na ordem em que fazem sentido para quem chega. A mesma
+lista alimenta o guia que o agente lê (`get_guide`) e a aba do portal.
+
+| Família | Ferramentas |
+|---------|-------------|
+| Começar | `whoami`, `list_projects`, `get_guide` |
+| Estado do projeto | `get_overview` (o retrato inteiro em uma chamada), `get_briefing` |
+| Trabalho | `get_kanban`, `get_card` (com as notas do time), `my_tasks`, `list_meetings`, `get_meeting` |
+| Dinheiro | `get_treasury`, `get_costs`, `get_team` (na SOPA, com os pesos do split) |
+| Conteúdo | `list_campaigns`, `get_campaign`, `get_social_metrics` |
+| Memória dos agentes | `search`, `list_brain_files`, `read_brain_file` |
+| Perguntar ao agente | `ask_agent` (escopo `agents`, 10 por dia) |
+
+Três atalhos evitam dezenas de chamadas:
+
+- `get_overview` devolve board (contagem, os cards mais quentes, os atrasados),
+  dinheiro (tesouro, custo mensal, runway), campanhas, última reunião com ata,
+  seguidores e a idade do briefing. Cada parte falha sozinha.
+- `my_tasks` junta o que está no nome da pessoa em todos os boards (pelo login
+  de GitHub cadastrado em Team e pelo dono do card) e os itens de ação das
+  reuniões.
+- `search` procura um termo em cards, campanhas, briefings e atas, e diz qual
+  ferramenta abre cada achado.
+
+O board do GitHub fica 60 s em memória por instância, porque um agente faz
+várias chamadas seguidas sobre o mesmo quadro.
+
+## O que a pessoa vê ao conectar
+
+O MCP não tem mensagem de boas-vindas para o usuário. O que existe, e está
+ligado:
+
+- **`instructions` na conexão**, montadas por pessoa: o modelo já chega sabendo
+  quem está do outro lado, quais projetos ela enxerga e por onde começar. Perguntar
+  "o que eu posso pedir sobre a SOPA?" faz o agente chamar `get_guide`.
+- **Prompts**, que o cliente mostra como comandos (`/mcp__sopa__comecar` no
+  Claude Code, o menu + no Claude Desktop): `comecar`, `resumo_projeto`,
+  `minhas_tarefas`, `dinheiro`, `ultima_reuniao`, `rascunho_post`, `semana`.
+- **Recursos**: `sopa://guide` e `sopa://project/<slug>`, para anexar com `@`.
+- **A aba do portal**, que dá a primeira mensagem para colar, pedidos prontos
+  por família, os atalhos e o catálogo.
+
+Exemplos, prompts e famílias moram em `src/lib/mcp/guide.ts`: muda ali, muda nos
+três lugares.
 
 ## O que fica de fora do brain
 
@@ -62,6 +93,7 @@ apaga o que tiver cara de credencial.
 ## Onde mora
 
 - `src/lib/api-tokens.ts` — criar, revogar, conferir o Bearer, teto do agente
+- `src/lib/mcp/guide.ts` — famílias, pedidos prontos, prompts e a primeira mensagem
 - `src/lib/mcp/tools.ts` — as ferramentas; uma ferramenta nova entra aqui e
   aparece no MCP e no REST de uma vez
 - `src/app/api/mcp/route.ts` — o transporte MCP

@@ -8,6 +8,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { getAccess, verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects";
 import { createToken, listTokens, revokeToken, type Scope, type TokenRow } from "@/lib/api-tokens";
+import { catalogFor, type CatalogEntry } from "@/lib/mcp/tools";
 
 async function me(): Promise<{ ok: true; username: string; admin: boolean } | { ok: false; error: string }> {
   const project = await getActiveProject();
@@ -36,4 +37,10 @@ export async function revokeApiToken(id: string): Promise<{ ok: true } | { ok: f
   const m = await me();
   if (!m.ok) return m;
   return (await revokeToken(m.username, id)) ? { ok: true } : { ok: false, error: "Token não encontrado." };
+}
+
+/** O catálogo de ferramentas como o servidor o serve, para a aba nunca divergir dele. */
+export async function apiCatalog(): Promise<CatalogEntry[]> {
+  const m = await me();
+  return m.ok ? catalogFor(null) : [];
 }
