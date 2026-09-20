@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyBearer } from "@/lib/api-tokens";
-import { callTool, describeTools, ToolError } from "@/lib/mcp/tools";
+import { callTool, describeTools, guideFor, instructionsFor, projectsFor, ToolError } from "@/lib/mcp/tools";
+import { PROMPTS } from "@/lib/mcp/guide";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +21,14 @@ export const maxDuration = 300;
 
 const SUPPORTED = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const SERVER = { name: "sopa-portal", title: "SOPA Portal", version: "1.0.0" };
-const INSTRUCTIONS =
-  "Context about SOPA (a crypto-native agency) and the projects it runs — SkateHive, Gnars, swaps.pro and others: briefings, kanban boards, treasury, costs, team, campaigns and the agents' own notes. Start with whoami or list_projects; every other tool takes a project slug. Everything is read-only except ask_agent, which spends model budget and is capped per day.";
+// As instruções da conexão são montadas por pessoa (`instructionsFor`): o modelo
+// já chega sabendo quem está do outro lado e quais projetos existem. O MCP não
+// tem mensagem de boas-vindas para o USUÁRIO; o que chega até ele são os prompts
+// abaixo, que o cliente mostra como comandos ("/mcp__sopa__comecar" no Claude
+// Code, o menu "+" no Claude Desktop).
+const CAPABILITIES = { tools: { listChanged: false }, prompts: { listChanged: false }, resources: { listChanged: false, subscribe: false } };
+const GUIDE_URI = "sopa://guide";
+const projectUri = (slug: string) => `sopa://project/${slug}`;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -34,18 +41,44 @@ async function handle(msg: Rpc, bearer: NonNullable<Awaited<ReturnType<typeof ve
   switch (msg.method) {
     case "initialize": {
       const asked = String(msg.params?.protocolVersion ?? "");
-      return result(msg.id, { protocolVersion: SUPPORTED.includes(asked) ? asked : SUPPORTED[0], capabilities: { tools: { listChanged: false } }, serverInfo: SERVER, instructions: INSTRUCTIONS });
+      return result(msg.id, { protocolVersion: SUPPORTED.includes(asked) ? asked : SUPPORTED[0], capabilities: CAPABILITIES, serverInfo: SERVER, instructions: await instructionsFor(bearer) });
     }
     case "ping":
       return result(msg.id, {});
     case "tools/list":
       return result(msg.id, { tools: describeTools(bearer) });
-    case "resources/list":
-      return result(msg.id, { resources: [] });
+    case "resources/list": {
+      const mine = await projectsFor(bearer.username);
+      return result(msg.id, {
+        resources: [
+          { uri: GUIDE_URI, name: "guide", title: "SOPA portal: what you can ask", description: "Your projects, the tools by family, ready-made requests and the prompt shortcuts.", mimeType: "application/json" },
+          ...mine.map((p) => ({ uri: projectUri(p.project.slug), name: `${p.project.slug}-overview`, title: `${p.project.name}: snapshot`, description: `Board, money, campaigns, last meeting and briefing date of ${p.project.name}.`, mimeType: "application/json" })),
+        ],
+      });
+    }
     case "resources/templates/list":
-      return result(msg.id, { resourceTemplates: [] });
+      return result(msg.id, { resourceTemplates: [{ uriTemplate: "sopa://project/{slug}", name: "project-overview", title: "Project snapshot", description: "The get_overview of one project.", mimeType: "application/json" }] });
+    case "resources/read": {
+      const uri = String(msg.params?.uri ?? "");
+      try {
+        const slug = /^sopa:\/\/project\/([a-z0-9-]+)$/.exec(uri)?.[1];
+        const value = uri === GUIDE_URI ? await guideFor(bearer, "pt") : slug ? await callTool(bearer, "get_overview", { project: slug }) : null;
+        if (!value) return failure(msg.id, -32002, `Resource not found: ${uri}`);
+        return result(msg.id, { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(value, null, 2) }] });
+      } catch (err) {
+        return failure(msg.id, -32002, err instanceof ToolError ? err.message : `Could not read ${uri}`);
+      }
+    }
     case "prompts/list":
-      return result(msg.id, { prompts: [] });
+      return result(msg.id, { prompts: PROMPTS.map((p) => ({ name: p.name, title: p.title, description: `${p.description.pt} · ${p.description.en}`, arguments: p.args })) });
+    case "prompts/get": {
+      const prompt = PROMPTS.find((p) => p.name === String(msg.params?.name ?? ""));
+      if (!prompt) return failure(msg.id, -32602, `Unknown prompt: ${String(msg.params?.name ?? "")}`);
+      const given = Object.fromEntries(Object.entries((msg.params?.arguments ?? {}) as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "").slice(0, 400)]));
+      const missing = prompt.args.filter((x) => x.required && !given[x.name]?.trim()).map((x) => x.name);
+      if (missing.length) return failure(msg.id, -32602, `Missing argument: ${missing.join(", ")}`);
+      return result(msg.id, { description: prompt.description.pt, messages: [{ role: "user", content: { type: "text", text: prompt.text(given) } }] });
+    }
     case "tools/call": {
       const name = String(msg.params?.name ?? "");
       try {
