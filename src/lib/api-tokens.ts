@@ -70,8 +70,11 @@ export async function verifyBearer(authorization: string | null): Promise<Bearer
   if (!m || !m[1].startsWith(TOKEN_PREFIX)) return null;
   const row = await prisma.apiToken.findUnique({ where: { tokenHash: sha256(m[1]) } }).catch(() => null);
   if (!row || row.revokedAt) return null;
-  // Uso registrado sem segurar a resposta: contar não pode custar latência.
-  void prisma.apiToken.update({ where: { id: row.id }, data: { lastUsedAt: new Date(), calls: { increment: 1 } } }).catch(() => {});
+  // O registro de uso é ESPERADO, e num comando só. Solto ("void …"), a função
+  // serverless congelava depois de responder com a transação do Prisma ainda
+  // aberta: a linha do token ficava travada por minutos e a conexão, presa.
+  // Um UPDATE avulso faz commit sozinho, então não há transação para ficar no ar.
+  await prisma.$executeRaw`UPDATE "ApiToken" SET "lastUsedAt" = now(), "calls" = "calls" + 1 WHERE "id" = ${row.id}`.catch(() => {});
   return { tokenId: row.id, username: row.username, scopes: row.scopes };
 }
 
