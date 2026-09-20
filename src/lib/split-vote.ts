@@ -27,6 +27,29 @@ import { carteirasConhecidas } from "@/lib/member-wallets";
 
 export const TOTAL_PONTOS = 100;
 
+/**
+ * Quanto do PAGAMENTO vem do mérito medido (dólar trazido nos últimos 90 dias);
+ * o resto vem dos votos. 30/70, o desenho original da cédula — que até
+ * 19/09/2026 só existia como painel: a apuração pagava 100% pelos votos.
+ *
+ * O mérito só entra quando pôde ser MEDIDO e quando alguém do split tem dólar
+ * medido; senão o pagamento fica inteiro nos votos e o resultado diz por quê.
+ * Mérito de quem não está no split não tem como ser pago por este contrato,
+ * então a fatia de mérito é repartida só entre os destinatários.
+ */
+export const PESO_MERITO = 0.3;
+
+/**
+ * A partir de quando o 70/30 vale. Rodadas abertas ANTES foram pagas 100% pelos
+ * votos, e a apuração delas tem de continuar dizendo isso: recalcular o passado
+ * com a regra nova faria a tela mostrar, como "a conta que gerou este peso",
+ * números que nunca geraram peso nenhum.
+ */
+export const MERITO_VALE_DESDE = new Date("2026-09-19T00:00:00-03:00");
+
+/** Dólar medido por pessoa (username em minúsculas), ou o motivo de não haver. */
+export type MeritoParaApurar = { ok: true; usdPor: Record<string, number> } | { ok: false; motivo: string };
+
 export type Elegivel = {
   address: string;
   /** Username do Team, quando o endereço está cadastrado lá. */
@@ -99,8 +122,15 @@ export function validarCedula(
 }
 
 export type Resultado = {
-  /** Proporções apuradas, em ordem decrescente. */
-  linhas: { address: string; username: string | null; pontos: number; share: number; shareAtual: number }[];
+  /**
+   * Proporções apuradas, em ordem decrescente. `share` é o que vai para o
+   * contrato: (1 − pesoMerito) × shareVotos + pesoMerito × shareMerito.
+   */
+  linhas: { address: string; username: string | null; pontos: number; share: number; shareVotos: number; shareMerito: number; usdMerito: number; shareAtual: number }[];
+  /** Quanto do pagamento veio do mérito NESTA apuração: PESO_MERITO ou 0. */
+  pesoMerito: number;
+  /** Por que o mérito não entrou, quando não entrou. */
+  meritoMotivo: string | null;
   /** Cédulas sem autor, embaralhadas — o que torna a apuração conferível. */
   cedulasAnonimas: Record<string, number>[];
   votaram: number;
@@ -134,8 +164,10 @@ function ordemEstavel(roundId: string, voter: string): string {
   return crypto.createHash("sha256").update(`${roundId}:${voter}`).digest("hex");
 }
 
-export async function apurar(roundId: string, els: Elegivel[]): Promise<Resultado> {
+export async function apurar(roundId: string, els: Elegivel[], merito: MeritoParaApurar | null = null): Promise<Resultado> {
   const cedulas = await prisma.splitVoteBallot.findMany({ where: { roundId } });
+  const rodada = await prisma.splitVoteRound.findUnique({ where: { id: roundId }, select: { openedAt: true } }).catch(() => null);
+  const regraNova = !rodada || rodada.openedAt.getTime() >= MERITO_VALE_DESDE.getTime();
 
   const pontosPor = new Map<string, number>();
   for (const el of els) pontosPor.set(el.address.toLowerCase(), 0);
@@ -169,20 +201,42 @@ export async function apurar(roundId: string, els: Elegivel[]): Promise<Resultad
   }
 
   const total = [...pontosPor.values()].reduce((s, n) => s + n, 0);
+
+  // MÉRITO: dólar medido de cada destinatário, pelo username. Quem não tem
+  // cadastro não tem como ter mérito casado; quem não está no split não entra.
+  const usdDe = (e: Elegivel) => (regraNova && merito?.ok && e.username ? Math.max(0, merito.usdPor[e.username.toLowerCase()] ?? 0) : 0);
+  const totalUsd = els.reduce((s, e) => s + usdDe(e), 0);
+  let pesoMerito = 0;
+  let meritoMotivo: string | null = null;
+  if (!regraNova) meritoMotivo = "esta rodada é anterior à regra 70/30, que vale para rodadas abertas a partir de 19/09/2026";
+  else if (!merito) meritoMotivo = "o mérito não foi informado à apuração";
+  else if (!merito.ok) meritoMotivo = `o mérito não pôde ser medido (${merito.motivo})`;
+  else if (!(totalUsd > 0)) meritoMotivo = "ninguém do split tem dólar medido na janela";
+  else if (!(total > 0)) meritoMotivo = "ninguém votou ainda";
+  else pesoMerito = PESO_MERITO;
+
   const linhas = els
     .map((e) => {
       const pontos = pontosPor.get(e.address.toLowerCase()) ?? 0;
+      // Total zero (ninguém votou ainda) não vira NaN nem 100% para o
+      // primeiro da lista: vira zero, que é a verdade daquele momento. E sem
+      // voto nenhum o mérito sozinho NÃO define pagamento: uma folha decidida
+      // com a urna vazia não é uma votação.
+      const shareVotos = total > 0 ? pontos / total : 0;
+      const usdMerito = usdDe(e);
+      const shareMerito = totalUsd > 0 ? usdMerito / totalUsd : 0;
       return {
         address: e.address,
         username: e.username,
         pontos,
-        // Total zero (ninguém votou ainda) não vira NaN nem 100% para o
-        // primeiro da lista: vira zero, que é a verdade daquele momento.
-        share: total > 0 ? pontos / total : 0,
+        share: total > 0 ? (1 - pesoMerito) * shareVotos + pesoMerito * shareMerito : 0,
+        shareVotos,
+        shareMerito,
+        usdMerito,
         shareAtual: e.shareAtual,
       };
     })
-    .sort((a, b) => b.pontos - a.pontos || (a.username ?? a.address).localeCompare(b.username ?? b.address));
+    .sort((a, b) => b.share - a.share || b.pontos - a.pontos || (a.username ?? a.address).localeCompare(b.username ?? b.address));
 
   const cedulasAnonimas = [...cedulas]
     .sort((a, b) => ordemEstavel(roundId, a.voter).localeCompare(ordemEstavel(roundId, b.voter)))
@@ -190,6 +244,8 @@ export async function apurar(roundId: string, els: Elegivel[]): Promise<Resultad
 
   return {
     linhas,
+    pesoMerito,
+    meritoMotivo,
     cedulasAnonimas,
     votaram: cedulas.length,
     elegiveis: els.length,

@@ -5,7 +5,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { authorize } from "@/lib/team-access";
 import { getActiveProject } from "@/projects/index";
 import { prisma } from "@/lib/prisma";
-import { apurar, elegiveis, validarCedula, vetorParaContrato, type Cedula } from "@/lib/split-vote";
+import { apurar, elegiveis, validarCedula, vetorParaContrato, type Cedula, type MeritoParaApurar } from "@/lib/split-vote";
 import { getSplitDistributeConfig, getSplitOwner } from "@/lib/splits";
 import { fetchOnchainRevenueCached } from "@/lib/revenue-onchain";
 import { JANELA_MS } from "@/lib/split-vote-weekly";
@@ -60,6 +60,12 @@ export type EstadoRodada = {
  * coisas diferentes, e a segunda não pode se disfarçar da primeira numa tela
  * que decide pagamento.
  */
+/** O mérito no formato que a apuração entende: dólar por pessoa, ou o motivo. */
+function meritoParaApurar(m: Reading<Merito>): MeritoParaApurar {
+  if (m.state !== "ok") return { ok: false, motivo: m.state === "unread" ? m.reason : m.note };
+  return { ok: true, usdPor: Object.fromEntries(m.value.pessoas.map((p) => [p.username.toLowerCase(), p.usd])) };
+}
+
 export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada } | { ok: false; error: string }> {
   const g = await porta();
   if (!g.ok) return g;
@@ -88,7 +94,9 @@ export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada }
     ? await prisma.splitVoteBallot.findUnique({ where: { roundId_voter: { roundId: round.id, voter: g.who.username.toLowerCase() } } }).catch(() => null)
     : null;
 
-  const resultado = await apurar(round.id, els);
+  // Um cálculo de mérito só: o mesmo número alimenta o painel e a apuração.
+  const merito = await calcularMerito();
+  const resultado = await apurar(round.id, els, meritoParaApurar(merito));
 
   return {
     ok: true,
@@ -108,7 +116,7 @@ export async function estadoRodada(): Promise<{ ok: true; estado: EstadoRodada }
       resultado: round.status === "closed" ? resultado : null,
       vetor: round.status === "closed" ? vetorParaContrato(resultado.linhas) : null,
       souAdmin: g.who.role === "admin",
-      merito: await calcularMerito(),
+      merito,
       pontosDeMerito: PONTOS_DE_MERITO,
       jaVotaram: resultado.quemVotou,
       faltamVotar: resultado.abstiveram,
@@ -197,7 +205,8 @@ export async function vetorParaAplicar(roundId: string): Promise<
   const els = await elegiveis(round.splitAddress, round.chain);
   if (!els) return { ok: false, error: "Não consegui ler o split na cadeia agora. Isso não quer dizer que ele esteja vazio — tenta de novo." };
 
-  const resultado = await apurar(round.id, els);
+  // O vetor que vira contrato é o MESMO que a tela mostrou: votos + mérito.
+  const resultado = await apurar(round.id, els, meritoParaApurar(await calcularMerito()));
   const vetor = vetorParaContrato(resultado.linhas);
   if (!vetor) return { ok: false, error: "Ninguém recebeu voto: não há vetor para aplicar." };
 
@@ -278,6 +287,18 @@ export async function registrarAplicacao(
     .catch(() => [] as { username: string; value: string }[]);
   const nomePor = new Map(contatos.map((c) => [c.value.trim().toLowerCase(), c.username]));
 
+  // A conta que gerou este peso, congelada agora: o mérito é uma janela que
+  // anda, e daqui a um mês a mesma apuração daria outros números.
+  const els = await elegiveis(round.splitAddress, round.chain).catch(() => null);
+  const conta = els ? await apurar(round.id, els, meritoParaApurar(await calcularMerito())).catch(() => null) : null;
+  const apuracao = conta
+    ? {
+        pesoMerito: conta.pesoMerito,
+        meritoMotivo: conta.meritoMotivo,
+        linhas: conta.linhas.map((l) => ({ address: l.address.toLowerCase(), username: l.username, pontos: l.pontos, share: l.share, shareVotos: l.shareVotos, shareMerito: l.shareMerito, usdMerito: l.usdMerito })),
+      }
+    : undefined;
+
   try {
     await prisma.splitPayoutRound.create({
       data: {
@@ -289,6 +310,7 @@ export async function registrarAplicacao(
         txHash: txHash.toLowerCase(),
         totalAllocation: vetor.totalAllocation,
         appliedBy: g.who.username,
+        ...(apuracao ? { apuracao } : {}),
         shares: {
           create: vetor.recipients.map((address, i) => ({
             address: address.toLowerCase(),
@@ -305,6 +327,12 @@ export async function registrarAplicacao(
     return { ok: false, error: String(e).slice(0, 160) };
   }
 }
+
+export type ApuracaoCongelada = {
+  pesoMerito: number;
+  meritoMotivo: string | null;
+  linhas: { address: string; username: string | null; pontos: number; share: number; shareVotos: number; shareMerito: number; usdMerito: number }[];
+};
 
 export type PagamentoRegistrado = {
   id: string;
@@ -323,6 +351,8 @@ export type PagamentoRegistrado = {
   distribuidoUsd: number | null;
   /** Por que o valor não pôde ser lido, quando não pôde. */
   semValor?: string;
+  /** A conta congelada que gerou o peso (registros a partir de 19/09/2026). */
+  apuracao: ApuracaoCongelada | null;
   /** Este é o peso que o contrato está obedecendo agora. */
   emVigor: boolean;
   /** Quando outro peso o substituiu. `null` enquanto ele é o vigente. */
@@ -381,6 +411,7 @@ export async function listarPagamentos(): Promise<
       appliedAt: r.appliedAt.toISOString(),
       totalAllocation: r.totalAllocation,
       distribuidoUsd: distribuido,
+      apuracao: (r.apuracao as ApuracaoCongelada | null) ?? null,
       ...(semValor ? { semValor } : {}),
       // `rows` vem do mais novo para o mais velho: o primeiro é o que vale.
       emVigor: i === 0,

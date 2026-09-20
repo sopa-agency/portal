@@ -1708,6 +1708,11 @@ model SplitPayoutRound {
   totalAllocation String // string: 1_000_000 cabe, mas o tipo do contrato é uint256
   appliedBy       String
   appliedAt       DateTime @default(now())
+  /// A conta que gerou o peso, congelada junto: pesoMerito, motivo e, por
+  /// pessoa, pontos, fatia dos votos, fatia do mérito e dólar medido. O mérito
+  /// é uma janela que anda — sem isto, a "apuração que gerou este peso" mudaria
+  /// a cada visita. Nulo nos registros anteriores a 19/09/2026 (100% votos).
+  apuracao        Json?
 
   shares SplitPayoutShare[]
 

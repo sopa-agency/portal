@@ -50,20 +50,16 @@ export function SplitVote() {
         setPontos(r.estado.meuVoto);
         return;
       }
-      // Sem voto anterior, as barras nascem DIVIDIDAS POR IGUAL, não em zero.
-      // Zero seria um chute nosso disfarçado de neutro — e obrigaria a pessoa a
-      // construir os 100 do nada antes de o botão sequer habilitar. Igual é o
-      // único ponto de partida que não afirma preferência nenhuma, e é o que
-      // acontece hoje no contrato: dez destinatários a 10%.
+      // Sem voto anterior, as barras nascem ZERADAS. Já nasceram divididas por
+      // igual, e o efeito medido foi que ninguém nunca zerava: quem mandava sem
+      // mexer dava ~11 pontos a todo mundo, e a votação virava um piso
+      // disfarçado. Zerada, cada ponto é uma escolha de quem vota; o botão
+      // "Distribuir igual" continua ali para quem QUISER partir do empate.
       const alvos = r.estado.elegiveis
         .map((x) => x.address.toLowerCase())
         .filter((a) => a !== r.estado.meuEndereco?.toLowerCase());
       if (!alvos.length) return;
-      const q = Math.floor(TOTAL / alvos.length);
-      const sobra = TOTAL - q * alvos.length;
-      const inicial: Record<string, number> = {};
-      alvos.forEach((a, i) => (inicial[a] = q + (i < sobra ? 1 : 0)));
-      setPontos(inicial);
+      setPontos(Object.fromEntries(alvos.map((a) => [a, 0])));
     });
 
   const carregarPagamentos = () =>
@@ -92,7 +88,7 @@ export function SplitVote() {
     setPontos((prev) => ({ ...prev, [alvo]: v }));
   }
 
-  /** Ponto de partida, e o botão de recomeçar do zero. */
+  /** Atalho explícito: parte do empate. Não é mais o ponto de partida da cédula. */
   function distribuirIgual() {
     const alvos = outros.map((o) => o.address.toLowerCase());
     if (!alvos.length) return;
@@ -298,6 +294,12 @@ export function SplitVote() {
           {/* Quem não pôde votar aparece SEPARADO de quem escolheu não votar.
               A régua é a mesma — zero —, mas a razão não é, e só uma delas é
               resolvível com um cadastro. */}
+          <p className="mt-3 text-[11px] leading-relaxed text-foreground-subtle">
+            {(aplicadaAgora?.apuracao?.pesoMerito ?? e.resultado.pesoMerito) > 0
+              ? `Conta: ${Math.round((1 - e.resultado.pesoMerito) * 100)}% pelos votos + ${Math.round(e.resultado.pesoMerito * 100)}% pelo mérito medido (dólar que cada pessoa do split trouxe nos últimos 90 dias). Quem não trouxe dólar medido e não recebeu voto fica com zero.`
+              : `Conta: 100% pelos votos — o mérito não entrou porque ${aplicadaAgora?.apuracao?.meritoMotivo ?? e.resultado.meritoMotivo ?? "não havia o que medir"}.`}
+          </p>
+
           {e.resultado.semCadastro.length > 0 && (
             <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
               ⚠ {e.resultado.semCadastro.length === 1 ? "Um endereço do split não pôde votar" : `${e.resultado.semCadastro.length} endereços do split não puderam votar`}:{" "}
@@ -325,7 +327,9 @@ export function SplitVote() {
                   <span className="min-w-0 flex-1 truncate text-foreground">
                     {l.username ? `@${l.username}` : <span className="font-mono text-xs">{curto(l.address)}</span>}
                   </span>
-                  <span className="font-mono text-xs tabular-nums text-foreground-faint">{l.pontos} pts</span>
+                  <span className="font-mono text-xs tabular-nums text-foreground-faint" title={`votos ${pct(l.shareVotos)} · mérito ${pct(l.shareMerito)}`}>
+                    {l.pontos} pts{e.resultado!.pesoMerito > 0 ? ` · mérito ${pct(l.shareMerito)}` : ""}
+                  </span>
                   <span className="w-20 text-right font-mono text-xs tabular-nums text-foreground-faint">era {pct(l.shareAtual)}</span>
                   <span className={`w-20 text-right font-mono text-sm font-semibold tabular-nums ${l.share > l.shareAtual ? "text-success" : l.share < l.shareAtual ? "text-warning" : "text-foreground"}`}>
                     {pct(l.share)}
@@ -338,15 +342,17 @@ export function SplitVote() {
           {aplicadaAgora ? (
             <details className="mt-4">
               <summary className="cursor-pointer text-xs font-medium text-foreground-muted hover:text-foreground">
-                A apuração que gerou este peso ({e.resultado.linhas.length} linhas)
+                A apuração que gerou este peso ({(aplicadaAgora.apuracao?.linhas ?? e.resultado.linhas).length} linhas)
               </summary>
               <ul className="mt-2 space-y-1.5">
-                {e.resultado.linhas.map((l) => (
+                {(aplicadaAgora.apuracao?.linhas ?? e.resultado.linhas).map((l) => (
                   <li key={l.address} className="flex items-center gap-3 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
                     <span className="min-w-0 flex-1 truncate text-foreground">
                       {l.username ? `@${l.username}` : <span className="font-mono text-xs">{curto(l.address)}</span>}
                     </span>
-                    <span className="font-mono text-xs tabular-nums text-foreground-faint">{l.pontos} pts</span>
+                    <span className="font-mono text-xs tabular-nums text-foreground-faint" title={`votos ${pct(l.shareVotos)} · mérito ${pct(l.shareMerito)}`}>
+                      {l.pontos} pts{(aplicadaAgora.apuracao?.pesoMerito ?? e.resultado!.pesoMerito) > 0 ? ` · mérito ${pct(l.shareMerito)}` : ""}
+                    </span>
                     <span className="w-20 text-right font-mono text-sm font-semibold tabular-nums text-foreground">{pct(l.share)}</span>
                   </li>
                 ))}
@@ -606,7 +612,7 @@ function MeritoPainel({ merito, pontos }: { merito: EstadoRodada["merito"]; pont
     return (
       <p className="mt-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
         ⚠ O mérito não pôde ser medido — {motivo}. Isto NÃO quer dizer que ninguém trouxe receita;
-        quer dizer que a leitura falhou. A votação segue nos {TOTAL} pontos de opinião.
+        quer dizer que a leitura falhou. Se continuar assim no fechamento, o pagamento sai 100% dos votos.
       </p>
     );
   }
@@ -618,13 +624,20 @@ function MeritoPainel({ merito, pontos }: { merito: EstadoRodada["merito"]; pont
     <div className="mt-4 rounded-xl border border-border bg-surface-elevated p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-faint">
-          <Landmark className="h-3 w-3" /> Mérito · {pontos} dos {TOTAL} pontos
+          <Landmark className="h-3 w-3" /> Mérito · {pontos}% do pagamento
         </p>
         <span className="font-mono text-[11px] text-foreground-faint">
           receita medida nos últimos {m.janelaDias} dias
           {m.pessoas.some((p) => p.semValor) ? " · — = sem valor medido, 0 pt" : ""}
         </span>
       </div>
+
+      {houve && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-foreground-subtle">
+          Esta parte não se vota: {pontos}% do pagamento é repartido pelo dólar que cada pessoa do split trouxe.
+          Os seus {TOTAL} pontos decidem os outros {TOTAL - pontos}%.
+        </p>
+      )}
 
       {houve ? (
         <ul className="mt-2 space-y-1">
@@ -645,9 +658,8 @@ function MeritoPainel({ merito, pontos }: { merito: EstadoRodada["merito"]; pont
         </ul>
       ) : (
         <p className="mt-2 text-[11px] leading-relaxed text-foreground-subtle">
-          Nenhuma fonte creditada rendeu dólar medido nesta janela — então os {pontos} pontos de mérito
-          não são distribuídos, e a cédula fica inteira nos {TOTAL} pontos de opinião. Os motivos estão
-          abaixo, um por fonte.
+          Nenhuma fonte creditada rendeu dólar medido nesta janela — então os {pontos}% de mérito não
+          entram, e o pagamento sai inteiro dos votos. Os motivos estão abaixo, um por fonte.
         </p>
       )}
 
