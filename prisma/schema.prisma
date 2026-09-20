@@ -1811,6 +1811,9 @@ model ApiToken {
   prefix          String
   /// "read" sempre. "agents" deixa perguntar aos agentes (gasta modelo): só admin cria.
   scopes          String[]  @default(["read"])
+  /// Projetos que este token enxerga. Vazio = todos os da pessoa. Serve para dar
+  /// a cada agente um token do tamanho do trabalho dele.
+  projects        String[]  @default([])
   calls           Int       @default(0)
   /// Contador diário de perguntas aos agentes: "YYYY-MM-DD" + quantas.
   agentCallsDay   String?

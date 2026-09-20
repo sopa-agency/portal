@@ -9,7 +9,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { getAccess, verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects";
 import { createToken, listTokens, revokeToken, type Scope, type TokenRow } from "@/lib/api-tokens";
-import { catalogFor, openApiFor, type CatalogEntry } from "@/lib/mcp/tools";
+import { catalogFor, openApiFor, projectsFor, type CatalogEntry } from "@/lib/mcp/tools";
 
 async function me(): Promise<{ ok: true; username: string; admin: boolean } | { ok: false; error: string }> {
   const project = await getActiveProject();
@@ -19,23 +19,27 @@ async function me(): Promise<{ ok: true; username: string; admin: boolean } | { 
   return { ok: true, username: session.username, admin: access.role === "admin" };
 }
 
+export type MyProject = { slug: string; name: string };
+
 /**
  * Os tokens de quem está logado. Com `issueFirst`, quem ainda não tem nenhum
  * já recebe o seu: a pessoa abre a aba e os comandos vêm preenchidos, sem
  * formulário. `fresh` é o segredo desse token — a única vez em que ele volta.
  */
-export async function myApiTokens(issueFirst = false): Promise<{ ok: true; tokens: TokenRow[]; admin: boolean; fresh: string | null } | { ok: false; error: string }> {
+export async function myApiTokens(issueFirst = false): Promise<{ ok: true; tokens: TokenRow[]; admin: boolean; fresh: string | null; projects: MyProject[] } | { ok: false; error: string }> {
   const m = await me();
   if (!m.ok) return m;
+  // Os projetos da pessoa, para ela poder limitar um token a alguns deles.
+  const projects = (await projectsFor(m.username)).map((p) => ({ slug: p.project.slug, name: p.project.name }));
   const tokens = await listTokens(m.username);
   if (issueFirst && tokens.length === 0) {
     const made = await createToken(m.username, "", []);
-    if (made.ok) return { ok: true, tokens: [made.row], admin: m.admin, fresh: made.token };
+    if (made.ok) return { ok: true, tokens: [made.row], admin: m.admin, fresh: made.token, projects };
   }
-  return { ok: true, tokens, admin: m.admin, fresh: null };
+  return { ok: true, tokens, admin: m.admin, fresh: null, projects };
 }
 
-export async function createApiToken(name: string, withAgents: boolean, withWrite = false): Promise<{ ok: true; token: string; row: TokenRow } | { ok: false; error: string }> {
+export async function createApiToken(name: string, withAgents: boolean, withWrite = false, limitTo: string[] = []): Promise<{ ok: true; token: string; row: TokenRow } | { ok: false; error: string }> {
   const m = await me();
   if (!m.ok) return m;
   // Perguntar a agente gasta modelo: só quem administra cria token com esse escopo.
@@ -43,7 +47,13 @@ export async function createApiToken(name: string, withAgents: boolean, withWrit
   // Escrever é o que qualquer membro já faz pela tela: a pessoa liga por token,
   // e cada ferramenta confere o acesso dela ao projeto na hora de gravar.
   const scopes: Scope[] = [...(withAgents ? (["agents"] as const) : []), ...(withWrite ? (["write"] as const) : [])];
-  return createToken(m.username, name, scopes);
+  // O limite só pode citar projeto que a pessoa enxerga. Ele corta acesso, nunca
+  // dá: na hora da chamada vale a interseção com o que ela ainda tem.
+  const mine = new Set((await projectsFor(m.username)).map((p) => p.project.slug));
+  const projects = [...new Set(limitTo.map((x) => x.trim().toLowerCase()).filter(Boolean))];
+  const alheio = projects.filter((x) => !mine.has(x));
+  if (alheio.length) return { ok: false, error: `Você não tem acesso a: ${alheio.join(", ")}.` };
+  return createToken(m.username, name, scopes, projects);
 }
 
 export type ApiWrite = { id: string; tool: string; projectSlug: string; summary: string; at: string };

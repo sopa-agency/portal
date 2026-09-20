@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyBearer } from "@/lib/api-tokens";
-import { callTool, describeTools, guideFor, instructionsFor, projectsFor, ToolError } from "@/lib/mcp/tools";
+import { callTool, describeTools, guideFor, instructionsFor, projectsForBearer, ToolError } from "@/lib/mcp/tools";
 import { PROMPTS } from "@/lib/mcp/guide";
 
 export const runtime = "nodejs";
@@ -48,7 +48,7 @@ async function handle(msg: Rpc, bearer: NonNullable<Awaited<ReturnType<typeof ve
     case "tools/list":
       return result(msg.id, { tools: describeTools(bearer) });
     case "resources/list": {
-      const mine = await projectsFor(bearer.username);
+      const mine = await projectsForBearer(bearer);
       return result(msg.id, {
         resources: [
           { uri: GUIDE_URI, name: "guide", title: "SOPA portal: what you can ask", description: "Your projects, the tools by family, ready-made requests and the prompt shortcuts.", mimeType: "application/json" },

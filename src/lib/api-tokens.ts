@@ -26,6 +26,8 @@ export type TokenRow = {
   name: string;
   prefix: string;
   scopes: string[];
+  /** Vazio = todos os projetos da pessoa. */
+  projects: string[];
   calls: number;
   createdAt: string;
   lastUsedAt: string | null;
@@ -33,7 +35,7 @@ export type TokenRow = {
 
 export async function listTokens(username: string): Promise<TokenRow[]> {
   const rows = await prisma.apiToken.findMany({ where: { username: username.toLowerCase(), revokedAt: null }, orderBy: { createdAt: "desc" } });
-  return rows.map((r) => ({ id: r.id, name: r.name, prefix: r.prefix, scopes: r.scopes, calls: r.calls, createdAt: r.createdAt.toISOString(), lastUsedAt: r.lastUsedAt?.toISOString() ?? null }));
+  return rows.map((r) => ({ id: r.id, name: r.name, prefix: r.prefix, scopes: r.scopes, projects: r.projects, calls: r.calls, createdAt: r.createdAt.toISOString(), lastUsedAt: r.lastUsedAt?.toISOString() ?? null }));
 }
 
 /** Nome de quem não escolheu nome: o token nasce pronto, sem formulário. */
@@ -41,7 +43,7 @@ export const AUTO_TOKEN_NAME = "Meu agente";
 const autoName = () => `${AUTO_TOKEN_NAME} · ${new Date().toISOString().slice(0, 10)}`;
 
 /** Cria o token e devolve o segredo — a única vez em que ele existe em claro. */
-export async function createToken(username: string, name: string, scopes: Scope[]): Promise<{ ok: true; token: string; row: TokenRow } | { ok: false; error: string }> {
+export async function createToken(username: string, name: string, scopes: Scope[], projects: string[] = []): Promise<{ ok: true; token: string; row: TokenRow } | { ok: false; error: string }> {
   const u = username.toLowerCase();
   const clean = name.replace(/\s+/g, " ").trim().slice(0, 60) || autoName();
   // Token automático que ninguém chegou a usar depois de um dia é aba aberta e
@@ -52,9 +54,9 @@ export async function createToken(username: string, name: string, scopes: Scope[
   if (ativos >= MAX_TOKENS_PER_USER) return { ok: false, error: `Limite de ${MAX_TOKENS_PER_USER} tokens ativos. Revogue um antes de criar outro.` };
   const secret = TOKEN_PREFIX + crypto.randomBytes(30).toString("base64url");
   const row = await prisma.apiToken.create({
-    data: { username: u, name: clean, tokenHash: sha256(secret), prefix: secret.slice(0, TOKEN_PREFIX.length + 6), scopes: [...new Set<Scope>(["read", ...scopes])] },
+    data: { username: u, name: clean, tokenHash: sha256(secret), prefix: secret.slice(0, TOKEN_PREFIX.length + 6), scopes: [...new Set<Scope>(["read", ...scopes])], projects: [...new Set(projects.map((x) => x.trim().toLowerCase()).filter(Boolean))] },
   });
-  return { ok: true, token: secret, row: { id: row.id, name: row.name, prefix: row.prefix, scopes: row.scopes, calls: 0, createdAt: row.createdAt.toISOString(), lastUsedAt: null } };
+  return { ok: true, token: secret, row: { id: row.id, name: row.name, prefix: row.prefix, scopes: row.scopes, projects: row.projects, calls: 0, createdAt: row.createdAt.toISOString(), lastUsedAt: null } };
 }
 
 export async function revokeToken(username: string, id: string): Promise<boolean> {
@@ -62,7 +64,7 @@ export async function revokeToken(username: string, id: string): Promise<boolean
   return r.count > 0;
 }
 
-export type Bearer = { tokenId: string; username: string; scopes: string[] };
+export type Bearer = { tokenId: string; username: string; scopes: string[]; /** Vazio = sem limite de projeto. */ projects: string[] };
 
 /** Lê `Authorization: Bearer …` e devolve de quem é. Nulo = não autenticado. */
 export async function verifyBearer(authorization: string | null): Promise<Bearer | null> {
@@ -75,7 +77,7 @@ export async function verifyBearer(authorization: string | null): Promise<Bearer
   // aberta: a linha do token ficava travada por minutos e a conexão, presa.
   // Um UPDATE avulso faz commit sozinho, então não há transação para ficar no ar.
   await prisma.$executeRaw`UPDATE "ApiToken" SET "lastUsedAt" = now(), "calls" = "calls" + 1 WHERE "id" = ${row.id}`.catch(() => {});
-  return { tokenId: row.id, username: row.username, scopes: row.scopes };
+  return { tokenId: row.id, username: row.username, scopes: row.scopes, projects: row.projects };
 }
 
 /** Gasta uma pergunta a agente do dia. Falso = limite diário atingido. */

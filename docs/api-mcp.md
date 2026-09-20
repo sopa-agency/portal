@@ -25,6 +25,20 @@ Um token tem escopos. `read` vem sempre. Os outros dois a pessoa liga em
 - `agents` — só admin liga. Libera `ask_agent`, que gasta modelo: 10 perguntas
   por dia por token.
 
+Além dos escopos, um token pode ser **limitado a projetos** (Opções → Limitar a
+projetos). Vazio = todos os da pessoa. O limite só corta: na hora da chamada
+vale a interseção com o acesso que a pessoa ainda tem. Ele pega em todas as
+portas — leitura, escrita, busca, minhas tarefas, guia e recursos MCP. É o jeito
+de dar a cada agente um token do tamanho do trabalho dele: o agente da Gnars com
+um token que só enxerga a Gnars, registrado como `sopa-gnars`.
+
+No OpenClaw isso importa em dobro: um servidor em `mcp.servers` vale para TODOS
+os agentes do gateway. Para cada agente ter só o seu, um servidor por token e
+`agents.entries.<agente>.tools.deny` com `"sopa__*"` nos outros. E, se o token
+está no `~/.openclaw/.env` como `${VAR}`, o gateway só lê o `.env` ao subir:
+trocar o token pede `openclaw daemon restart` (o `mcp reload` não basta, e o
+CLI engana, porque relê o `.env` a cada execução).
+
 De fora de propósito, em qualquer escopo: postar ou agendar em rede, apagar ou
 arquivar, tesouro e propostas da Safe, votação e pagamento, time e papéis,
 custos, e escrever nos arquivos dos agentes.
