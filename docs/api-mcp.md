@@ -11,9 +11,23 @@ régua do portal (`getAccess`): quem sai do time perde o alcance na hora, sem
 ninguém revogar nada. Quem está na SOPA também lê, como `viewer`, os projetos
 que o tesouro dela agrega — o portal dela já mostra os três juntos.
 
-Tudo é leitura. A exceção é `ask_agent`, que gasta modelo: exige o escopo
-`agents` (só admin marca, ao criar o token) e para em 10 perguntas por dia por
-token.
+Um token tem escopos. `read` vem sempre. Os outros dois a pessoa liga em
+**Opções** ao gerar o token:
+
+- `write` — qualquer membro pode ligar. Dá cinco ferramentas, todas o que um
+  membro já faz pela tela, pelos mesmos caminhos: `add_card_note`,
+  `create_card`, `move_card`, `update_card` (fogo, prazo, dono) e
+  `save_campaign_draft`. Escrever exige acesso DIRETO ao projeto: quem lê um
+  projeto "via sopa" não escreve nele. O card tem de estar no board do projeto
+  pedido, a campanha tem de ser dele. Cada escrita é assinada (nota e corpo do
+  card dizem "via API") e vai para a tabela `ApiWriteLog`, que a aba mostra em
+  "Escritas recentes".
+- `agents` — só admin liga. Libera `ask_agent`, que gasta modelo: 10 perguntas
+  por dia por token.
+
+De fora de propósito, em qualquer escopo: postar ou agendar em rede, apagar ou
+arquivar, tesouro e propostas da Safe, votação e pagamento, time e papéis,
+custos, e escrever nos arquivos dos agentes.
 
 O token é gerado para a pessoa: quem abre a aba sem nenhum já recebe o seu, com
 os comandos de conexão preenchidos. Para outro cliente, um clique gera outro;
@@ -28,7 +42,7 @@ seguinte.
 |-------|------|
 | MCP (Streamable HTTP, JSON, sem estado) | `POST /api/mcp` |
 | Lista de ferramentas (REST) | `GET /api/v1/tools` |
-| Chamar uma ferramenta (REST) | `POST /api/v1/tools/<nome>` com os argumentos em JSON |
+| Chamar uma ferramenta (REST) | `POST /api/v1/tools/<nome>` com os argumentos em JSON; leitura também aceita `GET` com os argumentos na query. Escrita e `ask_agent` respondem 405 ao `GET` |
 | Especificação OpenAPI 3.1 | `GET /api/v1/openapi.json` |
 
 Sempre com `Authorization: Bearer sopa_pat_…`. Funciona em qualquer domínio do
@@ -67,6 +81,7 @@ lista alimenta o guia que o agente lê (`get_guide`) e a aba do portal.
 | Dinheiro | `get_treasury`, `get_costs`, `get_team` (na SOPA, com os pesos do split) |
 | Conteúdo | `list_campaigns`, `get_campaign`, `get_social_metrics` |
 | Memória dos agentes | `search`, `list_brain_files`, `read_brain_file` |
+| Escrever | `add_card_note`, `create_card`, `move_card`, `update_card`, `save_campaign_draft` (escopo `write`) |
 | Perguntar ao agente | `ask_agent` (escopo `agents`, 10 por dia) |
 
 Três atalhos evitam dezenas de chamadas:

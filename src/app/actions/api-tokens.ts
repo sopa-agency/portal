@@ -4,6 +4,7 @@
 // criar um (o segredo volta UMA vez) e revogar.
 
 import { cookies } from "next/headers";
+import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { getAccess, verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects";
@@ -34,13 +35,25 @@ export async function myApiTokens(issueFirst = false): Promise<{ ok: true; token
   return { ok: true, tokens, admin: m.admin, fresh: null };
 }
 
-export async function createApiToken(name: string, withAgents: boolean): Promise<{ ok: true; token: string; row: TokenRow } | { ok: false; error: string }> {
+export async function createApiToken(name: string, withAgents: boolean, withWrite = false): Promise<{ ok: true; token: string; row: TokenRow } | { ok: false; error: string }> {
   const m = await me();
   if (!m.ok) return m;
   // Perguntar a agente gasta modelo: só quem administra cria token com esse escopo.
   if (withAgents && !m.admin) return { ok: false, error: "Só admins criam token com acesso aos agentes." };
-  const scopes: Scope[] = withAgents ? ["agents"] : [];
+  // Escrever é o que qualquer membro já faz pela tela: a pessoa liga por token,
+  // e cada ferramenta confere o acesso dela ao projeto na hora de gravar.
+  const scopes: Scope[] = [...(withAgents ? (["agents"] as const) : []), ...(withWrite ? (["write"] as const) : [])];
   return createToken(m.username, name, scopes);
+}
+
+export type ApiWrite = { id: string; tool: string; projectSlug: string; summary: string; at: string };
+
+/** As últimas escritas feitas pelos tokens de quem está logado. */
+export async function myApiWrites(): Promise<ApiWrite[]> {
+  const m = await me();
+  if (!m.ok) return [];
+  const rows = await prisma.apiWriteLog.findMany({ where: { username: m.username.toLowerCase() }, orderBy: { createdAt: "desc" }, take: 12 }).catch(() => []);
+  return rows.map((r) => ({ id: r.id, tool: r.tool, projectSlug: r.projectSlug, summary: r.summary, at: r.createdAt.toISOString() }));
 }
 
 export async function revokeApiToken(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -59,5 +72,5 @@ export async function apiCatalog(): Promise<CatalogEntry[]> {
 export async function apiOpenApi(origin: string): Promise<string | null> {
   const m = await me();
   if (!m.ok || !/^https?:\/\/[a-z0-9.:-]+$/i.test(origin)) return null;
-  return JSON.stringify(openApiFor(origin, m.admin), null, 2);
+  return JSON.stringify(openApiFor(origin, ["read", "write", ...(m.admin ? ["agents"] : [])]), null, 2);
 }
