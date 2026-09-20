@@ -1821,3 +1821,20 @@ model ApiToken {
 
   @@index([username])
 }
+
+/// Cada escrita feita por token de API: quem, por qual token, qual ferramenta,
+/// em que projeto e sobre o quê. Token vive dentro de harness de terceiros;
+/// sem isto, uma escrita errada não teria autor.
+model ApiWriteLog {
+  id          String   @id @default(cuid())
+  username    String
+  tokenId     String
+  tool        String
+  projectSlug String
+  target      String
+  summary     String
+  createdAt   DateTime @default(now())
+
+  @@index([username, createdAt(sort: Desc)])
+  @@index([projectSlug, createdAt(sort: Desc)])
+}

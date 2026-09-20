@@ -16,6 +16,7 @@ export const TOOL_GROUPS = [
   { id: "money", label: { pt: "Dinheiro", en: "Money" }, hint: { pt: "Tesouro, custos fixos, quem recebe quanto.", en: "Treasury, fixed costs, who gets what." } },
   { id: "content", label: { pt: "Conteúdo", en: "Content" }, hint: { pt: "Campanhas, textos e crescimento das redes.", en: "Campaigns, copy and social growth." } },
   { id: "knowledge", label: { pt: "Memória dos agentes", en: "Agents' memory" }, hint: { pt: "Busca em tudo; playbooks, notas e memória dos OpenClaw.", en: "Search everything; the OpenClaw agents' playbooks, notes and memory." } },
+  { id: "write", label: { pt: "Escrever", en: "Write" }, hint: { pt: "Opcional por token: anotar, criar e mover cards, fogo/prazo/dono, rascunho de campanha. Nada publica nem apaga.", en: "Opt-in per token: card notes, create and move cards, fire/deadline/owner, campaign drafts. Nothing posts or deletes." } },
   { id: "agents", label: { pt: "Perguntar ao agente", en: "Ask the agent" }, hint: { pt: "Gasta modelo: precisa do escopo agents, até 10 por dia.", en: "Spends model budget: needs the agents scope, up to 10 a day." } },
 ] as const satisfies readonly { id: string; label: Both; hint: Both }[];
 
@@ -36,6 +37,9 @@ export const EXAMPLES: { group: ToolGroupId; text: Both }[] = [
   { group: "content", text: { pt: "Como cresceram os seguidores da SkateHive nos últimos 30 dias, por rede?", en: "How did SkateHive's followers grow over the last 30 days, per network?" } },
   { group: "knowledge", text: { pt: "Procura \"Morpheus\" em tudo que o portal sabe e me diz onde aparece.", en: "Search for \"Morpheus\" across everything the portal knows and tell me where it shows up." } },
   { group: "knowledge", text: { pt: "Lê a memória do agente da SOPA e resume o que ele sabe sobre grants.", en: "Read the SOPA agent's memory and summarise what it knows about grants." } },
+  { group: "write", text: { pt: "Anota no card <assunto> o que você descobriu e move ele para In progress.", en: "Leave a note on the <topic> card with what you found and move it to In progress." } },
+  { group: "write", text: { pt: "Cria um card na SOPA para <tarefa>, fogo 3, no meu nome, com prazo para sexta.", en: "Create a card on SOPA for <task>, fire 3, owned by me, due Friday." } },
+  { group: "write", text: { pt: "Escreve 3 tweets sobre <feature> e salva como rascunho na campanha de features da Gnars.", en: "Write 3 tweets about <feature> and save them as drafts in the Gnars features campaign." } },
   { group: "agents", text: { pt: "Pergunta para o agente da Gnars qual é o próximo passo da migração para a Clanker.", en: "Ask the Gnars agent what the next step of the Clanker migration is." } },
 ];
 

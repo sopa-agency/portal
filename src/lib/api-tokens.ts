@@ -13,7 +13,7 @@ import { prisma } from "@/lib/prisma";
 // um vazamento do banco não entrega credencial nenhuma.
 
 export const TOKEN_PREFIX = "sopa_pat_";
-export type Scope = "read" | "agents";
+export type Scope = "read" | "agents" | "write";
 
 /** Quantas perguntas a agentes um token faz por dia. Agente gasta modelo. */
 export const AGENT_CALLS_PER_DAY = 10;

@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, Copy, KeyRound, Loader2, Trash2 } from "lucide-react";
-import { apiCatalog, apiOpenApi, createApiToken, myApiTokens, revokeApiToken } from "@/app/actions/api-tokens";
+import { apiCatalog, apiOpenApi, createApiToken, myApiTokens, myApiWrites, revokeApiToken, type ApiWrite } from "@/app/actions/api-tokens";
 import type { TokenRow } from "@/lib/api-tokens";
 import type { CatalogEntry } from "@/lib/mcp/tools";
 import { EXAMPLES, FIRST_MESSAGE, PROMPTS, TOOL_GROUPS } from "@/lib/mcp/guide";
@@ -20,7 +20,7 @@ import { useLocale } from "@/components/locale-provider";
 
 const STR = {
   pt: {
-    intro: "Um token pessoal dá ao seu agente (Claude Code, Cursor, um script) o contexto da SOPA e dos projetos: o retrato de cada projeto, kanban, o que está no seu nome, reuniões, tesouro, custos, campanhas e as notas dos agentes. Ele enxerga o que você enxerga no portal, e só leitura.",
+    intro: "Um token pessoal dá ao seu agente (Claude Code, Cursor, um script) o contexto da SOPA e dos projetos: o retrato de cada projeto, kanban, o que está no seu nome, reuniões, tesouro, custos, campanhas e as notas dos agentes. Ele enxerga o que você enxerga no portal. Por padrão só lê; escrever é uma opção que você liga por token.",
     ready: "Seu token está pronto",
     readyHint: "Copie agora: ele não aparece de novo. Os comandos abaixo já vêm com ele — é colar e usar.",
     another: "Conectar outro cliente",
@@ -48,12 +48,16 @@ const STR = {
     otherFacts: "Os três fatos que todo cliente MCP pede",
     otherPrompt: "Ou deixe o próprio agente se configurar: cole isto nele",
     otherBridge: "Cliente que só aceita MCP por stdio: a ponte mcp-remote",
-    restHint: "Para o que não fala MCP: o mesmo catálogo por HTTP. Quem importa especificação (ações de GPT, n8n, toolkits de OpenAPI) usa o openapi.json.",
+    restHint: "Para o que não fala MCP: o mesmo catálogo por HTTP. Leitura aceita GET (argumentos na query) ou POST; escrita e ask_agent, só POST com corpo JSON. Quem importa especificação (ações de GPT, n8n, toolkits de OpenAPI) usa o openapi.json.",
     restCalls: "Chamadas",
     restSpec: "Especificação",
     copySpec: "Copiar o OpenAPI",
     placeholderNote: "Sem um token recém-gerado na tela, os comandos mostram SEU_TOKEN: gere um novo acima que eles se preenchem.",
     agents: "agentes",
+    write: "escrita",
+    withWrite: "Permitir escrever: anotar, criar e mover cards, fogo/prazo/dono, rascunho de campanha. Nada publica, agenda, apaga ou mexe em dinheiro; cada escrita fica registrada no seu nome.",
+    writes: "Escritas recentes pelos seus tokens",
+    needsWrite: "precisa da opção escrever",
     first: "2 · A primeira mensagem",
     firstHint: "Conectou? Cole isto no seu agente. Ele confere quem você é, lista seus projetos e te mostra o que dá para pedir. O servidor também já entrega isso ao modelo na conexão, então perguntar \"o que eu posso pedir sobre a SOPA?\" funciona igual.",
     ask: "3 · O que pedir",
@@ -65,7 +69,7 @@ const STR = {
     needsAgents: "precisa do escopo agentes",
   },
   en: {
-    intro: "A personal token gives your agent (Claude Code, Cursor, a script) the context of SOPA and its projects: each project's snapshot, kanban, what is on you, meetings, treasury, costs, campaigns and the agents' notes. It sees what you see in the portal, read-only.",
+    intro: "A personal token gives your agent (Claude Code, Cursor, a script) the context of SOPA and its projects: each project's snapshot, kanban, what is on you, meetings, treasury, costs, campaigns and the agents' notes. It sees what you see in the portal. It only reads by default; writing is an option you turn on per token.",
     ready: "Your token is ready",
     readyHint: "Copy it now: it will not be shown again. The commands below already carry it — paste and go.",
     another: "Connect another client",
@@ -93,12 +97,16 @@ const STR = {
     otherFacts: "The three facts every MCP client asks for",
     otherPrompt: "Or let the agent set itself up: paste this into it",
     otherBridge: "A client that only takes stdio MCP: the mcp-remote bridge",
-    restHint: "For whatever does not speak MCP: the same catalog over HTTP. Anything that imports a specification (GPT actions, n8n, OpenAPI toolkits) uses openapi.json.",
+    restHint: "For whatever does not speak MCP: the same catalog over HTTP. Reads take GET (arguments in the query) or POST; writes and ask_agent take POST with a JSON body only. Anything that imports a specification (GPT actions, n8n, OpenAPI toolkits) uses openapi.json.",
     restCalls: "Calls",
     restSpec: "Specification",
     copySpec: "Copy the OpenAPI",
     placeholderNote: "Without a freshly generated token on screen the commands show YOUR_TOKEN: generate a new one above and they fill themselves in.",
     agents: "agents",
+    write: "write",
+    withWrite: "Allow writing: card notes, create and move cards, fire/deadline/owner, campaign drafts. Nothing posts, schedules, deletes or moves money; every write is logged under your name.",
+    writes: "Recent writes by your tokens",
+    needsWrite: "needs the write option",
     first: "2 · The first message",
     firstHint: "Connected? Paste this into your agent. It checks who you are, lists your projects and shows what you can ask. The server also hands this to the model on connect, so asking \"what can I ask about SOPA?\" works just as well.",
     ask: "3 · What to ask",
@@ -153,6 +161,8 @@ export function ApiAccess() {
   const [specCopied, setSpecCopied] = useState(false);
   const [name, setName] = useState("");
   const [withAgents, setWithAgents] = useState(false);
+  const [withWrite, setWithWrite] = useState(false);
+  const [writes, setWrites] = useState<ApiWrite[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fresh, setFresh] = useState<string | null>(null);
@@ -175,6 +185,7 @@ export function ApiAccess() {
     issuedOnOpen.current = true;
     void load(true);
     void apiCatalog().then(setCatalog).catch(() => {});
+    void myApiWrites().then(setWrites).catch(() => {});
     try {
       const saved = window.localStorage.getItem("sopa-api-client");
       if (saved && (saved === "other" || saved === "rest" || CLIENTS.some((c) => c.id === saved))) setClient(saved);
@@ -187,11 +198,12 @@ export function ApiAccess() {
     setBusy(true);
     setError("");
     try {
-      const r = await createApiToken(name, withAgents);
+      const r = await createApiToken(name, withAgents, withWrite);
       if (r.ok) {
         setFresh(r.token);
         setName("");
         setWithAgents(false);
+        setWithWrite(false);
         await load();
       } else setError(r.error);
     } finally {
@@ -250,6 +262,9 @@ export function ApiAccess() {
             {showOptions && (
               <div className="mt-3 space-y-2">
                 <input value={name} maxLength={60} placeholder={s.namePlaceholder} onChange={(e) => setName(e.target.value)} className="w-full max-w-md rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground" />
+                <label className="flex max-w-3xl items-start gap-2 text-xs leading-relaxed text-foreground-muted">
+                  <input type="checkbox" className="mt-0.5" checked={withWrite} onChange={(e) => setWithWrite(e.target.checked)} /> <span>{s.withWrite}</span>
+                </label>
                 {admin && (
                   <label className="flex items-center gap-2 text-xs text-foreground-muted">
                     <input type="checkbox" checked={withAgents} onChange={(e) => setWithAgents(e.target.checked)} /> {s.withAgents}
@@ -303,7 +318,7 @@ export function ApiAccess() {
               <p className="max-w-3xl text-xs leading-relaxed text-foreground-muted">{s.restHint}</p>
               <div>
                 <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.restCalls}</p>
-                <CopyBlock label={s.copy} copiedLabel={s.copied} text={`curl -s ${origin}/api/v1/tools -H "Authorization: Bearer ${tk}"\n\ncurl -s -X POST ${origin}/api/v1/tools/get_overview \\\n  -H "Authorization: Bearer ${tk}" -H "content-type: application/json" \\\n  -d '{"project":"sopa"}'`} />
+                <CopyBlock label={s.copy} copiedLabel={s.copied} text={`curl -s ${origin}/api/v1/tools -H "Authorization: Bearer ${tk}"\n\ncurl -s "${origin}/api/v1/tools/get_kanban?project=sopa&status=Ready" -H "Authorization: Bearer ${tk}"\n\ncurl -s -X POST ${origin}/api/v1/tools/get_overview \\\n  -H "Authorization: Bearer ${tk}" -H "content-type: application/json" \\\n  -d '{"project":"sopa"}'`} />
               </div>
               <div>
                 <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.restSpec}</p>
@@ -371,6 +386,7 @@ export function ApiAccess() {
                         <p className="font-mono text-xs text-foreground">
                           {t.name}
                           {t.needsAgents && <span className="ml-2 rounded bg-accent-bg px-1.5 font-sans text-[10px] font-semibold text-accent">{s.needsAgents}</span>}
+                          {t.needsWrite && <span className="ml-2 rounded bg-warning/15 px-1.5 font-sans text-[10px] font-semibold text-warning">{s.needsWrite}</span>}
                         </p>
                         <p className="mt-0.5 text-xs leading-relaxed text-foreground-muted">{t.description}</p>
                       </li>
@@ -394,6 +410,7 @@ export function ApiAccess() {
               <li key={t.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {t.name}
+                  {t.scopes.includes("write") && <span className="ml-2 rounded bg-warning/15 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-warning">{s.write}</span>}
                   {t.scopes.includes("agents") && <span className="ml-2 rounded bg-accent-bg px-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">{s.agents}</span>}
                 </span>
                 <span className="font-mono text-xs text-foreground-subtle">{t.prefix}…</span>
@@ -404,6 +421,22 @@ export function ApiAccess() {
           </ul>
         )}
       </section>
+
+      {writes.length > 0 && (
+        <section className="rounded-2xl border border-border bg-surface p-4">
+          <p className="text-sm font-semibold text-foreground">{s.writes}</p>
+          <ul className="mt-3 space-y-1.5">
+            {writes.map((w) => (
+              <li key={w.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-xs">
+                <span className="font-mono text-foreground">{w.tool}</span>
+                <span className="font-semibold uppercase tracking-wider text-foreground-subtle">{w.projectSlug}</span>
+                <span className="min-w-0 flex-1 truncate text-foreground-muted">{w.summary}</span>
+                <span className="text-foreground-subtle">{when(w.at)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

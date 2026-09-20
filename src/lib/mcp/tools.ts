@@ -5,7 +5,7 @@ import { getAccess } from "@/lib/team-access";
 import { AGENT_CALLS_PER_DAY, spendAgentCall, type Bearer } from "@/lib/api-tokens";
 import { getAllProjects, getProject } from "@/projects";
 import type { ProjectConfig } from "@/projects/types";
-import { fetchGitHubProject } from "@/lib/github-project";
+import { addDraftIssue, fetchGitHubProject, mirrorFireToGithub, resolveGitHubToken, setItemStatus } from "@/lib/github-project";
 import { fetchCostScope } from "@/lib/fixed-costs-data";
 import { buildBrainTree, readBrainFile, resolveSafePath, workspaceForProject } from "@/lib/brain-workspace";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
@@ -31,6 +31,8 @@ type Tool<S extends z.ZodType> = {
   input: S;
   /** Exige o escopo "agents" no token. */
   agents?: boolean;
+  /** Grava alguma coisa: exige o escopo "write" no token. */
+  write?: boolean;
   handler: (ctx: ToolContext, args: z.infer<S>) => Promise<unknown>;
 };
 
@@ -218,6 +220,51 @@ async function part<T>(fn: () => Promise<T>): Promise<T | { error: string }> {
   } catch (err) {
     return { error: err instanceof Error ? err.message.slice(0, 160) : "unavailable" };
   }
+}
+
+// --- Escrita ------------------------------------------------------------------
+
+/** Escrever exige acesso DIRETO ao projeto: ler "via sopa" não dá caneta. */
+async function requireWritableProject(ctx: ToolContext, slug: string): Promise<ProjectConfig> {
+  const mine = await projectsFor(ctx.bearer.username);
+  const hit = mine.find((p) => p.project.slug === slug.trim().toLowerCase());
+  if (!hit) throw new ToolError(`No access to project "${slug}". Yours: ${mine.map((p) => p.project.slug).join(", ") || "none"}.`);
+  if (hit.via) throw new ToolError(`You read ${hit.project.name} through ${hit.via}, which does not allow writing. Ask to be added to ${hit.project.name} itself.`);
+  return hit.project;
+}
+
+/** O board cru, sem cache, mais o token do GitHub: escrita parte do estado de agora. */
+async function boardForWrite(p: ProjectConfig) {
+  if (!p.githubProject) throw new ToolError("This project has no GitHub board configured.");
+  const token = resolveGitHubToken(p);
+  if (!token) throw new ToolError("The portal has no GitHub token for this board.");
+  const board = await fetchGitHubProject(p);
+  if (!board.ok) throw new ToolError(`Could not read the ${p.name} GitHub board right now.`);
+  return { board, token };
+}
+
+/** A coluna pedida pelo nome: exata primeiro, depois "contém", e nunca ambígua. */
+function columnNamed(board: Extract<Awaited<ReturnType<typeof fetchGitHubProject>>, { ok: true }>, name: string) {
+  const real = board.columns.filter((c) => c.optionId);
+  const want = name.trim().toLowerCase();
+  const exact = real.filter((c) => c.name.toLowerCase() === want);
+  const hits = exact.length ? exact : real.filter((c) => c.name.toLowerCase().includes(want));
+  if (hits.length !== 1) throw new ToolError(`${hits.length ? "More than one column matches" : "No column matches"} "${name}". Columns: ${real.map((c) => c.name).join(", ")}.`);
+  return hits[0];
+}
+
+/** O card tem de estar no board DESTE projeto: id solto não escreve em lugar nenhum. */
+async function cardOnBoard(p: ProjectConfig, id: string): Promise<Card> {
+  const board = await loadBoard(p);
+  if (!board) throw new ToolError("This project has no GitHub board configured.");
+  const card = board.cards.find((c) => c.id === id);
+  if (!card) throw new ToolError("Card not found on this board.");
+  return card;
+}
+
+/** Toda escrita por token fica registrada: quem, por qual token, o quê, onde. */
+async function logWrite(ctx: ToolContext, tool: string, projectSlug: string, target: string, summary: string) {
+  await prisma.apiWriteLog.create({ data: { username: ctx.bearer.username, tokenId: ctx.bearer.tokenId, tool, projectSlug, target, summary: summary.slice(0, 300) } }).catch(() => {});
 }
 
 export const TOOLS = [
@@ -660,6 +707,120 @@ export const TOOLS = [
       return { project: p.slug, path: rel, file };
     },
   }),
+  // --- Escrita ---------------------------------------------------------------
+  // Só com o escopo "write", que a pessoa liga por token. Tudo aqui é o que um
+  // membro já faz pela tela do portal, pelos mesmos caminhos, e nada apaga nem
+  // publica: postar em rede, agendar, mexer em tesouro, pagamento, time ou
+  // arquivos dos agentes fica de fora de propósito.
+  tool({
+    name: "add_card_note",
+    group: "write",
+    write: true,
+    title: "Add a note to a card",
+    description: "Leave a note on a kanban card, signed by the person behind this token. Notes live in the portal (not on GitHub) and are what get_card returns under `notes`. Use it to record what you found or did on a task.",
+    input: z.object({ project: projectArg, id: z.string().min(4).max(80).describe("Card id from get_kanban, my_tasks or search"), note: z.string().min(2).max(3800) }),
+    handler: async (ctx, a) => {
+      const p = await requireWritableProject(ctx, a.project);
+      const card = await cardOnBoard(p, a.id);
+      const row = await prisma.cardNote.create({ data: { projectSlug: p.slug, cardKey: card.id, author: ctx.bearer.username, body: `${a.note.trim()}\n\n_via API_` } });
+      await logWrite(ctx, "add_card_note", p.slug, card.id, card.title);
+      return { ok: true, project: p.slug, card: { id: card.id, title: card.title }, note: { id: row.id, author: row.author, at: row.createdAt.toISOString() } };
+    },
+  }),
+  tool({
+    name: "create_card",
+    group: "write",
+    write: true,
+    title: "Create a kanban card",
+    description: "Create a draft card on the project's GitHub board, optionally placing it in a column and setting fire priority (1-5), deadline and owner. The body is signed with who created it. Check search first so you do not duplicate an existing card.",
+    input: z.object({
+      project: projectArg,
+      title: z.string().min(3).max(200),
+      body: z.string().max(8000).optional().describe("Markdown"),
+      status: z.string().max(40).optional().describe('Column to place it in, e.g. "Ready". Default: the board\'s first column'),
+      fire: z.number().int().min(1).max(5).optional(),
+      deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      owner: z.string().max(40).optional().describe("Portal username of the owner"),
+    }),
+    handler: async (ctx, a) => {
+      const p = await requireWritableProject(ctx, a.project);
+      const { board, token } = await boardForWrite(p);
+      const column = a.status ? columnNamed(board, a.status) : null;
+      const made = await addDraftIssue({ token, projectId: board.projectId, title: a.title.trim(), body: `${(a.body ?? "").trim()}\n\n_Criado por @${ctx.bearer.username} via API do portal._`.trim() });
+      if (!made.ok) throw new ToolError(`GitHub refused the card: ${made.error}`);
+      const itemId = made.itemId;
+      await prisma.cardPriority.upsert({ where: { itemId }, create: { itemId, projectSlug: p.slug, createdBy: ctx.bearer.username, updatedBy: ctx.bearer.username, priority: a.fire ?? 0, deadline: a.deadline ? new Date(a.deadline) : null, owner: a.owner?.trim().toLowerCase() || null }, update: {} }).catch(() => {});
+      if (a.fire) void mirrorFireToGithub({ token, itemId, fire: a.fire }).catch(() => {});
+      let placed: string | null = null;
+      if (column && board.statusFieldId) {
+        const moved = await setItemStatus({ token, projectId: board.projectId, itemId, fieldId: board.statusFieldId, optionId: column.optionId! });
+        placed = moved.ok ? column.name : null;
+      }
+      boardCache.delete(p.slug);
+      await logWrite(ctx, "create_card", p.slug, itemId, a.title.trim());
+      return { ok: true, project: p.slug, card: { id: itemId, title: a.title.trim(), status: placed, fire: a.fire ?? null, deadline: a.deadline ?? null, owner: a.owner?.trim().toLowerCase() || null }, ...(column && !placed ? { warning: "Card created, but it could not be placed in that column." } : {}) };
+    },
+  }),
+  tool({
+    name: "move_card",
+    group: "write",
+    write: true,
+    title: "Move a card to another column",
+    description: "Change the status column of a kanban card (for example Ready → In progress → Done). Moving is the team's signal of progress: move only what the person asked you to move.",
+    input: z.object({ project: projectArg, id: z.string().min(4).max(80), status: z.string().min(2).max(40).describe("Target column name") }),
+    handler: async (ctx, a) => {
+      const p = await requireWritableProject(ctx, a.project);
+      const { board, token } = await boardForWrite(p);
+      if (!board.statusFieldId) throw new ToolError("This board has no Status field.");
+      const from = board.columns.find((c) => c.items.some((i) => i.id === a.id));
+      const item = from?.items.find((i) => i.id === a.id);
+      if (!from || !item) throw new ToolError("Card not found on this board.");
+      const to = columnNamed(board, a.status);
+      if (to.name === from.name) return { ok: true, project: p.slug, card: { id: item.id, title: item.title }, status: to.name, note: "Already in that column." };
+      const moved = await setItemStatus({ token, projectId: board.projectId, itemId: item.id, fieldId: board.statusFieldId, optionId: to.optionId! });
+      if (!moved.ok) throw new ToolError(`GitHub refused the move: ${moved.error}`);
+      boardCache.delete(p.slug);
+      await logWrite(ctx, "move_card", p.slug, item.id, `${item.title}: ${from.name} → ${to.name}`);
+      return { ok: true, project: p.slug, card: { id: item.id, title: item.title }, from: from.name, status: to.name };
+    },
+  }),
+  tool({
+    name: "update_card",
+    group: "write",
+    write: true,
+    title: "Set fire, deadline or owner",
+    description: "Set a card's fire priority (1-5, 0 clears it), deadline (YYYY-MM-DD, empty string clears it) and/or owner (portal username, empty string clears it). Only the fields you pass change.",
+    input: z.object({ project: projectArg, id: z.string().min(4).max(80), fire: z.number().int().min(0).max(5).optional(), deadline: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(), owner: z.string().max(40).optional() }),
+    handler: async (ctx, a) => {
+      const p = await requireWritableProject(ctx, a.project);
+      if (a.fire === undefined && a.deadline === undefined && a.owner === undefined) throw new ToolError("Pass at least one of fire, deadline, owner.");
+      const card = await cardOnBoard(p, a.id);
+      const data = { ...(a.fire !== undefined ? { priority: a.fire } : {}), ...(a.deadline !== undefined ? { deadline: a.deadline ? new Date(a.deadline) : null } : {}), ...(a.owner !== undefined ? { owner: a.owner.trim().toLowerCase() || null } : {}), updatedBy: ctx.bearer.username };
+      const row = await prisma.cardPriority.upsert({ where: { itemId: card.id }, create: { itemId: card.id, projectSlug: p.slug, ...data }, update: data });
+      const token = resolveGitHubToken(p);
+      if (a.fire !== undefined && token) void mirrorFireToGithub({ token, itemId: card.id, fire: a.fire }).catch(() => {});
+      boardCache.delete(p.slug);
+      await logWrite(ctx, "update_card", p.slug, card.id, `${card.title}: ${Object.keys(data).filter((k) => k !== "updatedBy").join(", ")}`);
+      return { ok: true, project: p.slug, card: { id: card.id, title: card.title, fire: row.priority || null, deadline: row.deadline ? row.deadline.toISOString().slice(0, 10) : null, owner: row.owner ?? null } };
+    },
+  }),
+  tool({
+    name: "save_campaign_draft",
+    group: "write",
+    write: true,
+    title: "Save a draft into a campaign",
+    description: "Save a text (a tweet, a cast, a post) as a NEW document inside an existing campaign, for the team to review in the portal's Campaign Creator. It is only a draft: nothing is posted or scheduled, and existing documents are never changed.",
+    input: z.object({ project: projectArg, campaign: z.string().min(4).max(60).describe("Campaign id from list_campaigns"), name: z.string().min(2).max(80).describe('Document name, e.g. "Tweet 11 — auctions"'), content: z.string().min(2).max(12_000) }),
+    handler: async (ctx, a) => {
+      const p = await requireWritableProject(ctx, a.project);
+      const c = await prisma.campaign.findUnique({ where: { id: a.campaign }, select: { id: true, name: true, projectSlug: true, archivedAt: true } });
+      if (!c || c.projectSlug !== p.slug) throw new ToolError("Campaign not found in this project.");
+      if (c.archivedAt) throw new ToolError("That campaign is archived.");
+      const doc = await prisma.campaignDocument.create({ data: { campaignId: c.id, name: a.name.trim(), content: a.content.trim(), isMain: false }, select: { id: true, name: true } });
+      await logWrite(ctx, "save_campaign_draft", p.slug, doc.id, `${c.name} / ${doc.name}`);
+      return { ok: true, project: p.slug, campaign: { id: c.id, name: c.name }, document: doc, note: "Saved as a draft. Nothing was posted or scheduled." };
+    },
+  }),
   tool({
     name: "ask_agent",
     group: "agents",
@@ -679,23 +840,28 @@ export const TOOLS = [
 
 export type ToolName = (typeof TOOLS)[number]["name"];
 
+const needsAgents = (t: (typeof TOOLS)[number]) => "agents" in t && !!t.agents;
+const needsWrite = (t: (typeof TOOLS)[number]) => "write" in t && !!t.write;
+const allowedBy = (scopes: string[]) => (t: (typeof TOOLS)[number]) => (!needsAgents(t) || scopes.includes("agents")) && (!needsWrite(t) || scopes.includes("write"));
+
 export function visibleTools(bearer: Bearer) {
-  return TOOLS.filter((t) => !("agents" in t && t.agents) || bearer.scopes.includes("agents"));
+  return TOOLS.filter(allowedBy(bearer.scopes));
 }
 
-export type CatalogEntry = { name: string; title: string; description: string; group: ToolGroupId; needsAgents: boolean };
+export type CatalogEntry = { name: string; title: string; description: string; group: ToolGroupId; needsAgents: boolean; needsWrite: boolean };
 
 /** O catálogo em linguagem de gente, para o guia e para a aba do portal. Sem token = tudo. */
 export function catalogFor(bearer: Bearer | null): CatalogEntry[] {
-  return (bearer ? visibleTools(bearer) : TOOLS).map((t) => ({ name: t.name, title: t.title, description: t.description, group: t.group, needsAgents: "agents" in t && !!t.agents }));
+  return (bearer ? visibleTools(bearer) : TOOLS).map((t) => ({ name: t.name, title: t.title, description: t.description, group: t.group, needsAgents: needsAgents(t), needsWrite: needsWrite(t) }));
 }
 
 export function describeTools(bearer: Bearer) {
   // readOnlyHint deixa o cliente aprovar leitura sem perguntar a cada chamada;
   // ask_agent fica de fora porque gasta modelo e fala com um sistema externo.
   return visibleTools(bearer).map((t) => {
-    const spends = "agents" in t && !!t.agents;
-    return { name: t.name, title: t.title, description: t.description, inputSchema: z.toJSONSchema(t.input), annotations: { title: t.title, readOnlyHint: !spends, destructiveHint: false, idempotentHint: !spends, openWorldHint: spends } };
+    const spends = needsAgents(t);
+    const writes = needsWrite(t);
+    return { name: t.name, title: t.title, description: t.description, inputSchema: z.toJSONSchema(t.input), annotations: { title: t.title, readOnlyHint: !spends && !writes, destructiveHint: false, idempotentHint: !spends && !writes, openWorldHint: spends } };
   });
 }
 
@@ -718,7 +884,7 @@ export async function guideFor(bearer: Bearer, lang: Lang) {
     thingsToAsk: EXAMPLES.filter((e) => open.has(e.group)).map((e) => e.text[lang]),
     shortcuts: PROMPTS.map((p) => ({ prompt: p.name, what: p.description[lang], arguments: p.args.map((x) => x.name) })),
     rules: [
-      "Everything is read-only, scoped to what this person sees in the portal.",
+      bearer.scopes.includes("write") ? "This token can also write (card notes, new cards, moving cards, fire/deadline/owner, campaign drafts). Say what you are about to write and get a yes before calling a write tool; every write is logged under this person's name." : "This token is read-only, scoped to what this person sees in the portal. Writing needs a token created with the write option.",
       "Data carries dates (briefing date, syncedAt, meeting date): say how old it is.",
       "An empty or failed read is not a zero: say you could not read it.",
       "Costs, payout weights and meeting minutes are internal team information.",
@@ -744,7 +910,8 @@ export async function instructionsFor(bearer: Bearer): Promise<string> {
     "- \"What is on me\" is my_tasks. A topic you cannot place is search. Both work without a project.",
     "- Every other tool takes a project slug from the list above.",
     "- Data carries dates (briefing date, syncedAt, meeting date). Say how old it is: an old briefing is history, not today's agenda. If a tool returns nothing or fails, say so instead of filling the gap.",
-    bearer.scopes.includes("agents") ? `- Everything is read-only except ask_agent, which spends model budget (${AGENT_CALLS_PER_DAY} a day on this token): use it only when the read tools cannot answer.` : "- Everything is read-only. This token cannot ask the agents.",
+    ...(bearer.scopes.includes("write") ? ["- This token can WRITE: add_card_note, create_card, move_card, update_card, save_campaign_draft. Tell the person what you are about to write and get a yes first; search before creating a card so you do not duplicate one. Every write is logged under their name. Nothing here posts, schedules, deletes or moves money."] : []),
+    bearer.scopes.includes("agents") ? `- Everything else is read-only except ask_agent, which spends model budget (${AGENT_CALLS_PER_DAY} a day on this token): use it only when the read tools cannot answer.` : "- Reads only, apart from the write tools if listed above. This token cannot ask the agents.",
     "- Costs, payout weights and meeting minutes are internal team information: use them to help this person, not to publish.",
     "- Answer in the person's language; the team mostly writes in Portuguese.",
   ].join("\n");
@@ -755,8 +922,8 @@ export async function instructionsFor(bearer: Bearer): Promise<string> {
  * especificação (ações de GPT, n8n, toolkits de OpenAPI). É o espelho REST: uma
  * operação POST por ferramenta, com o mesmo JSON Schema de entrada.
  */
-export function openApiFor(origin: string, withAgents: boolean) {
-  const tools = TOOLS.filter((t) => withAgents || !("agents" in t && t.agents));
+export function openApiFor(origin: string, scopes: string[]) {
+  const tools = TOOLS.filter(allowedBy(scopes));
   const schemaOf = (t: (typeof TOOLS)[number]) => {
     const schema = { ...(z.toJSONSchema(t.input) as Record<string, unknown>) };
     delete schema.$schema;
@@ -765,7 +932,7 @@ export function openApiFor(origin: string, withAgents: boolean) {
   const reply = (description: string) => ({ description, content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, result: {}, error: { type: "string" } }, required: ["ok"] } } } });
   return {
     openapi: "3.1.0",
-    info: { title: "SOPA Portal API", version: "1.0.0", description: "Read-only context about SOPA and the projects it runs: project snapshots, kanban, tasks, meetings, treasury, costs, campaigns and the agents' documents. Every call is scoped to what the token's owner can see in the portal. Start with get_guide." },
+    info: { title: "SOPA Portal API", version: "1.1.0", description: "Context about SOPA and the projects it runs: project snapshots, kanban, tasks, meetings, treasury, costs, campaigns and the agents' documents. Every call is scoped to what the token's owner can see in the portal. Reads are the default; the write operations exist only for tokens created with the write scope. Start with get_guide." },
     servers: [{ url: origin }],
     security: [{ bearerAuth: [] }],
     components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", description: "Personal token from the portal: Settings → API & MCP." } } },
@@ -776,6 +943,24 @@ export function openApiFor(origin: string, withAgents: boolean) {
       ]),
     ),
   };
+}
+
+/** Leitura pura (nem grava, nem gasta modelo): as únicas que o REST aceita por GET. */
+export function isReadTool(name: string): boolean {
+  const t = TOOLS.find((x) => x.name === name);
+  return !!t && !needsAgents(t) && !needsWrite(t);
+}
+
+/** Converte a query string nos tipos que o schema da ferramenta espera. */
+export function argsFromQuery(name: string, params: URLSearchParams): Record<string, unknown> {
+  const t = TOOLS.find((x) => x.name === name);
+  const props = (t ? (z.toJSONSchema(t.input) as { properties?: Record<string, { type?: string }> }).properties : undefined) ?? {};
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of params) {
+    const type = props[k]?.type;
+    out[k] = type === "boolean" ? v === "true" || v === "1" : type === "number" || type === "integer" ? Number(v) : v;
+  }
+  return out;
 }
 
 /** Roda uma ferramenta. Erro de uso volta como ToolError; o resto estoura. */

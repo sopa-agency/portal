@@ -11,5 +11,5 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const bearer = await verifyBearer(req.headers.get("authorization"));
   if (!bearer) return NextResponse.json({ ok: false, error: "Unauthorized: Authorization: Bearer <token>" }, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="sopa-portal"' } });
-  return NextResponse.json(openApiFor(new URL(req.url).origin, bearer.scopes.includes("agents")));
+  return NextResponse.json(openApiFor(new URL(req.url).origin, bearer.scopes));
 }
