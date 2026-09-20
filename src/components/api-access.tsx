@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, Copy, KeyRound, Loader2, Trash2 } from "lucide-react";
-import { apiCatalog, apiOpenApi, createApiToken, myApiTokens, myApiWrites, revokeApiToken, type ApiWrite } from "@/app/actions/api-tokens";
+import { apiCatalog, apiOpenApi, createApiToken, myApiTokens, myApiWrites, revokeApiToken, type ApiWrite, type MyProject } from "@/app/actions/api-tokens";
 import type { TokenRow } from "@/lib/api-tokens";
 import type { CatalogEntry } from "@/lib/mcp/tools";
 import { EXAMPLES, FIRST_MESSAGE, PROMPTS, TOOL_GROUPS } from "@/lib/mcp/guide";
@@ -58,6 +58,9 @@ const STR = {
     withWrite: "Permitir escrever: anotar, criar e mover cards, fogo/prazo/dono, rascunho de campanha. Nada publica, agenda, apaga ou mexe em dinheiro; cada escrita fica registrada no seu nome.",
     writes: "Escritas recentes pelos seus tokens",
     needsWrite: "precisa da opção escrever",
+    limit: "Limitar a projetos",
+    limitHint: "Nenhum marcado = todos os seus projetos. Marque para dar a um agente só o que ele precisa: o agente da Gnars com um token que só enxerga a Gnars.",
+    limited: "só",
     first: "2 · A primeira mensagem",
     firstHint: "Conectou? Cole isto no seu agente. Ele confere quem você é, lista seus projetos e te mostra o que dá para pedir. O servidor também já entrega isso ao modelo na conexão, então perguntar \"o que eu posso pedir sobre a SOPA?\" funciona igual.",
     ask: "3 · O que pedir",
@@ -107,6 +110,9 @@ const STR = {
     withWrite: "Allow writing: card notes, create and move cards, fire/deadline/owner, campaign drafts. Nothing posts, schedules, deletes or moves money; every write is logged under your name.",
     writes: "Recent writes by your tokens",
     needsWrite: "needs the write option",
+    limit: "Limit to projects",
+    limitHint: "None ticked = all your projects. Tick some to give an agent only what it needs: the Gnars agent with a token that only sees Gnars.",
+    limited: "only",
     first: "2 · The first message",
     firstHint: "Connected? Paste this into your agent. It checks who you are, lists your projects and shows what you can ask. The server also hands this to the model on connect, so asking \"what can I ask about SOPA?\" works just as well.",
     ask: "3 · What to ask",
@@ -162,10 +168,13 @@ export function ApiAccess() {
   const [name, setName] = useState("");
   const [withAgents, setWithAgents] = useState(false);
   const [withWrite, setWithWrite] = useState(false);
+  const [limitTo, setLimitTo] = useState<string[]>([]);
+  const [myProjects, setMyProjects] = useState<MyProject[]>([]);
   const [writes, setWrites] = useState<ApiWrite[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fresh, setFresh] = useState<string | null>(null);
+  const [freshProjects, setFreshProjects] = useState<string[]>([]);
   const issuedOnOpen = useRef(false);
   // A origem é a do portal em que a pessoa está (cada marca tem o seu domínio).
   const origin = useSyncExternalStore(() => () => {}, () => window.location.origin, () => "https://sopa.sopa.team");
@@ -175,6 +184,7 @@ export function ApiAccess() {
     if (r.ok) {
       setTokens(r.tokens);
       setAdmin(r.admin);
+      setMyProjects(r.projects);
       if (r.fresh) setFresh(r.fresh);
     } else setError(r.error);
   }
@@ -198,12 +208,14 @@ export function ApiAccess() {
     setBusy(true);
     setError("");
     try {
-      const r = await createApiToken(name, withAgents, withWrite);
+      const r = await createApiToken(name, withAgents, withWrite, limitTo);
       if (r.ok) {
         setFresh(r.token);
+        setFreshProjects(r.row.projects);
         setName("");
         setWithAgents(false);
         setWithWrite(false);
+        setLimitTo([]);
         await load();
       } else setError(r.error);
     } finally {
@@ -234,6 +246,8 @@ export function ApiAccess() {
     setTimeout(() => setSpecCopied(false), 1500);
   }
   const chosen = CLIENTS.find((c) => c.id === client);
+  // Token limitado a um projeto vira um servidor com nome próprio: "sopa-gnars".
+  const serverName = fresh && freshProjects.length === 1 ? `sopa-${freshProjects[0]}` : "sopa";
 
   const tk = fresh ?? (lang === "pt" ? "SEU_TOKEN" : "YOUR_TOKEN");
   const when = (iso: string) => new Date(iso).toLocaleDateString(lang === "pt" ? "pt-BR" : "en-US", { day: "2-digit", month: "short", year: "numeric" });
@@ -262,6 +276,22 @@ export function ApiAccess() {
             {showOptions && (
               <div className="mt-3 space-y-2">
                 <input value={name} maxLength={60} placeholder={s.namePlaceholder} onChange={(e) => setName(e.target.value)} className="w-full max-w-md rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground" />
+                {myProjects.length > 1 && (
+                  <div>
+                    <p className="text-xs font-semibold text-foreground-muted">{s.limit}</p>
+                    <p className="mb-2 mt-0.5 max-w-3xl text-[11px] leading-relaxed text-foreground-subtle">{s.limitHint}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {myProjects.map((p) => {
+                        const on = limitTo.includes(p.slug);
+                        return (
+                          <button key={p.slug} type="button" aria-pressed={on} onClick={() => setLimitTo((cur) => (on ? cur.filter((x) => x !== p.slug) : [...cur, p.slug]))} className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${on ? "border-accent-border bg-accent-bg text-accent" : "border-border bg-surface-elevated text-foreground-muted hover:border-border-strong hover:text-foreground"}`}>
+                            {p.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <label className="flex max-w-3xl items-start gap-2 text-xs leading-relaxed text-foreground-muted">
                   <input type="checkbox" className="mt-0.5" checked={withWrite} onChange={(e) => setWithWrite(e.target.checked)} /> <span>{s.withWrite}</span>
                 </label>
@@ -291,7 +321,7 @@ export function ApiAccess() {
           {chosen ? (
             <>
               {chosen.note && <p className="max-w-3xl text-xs leading-relaxed text-foreground-muted">{chosen.note[lang]}</p>}
-              {chosen.blocks(origin, tk).map((b, n) => (
+              {chosen.blocks(origin, tk, serverName).map((b, n) => (
                 <div key={n}>
                   {b.title && <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{b.title[lang]}</p>}
                   <CopyBlock label={s.copy} copiedLabel={s.copied} text={b.text} />
@@ -410,6 +440,7 @@ export function ApiAccess() {
               <li key={t.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm">
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {t.name}
+                  {t.projects.length > 0 && <span className="ml-2 rounded border border-border px-1.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-muted">{s.limited} {t.projects.join(" · ")}</span>}
                   {t.scopes.includes("write") && <span className="ml-2 rounded bg-warning/15 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-warning">{s.write}</span>}
                   {t.scopes.includes("agents") && <span className="ml-2 rounded bg-accent-bg px-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">{s.agents}</span>}
                 </span>

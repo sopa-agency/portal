@@ -62,8 +62,17 @@ export async function projectsFor(username: string): Promise<{ project: ProjectC
   return [...out.values()];
 }
 
+/**
+ * Os projetos que ESTE TOKEN enxerga: os da pessoa, cortados pelo limite do
+ * token quando ele tem um. O limite só tira — nunca dá acesso que a pessoa não tem.
+ */
+export async function projectsForBearer(bearer: Bearer): ReturnType<typeof projectsFor> {
+  const mine = await projectsFor(bearer.username);
+  return bearer.projects?.length ? mine.filter((p) => bearer.projects.includes(p.project.slug)) : mine;
+}
+
 async function requireProject(ctx: ToolContext, slug: string): Promise<ProjectConfig> {
-  const mine = await projectsFor(ctx.bearer.username);
+  const mine = await projectsForBearer(ctx.bearer);
   const hit = mine.find((p) => p.project.slug === slug.trim().toLowerCase());
   if (!hit) throw new ToolError(`No access to project "${slug}". Yours: ${mine.map((p) => p.project.slug).join(", ") || "none"}.`);
   return hit.project;
@@ -226,7 +235,7 @@ async function part<T>(fn: () => Promise<T>): Promise<T | { error: string }> {
 
 /** Escrever exige acesso DIRETO ao projeto: ler "via sopa" não dá caneta. */
 async function requireWritableProject(ctx: ToolContext, slug: string): Promise<ProjectConfig> {
-  const mine = await projectsFor(ctx.bearer.username);
+  const mine = await projectsForBearer(ctx.bearer);
   const hit = mine.find((p) => p.project.slug === slug.trim().toLowerCase());
   if (!hit) throw new ToolError(`No access to project "${slug}". Yours: ${mine.map((p) => p.project.slug).join(", ") || "none"}.`);
   if (hit.via) throw new ToolError(`You read ${hit.project.name} through ${hit.via}, which does not allow writing. Ask to be added to ${hit.project.name} itself.`);
@@ -275,8 +284,8 @@ export const TOOLS = [
     description: "The portal member this token belongs to, the projects they can read and their role in each.",
     input: z.object({}),
     handler: async (ctx) => {
-      const mine = await projectsFor(ctx.bearer.username);
-      return { username: ctx.bearer.username, scopes: ctx.bearer.scopes, projects: mine.map((p) => ({ slug: p.project.slug, name: p.project.name, role: p.role, ...(p.via ? { via: p.via } : {}) })) };
+      const mine = await projectsForBearer(ctx.bearer);
+      return { username: ctx.bearer.username, scopes: ctx.bearer.scopes, ...(ctx.bearer.projects?.length ? { limitedTo: ctx.bearer.projects } : {}), projects: mine.map((p) => ({ slug: p.project.slug, name: p.project.name, role: p.role, ...(p.via ? { via: p.via } : {}) })) };
     },
   }),
   tool({
@@ -285,7 +294,7 @@ export const TOOLS = [
     title: "List projects",
     description: "SOPA and the projects it runs that you can read: what each one is, its repos, social channels, agent and kanban board.",
     input: z.object({}),
-    handler: async (ctx) => (await projectsFor(ctx.bearer.username)).map((p) => projectSummary(p.project)),
+    handler: async (ctx) => (await projectsForBearer(ctx.bearer)).map((p) => projectSummary(p.project)),
   }),
   tool({
     name: "get_guide",
@@ -407,7 +416,7 @@ export const TOOLS = [
     input: z.object({ includeDone: z.boolean().optional() }),
     handler: async (ctx, a) => {
       const me = await identitiesFor(ctx.bearer.username);
-      const mine = (await projectsFor(ctx.bearer.username)).filter((p) => p.project.githubProject);
+      const mine = (await projectsForBearer(ctx.bearer)).filter((p) => p.project.githubProject);
       const seen = new Set<string>();
       const unreadable: string[] = [];
       const perProject = await Promise.all(
@@ -423,7 +432,7 @@ export const TOOLS = [
       // Projetos diferentes podem apontar para o mesmo board: cada card entra uma vez.
       const projects = perProject.map((g) => ({ project: g.project, cards: g.cards.filter((c) => !seen.has(c.id) && seen.add(c.id)).sort(byUrgency).map((c) => ({ ...cardLine(c), body: clip(c.body, 160) })) })).filter((g) => g.cards.length);
       // Itens de ação saem da reunião avulsa e de cada ocorrência das semanais.
-      const slugs = (await projectsFor(ctx.bearer.username)).map((p) => p.project.slug);
+      const slugs = (await projectsForBearer(ctx.bearer)).map((p) => p.project.slug);
       const [meetings, occurrences] = await Promise.all([
         prisma.meeting.findMany({ where: { projectSlug: { in: slugs } }, orderBy: { startsAt: "desc" }, take: 30, select: { id: true, title: true, startsAt: true, actionItems: true } }).catch(() => []),
         prisma.meetingOccurrence.findMany({ where: { projectSlug: { in: slugs } }, orderBy: { occurredOn: "desc" }, take: 30, select: { id: true, occurredOn: true, actionItems: true, meeting: { select: { title: true } } } }).catch(() => []),
@@ -604,7 +613,7 @@ export const TOOLS = [
     input: z.object({ query: z.string().min(2).max(80), project: projectArg.optional() }),
     handler: async (ctx, a) => {
       const q = a.query.trim();
-      const scope = a.project ? [await requireProject(ctx, a.project)] : (await projectsFor(ctx.bearer.username)).map((x) => x.project);
+      const scope = a.project ? [await requireProject(ctx, a.project)] : (await projectsForBearer(ctx.bearer)).map((x) => x.project);
       const slugs = scope.map((p) => p.slug);
       const has = { contains: q, mode: "insensitive" as const };
       const [kanban, campaigns, briefings, meetings, brainFiles] = await Promise.all([
@@ -867,7 +876,7 @@ export function describeTools(bearer: Bearer) {
 
 /** O cardápio do servidor para quem está conectado. */
 export async function guideFor(bearer: Bearer, lang: Lang) {
-  const mine = await projectsFor(bearer.username);
+  const mine = await projectsForBearer(bearer);
   const catalog = catalogFor(bearer);
   const groups = TOOL_GROUPS.map((g) => ({ family: g.label[lang], about: g.hint[lang], tools: catalog.filter((t) => t.group === g.id).map((t) => ({ name: t.name, what: t.description })) })).filter((g) => g.tools.length);
   const open = new Set(catalog.map((t) => t.group));
@@ -899,11 +908,11 @@ export async function guideFor(bearer: Bearer, lang: Lang) {
  * sabendo quem é a pessoa, quais projetos existem e por onde começar.
  */
 export async function instructionsFor(bearer: Bearer): Promise<string> {
-  const mine = await projectsFor(bearer.username).catch(() => []);
+  const mine = await projectsForBearer(bearer).catch(() => []);
   const projects = mine.map((p) => `${p.project.slug} (${p.project.name}, ${p.role}${p.via ? ` via ${p.via}` : ""})`).join(", ") || "none yet";
   return [
     `You are connected to the SOPA portal as @${bearer.username}. SOPA is a crypto-native dev and marketing agency; this server is the working context of SOPA and the projects it runs, as its team and its OpenClaw agents keep it.`,
-    `Projects this person can read: ${projects}.`,
+    bearer.projects?.length ? `This token is limited to these projects (the person may see more in the portal, this token does not): ${projects}.` : `Projects this person can read: ${projects}.`,
     "How to use it:",
     "- When they ask what you can do here, or on the first SOPA question of a conversation, call get_guide and offer a few concrete options for THEIR projects.",
     "- \"How is <project> doing\" starts with get_overview: one call returns board, money, campaigns, last meeting, social and the briefing date. Drill down with the specific tools after.",
