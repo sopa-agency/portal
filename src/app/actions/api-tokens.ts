@@ -8,7 +8,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 import { getAccess, verifySession } from "@/lib/team-access";
 import { getActiveProject } from "@/projects";
 import { createToken, listTokens, revokeToken, type Scope, type TokenRow } from "@/lib/api-tokens";
-import { catalogFor, type CatalogEntry } from "@/lib/mcp/tools";
+import { catalogFor, openApiFor, type CatalogEntry } from "@/lib/mcp/tools";
 
 async function me(): Promise<{ ok: true; username: string; admin: boolean } | { ok: false; error: string }> {
   const project = await getActiveProject();
@@ -53,4 +53,11 @@ export async function revokeApiToken(id: string): Promise<{ ok: true } | { ok: f
 export async function apiCatalog(): Promise<CatalogEntry[]> {
   const m = await me();
   return m.ok ? catalogFor(null) : [];
+}
+
+/** A especificação OpenAPI do espelho REST, para o botão de copiar da aba. */
+export async function apiOpenApi(origin: string): Promise<string | null> {
+  const m = await me();
+  if (!m.ok || !/^https?:\/\/[a-z0-9.:-]+$/i.test(origin)) return null;
+  return JSON.stringify(openApiFor(origin, m.admin), null, 2);
 }

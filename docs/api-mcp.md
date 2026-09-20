@@ -29,15 +29,30 @@ seguinte.
 | MCP (Streamable HTTP, JSON, sem estado) | `POST /api/mcp` |
 | Lista de ferramentas (REST) | `GET /api/v1/tools` |
 | Chamar uma ferramenta (REST) | `POST /api/v1/tools/<nome>` com os argumentos em JSON |
+| Especificação OpenAPI 3.1 | `GET /api/v1/openapi.json` |
 
 Sempre com `Authorization: Bearer sopa_pat_…`. Funciona em qualquer domínio do
 portal (`sopa.sopa.team`, `gnars.sopa.team`…): o projeto vem no argumento
 `project`, não do domínio.
 
-```bash
-claude mcp add --transport http sopa https://sopa.sopa.team/api/mcp \
-  --header "Authorization: Bearer sopa_pat_…"
-```
+A aba tem um seletor de harness com o comando ou o arquivo de cada um:
+
+| Harness | Como registra |
+|---------|---------------|
+| Claude Code | `claude mcp add --transport http sopa <url> --header "Authorization: Bearer …"` |
+| Codex | `codex mcp add sopa --url <url> --bearer-token-env-var SOPA_PORTAL_TOKEN` (o token vai numa variável de ambiente) |
+| OpenClaw | `openclaw mcp add sopa --url <url> --transport streamable-http --header "Authorization=Bearer …"` e `openclaw mcp reload` |
+| Gemini CLI | `gemini mcp add --transport http --scope user sopa <url> -H "Authorization: Bearer …"` |
+| Cursor | `~/.cursor/mcp.json`: `mcpServers.sopa = { url, headers }` |
+| VS Code | `.vscode/mcp.json`: `servers.sopa = { type: "http", url, headers }` |
+| Claude Desktop | só abre stdio: passa pela ponte `npx -y mcp-remote <url> --header "Authorization:${AUTH_HEADER}"` |
+| Qualquer outro | os três fatos (Streamable HTTP, URL, cabeçalho), a ponte `mcp-remote`, ou um pedido para o próprio agente se configurar |
+| Sem MCP | REST, com `GET /api/v1/openapi.json` (OpenAPI 3.1, mesmo Bearer) para quem importa especificação |
+
+Claude Code, Codex, OpenClaw e Gemini CLI foram conferidos contra o `--help` de
+cada CLI; OpenClaw (`mcp add` + `mcp probe`), Gemini (`mcp list`) e a ponte
+`mcp-remote` foram testados contra produção. Os formatos moram em
+`src/lib/mcp/clients.ts`.
 
 ## Como o contexto é organizado
 
@@ -97,6 +112,7 @@ apaga o que tiver cara de credencial.
 ## Onde mora
 
 - `src/lib/api-tokens.ts` — criar, revogar, conferir o Bearer, teto do agente
+- `src/lib/mcp/clients.ts` — como cada harness registra o servidor
 - `src/lib/mcp/guide.ts` — famílias, pedidos prontos, prompts e a primeira mensagem
 - `src/lib/mcp/tools.ts` — as ferramentas; uma ferramenta nova entra aqui e
   aparece no MCP e no REST de uma vez

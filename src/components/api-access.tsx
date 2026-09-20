@@ -11,10 +11,11 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, Copy, KeyRound, Loader2, Trash2 } from "lucide-react";
-import { apiCatalog, createApiToken, myApiTokens, revokeApiToken } from "@/app/actions/api-tokens";
+import { apiCatalog, apiOpenApi, createApiToken, myApiTokens, revokeApiToken } from "@/app/actions/api-tokens";
 import type { TokenRow } from "@/lib/api-tokens";
 import type { CatalogEntry } from "@/lib/mcp/tools";
 import { EXAMPLES, FIRST_MESSAGE, PROMPTS, TOOL_GROUPS } from "@/lib/mcp/guide";
+import { CLIENTS, selfSetupPrompt } from "@/lib/mcp/clients";
 import { useLocale } from "@/components/locale-provider";
 
 const STR = {
@@ -41,9 +42,16 @@ const STR = {
     revoke: "Revogar",
     confirmRevoke: "Revogar este token? Quem usa ele para de funcionar na hora.",
     howTo: "1 · Conectar",
-    claudeCode: "Claude Code",
-    jsonClients: "Claude Desktop, Cursor e outros clientes MCP (JSON)",
-    rest: "REST, para scripts",
+    pick: "Escolha onde o seu agente roda. Todo cliente pede as mesmas três coisas — transporte Streamable HTTP, a URL e o cabeçalho Authorization — cada um do seu jeito.",
+    other: "Qualquer outro",
+    rest: "REST / OpenAPI",
+    otherFacts: "Os três fatos que todo cliente MCP pede",
+    otherPrompt: "Ou deixe o próprio agente se configurar: cole isto nele",
+    otherBridge: "Cliente que só aceita MCP por stdio: a ponte mcp-remote",
+    restHint: "Para o que não fala MCP: o mesmo catálogo por HTTP. Quem importa especificação (ações de GPT, n8n, toolkits de OpenAPI) usa o openapi.json.",
+    restCalls: "Chamadas",
+    restSpec: "Especificação",
+    copySpec: "Copiar o OpenAPI",
     placeholderNote: "Sem um token recém-gerado na tela, os comandos mostram SEU_TOKEN: gere um novo acima que eles se preenchem.",
     agents: "agentes",
     first: "2 · A primeira mensagem",
@@ -79,9 +87,16 @@ const STR = {
     revoke: "Revoke",
     confirmRevoke: "Revoke this token? Whatever uses it stops working immediately.",
     howTo: "1 · Connect",
-    claudeCode: "Claude Code",
-    jsonClients: "Claude Desktop, Cursor and other MCP clients (JSON)",
-    rest: "REST, for scripts",
+    pick: "Pick where your agent runs. Every client asks for the same three things — Streamable HTTP transport, the URL and the Authorization header — each in its own way.",
+    other: "Any other",
+    rest: "REST / OpenAPI",
+    otherFacts: "The three facts every MCP client asks for",
+    otherPrompt: "Or let the agent set itself up: paste this into it",
+    otherBridge: "A client that only takes stdio MCP: the mcp-remote bridge",
+    restHint: "For whatever does not speak MCP: the same catalog over HTTP. Anything that imports a specification (GPT actions, n8n, OpenAPI toolkits) uses openapi.json.",
+    restCalls: "Calls",
+    restSpec: "Specification",
+    copySpec: "Copy the OpenAPI",
     placeholderNote: "Without a freshly generated token on screen the commands show YOUR_TOKEN: generate a new one above and they fill themselves in.",
     agents: "agents",
     first: "2 · The first message",
@@ -134,6 +149,8 @@ export function ApiAccess() {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [showTools, setShowTools] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [client, setClient] = useState("claude-code");
+  const [specCopied, setSpecCopied] = useState(false);
   const [name, setName] = useState("");
   const [withAgents, setWithAgents] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -158,6 +175,12 @@ export function ApiAccess() {
     issuedOnOpen.current = true;
     void load(true);
     void apiCatalog().then(setCatalog).catch(() => {});
+    try {
+      const saved = window.localStorage.getItem("sopa-api-client");
+      if (saved && (saved === "other" || saved === "rest" || CLIENTS.some((c) => c.id === saved))) setClient(saved);
+    } catch {
+      /* sem storage */
+    }
   }, []);
 
   async function create() {
@@ -181,6 +204,24 @@ export function ApiAccess() {
     if (r.ok) await load();
     else setError(r.error);
   }
+
+  // Lembra o harness escolhido: quem usa Codex não quer ver Claude Code toda vez.
+  function pickClient(id: string) {
+    setClient(id);
+    try {
+      window.localStorage.setItem("sopa-api-client", id);
+    } catch {
+      /* sem storage, só não lembra */
+    }
+  }
+  async function copySpec() {
+    const spec = await apiOpenApi(origin);
+    if (!spec) return;
+    await navigator.clipboard.writeText(spec).catch(() => {});
+    setSpecCopied(true);
+    setTimeout(() => setSpecCopied(false), 1500);
+  }
+  const chosen = CLIENTS.find((c) => c.id === client);
 
   const tk = fresh ?? (lang === "pt" ? "SEU_TOKEN" : "YOUR_TOKEN");
   const when = (iso: string) => new Date(iso).toLocaleDateString(lang === "pt" ? "pt-BR" : "en-US", { day: "2-digit", month: "short", year: "numeric" });
@@ -221,21 +262,60 @@ export function ApiAccess() {
         {error && <p className="mt-2 text-xs text-danger">{error}</p>}
       </section>
 
-      <section className="space-y-4 rounded-2xl border border-border bg-surface p-4">
+      <section className="rounded-2xl border border-border bg-surface p-4">
         <p className="text-sm font-semibold text-foreground">{s.howTo}</p>
-        <div>
-          <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.claudeCode}</p>
-          <CopyBlock label={s.copy} copiedLabel={s.copied} text={`claude mcp add --transport http sopa ${origin}/api/mcp \\\n  --header "Authorization: Bearer ${tk}"`} />
+        <p className="mt-1 max-w-3xl text-xs leading-relaxed text-foreground-muted">{s.pick}</p>
+        <div className="mt-3 flex flex-wrap gap-1.5" role="tablist">
+          {[...CLIENTS.map((c) => ({ id: c.id, label: c.label })), { id: "other", label: s.other }, { id: "rest", label: s.rest }].map((c) => (
+            <button key={c.id} type="button" role="tab" aria-selected={client === c.id} onClick={() => pickClient(c.id)} className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${client === c.id ? "border-accent-border bg-accent-bg text-accent" : "border-border bg-surface-elevated text-foreground-muted hover:border-border-strong hover:text-foreground"}`}>
+              {c.label}
+            </button>
+          ))}
         </div>
-        <div>
-          <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.jsonClients}</p>
-          <CopyBlock label={s.copy} copiedLabel={s.copied} text={JSON.stringify({ mcpServers: { sopa: { type: "http", url: `${origin}/api/mcp`, headers: { Authorization: `Bearer ${tk}` } } } }, null, 2)} />
+        <div className="mt-4 space-y-3">
+          {chosen ? (
+            <>
+              {chosen.note && <p className="max-w-3xl text-xs leading-relaxed text-foreground-muted">{chosen.note[lang]}</p>}
+              {chosen.blocks(origin, tk).map((b, n) => (
+                <div key={n}>
+                  {b.title && <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{b.title[lang]}</p>}
+                  <CopyBlock label={s.copy} copiedLabel={s.copied} text={b.text} />
+                </div>
+              ))}
+            </>
+          ) : client === "other" ? (
+            <>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.otherFacts}</p>
+                <CopyBlock label={s.copy} copiedLabel={s.copied} text={`transport  Streamable HTTP\nurl        ${origin}/api/mcp\nheader     Authorization: Bearer ${tk}`} />
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.otherPrompt}</p>
+                <CopyBlock wrap label={s.copy} copiedLabel={s.copied} text={selfSetupPrompt(origin, tk, lang)} />
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.otherBridge}</p>
+                <CopyBlock label={s.copy} copiedLabel={s.copied} text={`npx -y mcp-remote ${origin}/api/mcp --header "Authorization:Bearer ${tk}"`} />
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="max-w-3xl text-xs leading-relaxed text-foreground-muted">{s.restHint}</p>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.restCalls}</p>
+                <CopyBlock label={s.copy} copiedLabel={s.copied} text={`curl -s ${origin}/api/v1/tools -H "Authorization: Bearer ${tk}"\n\ncurl -s -X POST ${origin}/api/v1/tools/get_overview \\\n  -H "Authorization: Bearer ${tk}" -H "content-type: application/json" \\\n  -d '{"project":"sopa"}'`} />
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.restSpec}</p>
+                <CopyBlock label={s.copy} copiedLabel={s.copied} text={`curl -s ${origin}/api/v1/openapi.json -H "Authorization: Bearer ${tk}"`} />
+                <button type="button" onClick={() => void copySpec()} className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs font-semibold text-foreground hover:border-border-strong">
+                  {specCopied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />} {specCopied ? s.copied : s.copySpec}
+                </button>
+              </div>
+            </>
+          )}
         </div>
-        <div>
-          <p className="mb-1.5 text-xs font-semibold text-foreground-muted">{s.rest}</p>
-          <CopyBlock label={s.copy} copiedLabel={s.copied} text={`curl -s -X POST ${origin}/api/v1/tools/get_guide -H "Authorization: Bearer ${tk}"\n\ncurl -s -X POST ${origin}/api/v1/tools/get_overview \\\n  -H "Authorization: Bearer ${tk}" -H "content-type: application/json" \\\n  -d '{"project":"sopa"}'`} />
-        </div>
-        <p className="text-[11px] text-foreground-subtle">{s.placeholderNote}</p>
+        {!fresh && <p className="mt-3 text-[11px] text-foreground-subtle">{s.placeholderNote}</p>}
       </section>
 
       <section className="rounded-2xl border border-accent-border bg-accent-bg p-4">

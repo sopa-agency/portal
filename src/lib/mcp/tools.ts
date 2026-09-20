@@ -750,6 +750,34 @@ export async function instructionsFor(bearer: Bearer): Promise<string> {
   ].join("\n");
 }
 
+/**
+ * O catálogo como OpenAPI 3.1, para harness que não fala MCP mas importa uma
+ * especificação (ações de GPT, n8n, toolkits de OpenAPI). É o espelho REST: uma
+ * operação POST por ferramenta, com o mesmo JSON Schema de entrada.
+ */
+export function openApiFor(origin: string, withAgents: boolean) {
+  const tools = TOOLS.filter((t) => withAgents || !("agents" in t && t.agents));
+  const schemaOf = (t: (typeof TOOLS)[number]) => {
+    const schema = { ...(z.toJSONSchema(t.input) as Record<string, unknown>) };
+    delete schema.$schema;
+    return schema;
+  };
+  const reply = (description: string) => ({ description, content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, result: {}, error: { type: "string" } }, required: ["ok"] } } } });
+  return {
+    openapi: "3.1.0",
+    info: { title: "SOPA Portal API", version: "1.0.0", description: "Read-only context about SOPA and the projects it runs: project snapshots, kanban, tasks, meetings, treasury, costs, campaigns and the agents' documents. Every call is scoped to what the token's owner can see in the portal. Start with get_guide." },
+    servers: [{ url: origin }],
+    security: [{ bearerAuth: [] }],
+    components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", description: "Personal token from the portal: Settings → API & MCP." } } },
+    paths: Object.fromEntries(
+      tools.map((t) => [
+        `/api/v1/tools/${t.name}`,
+        { post: { operationId: t.name, summary: t.title, description: t.description, tags: [t.group], requestBody: { required: false, content: { "application/json": { schema: schemaOf(t) } } }, responses: { "200": reply("The tool result."), "400": reply("Bad arguments, unknown tool or no access to the project."), "401": reply("Missing or invalid token.") } } },
+      ]),
+    ),
+  };
+}
+
 /** Roda uma ferramenta. Erro de uso volta como ToolError; o resto estoura. */
 export async function callTool(bearer: Bearer, name: string, rawArgs: unknown): Promise<unknown> {
   const t = visibleTools(bearer).find((x) => x.name === name);
