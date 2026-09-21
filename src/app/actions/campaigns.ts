@@ -19,6 +19,7 @@ import { detectTemplate, getCampaignTemplate } from "@/lib/campaign-templates";
 import { ARTIFACT_GEN_SPECS, type GeneratableArtifactKind } from "@/lib/campaign-artifacts";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { prisma } from "@/lib/prisma";
+import { checkAndStore, draftCheckEnabled, MAX_CHECK_CHARS, type DraftCheck } from "@/lib/draft-check";
 import { brandEnv, brandEnvByPrefix, hasBrandEnv } from "@/lib/brand-env";
 import { getActiveProject } from "@/projects/index";
 import type { ProjectConfig } from "@/projects/types";
@@ -2273,6 +2274,9 @@ Return ONLY a JSON array of ${n} strings. No prose, no labels, no code fences.`;
       const doc = await prisma.campaignDocument.create({ data, select: { id: true } });
       ids.push(doc.id);
     }
+    // As regras de "não invente" estão no prompt; aqui o texto que SAIU é conferido
+    // contra o briefing. Em paralelo e esperando: função serverless congela ao responder.
+    await Promise.all(ids.map((id) => checkAndStore(id, brief).catch(() => null)));
     revalidatePath(`/campaign-creator/${campaignId}`);
     return { ok: true, documentIds: ids, created: ids.length };
   } catch (err) {
@@ -2702,3 +2706,26 @@ export async function sendCampaignEmailBlast(
 /** Map document name to artifact kind. */
 // classifyDocumentKindByName / CampaignDocumentKind moved to @/lib/campaign-doc-kind
 // so the scheduler can share them — see that module for why.
+
+/**
+ * Confere um rascunho contra o briefing da campanha (ver lib/draft-check.ts) e
+ * grava o resultado no documento. É o botão "Conferir" do painel — e o jeito de
+ * reconferir depois de editar o texto.
+ */
+export async function checkCampaignDocument(documentId: string): Promise<{ ok: true; check: DraftCheck } | { ok: false; error: string }> {
+  try {
+    const project = await getActiveProject();
+    const doc = await prisma.campaignDocument.findUnique({ where: { id: documentId }, select: { isMain: true, content: true, campaign: { select: { id: true, projectSlug: true } } } });
+    if (!doc) return { ok: false, error: "Document not found." };
+    if (doc.campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
+    if (!draftCheckEnabled()) return { ok: false, error: "A checagem está desligada: falta a TYPESAFE_API_KEY no ambiente do portal." };
+    if (doc.isMain) return { ok: false, error: "O briefing é a régua da checagem; ele mesmo não é conferido." };
+    if (doc.content.trim().length > MAX_CHECK_CHARS) return { ok: false, error: `A checagem é para rascunhos curtos (até ${MAX_CHECK_CHARS} caracteres).` };
+    const check = await checkAndStore(documentId);
+    if (!check) return { ok: false, error: "Não deu para conferir agora (sem briefing na campanha, ou a TypeSafe não respondeu)." };
+    revalidatePath(`/campaign-creator/${doc.campaign.id}`);
+    return { ok: true, check };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

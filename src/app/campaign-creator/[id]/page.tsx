@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { campaignProgress } from "@/lib/campaign-kind";
 import { ageFromDate } from "@/lib/utils";
 import { getActiveProject } from "@/projects";
+import { draftCheckEnabled, hashOf, type DraftCheck } from "@/lib/draft-check";
 
 export const dynamic = "force-dynamic";
 // Artifact generation can run close to the queue ceiling (~285s) — give the
@@ -98,7 +99,11 @@ export default async function CampaignFolderPage({
           postedTo: doc.postedTo,
           postedUrl: doc.postedUrl,
           scheduledFor: doc.scheduledFor,
+          check: (doc.check as DraftCheck | null) ?? null,
+          // O texto mudou depois de conferido: o selo não vale mais.
+          checkStale: !!doc.check && (doc.check as DraftCheck).contentHash !== hashOf(doc.content),
         }))}
+        checkEnabled={draftCheckEnabled()}
         brand={brand}
       />
     </div>
