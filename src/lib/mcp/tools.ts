@@ -9,6 +9,7 @@ import { addDraftIssue, fetchGitHubProject, mirrorFireToGithub, resolveGitHubTok
 import { fetchCostScope } from "@/lib/fixed-costs-data";
 import { buildBrainTree, readBrainFile, resolveSafePath, workspaceForProject } from "@/lib/brain-workspace";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
+import { fetchDevActivity, type Change } from "@/lib/dev-activity";
 import { EXAMPLES, PROMPTS, TOOL_GROUPS, type Lang, type ToolGroupId } from "@/lib/mcp/guide";
 
 // As ferramentas de contexto que um token de membro enxerga, servidas por MCP
@@ -231,6 +232,66 @@ async function part<T>(fn: () => Promise<T>): Promise<T | { error: string }> {
   }
 }
 
+// --- O que mudou ---------------------------------------------------------------
+// Código (GitHub), board e conteúdo publicado, dentro de uma janela de dias. A
+// versão "compacta" é a que entra no retrato do projeto e no consolidado.
+
+const slim = (c: Change) => ({ title: c.title, repo: c.repo, ...(c.branch ? { branch: c.branch, merged: false } : {}), pr: c.pr, by: c.by, at: c.at.slice(0, 10), url: c.url, ...(c.summary ? { summary: c.summary } : {}) });
+
+async function codeChanges(p: ProjectConfig, days: number) {
+  if (!p.repos?.length) return { note: "This project declares no GitHub repositories in the portal config." };
+  const d = await fetchDevActivity(p, days);
+  return {
+    since: d.since.slice(0, 10),
+    repos: d.repos.map((r) => ({ ...r, lastCommitAt: r.lastCommitAt?.slice(0, 10) ?? null, lastPushAt: r.lastPushAt?.slice(0, 10) ?? null, activeBranches: r.activeBranches.map((b) => ({ ...b, lastCommitAt: b.lastCommitAt.slice(0, 10) })) })),
+    totals: { commitsOnDefaultBranch: d.repos.reduce((s, r) => s + r.commits, 0), commitsOnOtherBranches: d.repos.reduce((s, r) => s + r.activeBranches.reduce((n, b) => n + b.commits, 0), 0), mergedPullRequests: d.repos.reduce((s, r) => s + r.mergedPrs, 0), features: d.features.length, fixes: d.fixes.length, other: d.other.length, openPullRequests: d.openPullRequests.length },
+    features: d.features.slice(0, 15).map(slim),
+    fixes: d.fixes.slice(0, 10).map(slim),
+    other: d.other.slice(0, 8).map((c) => ({ title: c.title, repo: c.repo, at: c.at.slice(0, 10) })),
+    openPullRequests: d.openPullRequests.slice(0, 10).map((o) => ({ ...o, updatedAt: o.updatedAt.slice(0, 10) })),
+    releases: d.releases.map((r) => ({ ...r, at: r.at.slice(0, 10) })),
+    // Repositório que não deu para ler NÃO é repositório sem mudança.
+    ...(d.unreadable.length ? { unreadable: d.unreadable } : {}),
+  };
+}
+
+/** A versão de poucas linhas, para o retrato e para o consolidado de vários projetos. */
+async function codePulse(p: ProjectConfig, days: number) {
+  if (!p.repos?.length) return null;
+  const d = await fetchDevActivity(p, days);
+  return {
+    since: d.since.slice(0, 10),
+    commits: d.repos.reduce((s, r) => s + r.commits, 0),
+    // Commits na janela que ainda estão fora do branch padrão (repositório que desenvolve em outro branch).
+    commitsOnOtherBranches: d.repos.reduce((s, r) => s + r.activeBranches.reduce((n, b) => n + b.commits, 0), 0),
+    mergedPullRequests: d.repos.reduce((s, r) => s + r.mergedPrs, 0),
+    openPullRequests: d.openPullRequests.length,
+    lastCommitAt: d.repos.map((r) => r.lastCommitAt).filter(Boolean).sort().pop()?.slice(0, 10) ?? null,
+    lastPushAt: d.repos.map((r) => r.lastPushAt).filter(Boolean).sort().pop()?.slice(0, 10) ?? null,
+    // Branch mexido na janela e ainda fora do padrão: o que está sendo feito e não entrou.
+    workInProgress: d.repos.flatMap((r) => r.activeBranches.map((b) => ({ repo: r.repo, branch: b.name, commits: b.commits, at: b.lastCommitAt.slice(0, 10), lastCommit: b.lastCommit, by: b.by }))).sort((x, y) => y.at.localeCompare(x.at)).slice(0, 5),
+    latestFeatures: d.features.slice(0, 5).map((c) => ({ title: c.title, repo: c.repo, at: c.at.slice(0, 10), ...(c.branch ? { branch: c.branch } : {}) })),
+    latestFixes: d.fixes.slice(0, 3).map((c) => ({ title: c.title, repo: c.repo, at: c.at.slice(0, 10), ...(c.branch ? { branch: c.branch } : {}) })),
+    releases: d.releases.slice(0, 3).map((r) => ({ repo: r.repo, tag: r.tag, at: r.at.slice(0, 10) })),
+    ...(d.unreadable.length ? { unreadable: d.unreadable.map((u) => u.repo) } : {}),
+  };
+}
+
+async function boardChanges(p: ProjectConfig, days: number) {
+  const b = await loadBoard(p);
+  if (!b) return { note: "No GitHub board configured." };
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const finished = b.cards.filter((c) => c.done && (c.updatedAt ?? "") >= since).sort((x, y) => (y.updatedAt ?? "").localeCompare(x.updatedAt ?? ""));
+  const created = b.cards.filter((c) => (c.createdAt ?? "") >= since).sort((x, y) => (y.createdAt ?? "").localeCompare(x.createdAt ?? ""));
+  return { finished: finished.slice(0, 12).map((c) => ({ id: c.id, title: c.title, at: (c.updatedAt ?? "").slice(0, 10), assignees: c.assignees })), finishedCount: finished.length, created: created.slice(0, 12).map((c) => ({ id: c.id, title: c.title, status: c.status, at: (c.createdAt ?? "").slice(0, 10) })), createdCount: created.length };
+}
+
+async function contentChanges(p: ProjectConfig, days: number) {
+  const since = new Date(Date.now() - days * 86_400_000);
+  const posted = await prisma.campaignDocument.findMany({ where: { campaign: { projectSlug: p.slug }, postedAt: { gte: since } }, orderBy: { postedAt: "desc" }, take: 12, select: { name: true, postedAt: true, postedTo: true, postedUrl: true, campaign: { select: { id: true, name: true } } } });
+  return posted.map((d) => ({ campaign: d.campaign.name, document: d.name, at: d.postedAt!.toISOString().slice(0, 10), to: d.postedTo ?? null, url: d.postedUrl ?? null }));
+}
+
 // --- Escrita ------------------------------------------------------------------
 
 /** Escrever exige acesso DIRETO ao projeto: ler "via sopa" não dá caneta. */
@@ -308,11 +369,11 @@ export const TOOLS = [
     name: "get_overview",
     group: "project",
     title: "Project snapshot",
-    description: "The state of one project in a single call: board (column counts, hottest and overdue cards), money (treasury, monthly cost, runway), campaigns in flight, last meeting with minutes, social followers, team size and how old the briefing is. Start here for \"how is <project> doing\"; drill down with the specific tools.",
+    description: "The state of one project in a single call: board (column counts, hottest and overdue cards), money (treasury, monthly cost, runway), development (last 7 days of code: commits, merged pull requests, latest features and fixes, open pull requests; for SOPA also the same pulse for every project it runs), campaigns in flight, last meeting with minutes, social followers, team size and how old the briefing is. Start here for \"how is <project> doing\"; drill down with the specific tools.",
     input: z.object({ project: projectArg }),
     handler: async (ctx, a) => {
       const p = await requireProject(ctx, a.project);
-      const [board, money, briefing, campaigns, meeting, social, team] = await Promise.all([
+      const [board, money, briefing, campaigns, meeting, social, team, development, acrossProjects] = await Promise.all([
         part(async () => {
           const b = await loadBoard(p);
           if (!b) return { note: "No GitHub board configured." };
@@ -345,8 +406,40 @@ export const TOOLS = [
         }),
         part(async () => (await socialGrowth(p.slug, 30)).map((r) => ({ platform: r.platform, followers: r.followers, change30d: r.change }))),
         part(async () => ({ members: await prisma.teamMember.count({ where: { projectSlug: p.slug } }) })),
+        part(async () => (await codePulse(p, 7)) ?? { note: "No GitHub repositories declared for this project." }),
+        // A SOPA toca todos os projetos: o retrato dela traz o pulso do código de cada um.
+        part(async () => {
+          if (p.slug !== "sopa") return null;
+          const others = (await projectsForBearer(ctx.bearer)).map((x) => x.project).filter((x) => x.slug !== "sopa" && x.repos?.length);
+          return Promise.all(others.map(async (x) => ({ project: x.slug, ...((await part(() => codePulse(x, 7))) ?? {}) })));
+        }),
       ]);
-      return { project: projectSummary(p), asOf: new Date().toISOString(), board, money, briefing, campaigns, lastMeeting: meeting, social, team };
+      return { project: projectSummary(p), asOf: new Date().toISOString(), board, money, development, ...(acrossProjects ? { developmentAcrossProjects: acrossProjects } : {}), briefing, campaigns, lastMeeting: meeting, social, team };
+    },
+  }),
+  tool({
+    name: "get_recent_changes",
+    group: "project",
+    title: "What changed recently",
+    description: "What changed in the last N days (default 7). Code from GitHub: features and fixes (taken from merged pull requests, with a short summary of each), commits pushed without a PR, open pull requests, releases, and a per-repository pulse with the branches being worked on that have not reached the default branch yet (a quiet default branch does not mean a quiet repository: compare lastCommitAt with lastPushAt). A change that carries `branch` is not on the default branch yet. Plus the board (cards finished and created) and content that was published. With `project` you get the detail; without it, a compact roll-up of every project you can read, which is the view SOPA needs. A repository listed under `unreadable` could not be read: that is not the same as no changes.",
+    input: z.object({ project: projectArg.optional(), days: z.number().int().min(1).max(60).optional() }),
+    handler: async (ctx, a) => {
+      const days = a.days ?? 7;
+      if (a.project) {
+        const p = await requireProject(ctx, a.project);
+        const [code, board, published] = await Promise.all([part(() => codeChanges(p, days)), part(() => boardChanges(p, days)), part(() => contentChanges(p, days))]);
+        return { project: p.slug, days, asOf: new Date().toISOString(), code, board, published };
+      }
+      const mine = (await projectsForBearer(ctx.bearer)).map((x) => x.project);
+      const rows = await Promise.all(
+        mine.map(async (p) => {
+          const [code, board, published] = await Promise.all([part(() => codePulse(p, days)), part(async () => { const b = await boardChanges(p, days); return "note" in b ? null : { finished: b.finishedCount, created: b.createdCount, latestFinished: b.finished.slice(0, 3).map((c) => c.title) }; }), part(async () => (await contentChanges(p, days)).length)]);
+          return { project: p.slug, name: p.name, code, board, published };
+        }),
+      );
+      // Primeiro quem mais mexeu; projeto sem repositório nem board vai para o fim.
+      const weight = (r: (typeof rows)[number]) => (r.code && !("error" in r.code) ? r.code.commits + r.code.commitsOnOtherBranches + r.code.mergedPullRequests * 3 : -1);
+      return { days, asOf: new Date().toISOString(), projects: rows.sort((x, y) => weight(y) - weight(x)), note: "Compact roll-up. Call get_recent_changes with a project for the full list, summaries and links." };
     },
   }),
   tool({
@@ -888,6 +981,7 @@ export async function guideFor(bearer: Bearer, lang: Lang) {
       "get_overview with one of the project slugs above: the whole picture of a project in one call.",
       "my_tasks: what is assigned to this person across every board.",
       "search: a topic you cannot place, across cards, campaigns, briefings and meetings.",
+      "get_recent_changes: latest features, fixes and pull requests from GitHub, plus what left the board and what was published; without a project, all of them at once.",
     ],
     families: groups,
     thingsToAsk: EXAMPLES.filter((e) => open.has(e.group)).map((e) => e.text[lang]),
@@ -917,6 +1011,7 @@ export async function instructionsFor(bearer: Bearer): Promise<string> {
     "- When they ask what you can do here, or on the first SOPA question of a conversation, call get_guide and offer a few concrete options for THEIR projects.",
     "- \"How is <project> doing\" starts with get_overview: one call returns board, money, campaigns, last meeting, social and the briefing date. Drill down with the specific tools after.",
     "- \"What is on me\" is my_tasks. A topic you cannot place is search. Both work without a project.",
+    "- \"What changed\", \"what shipped\", \"latest features\" is get_recent_changes: code from GitHub (features and fixes out of merged pull requests), the board and published content. Without a project it rolls up every project, which is the SOPA-wide view.",
     "- Every other tool takes a project slug from the list above.",
     "- Data carries dates (briefing date, syncedAt, meeting date). Say how old it is: an old briefing is history, not today's agenda. If a tool returns nothing or fails, say so instead of filling the gap.",
     ...(bearer.scopes.includes("write") ? ["- This token can WRITE: add_card_note, create_card, move_card, update_card, save_campaign_draft. Tell the person what you are about to write and get a yes first; search before creating a card so you do not duplicate one. Every write is logged under their name. Nothing here posts, schedules, deletes or moves money."] : []),

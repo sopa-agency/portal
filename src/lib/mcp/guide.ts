@@ -27,6 +27,8 @@ export const EXAMPLES: { group: ToolGroupId; text: Both }[] = [
   { group: "start", text: { pt: "O que eu posso te pedir sobre a SOPA e os projetos dela?", en: "What can I ask you about SOPA and its projects?" } },
   { group: "start", text: { pt: "Quais projetos eu enxergo e qual é o meu papel em cada um?", en: "Which projects can I read and what is my role in each?" } },
   { group: "project", text: { pt: "Me dá o estado da Gnars hoje: o que está pegando fogo, o que travou e quanto tem no tesouro.", en: "Give me the state of Gnars today: what is on fire, what is stuck and how much is in the treasury." } },
+  { group: "project", text: { pt: "O que mudou no código da SkateHive nos últimos 7 dias? Features, correções e PRs abertos.", en: "What changed in SkateHive's code over the last 7 days? Features, fixes and open pull requests." } },
+  { group: "project", text: { pt: "Me dá as últimas features de todos os projetos da SOPA, do mais movimentado para o mais parado.", en: "Give me the latest features across every SOPA project, busiest first." } },
   { group: "project", text: { pt: "Monta um resumo da semana com todos os projetos que eu enxergo.", en: "Put together a weekly update across every project I can read." } },
   { group: "work", text: { pt: "O que está no meu nome em todos os projetos? Ordena por urgência e me diz por onde começar.", en: "What is assigned to me across all projects? Order by urgency and tell me where to start." } },
   { group: "work", text: { pt: "Abre o card sobre <assunto> na SkateHive e me explica o que falta para fechar.", en: "Open the card about <topic> on SkateHive and explain what is missing to close it." } },
@@ -96,11 +98,21 @@ export const PROMPTS: PromptDef[] = [
     text: (a) => `I want a post for "${a.project}" about: ${a.tema}. First read the project's playbook (list_brain_files, then read_brain_file on the pinned playbook) and check list_campaigns so you do not repeat what is already written. Then draft three variations in the project's voice. Never invent numbers, dates, prizes or mechanics: use only what the tools returned, and tell me what you could not confirm. ${LANGUAGE_RULE}`,
   },
   {
+    name: "o_que_mudou",
+    title: "O que mudou",
+    description: { pt: "Últimas features, correções e PRs, de um projeto ou de todos", en: "Latest features, fixes and pull requests, for one project or all" },
+    args: [
+      { name: "project", description: "Project slug; leave empty for every project", required: false },
+      { name: "dias", description: "How many days back; default 7", required: false },
+    ],
+    text: (a) => `Call get_recent_changes${a.project ? ` for the project "${a.project}"` : " without a project, to get every project"}${a.dias ? `, with days=${a.dias}` : ""}. Tell me what shipped: the features first (one line each, in plain language, using the pull request summary when there is one), then the fixes, then what is still open in pull requests. Then what left the board and what was published. If a repository is listed as unreadable, say so instead of treating it as quiet. ${LANGUAGE_RULE}`,
+  },
+  {
     name: "semana",
     title: "Resumo da semana",
     description: { pt: "Um update com todos os meus projetos", en: "One update across all my projects" },
     args: [],
-    text: () => `Call whoami, then get_overview for each project I can read (at most five, the ones with a board first). Write one weekly update: per project, two or three lines on what moved, what is stuck and the money; then a short list of what needs a decision. ${LANGUAGE_RULE}`,
+    text: () => `Call get_recent_changes without a project (days=7) for what shipped everywhere, then get_overview for the three or four busiest projects. Write one weekly update: per project, two or three lines on what shipped, what is stuck and the money; then a short list of what needs a decision. ${LANGUAGE_RULE}`,
   },
 ];
 

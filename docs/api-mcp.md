@@ -90,7 +90,7 @@ lista alimenta o guia que o agente lê (`get_guide`) e a aba do portal.
 | Família | Ferramentas |
 |---------|-------------|
 | Começar | `whoami`, `list_projects`, `get_guide` |
-| Estado do projeto | `get_overview` (o retrato inteiro em uma chamada), `get_briefing` |
+| Estado do projeto | `get_overview` (o retrato inteiro em uma chamada), `get_recent_changes` (o que mudou no código, no board e no que foi publicado), `get_briefing` |
 | Trabalho | `get_kanban`, `get_card` (com as notas do time), `my_tasks`, `list_meetings`, `get_meeting` |
 | Dinheiro | `get_treasury`, `get_costs`, `get_team` (na SOPA, com os pesos do split) |
 | Conteúdo | `list_campaigns`, `get_campaign`, `get_social_metrics` |
@@ -108,6 +108,23 @@ Três atalhos evitam dezenas de chamadas:
   reuniões.
 - `search` procura um termo em cards, campanhas, briefings e atas, e diz qual
   ferramenta abre cada achado.
+
+- `get_recent_changes` diz o que mudou nos últimos N dias. Do GitHub, nos
+  repositórios que o projeto declara em `repos`: features e correções tiradas
+  dos PRs mesclados (com um resumo do corpo do PR), commits que entraram sem PR,
+  PRs abertos, releases e o pulso de cada repositório. Mais o board (cards
+  fechados e criados) e o que foi publicado. Sem `project`, devolve o consolidado
+  de todos os projetos do token — a visão da SOPA. O `get_overview` de cada
+  projeto traz o pulso dos últimos 7 dias em `development`, e o da SOPA traz
+  também o de todos os outros projetos em `developmentAcrossProjects`.
+
+  Dois cuidados embutidos: repositório que não deu para ler aparece em
+  `unreadable` (vazio e "não li" são coisas diferentes), e branch padrão parado
+  não quer dizer repositório parado — o pulso compara o último commit no padrão
+  com o último push, lista os branches mexidos na janela e traz os commits deles
+  marcados com `branch` (a swaps, por exemplo, desenvolve no `master` com o
+  padrão em `develop`). A leitura mora em `src/lib/dev-activity.ts`, com cache
+  de 5 min.
 
 O board do GitHub fica 60 s em memória por instância, porque um agente faz
 várias chamadas seguidas sobre o mesmo quadro.
