@@ -193,6 +193,9 @@ model CampaignDocument {
   // Terminal failure. A non-null value keeps the asset OUT of the candidate set
   // — a broken publish must not retry forever — until a human clears it.
   publishError String?
+  /// Resultado da checagem do rascunho contra o briefing (lib/draft-check.ts):
+  /// veredito, o que pegou, as probabilidades e o hash do texto conferido.
+  check        Json?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

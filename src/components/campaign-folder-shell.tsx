@@ -18,7 +18,7 @@ import {
   Plus,
   Send,
   Star,
-  Trash2,
+  Trash2, TriangleAlert,
 } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -34,6 +34,7 @@ import { CampaignArtifactActions } from "@/components/campaign-artifact-actions"
 import { CampaignCarouselEditor } from "@/components/campaign-carousel-editor";
 import { CampaignDocumentEditor } from "@/components/campaign-document-editor";
 import { CampaignDocumentPanel } from "@/components/campaign-document-panel";
+import type { DraftCheck } from "@/lib/draft-check";
 import {
   classifyCampaignDocument,
   type CampaignDocumentKind,
@@ -55,6 +56,8 @@ type CampaignDocument = {
   postedTo?: string | null;
   postedUrl?: string | null;
   scheduledFor: Date | null;
+  check?: DraftCheck | null;
+  checkStale?: boolean;
 };
 
 /** Dia + mes curtos para a barra lateral ("26 de ago"). A data vem como prop,
@@ -82,10 +85,13 @@ export function CampaignFolderShell({
   campaignId,
   documents,
   brand,
+  checkEnabled = false,
 }: {
   campaignId: string;
   documents: CampaignDocument[];
   brand?: CampaignPreviewBrand;
+  /** A checagem contra o briefing está ligada (há TYPESAFE_API_KEY no ambiente). */
+  checkEnabled?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -358,7 +364,10 @@ export function CampaignFolderShell({
                     }`}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{doc.name}</p>
+                    <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
+                      <span className="truncate">{doc.name}</span>
+                      {doc.check?.verdict === "review" && !doc.checkStale && <TriangleAlert className="h-3 w-3 shrink-0 text-warning" aria-label="Revisar: a checagem contra o briefing pegou algo" />}
+                    </p>
                     <p className="truncate text-[10px] uppercase tracking-[0.18em] text-foreground-subtle">
                       {doc.postedAt ? (
                         <span className="text-success">{diaMes(doc.postedAt)} · </span>
@@ -468,6 +477,9 @@ export function CampaignFolderShell({
               postedTo: selected.postedTo ?? null,
               postedUrl: selected.postedUrl ?? null,
             }}
+            check={selected.check ?? null}
+            checkStale={!!selected.checkStale}
+            checkEnabled={checkEnabled}
             kind={selected.kind}
             brand={brand}
             content={getContent(selected)}

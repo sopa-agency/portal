@@ -10,6 +10,7 @@ import { fetchCostScope } from "@/lib/fixed-costs-data";
 import { buildBrainTree, readBrainFile, resolveSafePath, workspaceForProject } from "@/lib/brain-workspace";
 import { callOpenClaw } from "@/lib/openclaw-gateway";
 import { fetchDevActivity, type Change } from "@/lib/dev-activity";
+import { checkAndStore } from "@/lib/draft-check";
 import { EXAMPLES, PROMPTS, TOOL_GROUPS, type Lang, type ToolGroupId } from "@/lib/mcp/guide";
 
 // As ferramentas de contexto que um token de membro enxerga, servidas por MCP
@@ -683,7 +684,7 @@ export const TOOLS = [
       const p = await requireProject(ctx, a.project);
       const c = await prisma.campaign.findUnique({ where: { id: a.id }, include: { documents: { orderBy: [{ isMain: "desc" }, { createdAt: "asc" }] } } });
       if (!c || c.projectSlug !== p.slug) throw new ToolError("Campaign not found in this project.");
-      return { id: c.id, name: c.name, project: c.projectSlug, documents: c.documents.map((d) => ({ name: d.name, main: d.isMain, postedUrl: d.postedUrl ?? null, content: clip(d.content, 6000) })) };
+      return { id: c.id, name: c.name, project: c.projectSlug, documents: c.documents.map((d) => ({ name: d.name, main: d.isMain, postedUrl: d.postedUrl ?? null, ...(d.check ? { check: (({ verdict, flags }) => ({ verdict, flags }))(d.check as { verdict: string; flags: string[] }) } : {}), content: clip(d.content, 6000) })) };
     },
   }),
   tool({
@@ -911,7 +912,7 @@ export const TOOLS = [
     group: "write",
     write: true,
     title: "Save a draft into a campaign",
-    description: "Save a text (a tweet, a cast, a post) as a NEW document inside an existing campaign, for the team to review in the portal's Campaign Creator. It is only a draft: nothing is posted or scheduled, and existing documents are never changed.",
+    description: "Save a text (a tweet, a cast, a post) as a NEW document inside an existing campaign, for the team to review in the portal's Campaign Creator. It is only a draft: nothing is posted or scheduled, and existing documents are never changed. Short drafts come back with a `check` against the campaign brief (invented numbers, dates, rewards, hype): if the verdict is review, fix the text and save again.",
     input: z.object({ project: projectArg, campaign: z.string().min(4).max(60).describe("Campaign id from list_campaigns"), name: z.string().min(2).max(80).describe('Document name, e.g. "Tweet 11 — auctions"'), content: z.string().min(2).max(12_000) }),
     handler: async (ctx, a) => {
       const p = await requireWritableProject(ctx, a.project);
@@ -920,7 +921,16 @@ export const TOOLS = [
       if (c.archivedAt) throw new ToolError("That campaign is archived.");
       const doc = await prisma.campaignDocument.create({ data: { campaignId: c.id, name: a.name.trim(), content: a.content.trim(), isMain: false }, select: { id: true, name: true } });
       await logWrite(ctx, "save_campaign_draft", p.slug, doc.id, `${c.name} / ${doc.name}`);
-      return { ok: true, project: p.slug, campaign: { id: c.id, name: c.name }, document: doc, note: "Saved as a draft. Nothing was posted or scheduled." };
+      // O rascunho é conferido contra o briefing da campanha; o agente que escreveu já sabe se passou.
+      const check = await checkAndStore(doc.id).catch(() => null);
+      return {
+        ok: true,
+        project: p.slug,
+        campaign: { id: c.id, name: c.name },
+        document: doc,
+        ...(check ? { check: { verdict: check.verdict, flags: check.flags, scores: check.scores, meaning: check.verdict === "ok" ? "Faithful to the campaign brief." : `Review before posting: the draft seems to bring ${check.flags.join(", ")} that the brief does not support. Fix it and save a new draft.` } } : {}),
+        note: "Saved as a draft. Nothing was posted or scheduled.",
+      };
     },
   }),
   tool({
