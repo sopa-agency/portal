@@ -1,7 +1,7 @@
 import "server-only";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { systemOne, typesafeKey } from "@/lib/typesafe";
+import { jevAvailable, systemOne } from "@/lib/typesafe";
 
 // O gerador de posts tem regras no prompt ("não invente prêmio, número, data"),
 // mas nada conferia o texto que SAIU. Aqui confere: o rascunho é julgado contra
@@ -18,6 +18,8 @@ export type DraftCheck = {
   /** Probabilidade de cada invenção (0–1) e o hype numa escala de 0 a 2. */
   scores: { number: number; date: number; reward: number; hype: number };
   model: string;
+  /** Por onde o julgamento passou: gateway da Vercel ou API direta. */
+  via?: "gateway" | "direct";
   checkedAt: string;
   /** Do texto conferido: se o documento mudou depois, a checagem está velha. */
   contentHash: string;
@@ -29,7 +31,7 @@ const INVENTS = 0.5;
 const HYPE = 1.3;
 
 export const hashOf = (text: string) => crypto.createHash("sha256").update(text.trim()).digest("hex").slice(0, 16);
-export const draftCheckEnabled = () => !!typesafeKey();
+export const draftCheckEnabled = () => jevAvailable();
 
 const QUESTIONS = {
   number: { type: "noul", instructions: "Does `draft` state a specific number, amount, percentage or statistic that does NOT appear in `brief`?", criteria: { true: "The draft contains a concrete figure that the brief never mentions", false: "Every figure in the draft is in the brief, or the draft has no figures" } },
@@ -52,7 +54,7 @@ export async function checkDraft(brief: string, draft: string): Promise<DraftChe
   if (scores.reward > INVENTS) flags.push("reward");
   if (scores.hype > HYPE) flags.push("hype");
   const round = (n: number) => Math.round(n * 100) / 100;
-  return { verdict: flags.length ? "review" : "ok", flags, scores: { number: round(scores.number), date: round(scores.date), reward: round(scores.reward), hype: round(scores.hype) }, model: res.model, checkedAt: new Date().toISOString(), contentHash: hashOf(text) };
+  return { verdict: flags.length ? "review" : "ok", flags, scores: { number: round(scores.number), date: round(scores.date), reward: round(scores.reward), hype: round(scores.hype) }, model: res.model, via: res.via, checkedAt: new Date().toISOString(), contentHash: hashOf(text) };
 }
 
 /** Confere um documento contra o briefing da campanha dele e grava o resultado. */

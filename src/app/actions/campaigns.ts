@@ -2718,7 +2718,7 @@ export async function checkCampaignDocument(documentId: string): Promise<{ ok: t
     const doc = await prisma.campaignDocument.findUnique({ where: { id: documentId }, select: { isMain: true, content: true, campaign: { select: { id: true, projectSlug: true } } } });
     if (!doc) return { ok: false, error: "Document not found." };
     if (doc.campaign.projectSlug !== project.slug) return { ok: false, error: "Access denied." };
-    if (!draftCheckEnabled()) return { ok: false, error: "A checagem está desligada: falta a TYPESAFE_API_KEY no ambiente do portal." };
+    if (!draftCheckEnabled()) return { ok: false, error: "A checagem está desligada: falta a AI_GATEWAY_API_KEY (ou a TYPESAFE_API_KEY) no ambiente do portal." };
     if (doc.isMain) return { ok: false, error: "O briefing é a régua da checagem; ele mesmo não é conferido." };
     if (doc.content.trim().length > MAX_CHECK_CHARS) return { ok: false, error: `A checagem é para rascunhos curtos (até ${MAX_CHECK_CHARS} caracteres).` };
     const check = await checkAndStore(documentId);
