@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Placeholder: wordmark sobre fundo verde-floresta, legível nos dois
+       temas. Troca quando a identidade do BOAR (o mascote 🐗) virar arquivo. -->
+  <rect width="32" height="32" rx="6" fill="#166534"/>
+  <text x="16" y="19.6" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="800" letter-spacing=".3" fill="#ffffff">BOAR</text>
+</svg>
