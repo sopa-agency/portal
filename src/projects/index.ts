@@ -9,6 +9,7 @@ import vlad from "./vlad";
 import swaps from "./swaps";
 import influencers from "./influencers";
 import wallstreet from "./wallstreet";
+import boar from "./boar";
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -24,6 +25,7 @@ export const PROJECT_REGISTRY: Record<string, ProjectConfig> = {
   swaps,
   wallstreet,
   influencers,
+  boar,
 };
 
 // ---------------------------------------------------------------------------
